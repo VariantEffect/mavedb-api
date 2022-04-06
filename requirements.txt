@@ -1,0 +1,17 @@
+alembic~=1.7.6
+authlib~=0.15.5
+celery~=5.2.3
+fastapi~=0.71.0
+# fastapi-oidc~=0.0.9
+humps~=0.2.2
+mavecore~=0.1.5
+mavehgvs~=0.4.0
+numpy~=1.22.3
+orcid~=1.0.3
+pandas~=1.4.1
+psycopg2~=2.9.3
+pytest~=7.0.1
+python-jose[cryptography]
+python-multipart~=0.0.5
+SQLAlchemy~=1.4.31
+uvicorn[standard]

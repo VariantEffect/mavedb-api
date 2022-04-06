@@ -1,0 +1,44 @@
+version: "3"
+
+services:
+  #app:
+  #  image: mavedb/mavedb:dev
+  #  build:
+  #    context: .
+  #    args:
+  #      DJANGO_REQUIREMENTS: development
+  #  volumes:
+  #    - $PWD:/srv/app
+  #    - $PWD/logs:/var/log/celery
+  #    - /srv/app/docs
+  #  env_file:
+  #    - settings/.settings-development.env
+  #  ports:
+  #    - 8000:8000
+  #  environment:
+  #    - APP_VERSION=development
+  #    - ENVIRONMENTdd=development
+  #    - DJANGO_SETTINGS_MODULE=settings.development
+
+  #database:
+  #  image: postgres:9.6
+  #  build:
+  #    context: docker/postgres
+  #  volumes:
+  #    - database-data:/var/lib/postgresql/data
+  #    - $PWD/docker/postgres/dumps:/home/dumps:ro
+  #  ports:
+  #    - 5433:5432
+  #  environment:
+  #    POSTGRES_USER: $MAVEDB_DB_USER
+  #    POSTGRES_PASSWORD: $MAVEDB_DB_PASSWORD
+  #    POSTGRES_DB: $MAVEDB_DB_NAME
+  #    MAVEDB_DUMP_FILE: $MAVEDB_DUMP_FILE
+
+  rabbitmq:
+    image: rabbitmq:3.8.3
+    ports:
+      - "5673:5672"
+
+#volumes:
+#  database-data:

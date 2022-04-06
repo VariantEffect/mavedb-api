@@ -1,0 +1,56 @@
+from datetime import date
+from pydantic.types import Optional
+from typing import Dict, List
+
+from app.view_models.base.base import BaseModel
+from app.view_models.experiment import Experiment, SavedExperiment
+from app.view_models.user import SavedUser, User
+
+
+class ExperimentSetBase(BaseModel):
+    urn: Optional[str]
+    title: str
+    method_text: str
+    abstract_text: str
+    short_description: str
+    extra_metadata: Dict
+    published_date: Optional[date]
+
+
+class ExperimentSetCreate(ExperimentSetBase):
+    pass
+
+
+class ExperimentSetUpdate(ExperimentSetBase):
+    pass
+
+
+# Properties shared by models stored in DB
+class SavedExperimentSet(ExperimentSetBase):
+    id: int
+    experiments: List[SavedExperiment]
+    num_experiments: int
+    created_by: Optional[SavedUser]
+    modified_by: Optional[SavedUser]
+    creation_date: date
+    modification_date: date
+
+    class Config:
+        orm_mode = True
+
+
+# Properties to return to non-admin clients
+class ExperimentSet(SavedExperimentSet):
+    created_by: Optional[User]
+    modified_by: Optional[User]
+    experiments: List[Experiment]
+
+
+# Properties to return to admin clients
+class AdminExperimentSet(SavedExperimentSet):
+    private: bool
+    approved: bool
+    processing_state: Optional[str]
+    created_by: Optional[User]
+    modified_by: Optional[User]
+    experiments: List[Experiment]
