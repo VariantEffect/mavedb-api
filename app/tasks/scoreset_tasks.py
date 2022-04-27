@@ -1,7 +1,7 @@
 from celery.utils.log import get_task_logger
 
 from app.deps import get_db
-from app.lib.scoresets import create_variants
+from app.lib.scoresets import create_variants_data
 from app.lib.worker import celery_app, Task
 from app.models.scoreset import Scoreset
 from app.models.variant import Variant
@@ -54,7 +54,7 @@ def create_variants_task(self, scoreset_urn, scores, counts, index_col, dataset_
     logger.info(f'Sending scores dataframe with {len(scores)} rows.')
     logger.info(f'Sending counts dataframe with {len(counts)} rows.')
     logger.info(f'Formatting variants for {self.urn}')
-    variants = create_variants(scores, counts, index_col)
+    variants = create_variants_data(scores, counts, index_col)
 
     if variants:
         logger.info(f'{self.urn}:{variants[-1]}')

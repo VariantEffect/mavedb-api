@@ -8,7 +8,7 @@ from app.db.base import Base
 from app.deps import JSONB
 from app.lib.urns import generate_temp_urn
 from app.models.experiment_set import ExperimentSet
-
+from app.models.keyword import Keyword
 
 experiments_doi_identifiers_association_table = Table(
     'dataset_experiment_doi_ids',
@@ -49,9 +49,9 @@ class Experiment(Base):
 
     urn = Column(String(64), nullable=True, default=generate_temp_urn)  # index=True, nullable=True
     title = Column(String(250), nullable=False)
-    method_text = Column(String, nullable=False)
-    abstract_text = Column(String, nullable=False)
     short_description = Column(String, nullable=False)
+    abstract_text = Column(String, nullable=False)
+    method_text = Column(String, nullable=False)
     extra_metadata = Column(JSONB, nullable=False)
 
     private = Column(Boolean, nullable=False, default=False)
@@ -77,6 +77,36 @@ class Experiment(Base):
     doi_identifiers = relationship('DoiIdentifier', secondary=experiments_doi_identifiers_association_table, backref='experiments')
     pubmed_identifiers = relationship('PubmedIdentifier', secondary=experiments_pubmed_identifiers_association_table, backref='experiments')
     sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
+
+    # Unfortunately, we can't use association_proxy here, because in spite of what the documentation seems to imply, it
+    # doesn't check for a pre-existing keyword with the same text.
+    # keywords = association_proxy('keyword_objs', 'text', creator=lambda text: Keyword(text=text))
+
+    # _updated_keywords: list[str] = None
+    # _updated_doi_identifiers: list[str] = None
+
+    @property
+    def keywords(self) -> list[str]:
+        # if self._updated_keywords:
+        #     return self._updated_keywords
+        # else:
+        keyword_objs = self.keyword_objs or []  # getattr(self, 'keyword_objs', [])
+        return list(map(lambda keyword_obj: keyword_obj.text, keyword_objs))
+
+    async def set_keywords(self, db, keywords: list[str]):
+        self.keyword_objs = [await self._find_or_create_keyword(db, text) for text in keywords]
+
+    # See https://gist.github.com/tachyondecay/e0fe90c074d6b6707d8f1b0b1dcc8e3a
+    # @keywords.setter
+    # async def set_keywords(self, db, keywords: list[str]):
+    #     self._keyword_objs = [await self._find_or_create_keyword(text) for text in keywords]
+
+    async def _find_or_create_keyword(self, db, keyword_text):
+        keyword_obj = db.query(Keyword).filter(Keyword.text == keyword_text).one_or_none()
+        if not keyword_obj:
+            keyword_obj = Keyword(text=keyword_text)
+            # object_session.add(keyword_obj)
+        return keyword_obj
 
 
 @listens_for(Experiment, 'before_insert')

@@ -1,19 +1,19 @@
 from datetime import date
-from pydantic import validator
-from pydantic.types import Optional
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from app.view_models.base.base import BaseModel
+from app.view_models.doi_identifier import DoiIdentifierCreate, SavedDoiIdentifier, DoiIdentifier
+from app.view_models.pubmed_identifier import PubmedIdentifierCreate, SavedPubmedIdentifier, PubmedIdentifier
 from app.view_models.user import SavedUser, User
 
 
 class ExperimentBase(BaseModel):
-    urn: Optional[str]
     title: str
-    method_text: str
-    abstract_text: str
     short_description: str
+    abstract_text: str
+    method_text: str
     extra_metadata: Dict
+    keywords: Optional[list[str]]
 
     @classmethod
     def from_orm(cls, obj: Any) -> 'Order':
@@ -31,16 +31,18 @@ class ExperimentBase(BaseModel):
 
 
 class ExperimentCreate(ExperimentBase):
-    pass
+    doi_identifiers: Optional[list[DoiIdentifierCreate]]
+    pubmed_identifiers: Optional[list[PubmedIdentifierCreate]]
 
 
 class ExperimentUpdate(ExperimentBase):
-    pass
+    doi_identifiers: Optional[list[DoiIdentifierCreate]]
+    pubmed_identifiers: Optional[list[PubmedIdentifierCreate]]
 
 
 # Properties shared by models stored in DB
 class SavedExperiment(ExperimentBase):
-    # id: int
+    urn: str
     num_scoresets: int
     created_by: Optional[SavedUser]
     modified_by: Optional[SavedUser]
@@ -48,6 +50,10 @@ class SavedExperiment(ExperimentBase):
     modification_date: date
     published_date: Optional[date]
     experiment_set_urn: Optional[str]
+    doi_identifiers: list[SavedDoiIdentifier]
+    pubmed_identifiers: list[SavedPubmedIdentifier]
+    num_scoresets: int
+    processing_state: Optional[str]
 
     class Config:
         orm_mode = True
@@ -55,13 +61,12 @@ class SavedExperiment(ExperimentBase):
 
 # Properties to return to non-admin clients
 class Experiment(SavedExperiment):
+    doi_identifiers: list[DoiIdentifier]
+    pubmed_identifiers: list[PubmedIdentifier]
     created_by: Optional[User]
     modified_by: Optional[User]
 
 
 # Properties to return to admin clients
-class AdminExperiment(SavedExperiment):
+class AdminExperiment(Experiment):
     approved: bool
-    processing_state: Optional[str]
-    created_by: Optional[User]
-    modified_by: Optional[User]

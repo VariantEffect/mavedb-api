@@ -1,9 +1,11 @@
 from datetime import date
-from typing import List
+from typing import List, Optional
 
-from app.view_models.experiment import SavedExperiment
-from app.view_models.reference_map import ReferenceMap, ReferenceMapInDbBase
-from .base.base import BaseModel
+from pydantic import conlist
+
+from app.view_models.base.base import BaseModel
+from app.view_models.reference_map import ReferenceMap, ReferenceMapCreate, SavedReferenceMap
+from app.view_models.wild_type_sequence import SavedWildTypeSequence, WildTypeSequence, WildTypeSequenceCreate
 
 
 class TargetGeneBase(BaseModel):
@@ -12,7 +14,11 @@ class TargetGeneBase(BaseModel):
 
 
 class TargetGeneCreate(TargetGeneBase):
-    pass
+    ensembl_id_id: Optional[int]
+    refseq_id_id: Optional[int]
+    uniprot_id_id: Optional[int]
+    reference_maps: conlist(ReferenceMapCreate, min_items=1)
+    wt_sequence: WildTypeSequenceCreate
 
 
 class TargetGeneUpdate(TargetGeneBase):
@@ -21,9 +27,6 @@ class TargetGeneUpdate(TargetGeneBase):
 
 # Properties shared by models stored in DB
 class SavedTargetGene(TargetGeneBase):
-    # id: int
-    reference_maps: List[ReferenceMapInDbBase]
-
     class Config:
         orm_mode = True
         arbitrary_types_allowed = True
@@ -31,6 +34,13 @@ class SavedTargetGene(TargetGeneBase):
 
 # Properties to return to non-admin clients
 class TargetGene(SavedTargetGene):
+    reference_maps: List[ReferenceMap]
+    wt_sequence: WildTypeSequence
+    pass
+
+
+# Properties to return in a list context
+class ShortTargetGene(SavedTargetGene):
     reference_maps: List[ReferenceMap]
     pass
 
@@ -40,9 +50,4 @@ class AdminTargetGene(SavedTargetGene):
     creation_date: date
     modification_date: date
     reference_maps: List[ReferenceMap]
-    pass
-
-
-# Properties stored in DB
-class TargetGeneInDb(SavedTargetGene):
-    experiment: SavedExperiment
+    wt_sequence: WildTypeSequence

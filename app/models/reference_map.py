@@ -11,7 +11,7 @@ class ReferenceMap(Base):
     __tablename__ = "genome_referencemap"
 
     id = Column(Integer, primary_key=True, index=True)
-    is_primary = Column(Boolean, nullable=False)
+    is_primary = Column(Boolean, nullable=False, default=False)
     genome_id = Column(Integer, ForeignKey("genome_referencegenome.id"), nullable=False)
     genome = relationship("ReferenceGenome", back_populates="reference_maps")
     target_id = Column(Integer, ForeignKey("genome_targetgene.id"), nullable=False)

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import Any, List
 
 from app import deps
-from app.lib.auth import JWTBearer, get_current_user
+from app.lib.auth import get_current_user
 from app.models.experiment import Experiment
 from app.models.keyword import Keyword
 from app.models.reference_genome import ReferenceGenome
@@ -12,7 +12,7 @@ from app.models.reference_map import ReferenceMap
 from app.models.scoreset import Scoreset
 from app.models.target_gene import TargetGene
 import app.view_models.scoreset
-from app.view_models.search import Search
+from app.view_models.search import ScoresetsSearch
 
 
 router = APIRouter(
@@ -25,11 +25,10 @@ router = APIRouter(
 @router.post(
     '/scoresets/search',
     status_code=200,
-    # dependencies=[Depends(JWTBearer())],
-    response_model=List[app.view_models.scoreset.Scoreset]
+    response_model=List[app.view_models.scoreset.ShortScoreset]
 )
 def search_scoresets(
-    search: Search,  # = Body(..., embed=True),
+    search: ScoresetsSearch,  # = Body(..., embed=True),
     db: Session = Depends(deps.get_db),
     user: str = Depends(get_current_user)
 ) -> Any:

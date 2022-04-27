@@ -6,6 +6,7 @@ fastapi~=0.71.0
 humps~=0.2.2
 mavecore~=0.1.5
 mavehgvs~=0.4.0
+metapub~=0.5.5
 numpy~=1.22.3
 orcid~=1.0.3
 pandas~=1.4.1

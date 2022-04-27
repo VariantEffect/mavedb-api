@@ -1,8 +1,14 @@
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from requests import Request
+from starlette import status
+from starlette.responses import JSONResponse
 
-from app.routers import experiment_sets, experiments, reference_genomes, scoresets, search, target_genes
+from app.routers import doi_identifiers, experiment_sets, experiments, pubmed_identifiers, reference_genomes,\
+    scoresets, search, target_genes
 
 app = FastAPI()
 app.add_middleware(
@@ -12,12 +18,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(doi_identifiers.router)
 app.include_router(experiment_sets.router)
 app.include_router(experiments.router)
+app.include_router(pubmed_identifiers.router)
 app.include_router(reference_genomes.router)
 app.include_router(scoresets.router)
 app.include_router(search.router)
 app.include_router(target_genes.router)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    print(exc.errors())
+    print(map(lambda error: customize_validation_error(error), exc.errors()))
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=jsonable_encoder({
+            'detail': list(map(lambda error: customize_validation_error(error), exc.errors()))
+        })
+    )
+
+
+def customize_validation_error(error):
+    print(error['type'])
+    if error['type'] == 'type_error.none.not_allowed':
+        return {
+            'loc': error['loc'],
+            'msg': 'Required',
+            'type': error['type']
+        }
+    return error
 
 
 def customize_openapi_schema():

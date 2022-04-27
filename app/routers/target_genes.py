@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import Any, List
 
 
+import app
 from app import deps
 from app.models.target_gene import TargetGene
 from app.view_models import target_gene
-
+from app.view_models.search import TextSearch
 
 router = APIRouter(
     prefix='/api/v1/targetGenes',
@@ -15,7 +17,7 @@ router = APIRouter(
 )
 
 
-@router.get('/', status_code=200, response_model=List[target_gene.TargetGene], responses={404: {}})
+@router.get('/', status_code=200, response_model=List[app.view_models.target_gene.TargetGene], responses={404: {}})
 def list_target_genes(
     *,
     db: Session = Depends(deps.get_db),
@@ -42,3 +44,32 @@ def fetch_target_gene(
             status_code=404, detail=f'TargetGene with ID {item_id} not found'
         )
     return item
+
+
+@router.post(
+    '/search',
+    status_code=200,
+    response_model=List[app.view_models.target_gene.TargetGene]
+)
+def search_target_genes(
+    search: TextSearch,
+    db: Session = Depends(deps.get_db)
+) -> Any:
+    """
+    Search target genes.
+    """
+
+    query = db.query(TargetGene)
+
+    if search.text and len(search.text.strip()) > 0:
+        lower_search_text = search.text.strip().lower()
+        query = query.filter(func.lower(TargetGene.name).contains(lower_search_text))
+    else:
+        raise HTTPException(status_code=500, detail='Search text is required')
+
+    items = query.order_by(TargetGene.name)\
+        .limit(50)\
+        .all()
+    if not items:
+        items = []
+    return items
