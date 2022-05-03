@@ -3,6 +3,11 @@ from pydantic.types import Optional
 from app.view_models.base.base import BaseModel
 
 
+class ExperimentsSearch(BaseModel):
+    published: Optional[bool]
+    text: Optional[str]
+
+
 class ScoresetsSearch(BaseModel):
     published: Optional[bool]
     targets: Optional[list[str]]

@@ -7,21 +7,23 @@ from typing import Any, Optional
 
 from app import deps
 from app.lib.auth import get_current_user, require_current_user
+from app.lib.experiments import search_experiments as _search_experiments
 from app.lib.identifiers import find_or_create_doi_identifier, find_or_create_pubmed_identifier
 from app.models.experiment import Experiment
 from app.models.user import User
 from app.view_models import experiment
+from app.view_models.search import ExperimentsSearch
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix='/api/v1/experiments',
+    prefix='/api/v1',
     tags=['experiments'],
     responses={404: {'description': 'Not found'}}
 )
 
 
-@router.get('/', status_code=200, response_model=list[experiment.Experiment])
+@router.get('/experiments', status_code=200, response_model=list[experiment.Experiment])
 def list_experiments(
     *,
     editable: Optional[bool] = None,
@@ -48,7 +50,38 @@ def list_experiments(
     return items
 
 
-@router.get('/{urn}', status_code=200, response_model=experiment.Experiment, responses={404: {}})
+@router.post(
+    '/experiments/search',
+    status_code=200,
+    response_model=list[experiment.ShortExperiment]
+)
+def search_scoresets(
+    search: ExperimentsSearch,
+    db: Session = Depends(deps.get_db)
+) -> Any:
+    """
+    Search experiments.
+    """
+    return _search_experiments(db, None, search)
+
+
+@router.post(
+    '/me/experiments/search',
+    status_code=200,
+    response_model=list[experiment.ShortExperiment]
+)
+def search_my_scoresets(
+    search: ExperimentsSearch,
+    db: Session = Depends(deps.get_db),
+    user: User = Depends(require_current_user)
+) -> Any:
+    """
+    Search experiments created by the current user..
+    """
+    return _search_experiments(db, user, search)
+
+
+@router.get('/experiments/{urn}', status_code=200, response_model=experiment.Experiment, responses={404: {}})
 def fetch_experiment(
     *,
     urn: str,
@@ -65,7 +98,7 @@ def fetch_experiment(
     return item
 
 
-@router.post("/", response_model=experiment.Experiment, responses={422: {}})
+@router.post("/experiments/", response_model=experiment.Experiment, responses={422: {}})
 async def create_experiment(
     *,
     item_create: experiment.ExperimentCreate,
@@ -93,7 +126,7 @@ async def create_experiment(
     return item
 
 
-@router.put("/{urn}", response_model=experiment.Experiment, responses={422: {}})
+@router.put("/experiments/{urn}", response_model=experiment.Experiment, responses={422: {}})
 async def update_experiment(
     *,
     item_update: experiment.ExperimentUpdate,
