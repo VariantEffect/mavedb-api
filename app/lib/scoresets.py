@@ -36,6 +36,12 @@ def search_scoresets(db: Session, owner: Optional[User], search: ScoresetsSearch
     if owner is not None:
         scoresets_query = scoresets_query.filter(Scoreset.created_by_id == owner.id)
 
+    if search.published is not None:
+        if search.published:
+            scoresets_query = scoresets_query.filter(Scoreset.published_date is not None)
+        else:
+            scoresets_query = scoresets_query.filter(Scoreset.published_date is None)
+
     if search.text:
         lower_search_text = search.text.lower()
         scoresets_query = scoresets_query.filter(or_(

@@ -4,6 +4,7 @@ from app.view_models.base.base import BaseModel
 
 
 class ScoresetsSearch(BaseModel):
+    published: Optional[bool]
     targets: Optional[list[str]]
     target_organism_names: Optional[list[str]]
     target_types: Optional[list[str]]
