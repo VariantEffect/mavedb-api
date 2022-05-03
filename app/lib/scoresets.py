@@ -1,8 +1,11 @@
+from operator import or_
 from typing import Optional
 
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
+from sqlalchemy import func
+from sqlalchemy.orm import Session
 
 from app.lib.array_comparison import assert_array_equal
 from app.lib.exceptions import ValidationError
@@ -14,9 +17,57 @@ from app.lib.mave.constants import (
     VARIANT_SCORE_DATA
 )
 from app.lib.mave.utils import is_csv_null
+from app.models.experiment import Experiment
+from app.models.keyword import Keyword
+from app.models.reference_genome import ReferenceGenome
+from app.models.reference_map import ReferenceMap
 from app.models.scoreset import Scoreset
+from app.models.target_gene import TargetGene
+from app.models.user import User
+from app.view_models.search import ScoresetsSearch
 
 VariantData = dict[str, Optional[dict[str, dict]]]
+
+
+def search_scoresets(db: Session, owner: Optional[User], search: ScoresetsSearch) -> list[Scoreset]:
+    scoresets_query = db.query(Scoreset)\
+        .filter(Scoreset.private.is_(False))
+
+    if owner is not None:
+        scoresets_query = scoresets_query.filter(Scoreset.created_by_id == owner.id)
+
+    if search.text:
+        lower_search_text = search.text.lower()
+        scoresets_query = scoresets_query.filter(or_(
+            Scoreset.target_gene.has(func.lower(TargetGene.name).contains(lower_search_text)),
+            Scoreset.target_gene.has(func.lower(TargetGene.category).contains(lower_search_text)),
+            Scoreset.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text))
+            # Add: ORGANISM_NAME UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
+        ))
+
+    if search.targets:
+        scoresets_query = scoresets_query.filter(
+            Scoreset.target_gene.has(TargetGene.name.in_(search.targets))
+        )
+
+    if search.target_organism_names:
+        scoresets_query = scoresets_query.filter(
+            Scoreset.target_gene.has(TargetGene.reference_maps.any(ReferenceMap.genome.has(ReferenceGenome.organism_name.in_(search.target_organism_names))))
+        )
+
+    if search.target_types:
+        scoresets_query = scoresets_query.filter(
+            Scoreset.target_gene.has(TargetGene.category.in_(search.target_types))
+        )
+
+    scoresets: list[Scoreset] = scoresets_query\
+        .join(Scoreset.experiment)\
+        .join(Scoreset.target_gene)\
+        .order_by(Experiment.title)\
+        .all()
+    if not scoresets:
+        scoresets = []
+    return scoresets  # filter_visible_scoresets(scoresets)
 
 
 def filter_visible_scoresets(items: list[Scoreset]):

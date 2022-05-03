@@ -8,7 +8,7 @@ from starlette import status
 from starlette.responses import JSONResponse
 
 from app.routers import doi_identifiers, experiment_sets, experiments, pubmed_identifiers, reference_genomes,\
-    scoresets, search, target_genes
+    scoresets, target_genes
 
 app = FastAPI()
 app.add_middleware(
@@ -24,7 +24,6 @@ app.include_router(experiments.router)
 app.include_router(pubmed_identifiers.router)
 app.include_router(reference_genomes.router)
 app.include_router(scoresets.router)
-app.include_router(search.router)
 app.include_router(target_genes.router)
 
 

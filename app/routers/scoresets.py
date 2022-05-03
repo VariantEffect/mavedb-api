@@ -15,9 +15,9 @@ from fastapi.exceptions import HTTPException
 from fastapi.encoders import jsonable_encoder
 
 from app import deps
-from app.lib.auth import require_current_user
+from app.lib.auth import require_current_user, get_current_user
 from app.lib.identifiers import find_or_create_doi_identifier, find_or_create_pubmed_identifier
-from app.lib.scoresets import create_variants_data, VariantData
+from app.lib.scoresets import create_variants_data, search_scoresets as _search_scoresets, VariantData
 from app.models.enums.processing_state import ProcessingState
 from app.models.experiment import Experiment
 from app.models.reference_map import ReferenceMap
@@ -28,7 +28,7 @@ from app.models.variant import Variant
 from app.models.wild_type_sequence import WildTypeSequence
 # from app.tasks.scoreset_tasks import create_variants_task
 from app.view_models import scoreset
-
+from app.view_models.search import ScoresetsSearch
 
 logger = logging.getLogger(__name__)
 
@@ -46,13 +46,44 @@ def is_null(value):
 
 
 router = APIRouter(
-    prefix='/api/v1/scoresets',
+    prefix='/api/v1',
     tags=['scoresets'],
     responses={404: {'description': 'Not found'}}
 )
 
 
-@router.get('/{urn}', status_code=200, response_model=scoreset.Scoreset, responses={404: {}, 500: {}})
+@router.post(
+    '/scoresets/search',
+    status_code=200,
+    response_model=list[scoreset.ShortScoreset]
+)
+def search_scoresets(
+    search: ScoresetsSearch,  # = Body(..., embed=True),
+    db: Session = Depends(deps.get_db)
+) -> Any:
+    """
+    Search scoresets.
+    """
+    return _search_scoresets(db, None, search)
+
+
+@router.post(
+    '/me/scoresets/search',
+    status_code=200,
+    response_model=list[scoreset.ShortScoreset]
+)
+def search_my_scoresets(
+    search: ScoresetsSearch,  # = Body(..., embed=True),
+    db: Session = Depends(deps.get_db),
+    user: User = Depends(require_current_user)
+) -> Any:
+    """
+    Search scoresets created by the current user..
+    """
+    return _search_scoresets(db, user, search)
+
+
+@router.get('/scoresets/{urn}', status_code=200, response_model=scoreset.Scoreset, responses={404: {}, 500: {}})
 def fetch_scoreset(
     *,
     urn: str,
@@ -75,7 +106,7 @@ def fetch_scoreset(
 
 
 @router.get(
-    "/{urn}/scores",
+    "/scoresets/{urn}/scores",
     status_code=200,
     responses={
         200: {
@@ -122,7 +153,7 @@ class HGVSColumns:
         return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
-@router.post("/", response_model=scoreset.Scoreset, responses={422: {}})
+@router.post("/scoresets/", response_model=scoreset.Scoreset, responses={422: {}})
 async def create_scoreset(
     *,
     item_create: scoreset.ScoresetCreate,
@@ -178,7 +209,7 @@ async def create_scoreset(
     return item
 
 
-@router.post("/{urn}/variants/data", response_model=scoreset.Scoreset, responses={422: {}})
+@router.post("/scoresets/{urn}/variants/data", response_model=scoreset.Scoreset, responses={422: {}})
 async def upload_scoreset_variant_data(
     *,
     urn: str,
