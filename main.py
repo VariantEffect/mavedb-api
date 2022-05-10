@@ -6,6 +6,7 @@ from fastapi.openapi.utils import get_openapi
 from requests import Request
 from starlette import status
 from starlette.responses import JSONResponse
+import uvicorn
 
 from app.routers import doi_identifiers, experiment_sets, experiments, pubmed_identifiers, reference_genomes,\
     scoresets, target_genes
@@ -80,3 +81,6 @@ def customize_openapi_schema():
 
 
 customize_openapi_schema()
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
