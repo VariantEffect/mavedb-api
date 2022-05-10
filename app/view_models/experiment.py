@@ -66,6 +66,8 @@ class Experiment(SavedExperiment):
     created_by: Optional[User]
     modified_by: Optional[User]
 
+class ShortExperiment(Experiment):
+    pass
 
 # Properties to return to admin clients
 class AdminExperiment(Experiment):
