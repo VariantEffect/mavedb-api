@@ -23,7 +23,7 @@ router = APIRouter(
 )
 
 
-@router.get('/experiments', status_code=200, response_model=list[experiment.Experiment])
+@router.get('/experiments/', status_code=200, response_model=list[experiment.Experiment])
 def list_experiments(
     *,
     editable: Optional[bool] = None,
