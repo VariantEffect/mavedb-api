@@ -86,9 +86,11 @@ async def get_current_user(token_payload: dict = Depends(JWTBearer()), db: Sessi
                 # A new user has just connected an ORCID iD. Create the user account.
                 user = User(
                     username=username,
-                    first_name=token_payload['given_name'],
-                    last_name=token_payload['family_name'],
                     is_active=True,
+                    # TODO When we decouple from the old database, change first_name and last_name to be nullable, and
+                    # stop filling them with empty strings.
+                    first_name=token_payload['given_name'] if 'given_name' in token_payload else '',
+                    last_name=token_payload['family_name'] if 'family_name' in token_payload else '',
                     date_joined=datetime.now()
                 )
                 db.add(user)
