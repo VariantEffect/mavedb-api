@@ -1,10 +1,9 @@
-from operator import or_
 from typing import Optional
 
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.lib.array_comparison import assert_array_equal
@@ -48,7 +47,7 @@ def search_scoresets(db: Session, owner: Optional[User], search: ScoresetsSearch
             Scoreset.target_gene.has(func.lower(TargetGene.name).contains(lower_search_text)),
             Scoreset.target_gene.has(func.lower(TargetGene.category).contains(lower_search_text)),
             Scoreset.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text))
-            # Add: ORGANISM_NAME UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
+            # TODO Add: ORGANISM_NAME UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
         ))
 
     if search.targets:
