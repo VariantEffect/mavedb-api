@@ -85,7 +85,6 @@ class ScoresetWithVariants(Scoreset):
 # Properties to return to admin clients
 class AdminScoreset(Scoreset):
     normalised: bool
-    private: bool
     approved: bool
 
 
