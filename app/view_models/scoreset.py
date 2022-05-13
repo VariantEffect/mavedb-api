@@ -73,6 +73,7 @@ class Scoreset(SavedScoreset):
     modified_by: Optional[User]
     target_gene: TargetGene
     num_variants: int
+    private: bool
     # processing_state: Optional[str]
 
 
