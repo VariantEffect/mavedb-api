@@ -1,4 +1,5 @@
 import csv
+from datetime import date
 import logging
 import io
 import re
@@ -18,6 +19,7 @@ from app import deps
 from app.lib.auth import require_current_user, get_current_user
 from app.lib.identifiers import find_or_create_doi_identifier, find_or_create_pubmed_identifier
 from app.lib.scoresets import create_variants_data, search_scoresets as _search_scoresets, VariantData
+from app.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_scoreset_urn
 from app.models.enums.processing_state import ProcessingState
 from app.models.experiment import Experiment
 from app.models.reference_map import ReferenceMap
@@ -339,24 +341,87 @@ def bulk_create_urns(n, scoreset, reset_counter=False) -> List[str]:
     return child_urns
 
 
-@router.put("/{urn}", response_model=scoreset.Scoreset, responses={422: {}})
+@router.put("/scoresets/{urn}", response_model=scoreset.Scoreset, responses={422: {}})
 async def update_scoreset(
     *,
     urn: str,
     item_update: scoreset.ScoresetUpdate,
-    db: Session = Depends(deps.get_db)
+    db: Session = Depends(deps.get_db),
+    user: User = Depends(require_current_user)
 ) -> Any:
     """
     Update a scoreset.
     """
-    if item_update is None:
-        return None
+    if not item_update:
+        raise HTTPException(
+            status_code=400, detail=f'The request contained no updated item.'
+        )
+
     item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
-    if item is None:
-        return None
+    if not item:
+        raise HTTPException(
+            status_code=404, detail=f'Scoreset with URN {urn} not found.'
+        )
+    # TODO Ensure that the current user has edit rights for this scoreset.
+
     for var, value in vars(item_update).items():
         setattr(item, var, value) if value else None
     db.add(item)
+
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.post(
+    '/scoresets/:urn/publish',
+    status_code=200,
+    response_model=list[scoreset.Scoreset]
+)
+def publish_scoreset(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user: User = Depends(require_current_user)
+) -> Any:
+    """
+    Publish a scoreset.
+    """
+    item: Scoreset = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
+    if not item:
+        raise HTTPException(
+            status_code=404, detail=f'Scoreset with URN {urn} not found'
+        )
+    # TODO Ensure that the current user has edit rights for this scoreset.
+    if not item.experiment:
+        raise HTTPException(
+            status_code=500, detail='This scoreset does not belong to an experiment and cannot be published.'
+        )
+    if not item.experiment.experiment_set:
+        raise HTTPException(
+            status_code=500, detail='This scoreset\'s experiment does not belong to an experiment set and cannot be published.'
+        )
+
+    published_date = date.today()
+
+    if item.experiment.experiment_set.private or not item.experiment.experiment_set.published_date:
+        item.experiment.experiment_set.urn = generate_experiment_set_urn(db)
+        item.experiment.experiment_set.private = False
+        item.experiment.experiment_set.published_date = published_date
+        db.add(item.experiment.experiment_set)
+
+    if item.experiment.private or not item.experiment.published_date:
+        # TODO Pass experiment.is_meta_analysis instead of False
+        item.experiment.urn = generate_experiment_urn(db, item.experiment.experiment_set, False)
+        item.experiment.private = False
+        item.experiment.published_date = published_date
+        db.add(item.experiment)
+
+    item.urn = generate_scoreset_urn(db, item.experiment)
+    item.private = False
+    item.published_date = published_date
+    db.add(item)
+
     db.commit()
     db.refresh(item)
     return item
