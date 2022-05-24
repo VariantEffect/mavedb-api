@@ -93,7 +93,8 @@ def fetch_scoreset(
     Fetch a single scoreset by URN.
     """
     try:
-        item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+        #item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+        item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
     except MultipleResultsFound:
         raise HTTPException(
             status_code=500, detail=f'Multiple scoresets with URN {urn} were found.'
