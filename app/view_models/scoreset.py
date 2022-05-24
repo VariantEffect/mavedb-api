@@ -99,6 +99,7 @@ class ShortScoreset(BaseModel):
     creation_date: date
     modification_date: date
     target_gene: ShortTargetGene
+    private: bool
 
     class Config:
         orm_mode = True
