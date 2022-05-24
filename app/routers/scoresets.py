@@ -353,7 +353,8 @@ async def update_scoreset(
     """
     if item_update is None:
         return None
-    item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+    #item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+    item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
     if item is None:
         return None
     for var, value in vars(item_update).items():
