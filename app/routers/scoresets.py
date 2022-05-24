@@ -226,7 +226,8 @@ async def upload_scoreset_variant_data(
 
     # TODO Confirm access.
 
-    item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+    #item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+    item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
     if not item.urn or not scores_file:
         return None
 
