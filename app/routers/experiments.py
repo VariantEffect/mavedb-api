@@ -90,7 +90,8 @@ def fetch_experiment(
     '''
     Fetch a single experiment by URN.
     '''
-    item = db.query(Experiment).filter(Experiment.urn == urn).filter(Experiment.private.is_(False)).first()
+    #item = db.query(Experiment).filter(Experiment.urn == urn).filter(Experiment.private.is_(False)).first()
+    item = db.query(Experiment).filter(Experiment.urn == urn).first()
     if not item:
         raise HTTPException(
             status_code=404, detail=f'Experiment with URN {urn} not found'
