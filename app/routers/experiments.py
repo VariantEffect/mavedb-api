@@ -140,7 +140,8 @@ async def update_experiment(
     '''
     if item_update is None:
         return None
-    item = db.query(Experiment).filter(Experiment.urn == urn).filter(Experiment.private.is_(False)).one_or_none()
+    #item = db.query(Experiment).filter(Experiment.urn == urn).filter(Experiment.private.is_(False)).one_or_none()
+    item = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
     if item is None:
         return None
 
