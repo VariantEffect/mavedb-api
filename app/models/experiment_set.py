@@ -5,7 +5,7 @@ from sqlalchemy.schema import Table
 
 from app.db.base import Base
 from app.deps import JSONB
-from app.lib.urns import generate_temp_urn
+from app.lib.temp_urns import generate_temp_urn
 
 
 experiment_sets_doi_identifiers_association_table = Table(

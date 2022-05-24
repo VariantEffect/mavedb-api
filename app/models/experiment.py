@@ -6,7 +6,7 @@ from sqlalchemy.schema import Table
 
 from app.db.base import Base
 from app.deps import JSONB
-from app.lib.urns import generate_temp_urn
+from app.lib.temp_urns import generate_temp_urn
 from app.models.experiment_set import ExperimentSet
 from app.models.keyword import Keyword
 
