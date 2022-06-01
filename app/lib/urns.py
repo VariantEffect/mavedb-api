@@ -67,10 +67,10 @@ def generate_scoreset_urn(db: Session, experiment: Experiment):
     # TODO Provide an alternative for use with SQLite in unit tests.
     published_scoresets_query = db.query(Scoreset) \
         .filter(Scoreset.experiment_id == experiment.id) \
-        .filter(Experiment.urn.op('~')(f'^{re.escape(experiment_urn)}-[0-9]+$'))
+        .filter(Scoreset.urn.op('~')(f'^{re.escape(experiment_urn)}-[0-9]+$'))
     max_suffix_number = 0
     for scoreset in published_scoresets_query:
-        suffix_number = int(re.search(f'^{re.escape(scoreset.urn)}-([0-9]+)$').group(1))
+        suffix_number = int(re.search(f'^{re.escape(experiment.urn)}-([0-9]+)$', scoreset.urn).group(1))
         if suffix_number > max_suffix_number:
             max_suffix_number = suffix_number
     next_suffix_number = max_suffix_number + 1
