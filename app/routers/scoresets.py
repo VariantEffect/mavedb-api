@@ -377,7 +377,7 @@ async def update_scoreset(
 
 
 @router.post(
-    '/scoresets/:urn/publish',
+    '/scoresets/{urn}/publish',
     status_code=200,
     response_model=list[scoreset.Scoreset]
 )
