@@ -21,7 +21,7 @@ def generate_experiment_set_urn(db: Session):
     max_urn_number = 0
     if row and row[0]:
         max_urn = row[0]
-        max_urn_number = int(re.search('^urn:mavedb:([0-9]+)$', max_urn).groups(1))
+        max_urn_number = int(re.search('^urn:mavedb:([0-9]+)$', max_urn).groups(1)[0])
     next_urn_number = max_urn_number + 1
     return f'urn:mavedb:{next_urn_number:08}'
 
