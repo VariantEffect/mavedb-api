@@ -41,7 +41,16 @@ class ScoresetCreate(ScoresetBase):
 
 
 class ScoresetUpdate(ScoresetBase):
-    pass
+    doi_identifiers: list[SavedDoiIdentifier]
+    pubmed_identifiers: list[SavedPubmedIdentifier]
+
+    #Possible Exclude
+    #urn: Optional[str]
+    #title: str
+    #extra_metadata: Dict
+    #dataset_columns: Dict
+    #replaces_id: Optional[int]
+
 
 
 # Properties shared by models stored in DB
