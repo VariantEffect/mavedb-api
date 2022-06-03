@@ -67,7 +67,7 @@ class Scoreset(Base):
     dataset_columns = Column(JSONB, nullable=False)
 
     normalised = Column(Boolean, nullable=False, default=False)
-    private = Column(Boolean, nullable=False, default=False)
+    private = Column(Boolean, nullable=False, default=True)
     approved = Column(Boolean, nullable=False, default=False)
     published_date = Column('publish_date', Date, nullable=True)
     processing_state = Column(

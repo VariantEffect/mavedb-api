@@ -95,7 +95,8 @@ def fetch_scoreset(
     Fetch a single scoreset by URN.
     """
     try:
-        item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+        #item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+        item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
     except MultipleResultsFound:
         raise HTTPException(
             status_code=500, detail=f'Multiple scoresets with URN {urn} were found.'
@@ -227,7 +228,8 @@ async def upload_scoreset_variant_data(
 
     # TODO Confirm access.
 
-    item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+    #item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+    item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
     if not item.urn or not scores_file:
         return None
 
@@ -356,15 +358,17 @@ async def update_scoreset(
         raise HTTPException(
             status_code=400, detail=f'The request contained no updated item.'
         )
-
-    item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+    #item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+    item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
     if not item:
         raise HTTPException(
             status_code=404, detail=f'Scoreset with URN {urn} not found.'
         )
     # TODO Ensure that the current user has edit rights for this scoreset.
-
+    print(item_update.short_description)
     for var, value in vars(item_update).items():
+        print(var)
+        print(value)
         setattr(item, var, value) if value else None
     db.add(item)
 
@@ -374,9 +378,9 @@ async def update_scoreset(
 
 
 @router.post(
-    '/scoresets/:urn/publish',
+    '/scoresets/{urn}/publish',
     status_code=200,
-    response_model=list[scoreset.Scoreset]
+    response_model=scoreset.Scoreset
 )
 def publish_scoreset(
     *,

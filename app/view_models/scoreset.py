@@ -41,8 +41,8 @@ class ScoresetCreate(ScoresetBase):
 
 
 class ScoresetUpdate(ScoresetBase):
-    pass
-
+    doi_identifiers: list[SavedDoiIdentifier]
+    pubmed_identifiers: list[SavedPubmedIdentifier]
 
 # Properties shared by models stored in DB
 class SavedScoreset(ScoresetBase):
@@ -73,6 +73,7 @@ class Scoreset(SavedScoreset):
     modified_by: Optional[User]
     target_gene: TargetGene
     num_variants: int
+    private: bool
     # processing_state: Optional[str]
 
 
@@ -84,7 +85,6 @@ class ScoresetWithVariants(Scoreset):
 # Properties to return to admin clients
 class AdminScoreset(Scoreset):
     normalised: bool
-    private: bool
     approved: bool
 
 
@@ -99,6 +99,7 @@ class ShortScoreset(BaseModel):
     creation_date: date
     modification_date: date
     target_gene: ShortTargetGene
+    private: bool
 
     class Config:
         orm_mode = True

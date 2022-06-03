@@ -21,7 +21,7 @@ def generate_experiment_set_urn(db: Session):
     max_urn_number = 0
     if row and row[0]:
         max_urn = row[0]
-        max_urn_number = int(re.search('^urn:mavedb:([0-9]+)$', max_urn).groups(1))
+        max_urn_number = int(re.search('^urn:mavedb:([0-9]+)$', max_urn).groups(1)[0])
     next_urn_number = max_urn_number + 1
     return f'urn:mavedb:{next_urn_number:08}'
 
@@ -67,10 +67,10 @@ def generate_scoreset_urn(db: Session, experiment: Experiment):
     # TODO Provide an alternative for use with SQLite in unit tests.
     published_scoresets_query = db.query(Scoreset) \
         .filter(Scoreset.experiment_id == experiment.id) \
-        .filter(Experiment.urn.op('~')(f'^{re.escape(experiment_urn)}-[0-9]+$'))
+        .filter(Scoreset.urn.op('~')(f'^{re.escape(experiment_urn)}-[0-9]+$'))
     max_suffix_number = 0
     for scoreset in published_scoresets_query:
-        suffix_number = int(re.search(f'^{re.escape(scoreset.urn)}-([0-9]+)$').group(1))
+        suffix_number = int(re.search(f'^{re.escape(experiment.urn)}-([0-9]+)$', scoreset.urn).group(1))
         if suffix_number > max_suffix_number:
             max_suffix_number = suffix_number
     next_suffix_number = max_suffix_number + 1
