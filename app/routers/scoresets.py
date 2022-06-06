@@ -368,7 +368,17 @@ async def update_scoreset(
     # TODO Ensure that the current user has edit rights for this scoreset.
 
     for var, value in vars(item_update).items():
-        setattr(item, var, value) if value else None
+        if var not in ["keywords", 'doi_identifiers', 'experiment_urn', 'pubmed_identifiers', 'target_gene']:
+            setattr(item, var, value) if value else None
+
+    item.doi_identifiers = [await find_or_create_doi_identifier(db, identifier.identifier) for identifier in
+                       item_update.doi_identifiers or []]
+
+    item.pubmed_identifiers = [await find_or_create_pubmed_identifier(db, identifier.identifier) for identifier in
+                          item_update.pubmed_identifiers or []]
+
+    await item.set_keywords(db, item_update.keywords)
+
     db.add(item)
 
     db.commit()
