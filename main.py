@@ -8,8 +8,14 @@ from starlette import status
 from starlette.responses import JSONResponse
 import uvicorn
 
+import logging
+
 from app.routers import doi_identifiers, experiment_sets, experiments, pubmed_identifiers, reference_genomes,\
     scoresets, target_genes
+
+logging.basicConfig()
+# Un-comment this line to log all queries:
+# logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
 app = FastAPI()
 app.add_middleware(
