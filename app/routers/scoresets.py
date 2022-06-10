@@ -379,9 +379,15 @@ async def update_scoreset(
 
         await item.set_keywords(db, item_update.keywords)
 
-        #db.delete(item.target_gene.wt_sequence)
-        #db.delete(item.target_gene.reference_maps)
-        #db.delete(item.target_gene)
+        # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the scoreset's
+        # target_gene to null, because we have set cascade="all,delete-orphan" on Scoreset.target_gene. (Since the
+        # relationship is defined with the target gene as owner, this is actually set up in the backref attribute of
+        # TargetGene.scoreset.)
+        #
+        # We must flush our database queries now so that the old target gene will be deleted before inserting a new one
+        # with the same scoreset_id.
+        item.target_gene = None
+        db.flush()
 
         wt_sequence = WildTypeSequence(**jsonable_encoder(
             item_update.target_gene.wt_sequence,
@@ -406,7 +412,6 @@ async def update_scoreset(
         for var, value in vars(item_update).items():
             if var not in ["keywords", 'doi_identifiers', 'experiment_urn', 'pubmed_identifiers', 'target_gene']:
                 setattr(item, var, value) if value else None
-
 
     db.add(item)
 

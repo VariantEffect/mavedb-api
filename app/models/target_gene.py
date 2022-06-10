@@ -24,12 +24,10 @@ class TargetGene(Base):
     refseq_id_id = Column(Integer, nullable=True)  # , ForeignKey("dataset_scoreset.id"), nullable=False)
     scoreset_id = Column(Integer, ForeignKey("dataset_scoreset.id"), nullable=False)
     #scoreset = relationship("Scoreset", back_populates="target_gene")
-    scoreset = relationship("Scoreset", backref=backref("target_gene", cascade="delete-orphan"))
+    scoreset = relationship("Scoreset", backref=backref("target_gene", cascade="all,delete-orphan", single_parent=True, uselist=False), single_parent=True)
     uniprot_id_id = Column(Integer, nullable=True)  # , ForeignKey("dataset_scoreset.id"), nullable=False)
     wt_sequence_id = Column(Integer, ForeignKey("genome_wildtypesequence.id"), nullable=False)
-    wt_sequence = relationship("WildTypeSequence")
-
-    reference_maps = relationship("ReferenceMap", back_populates="target")
+    wt_sequence = relationship("WildTypeSequence", backref=backref("target_gene", single_parent=True, uselist=False), cascade="all,delete-orphan", single_parent=True)
 
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
