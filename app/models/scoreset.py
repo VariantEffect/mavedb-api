@@ -64,7 +64,7 @@ class Scoreset(Base):
     abstract_text = Column(String, nullable=False)
     short_description = Column(String, nullable=False)
     extra_metadata = Column(JSONB, nullable=False)
-    dataset_columns = Column(JSONB, nullable=False)
+    dataset_columns = Column(JSONB, nullable=False, default={})
 
     normalised = Column(Boolean, nullable=False, default=False)
     private = Column(Boolean, nullable=False, default=True)
@@ -92,7 +92,7 @@ class Scoreset(Base):
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
     variants = relationship('Variant', back_populates='scoreset')
-    target_gene = relationship('TargetGene', back_populates='scoreset', uselist=False)
+    # target_gene = relationship('TargetGene', back_populates='scoreset', uselist=False)
     keyword_objs = relationship('Keyword', secondary=scoresets_keywords_association_table, backref='scoresets')
     doi_identifiers = relationship('DoiIdentifier', secondary=scoresets_doi_identifiers_association_table, backref='scoresets')
     pubmed_identifiers = relationship('PubmedIdentifier', secondary=scoresets_pubmed_identifiers_association_table, backref='scoresets')

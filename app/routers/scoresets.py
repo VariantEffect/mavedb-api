@@ -206,8 +206,6 @@ async def create_scoreset(
     # item.experiment = experiment
     # item.processing_state = ProcessingState.incomplete
     await item.set_keywords(db, item_create.keywords)
-    print("hhhhh")
-    print(item.extra_metadata)
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -380,6 +378,30 @@ async def update_scoreset(
                                    item_update.pubmed_identifiers or []]
 
         await item.set_keywords(db, item_update.keywords)
+
+        #db.delete(item.target_gene.wt_sequence)
+        #db.delete(item.target_gene.reference_maps)
+        #db.delete(item.target_gene)
+
+        wt_sequence = WildTypeSequence(**jsonable_encoder(
+            item_update.target_gene.wt_sequence,
+            by_alias=False
+        ))
+
+        target_gene = TargetGene(
+            **jsonable_encoder(
+                item_update.target_gene,
+                by_alias=False,
+                exclude=['reference_maps', 'wt_sequence'],
+            ),
+            wt_sequence=wt_sequence
+        )
+        item.target_gene = target_gene
+
+        reference_map = ReferenceMap(
+            genome_id=item_update.target_gene.reference_maps[0].genome_id,
+            target=target_gene
+        )
     else:
         for var, value in vars(item_update).items():
             if var not in ["keywords", 'doi_identifiers', 'experiment_urn', 'pubmed_identifiers', 'target_gene']:

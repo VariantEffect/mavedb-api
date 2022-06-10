@@ -3,6 +3,7 @@ from sqlalchemy import Column, Date, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
+from sqlalchemy.orm import relationship, backref
 from .ensembl_identifier import EnsemblIdentifier
 from .reference_map import ReferenceMap
 from .refseq_identifier import RefseqIdentifier
@@ -22,7 +23,8 @@ class TargetGene(Base):
     ensembl_id = relationship("EnsemblIdentifier", backref="target_genes")
     refseq_id_id = Column(Integer, nullable=True)  # , ForeignKey("dataset_scoreset.id"), nullable=False)
     scoreset_id = Column(Integer, ForeignKey("dataset_scoreset.id"), nullable=False)
-    scoreset = relationship("Scoreset", back_populates="target_gene")
+    #scoreset = relationship("Scoreset", back_populates="target_gene")
+    scoreset = relationship("Scoreset", backref=backref("target_gene", cascade="delete-orphan"))
     uniprot_id_id = Column(Integer, nullable=True)  # , ForeignKey("dataset_scoreset.id"), nullable=False)
     wt_sequence_id = Column(Integer, ForeignKey("genome_wildtypesequence.id"), nullable=False)
     wt_sequence = relationship("WildTypeSequence")

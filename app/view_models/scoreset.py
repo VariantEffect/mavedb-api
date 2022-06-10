@@ -18,7 +18,7 @@ class ScoresetBase(BaseModel):
     abstract_text: str
     short_description: str
     extra_metadata: Dict
-
+    #dataset_columns: Dict
     data_usage_policy: Optional[str]
     licence_id: Optional[int]
     replaces_id: Optional[int]
@@ -43,6 +43,7 @@ class ScoresetCreate(ScoresetBase):
 class ScoresetUpdate(ScoresetBase):
     doi_identifiers: list[SavedDoiIdentifier]
     pubmed_identifiers: list[SavedPubmedIdentifier]
+    target_gene: TargetGeneCreate
 
 
 
