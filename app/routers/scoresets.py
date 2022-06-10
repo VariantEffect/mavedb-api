@@ -194,8 +194,7 @@ async def create_scoreset(
     doi_identifiers = [await find_or_create_doi_identifier(db, identifier.identifier) for identifier in item_create.doi_identifiers or []]
     pubmed_identifiers = [await find_or_create_pubmed_identifier(db, identifier.identifier) for identifier in item_create.pubmed_identifiers or []]
     item = Scoreset(
-        #**jsonable_encoder(item_create, by_alias=False, exclude=['doi_identifiers', 'experiment_urn', 'keywords', 'pubmed_identifiers', 'target_gene']),
-        **jsonable_encoder(item_create, by_alias=False,exclude=['experiment_urn']),
+        **jsonable_encoder(item_create, by_alias=False, exclude=['doi_identifiers', 'experiment_urn', 'keywords', 'pubmed_identifiers', 'target_gene']),
         experiment=experiment,
         target_gene=target_gene,
         doi_identifiers=doi_identifiers,
@@ -207,6 +206,8 @@ async def create_scoreset(
     # item.experiment = experiment
     # item.processing_state = ProcessingState.incomplete
     await item.set_keywords(db, item_create.keywords)
+    print("hhhhh")
+    print(item.extra_metadata)
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -370,21 +371,20 @@ async def update_scoreset(
 
     if item.private is True:
         for var, value in vars(item_update).items():
-            #if var not in ["keywords", 'doi_identifiers', 'experiment_urn', 'pubmed_identifiers', 'target_gene']:
-            if var not in ['experiment_urn']:
+            if var not in ["keywords", 'doi_identifiers', 'experiment_urn', 'pubmed_identifiers', 'target_gene']:
                 setattr(item, var, value) if value else None
+        item.doi_identifiers = [await find_or_create_doi_identifier(db, identifier.identifier) for identifier in
+                                item_update.doi_identifiers or []]
+
+        item.pubmed_identifiers = [await find_or_create_pubmed_identifier(db, identifier.identifier) for identifier in
+                                   item_update.pubmed_identifiers or []]
+
+        await item.set_keywords(db, item_update.keywords)
     else:
         for var, value in vars(item_update).items():
             if var not in ["keywords", 'doi_identifiers', 'experiment_urn', 'pubmed_identifiers', 'target_gene']:
                 setattr(item, var, value) if value else None
 
-    item.doi_identifiers = [await find_or_create_doi_identifier(db, identifier.identifier) for identifier in
-                       item_update.doi_identifiers or []]
-
-    item.pubmed_identifiers = [await find_or_create_pubmed_identifier(db, identifier.identifier) for identifier in
-                          item_update.pubmed_identifiers or []]
-
-    await item.set_keywords(db, item_update.keywords)
 
     db.add(item)
 
