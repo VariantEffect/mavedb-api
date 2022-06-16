@@ -353,6 +353,47 @@ async def update_scoreset(
 ) -> Any:
     """
     Update a scoreset.
+
+    I thought I’d expand on a note I sent Estelle about how to update score set properties that represent many-to-many
+    relationships.
+
+    There are currently three such properties
+
+    - doi_identifiers and pubmed_identifiers are typical many-to-many relationship fields.
+      Their types are list[DoiIdentifier] and list[PubmedIdentifier] respectively, so each element of the list is
+      itself an object. When the user creates or updates a score set and wants to assign these, we can’t just set
+      the field’s value; we need to find each identifier record if one exists, or else create a new record.
+      Then we can set the score set’s property to the list of identifier records.
+    - keywords also represents a many-to-many relationship, but for convenience we expose it as a list of strings.
+      The actual list of objects is keyword_objs, but you should probably never need to manipulate this property.
+      Instead, there’s a keywords property of type list[str], and when you want to set the keywords, you can call
+      set_keywords. Notice that this is an asynchronous function, which should be called with await.
+
+    These three fields cannot be set directly to values provided by the user, since they represent relationships
+    between tables. (keywords isn’t even settable, and trying to set it will produce a runtime error.)
+    Instead, here’s how to set them, which mostly involves copying some code from create_scoreset
+
+    (1) Find or create the DOI and PubMed identifier records, using these lines copied from create_scoreset
+    (but change item_create to item_update):
+
+    doi_identifiers = [await find_or_create_doi_identifier(db, identifier.identifier) for identifier in item_create.doi_identifiers or []]
+    pubmed_identifiers = [await find_or_create_pubmed_identifier(db, identifier.identifier) for identifier in item_create.pubmed_identifiers or []]
+
+    (2) Set the DOI and PubMed identifiers. In create_scoreset, this happens by passing the arrays created above to
+    the Scoreset constructor. In update_scoreset, you can do something like this instead:
+
+    item.doi_identifiers = doi_identifiers
+    item.pubmed_identifiers = pubmed_identifiers
+
+    (3) Set the keywords, which involves finding or creating keyword records.
+    This can be done by copying a line from create_scoreset
+    (again, changing the input model from item_create to item_update as appropriate):
+
+    await item.set_keywords(db, item_create.keywords)
+
+    One thing this doesn’t accomplish is removing orphaned IDs and keywords that are no longer referenced anywhere
+    after the user’s changes. We can leave this issue open for the moment, I think. And I know we’re likely to drop
+    the generic keywords property, but let’s keep it around for the moment.
     """
     if not item_update:
         raise HTTPException(
@@ -366,8 +407,21 @@ async def update_scoreset(
             status_code=404, detail=f'Scoreset with URN {urn} not found.'
         )
     # TODO Ensure that the current user has edit rights for this scoreset.
-
+    #doi_identifiers = [await find_or_create_doi_identifier(db, identifier.identifier) for identifier in
+    #                   item_update.doi_identifiers or []]
+    #pubmed_identifiers = [await find_or_create_pubmed_identifier(db, identifier.identifier) for identifier in
+    #                      item_update.pubmed_identifiers or []]
+    #item.doi_identifiers = doi_identifiers
+    #item.pubmed_identifiers = pubmed_identifiers
+    #await item.set_keywords(db, item_update.keywords)
     for var, value in vars(item_update).items():
+        print("item: ")
+        print(item)
+        print("var: ")
+        print(var)
+        print("value: ")
+        print(value)
+        #if var:
         setattr(item, var, value) if value else None
     db.add(item)
 
