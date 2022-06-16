@@ -367,13 +367,6 @@ async def update_scoreset(
         )
     # TODO Ensure that the current user has edit rights for this scoreset.
     for var, value in vars(item_update).items():
-        print("item: ")
-        print(item)
-        print("var: ")
-        print(var)
-        print("value: ")
-        print(value)
-        #if var:
         setattr(item, var, value) if value else None
     db.add(item)
 
