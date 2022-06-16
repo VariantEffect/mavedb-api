@@ -18,7 +18,7 @@ class ScoresetBase(BaseModel):
     abstract_text: str
     short_description: str
     extra_metadata: Dict
-    dataset_columns: Dict
+    #dataset_columns: Dict
     data_usage_policy: Optional[str]
     licence_id: Optional[int]
     replaces_id: Optional[int]
@@ -43,13 +43,8 @@ class ScoresetCreate(ScoresetBase):
 class ScoresetUpdate(ScoresetBase):
     doi_identifiers: list[SavedDoiIdentifier]
     pubmed_identifiers: list[SavedPubmedIdentifier]
+    target_gene: TargetGeneCreate
 
-    #Possible Exclude
-    #urn: Optional[str]
-    #title: str
-    #extra_metadata: Dict
-    #dataset_columns: Dict
-    #replaces_id: Optional[int]
 
 
 
@@ -67,6 +62,7 @@ class SavedScoreset(ScoresetBase):
     created_by: Optional[SavedUser]
     modified_by: Optional[SavedUser]
     target_gene: SavedTargetGene
+    dataset_columns: Dict
 
     class Config:
         orm_mode = True
