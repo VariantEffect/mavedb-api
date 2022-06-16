@@ -15,5 +15,3 @@ class ReferenceGenome(Base):
     # genome_id = relationship("Genome", back_populates="reference_maps")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
-
-    reference_maps = relationship("ReferenceMap", back_populates="genome")

@@ -352,12 +352,13 @@ async def update_scoreset(
     user: User = Depends(require_current_user)
 ) -> Any:
     """
-    Update a scoreset.
+    Update a scoreset .
     """
     if not item_update:
         raise HTTPException(
             status_code=400, detail=f'The request contained no updated item.'
         )
+
     #item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
     item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
     if not item:
@@ -365,11 +366,53 @@ async def update_scoreset(
             status_code=404, detail=f'Scoreset with URN {urn} not found.'
         )
     # TODO Ensure that the current user has edit rights for this scoreset.
-    print(item_update.short_description)
-    for var, value in vars(item_update).items():
-        print(var)
-        print(value)
-        setattr(item, var, value) if value else None
+
+    if item.private is True:
+        for var, value in vars(item_update).items():
+            if var not in ["keywords", 'doi_identifiers', 'experiment_urn', 'pubmed_identifiers', 'target_gene']:
+                setattr(item, var, value) if value else None
+        item.doi_identifiers = [await find_or_create_doi_identifier(db, identifier.identifier) for identifier in
+                                item_update.doi_identifiers or []]
+
+        item.pubmed_identifiers = [await find_or_create_pubmed_identifier(db, identifier.identifier) for identifier in
+                                   item_update.pubmed_identifiers or []]
+
+        await item.set_keywords(db, item_update.keywords)
+
+        # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the scoreset's
+        # target_gene to null, because we have set cascade="all,delete-orphan" on Scoreset.target_gene. (Since the
+        # relationship is defined with the target gene as owner, this is actually set up in the backref attribute of
+        # TargetGene.scoreset.)
+        #
+        # We must flush our database queries now so that the old target gene will be deleted before inserting a new one
+        # with the same scoreset_id.
+        item.target_gene = None
+        db.flush()
+
+        wt_sequence = WildTypeSequence(**jsonable_encoder(
+            item_update.target_gene.wt_sequence,
+            by_alias=False
+        ))
+
+        target_gene = TargetGene(
+            **jsonable_encoder(
+                item_update.target_gene,
+                by_alias=False,
+                exclude=['reference_maps', 'wt_sequence'],
+            ),
+            wt_sequence=wt_sequence
+        )
+        item.target_gene = target_gene
+
+        reference_map = ReferenceMap(
+            genome_id=item_update.target_gene.reference_maps[0].genome_id,
+            target=target_gene
+        )
+    else:
+        for var, value in vars(item_update).items():
+            if var not in ["keywords", 'doi_identifiers', 'experiment_urn', 'pubmed_identifiers', 'target_gene']:
+                setattr(item, var, value) if value else None
+
     db.add(item)
 
     db.commit()

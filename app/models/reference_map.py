@@ -1,10 +1,9 @@
 from datetime import date
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 
 from app.db.base import Base
 from .reference_genome import ReferenceGenome
-# from .target_gene import TargetGene
 
 
 class ReferenceMap(Base):
@@ -13,8 +12,8 @@ class ReferenceMap(Base):
     id = Column(Integer, primary_key=True, index=True)
     is_primary = Column(Boolean, nullable=False, default=False)
     genome_id = Column(Integer, ForeignKey("genome_referencegenome.id"), nullable=False)
-    genome = relationship("ReferenceGenome", back_populates="reference_maps")
+    genome = relationship("ReferenceGenome", backref="reference_maps")
     target_id = Column(Integer, ForeignKey("genome_targetgene.id"), nullable=False)
-    target = relationship("TargetGene", back_populates="reference_maps")
+    target = relationship("TargetGene", backref=backref("reference_maps", cascade="all,delete-orphan"))
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
