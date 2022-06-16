@@ -88,5 +88,8 @@ def customize_openapi_schema():
 
 customize_openapi_schema()
 
-if __name__ == '__main__':
-    uvicorn.run(app, host='0.0.0.0', port=8000)
+#if __name__ == "__main__":
+ #   uvicorn.run(app, host="0.0.0.0", port=8011)
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8011)

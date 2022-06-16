@@ -52,7 +52,7 @@ class ExperimentSet(Base):
     short_description = Column(String, nullable=False)
     extra_metadata = Column(JSONB, nullable=False)
 
-    private = Column(Boolean, nullable=False, default=False)
+    private = Column(Boolean, nullable=False, default=True)
     approved = Column(Boolean, nullable=False, default=False)
     published_date = Column('publish_date', Date, nullable=True)
     processing_state = Column(String(32), nullable=True)

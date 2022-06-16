@@ -46,8 +46,6 @@ class ScoresetUpdate(ScoresetBase):
     target_gene: TargetGeneCreate
 
 
-
-
 # Properties shared by models stored in DB
 class SavedScoreset(ScoresetBase):
     # id: int

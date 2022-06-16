@@ -13,7 +13,7 @@ def test_create_experiment(test_empty_db):
         "shortDescription": "Test experiment",
         "extraMetadata": {"key": "value"}
     }
-    response = client.post("/api/v1/experiments/", json=experiment_to_create)
+    response = client.post("/api/v1/experiments", json=experiment_to_create)
     assert response.status_code == 200
     response_data = response.json()
     experiment_urn = response_data['urn']
