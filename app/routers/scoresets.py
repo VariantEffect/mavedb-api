@@ -352,7 +352,7 @@ async def update_scoreset(
     user: User = Depends(require_current_user)
 ) -> Any:
     """
-    Update a scoreset.
+    Update a scoreset .
     """
     if not item_update:
         raise HTTPException(
