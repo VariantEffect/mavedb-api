@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSearch) -> list[Scoreset]:
-    query = db.query(Experiment)\
-        .filter(Scoreset.private.is_(False))
+    query = db.query(Experiment)#\
+        #.filter(Scoreset.private.is_(False))
 
     if owner is not None:
         query = query.filter(Experiment.created_by_id == owner.id)

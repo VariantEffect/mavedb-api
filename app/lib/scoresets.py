@@ -29,8 +29,8 @@ VariantData = dict[str, Optional[dict[str, dict]]]
 
 
 def search_scoresets(db: Session, owner: Optional[User], search: ScoresetsSearch) -> list[Scoreset]:
-    scoresets_query = db.query(Scoreset)\
-        .filter(Scoreset.private.is_(False))
+    scoresets_query = db.query(Scoreset)#\
+        #.filter(Scoreset.private.is_(False))
 
     if owner is not None:
         scoresets_query = scoresets_query.filter(Scoreset.created_by_id == owner.id)

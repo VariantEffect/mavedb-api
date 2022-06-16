@@ -6,7 +6,7 @@ from sqlalchemy.schema import Table
 
 from app.db.base import Base
 from app.deps import JSONB
-from app.lib.urns import generate_temp_urn
+from app.lib.temp_urns import generate_temp_urn
 from app.models.experiment_set import ExperimentSet
 from app.models.keyword import Keyword
 
@@ -54,7 +54,7 @@ class Experiment(Base):
     method_text = Column(String, nullable=False)
     extra_metadata = Column(JSONB, nullable=False)
 
-    private = Column(Boolean, nullable=False, default=False)
+    private = Column(Boolean, nullable=False, default=True)
     approved = Column(Boolean, nullable=False, default=False)
     published_date = Column('publish_date', Date, nullable=True)
     processing_state = Column(String(32), nullable=True)

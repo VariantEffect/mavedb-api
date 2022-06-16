@@ -11,7 +11,7 @@ from .keyword import Keyword
 from .pubmed_identifier import PubmedIdentifier
 from .sra_identifier import SraIdentifier
 from .variant import Variant
-from ..lib.urns import generate_temp_urn
+from app.lib.temp_urns import generate_temp_urn
 
 scoresets_doi_identifiers_association_table = Table(
     'dataset_scoreset_doi_ids',
@@ -67,7 +67,7 @@ class Scoreset(Base):
     dataset_columns = Column(JSONB, nullable=False)
 
     normalised = Column(Boolean, nullable=False, default=False)
-    private = Column(Boolean, nullable=False, default=False)
+    private = Column(Boolean, nullable=False, default=True)
     approved = Column(Boolean, nullable=False, default=False)
     published_date = Column('publish_date', Date, nullable=True)
     processing_state = Column(
