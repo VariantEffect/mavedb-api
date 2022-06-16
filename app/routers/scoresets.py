@@ -366,13 +366,6 @@ async def update_scoreset(
             status_code=404, detail=f'Scoreset with URN {urn} not found.'
         )
     # TODO Ensure that the current user has edit rights for this scoreset.
-    #doi_identifiers = [await find_or_create_doi_identifier(db, identifier.identifier) for identifier in
-    #                   item_update.doi_identifiers or []]
-    #pubmed_identifiers = [await find_or_create_pubmed_identifier(db, identifier.identifier) for identifier in
-    #                      item_update.pubmed_identifiers or []]
-    #item.doi_identifiers = doi_identifiers
-    #item.pubmed_identifiers = pubmed_identifiers
-    #await item.set_keywords(db, item_update.keywords)
     for var, value in vars(item_update).items():
         print("item: ")
         print(item)
