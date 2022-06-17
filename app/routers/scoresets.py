@@ -449,6 +449,7 @@ async def delete_scoreset(
     db.delete(item)
     db.commit()
 
+
 @router.post(
     '/scoresets/{urn}/publish',
     status_code=200,
