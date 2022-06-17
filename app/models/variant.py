@@ -15,7 +15,8 @@ class Variant(Base):
     data = Column(JSONB, nullable=False)
 
     scoreset_id = Column(Integer, ForeignKey("dataset_scoreset.id"), nullable=False)
-    scoreset = relationship("Scoreset", back_populates="variants")
+    #TODO examine if delete-orphan is necessary, explore cascade
+    scoreset = relationship("Scoreset", backref=backref("variants", cascade="all,delete-orphan"))
 
     hgvs_nt = Column(String, nullable=True)
     hgvs_pro = Column(String, nullable=True)
