@@ -448,7 +448,6 @@ async def delete_scoreset(
     # TODO Ensure that the current user has edit rights for this scoreset.
     db.delete(item)
     db.commit()
-    # should delete all connections to scoreset as well from other tables
 
 # ui should prompt user if they really want to delete before deleting
 # if user does not delete, is should stay on scoreset page
