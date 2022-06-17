@@ -446,7 +446,6 @@ async def delete_scoreset(
             status_code=404, detail=f'Scoreset with URN {urn} not found.'
         )
     # TODO Ensure that the current user has edit rights for this scoreset.
-    # add function that deletes a scoreset
     db.delete(item)
     db.commit()
     # should delete all connections to scoreset as well from other tables
