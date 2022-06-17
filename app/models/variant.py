@@ -1,6 +1,6 @@
 from datetime import date
 from sqlalchemy import Column, Date, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 
 from app.db.base import Base
 from app.deps import JSONB
