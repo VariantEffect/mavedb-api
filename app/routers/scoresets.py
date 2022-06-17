@@ -449,14 +449,6 @@ async def delete_scoreset(
     db.delete(item)
     db.commit()
 
-# ui should prompt user if they really want to delete before deleting
-# if user does not delete, is should stay on scoreset page
-# if user does delete, it should navigate to the homeview
-# display toast and reroute
-# confirmation dialog
-
-# resolve display issue, only want to display users scoresets
-
 @router.post(
     '/scoresets/{urn}/publish',
     status_code=200,
