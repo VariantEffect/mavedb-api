@@ -420,6 +420,45 @@ async def update_scoreset(
     return item
 
 
+@router.delete("/scoresets/{urn}", responses={422: {}})
+async def delete_scoreset(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user: User = Depends(require_current_user)
+) -> Any:
+    """
+    Delete a scoreset .
+
+    Raises
+
+    Returns
+    _______
+    Does not return anything
+    string : HTTP code 200 successful but returning content
+    or
+    communitcate to client whether the operation succeeded
+    204 if successful but not returning content - likely going with this
+    """
+    item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
+    if not item:
+        raise HTTPException(
+            status_code=404, detail=f'Scoreset with URN {urn} not found.'
+        )
+    # TODO Ensure that the current user has edit rights for this scoreset.
+    # add function that deletes a scoreset
+    db.delete(item)
+    db.commit()
+    # should delete all connections to scoreset as well from other tables
+
+# ui should prompt user if they really want to delete before deleting
+# if user does not delete, is should stay on scoreset page
+# if user does delete, it should navigate to the homeview
+# display toast and reroute
+# confirmation dialog
+
+# resolve display issue, only want to display users scoresets
+
 @router.post(
     '/scoresets/{urn}/publish',
     status_code=200,
