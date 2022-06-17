@@ -91,7 +91,6 @@ class Scoreset(Base):
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    variants = relationship('Variant', back_populates='scoreset')
     keyword_objs = relationship('Keyword', secondary=scoresets_keywords_association_table, backref='scoresets')
     doi_identifiers = relationship('DoiIdentifier', secondary=scoresets_doi_identifiers_association_table, backref='scoresets')
     pubmed_identifiers = relationship('PubmedIdentifier', secondary=scoresets_pubmed_identifiers_association_table, backref='scoresets')
