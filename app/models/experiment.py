@@ -1,7 +1,7 @@
 from datetime import date
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.event import listens_for
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from sqlalchemy.schema import Table
 
 from app.db.base import Base
@@ -63,7 +63,8 @@ class Experiment(Base):
     num_scoresets = Column('last_child_value', Integer, nullable=False, default=0)
 
     experiment_set_id = Column('experimentset_id', Integer, ForeignKey('dataset_experimentset.id'), nullable=True)
-    experiment_set = relationship('ExperimentSet', backref='experiments')
+    #experiment_set = relationship('ExperimentSet', backref='experiments')
+    experiment_set = relationship("ExperimentSet", backref=backref("experiments", cascade="all,delete-orphan"))
 
     created_by_id = Column(Integer, ForeignKey('auth_user.id'), nullable=True)
     created_by = relationship('User', foreign_keys='Experiment.created_by_id')
@@ -72,7 +73,7 @@ class Experiment(Base):
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    scoresets = relationship('Scoreset', back_populates='experiment')
+    #scoresets = relationship('Scoreset', back_populates='experiment')
     keyword_objs = relationship('Keyword', secondary=experiments_keywords_association_table, backref='experiments')
     doi_identifiers = relationship('DoiIdentifier', secondary=experiments_doi_identifiers_association_table, backref='experiments')
     pubmed_identifiers = relationship('PubmedIdentifier', secondary=experiments_pubmed_identifiers_association_table, backref='experiments')

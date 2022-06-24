@@ -1,6 +1,6 @@
 from datetime import date
 from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from sqlalchemy.schema import Table
 
 from app.db.base import Base
@@ -80,7 +80,8 @@ class Scoreset(Base):
     num_variants = Column('last_child_value', Integer, nullable=False, default=0)
 
     experiment_id = Column(Integer, ForeignKey('dataset_experiment.id'), nullable=False)
-    experiment = relationship('Experiment', back_populates='scoresets')
+    #experiment = relationship('Experiment', back_populates='scoresets')
+    experiment = relationship("Experiment", backref=backref("scoresets", cascade="all,delete-orphan"))
     licence_id = Column(Integer, nullable=True)  # TODO
     replaces_id = Column(Integer, nullable=True)  # TODO
 

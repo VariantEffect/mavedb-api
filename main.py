@@ -11,7 +11,7 @@ import uvicorn
 import logging
 
 from app.routers import doi_identifiers, experiment_sets, experiments, pubmed_identifiers, reference_genomes,\
-    scoresets, target_genes
+    scoresets, target_genes, auth
 
 logging.basicConfig()
 # Un-comment this line to log all queries:
@@ -32,6 +32,7 @@ app.include_router(pubmed_identifiers.router)
 app.include_router(reference_genomes.router)
 app.include_router(scoresets.router)
 app.include_router(target_genes.router)
+app.include_router(auth.router)
 
 
 @app.exception_handler(RequestValidationError)
@@ -92,4 +93,4 @@ customize_openapi_schema()
  #   uvicorn.run(app, host="0.0.0.0", port=8011)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000) #8011
+    uvicorn.run(app, host="0.0.0.0", port=8011)
