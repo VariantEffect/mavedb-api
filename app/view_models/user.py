@@ -1,11 +1,13 @@
 from pydantic import Field
 
 from app.view_models.base.base import BaseModel
+from pydantic.types import Optional
 
 
 class UserBase(BaseModel):
     username: str = Field(..., alias='orcid_id')
-
+    first_name: Optional[str]
+    last_name: Optional[str]
     class Config:
         allow_population_by_field_name = True
 

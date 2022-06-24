@@ -161,3 +161,32 @@ async def update_experiment(
     db.commit()
     db.refresh(item)
     return item
+
+@router.delete("/experiments/{urn}", response_model=experiment.Experiment, responses={422: {}})
+async def delete_experiment(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user: User = Depends(require_current_user)
+) -> Any:
+    """
+    Delete a experiment .
+
+    Raises
+
+    Returns
+    _______
+    Does not return anything
+    string : HTTP code 200 successful but returning content
+    or
+    communitcate to client whether the operation succeeded
+    204 if successful but not returning content - likely going with this
+    """
+    item = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
+    if not item:
+        raise HTTPException(
+            status_code=404, detail=f'Experiment with URN {urn} not found.'
+        )
+
+    db.delete(item)
+    db.commit()
