@@ -52,7 +52,6 @@ class SavedExperiment(ExperimentBase):
     experiment_set_urn: Optional[str]
     doi_identifiers: list[SavedDoiIdentifier]
     pubmed_identifiers: list[SavedPubmedIdentifier]
-    num_scoresets: int
     processing_state: Optional[str]
 
     class Config:
