@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from typing import Any, Optional
+from operator import attrgetter
 
 from app import deps
 from app.lib.auth import get_current_user, require_current_user
@@ -11,7 +12,8 @@ from app.lib.experiments import search_experiments as _search_experiments
 from app.lib.identifiers import find_or_create_doi_identifier, find_or_create_pubmed_identifier
 from app.models.experiment import Experiment
 from app.models.user import User
-from app.view_models import experiment
+from app.models.scoreset import Scoreset
+from app.view_models import experiment,scoreset
 from app.view_models.search import ExperimentsSearch
 
 logger = logging.getLogger(__name__)
@@ -55,6 +57,7 @@ def list_experiments(
     status_code=200,
     response_model=list[experiment.ShortExperiment]
 )
+#Is this typo? search_experiments may be better. routers/scoresets has a same function.
 def search_scoresets(
     search: ExperimentsSearch,
     db: Session = Depends(deps.get_db)
@@ -98,6 +101,29 @@ def fetch_experiment(
         )
     return item
 
+@router.get('/experiments/{urn}/associated_scoresets', status_code=200, response_model=list[scoreset.Scoreset], responses={404:{}})
+def get_experiment_all_scoresets(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db)
+) -> Any:
+    '''
+    Get all of scoresets for an experiment
+    '''
+    experiment = db.query(Experiment).filter(Experiment.urn == urn).first()
+    if not experiment:
+        raise HTTPException(
+            status_code=404, detail=f'Experiment with URN {urn} not found'
+        )
+    #Only get published scoreset. Unpublished scoreset won't be shown on experiment page.
+    scoreset_list = db.query(Scoreset).filter(Scoreset.experiment_id == experiment.id).filter(Scoreset.urn.contains('urn')).all()
+    if not scoreset_list:
+        raise HTTPException(
+            status_code=404, detail=f'No associated score set'
+        )
+    else:
+        scoreset_list.sort(key=attrgetter('urn'))
+    return scoreset_list
 
 @router.post("/experiments/", response_model=experiment.Experiment, responses={422: {}})
 async def create_experiment(
