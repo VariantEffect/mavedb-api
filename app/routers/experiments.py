@@ -58,7 +58,7 @@ def list_experiments(
     response_model=list[experiment.ShortExperiment]
 )
 #Is this typo? search_experiments may be better. routers/scoresets has a same function.
-def search_scoresets(
+def search_experiments(
     search: ExperimentsSearch,
     db: Session = Depends(deps.get_db)
 ) -> Any:
@@ -73,7 +73,7 @@ def search_scoresets(
     status_code=200,
     response_model=list[experiment.ShortExperiment]
 )
-def search_my_scoresets(
+def search_my_experiments(
     search: ExperimentsSearch,
     db: Session = Depends(deps.get_db),
     user: User = Depends(require_current_user)

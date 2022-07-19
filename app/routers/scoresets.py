@@ -233,6 +233,10 @@ async def upload_scoreset_variant_data(
     if not item.urn or not scores_file:
         return None
 
+    # Delete the old variants if upload new scores and counts.
+    if item.dataset_columns is not None:
+        db.query(Variant).filter(Variant.urn.contains(urn)).delete(synchronize_session=False)
+
     extra_na_values = set(
         list(null_values_list)
         + [str(x).lower() for x in null_values_list]
@@ -258,8 +262,10 @@ async def upload_scoreset_variant_data(
     for c in HGVSColumns.options():
         if c not in scores_df.columns:
             scores_df[c] = np.NaN
-    score_columns = {col for col in scores_df.columns if col not in HGVSColumns.options()}
-
+    # Original codes
+    # score_columns = {col for col in scores_df.columns if col not in HGVSColumns.options()}
+    # List can have a same order as the uploaded CSV file. Dict will messy the order.
+    score_columns = [col for col in scores_df.columns if col not in HGVSColumns.options()]
     counts_df = None
     count_columns = []
     if counts_file and counts_file.filename:
@@ -281,8 +287,10 @@ async def upload_scoreset_variant_data(
         for c in HGVSColumns.options():
             if c not in counts_df.columns:
                 counts_df[c] = np.NaN
-        count_columns = {col for col in counts_df.columns if col not in HGVSColumns.options()}
-
+        # Original codes
+        # count_columns = {col for col in counts_df.columns if col not in HGVSColumns.options()}
+        # List can have a same order as the uploaded CSV file. Dict will messy the order.
+        count_columns = [col for col in counts_df.columns if col not in HGVSColumns.options()]
     variants_data = create_variants_data(scores_df, counts_df, None) # , index_col)
 
     if variants_data:
