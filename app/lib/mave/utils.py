@@ -36,4 +36,7 @@ READABLE_NULL_VALUES = [
 
 def is_csv_null(value):
     """Return True if a string from a CSV file represents a NULL value."""
+    # Number 0 is treated as False so that all 0 will be converted to NA value.
+    if value == 0:
+        return value
     return not value or NULL_VALUES_RE.fullmatch(str(value).strip().lower())
