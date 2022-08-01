@@ -5,7 +5,8 @@ from app.db.base import Base
 
 
 class WildTypeSequence(Base):
-    __tablename__ = 'genome_wildtypesequence'
+    # __tablename__ = 'genome_wildtypesequence'
+    __tablename__ = 'wild_type_sequences'
 
     id = Column(Integer, primary_key=True, index=True)
     sequence_type = Column(String(32), nullable=False)

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,8 +10,8 @@ import uvicorn
 
 import logging
 
-from app.routers import doi_identifiers, experiment_sets, experiments, pubmed_identifiers, reference_genomes,\
-    scoresets, target_genes, auth
+from app.routers import access_keys, doi_identifiers, experiment_sets, experiments, pubmed_identifiers, reference_genomes,\
+    scoresets, target_genes, auth, users
 
 logging.basicConfig()
 # Un-comment this line to log all queries:
@@ -20,11 +20,12 @@ logging.basicConfig()
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=['*'],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=['*'],
+    allow_headers=['*'],
 )
+app.include_router(access_keys.router)
 app.include_router(doi_identifiers.router)
 app.include_router(experiment_sets.router)
 app.include_router(experiments.router)
@@ -33,6 +34,7 @@ app.include_router(reference_genomes.router)
 app.include_router(scoresets.router)
 app.include_router(target_genes.router)
 app.include_router(auth.router)
+app.include_router(users.router)
 
 
 @app.exception_handler(RequestValidationError)
@@ -89,5 +91,5 @@ def customize_openapi_schema():
 
 customize_openapi_schema()
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+if __name__ == '__main__':
+    uvicorn.run(app, host='0.0.0.0', port=8000)

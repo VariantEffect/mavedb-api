@@ -1,44 +1,69 @@
 version: "3"
 
 services:
-  #app:
-  #  image: mavedb/mavedb:dev
-  #  build:
-  #    context: .
-  #    args:
-  #      DJANGO_REQUIREMENTS: development
-  #  volumes:
-  #    - $PWD:/srv/app
-  #    - $PWD/logs:/var/log/celery
-  #    - /srv/app/docs
-  #  env_file:
-  #    - settings/.settings-development.env
-  #  ports:
-  #    - 8000:8000
-  #  environment:
-  #    - APP_VERSION=development
-  #    - ENVIRONMENTdd=development
-  #    - DJANGO_SETTINGS_MODULE=settings.development
+  app:
+    image: mavedb-api/mavedb-api:dev
+    build:
+      context: .
+#      args:
+#        DJANGO_REQUIREMENTS: development
+    volumes:
+      - .:/code
+    command: bash -c "uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+#    command: bash -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+#      - $PWD:/srv/app
+#      - $PWD/logs:/var/log/celery
+#      - /srv/app/docs
+#    env_file:
+#      - settings/.settings-development.env
+    ports:
+      - "8002:8000"
+    depends_on:
+      - db
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
 
-  #database:
-  #  image: postgres:9.6
-  #  build:
-  #    context: docker/postgres
+      DB_DATABASE_NAME: mavedb_dev
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+#      - APP_VERSION=development
+#      - ENVIRONMENTdd=development
+#      - DJANGO_SETTINGS_MODULE=settings.development
+
+  db:
+    image: postgres:14
+#    build:
+#      context: docker/postgres
   #  volumes:
   #    - database-data:/var/lib/postgresql/data
   #    - $PWD/docker/postgres/dumps:/home/dumps:ro
-  #  ports:
-  #    - 5433:5432
-  #  environment:
-  #    POSTGRES_USER: $MAVEDB_DB_USER
-  #    POSTGRES_PASSWORD: $MAVEDB_DB_PASSWORD
-  #    POSTGRES_DB: $MAVEDB_DB_NAME
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mavedb_dev
+#      POSTGRES_USER: $MAVEDB_DB_USER
+#      POSTGRES_PASSWORD: $MAVEDB_DB_PASSWORD
+#      POSTGRES_DB: $MAVEDB_DB_NAME
   #    MAVEDB_DUMP_FILE: $MAVEDB_DUMP_FILE
 
-  rabbitmq:
-    image: rabbitmq:3.8.3
+  pgadmin:
+    container_name: pgadmin
+    image: dpage/pgadmin4
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=pgadmin4@pgadmin.org
+      - PGADMIN_DEFAULT_PASSWORD=admin
     ports:
-      - "5673:5672"
+      - "5050:80"
+    depends_on:
+      - db
+
+  #rabbitmq:
+  #  image: rabbitmq:3.8.3
+  #  ports:
+  #    - "5673:5672"
 
 #volumes:
 #  database-data:
