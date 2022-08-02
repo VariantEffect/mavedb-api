@@ -1,13 +1,14 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import Request, HTTPException, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Request, HTTPException, Depends, Security, Header
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyQuery, APIKeyHeader, APIKeyCookie
 from jose import jwt
 from sqlalchemy.orm import Session
 from starlette import status
 
 from app import deps
+from app.models.access_key import AccessKey
 from app.models.user import User
 
 # See https://8gwifi.org/jwkconvertfunctions.jsp
@@ -74,13 +75,46 @@ class JWTBearer(HTTPBearer):
         return payload
 
 
-async def get_current_user(token_payload: dict = Depends(JWTBearer()), db: Session = Depends(deps.get_db))\
-        -> Optional[User]:
+ACCESS_TOKEN_NAME = 'access_token'
+access_token_query = APIKeyQuery(name=ACCESS_TOKEN_NAME, auto_error=False)
+access_token_header = APIKeyHeader(name=ACCESS_TOKEN_NAME, auto_error=False)
+access_token_cookie = APIKeyCookie(name=ACCESS_TOKEN_NAME, auto_error=False)
+
+
+async def get_access_token(
+    # access_token_query: str = Security(access_token_query),
+    access_token_header: Optional[str] = Security(access_token_header),
+    access_token_cookie: Optional[str] = Security(access_token_cookie)
+) -> Optional[str]:
+    return access_token_header or access_token_cookie
+
+
+async def get_current_user_from_api_key(
+        db: Session = Depends(deps.get_db),
+        access_token: str = Depends(get_access_token)
+) -> Optional[User]:
+    print(access_token)
     user = None
-    if token_payload is not None:
+    if access_token is not None:
+        print(access_token)
+        print(type(db))
+        access_key = db.query(AccessKey).filter(AccessKey.key_id == access_token).one_or_none()
+        if access_key:
+            user = access_key.user
+    return user
+
+
+async def get_current_user(
+        api_key_user: Optional[User] = Depends(get_current_user_from_api_key),
+        token_payload: dict = Depends(JWTBearer()),
+        db: Session = Depends(deps.get_db)
+) -> Optional[User]:
+    user = api_key_user
+    print('HERE')
+    print(user)
+    if user is None and token_payload is not None:
         username: str = token_payload['sub']
         if username is not None:
-            print(username)
             user = db.query(User).filter(User.username == username).one_or_none()
             if user is None:
                 # A new user has just connected an ORCID iD. Create the user account.

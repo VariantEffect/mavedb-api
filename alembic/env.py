@@ -14,15 +14,6 @@ config = context.config
 # This line sets up loggers basically.
 fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-# target_metadata = None
-from app.db.base import Base
-from app.models.doi_identifier import DoiIdentifier
-target_metadata = Base.metadata
-
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
@@ -35,6 +26,16 @@ DB_DATABASE_NAME = os.getenv('DB_DATABASE_NAME') or 'mavedb'
 DB_USERNAME = os.getenv('DB_USERNAME') or 'mave_admin'
 DB_PASSWORD = os.getenv('DB_PASSWORD') or 'abc123'
 config.set_section_option('alembic', 'sqlalchemy.url', f'postgresql://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_DATABASE_NAME}')
+
+# add your model's MetaData object here
+# for 'autogenerate' support
+# from myapp import mymodel
+# target_metadata = mymodel.Base.metadata
+# target_metadata = None
+from app.db.base import Base
+# from app.models.doi_identifier import DoiIdentifier
+from app.models import *
+target_metadata = Base.metadata
 
 
 def run_migrations_offline():

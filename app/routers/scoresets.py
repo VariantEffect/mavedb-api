@@ -132,7 +132,10 @@ def fetch_scoreset_scores(
         raise HTTPException(
             status_code=404, detail=f"Recipe with ID {id} not found"
         )
-    columns = ["accession", "hgvs_nt", "hgvs_pro", "hgvs_splice"] + scoreset.dataset_columns["score_columns"]
+    # PostgreSQL’s own JSONB data type does not preserve the order of keys.
+    # So we would have to store this data in a different type of field if we wanted to guarantee their order.
+    # scoreset.dataset_columns has the correct order while scoreset.variants doesn't have.
+    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + scoreset.dataset_columns["score_columns"]
     type_column = "score_data"
     rows = format_csv_rows(scoreset.variants, columns=columns, dtype=type_column)
     stream = io.StringIO()
@@ -145,6 +148,41 @@ def fetch_scoreset_scores(
                                  media_type="text/csv"
     )
 
+@router.get(
+    "/scoresets/{urn}/counts",
+    status_code=200,
+    responses={
+        200: {
+            "content": {"text/csv": {}},
+            "description": '''Variant counts in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,'''
+                ''' and hgvs_splice), plus score columns defined by the scoreset.'''
+        }
+    })
+async def fetch_scoreset_counts(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """
+    Get counts values for a scoreset.
+    """
+    scoreset = db.query(Scoreset).filter(Scoreset.urn == urn).first()
+    if not scoreset:
+        raise HTTPException(
+            status_code=404, detail=f"Recipe with ID {id} not found"
+        )
+    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + scoreset.dataset_columns["count_columns"]
+    type_column = "count_data"
+    rows = format_csv_rows(scoreset.variants, columns=columns, dtype=type_column)
+    stream = io.StringIO()
+    writer = csv.DictWriter(
+        stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL
+    )
+    writer.writeheader()
+    writer.writerows(rows)
+    return StreamingResponse(iter([stream.getvalue()]),
+                             media_type="text/csv"
+                             )
 
 class HGVSColumns:
     NUCLEOTIDE: str = 'hgvs_nt'  # dataset.constants.hgvs_nt_column
@@ -233,6 +271,9 @@ async def upload_scoreset_variant_data(
     if not item.urn or not scores_file:
         return None
 
+    # Delete the old variants so that uploading new scores and counts won't accumulate the old ones.
+    db.query(Variant).filter(Variant.scoreset_id == item.id).delete()
+
     extra_na_values = set(
         list(null_values_list)
         + [str(x).lower() for x in null_values_list]
@@ -258,8 +299,10 @@ async def upload_scoreset_variant_data(
     for c in HGVSColumns.options():
         if c not in scores_df.columns:
             scores_df[c] = np.NaN
-    score_columns = {col for col in scores_df.columns if col not in HGVSColumns.options()}
-
+    # Original codes
+    # score_columns = {col for col in scores_df.columns if col not in HGVSColumns.options()}
+    # List can have a same order as the uploaded CSV file. Dict will messy the order.
+    score_columns = [col for col in scores_df.columns if col not in HGVSColumns.options()]
     counts_df = None
     count_columns = []
     if counts_file and counts_file.filename:
@@ -281,10 +324,11 @@ async def upload_scoreset_variant_data(
         for c in HGVSColumns.options():
             if c not in counts_df.columns:
                 counts_df[c] = np.NaN
-        count_columns = {col for col in counts_df.columns if col not in HGVSColumns.options()}
-
+        # Original codes
+        # count_columns = {col for col in counts_df.columns if col not in HGVSColumns.options()}
+        # List can have a same order as the uploaded CSV file. Dict will messy the order.
+        count_columns = [col for col in counts_df.columns if col not in HGVSColumns.options()]
     variants_data = create_variants_data(scores_df, counts_df, None) # , index_col)
-
     if variants_data:
         logger.error(f'{item.urn}:{variants_data[-1]}')
     logger.error(variants_data)

@@ -12,6 +12,7 @@ orcid~=1.0.3
 pandas~=1.4.1
 psycopg2~=2.9.3
 pytest~=7.0.1
+python-dotenv~=0.20.0
 python-jose[cryptography]
 python-multipart~=0.0.5
 SQLAlchemy~=1.4.31
