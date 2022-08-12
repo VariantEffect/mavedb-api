@@ -4,6 +4,7 @@ from app.db.base import Base
 
 
 # TODO Unused
+"""
 class FailedTask(Base):
     # __tablename__ = 'core_failedtask'
     __tablename__ = 'failed_tasks'
@@ -25,3 +26,4 @@ class FailedTask(Base):
     trace = Column(String, nullable=True)
     num_failures = Column(SmallInteger, nullable=False)
     user_id = Column(Integer, nullable=True)  # TODO
+"""

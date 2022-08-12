@@ -1,8 +1,8 @@
 from datetime import date
 from typing import Optional
 
-from app.view_models.reference_genome import ReferenceGenome, ReferenceGenomeInDbBase
 from app.view_models.base.base import BaseModel
+from app.view_models.reference_genome import ReferenceGenome, ReferenceGenomeInDbBase
 
 
 class ReferenceMapBase(BaseModel):

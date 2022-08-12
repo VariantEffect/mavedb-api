@@ -1,4 +1,5 @@
 from datetime import date
+
 from sqlalchemy import Column, Date, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship, backref
 
@@ -17,7 +18,7 @@ class Variant(Base):
 
     # scoreset_id = Column(Integer, ForeignKey('dataset_scoreset.id'), nullable=False)
     scoreset_id = Column(Integer, ForeignKey('scoresets.id'), nullable=False)
-    #TODO examine if delete-orphan is necessary, explore cascade
+    # TODO examine if delete-orphan is necessary, explore cascade
     scoreset = relationship('Scoreset', backref=backref('variants', cascade='all,delete-orphan'))
 
     hgvs_nt = Column(String, nullable=True)

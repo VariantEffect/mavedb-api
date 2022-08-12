@@ -1,6 +1,7 @@
 from datetime import date
-from pydantic.types import Optional
 from typing import Dict
+
+from pydantic.types import Optional
 
 from app.view_models.base.base import BaseModel
 from app.view_models.doi_identifier import DoiIdentifier, DoiIdentifierCreate, SavedDoiIdentifier
@@ -18,7 +19,6 @@ class ScoresetBase(BaseModel):
     abstract_text: str
     short_description: str
     extra_metadata: Dict
-    #dataset_columns: Dict
     data_usage_policy: Optional[str]
     licence_id: Optional[int]
     replaces_id: Optional[int]
@@ -30,14 +30,6 @@ class ScoresetCreate(ScoresetBase):
     target_gene: TargetGeneCreate
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     pubmed_identifiers: Optional[list[PubmedIdentifierCreate]]
-
-    #target_gene_ensembl_id_id: Optional[int]
-    #target_gene_refseq_id_id: Optional[int]
-    #target_gene_uniprot_id_id: Optional[int]
-
-    #target_gene_ensembl_offset: Optional[int]
-    #target_gene_refseq_offset: Optional[int]
-    #target_gene_uniprot_offset: Optional[int]
 
 
 class ScoresetUpdate(ScoresetBase):

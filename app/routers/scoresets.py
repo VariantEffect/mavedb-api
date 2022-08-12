@@ -1,22 +1,22 @@
 import csv
-from datetime import date
-import logging
 import io
+import logging
 import re
+from datetime import date
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, Form, File, HTTPException, Request, UploadFile, Request, status
-from fastapi.responses import StreamingResponse
-from mavecore.validation.constants import null_values_list
 import numpy as np
 import pandas as pd
+from fastapi import APIRouter, Depends, File, status, UploadFile
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import HTTPException
+from fastapi.responses import StreamingResponse
+from mavecore.validation.constants import null_values_list
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import MultipleResultsFound
-from fastapi.exceptions import HTTPException
-from fastapi.encoders import jsonable_encoder
 
 from app import deps
-from app.lib.auth import require_current_user, get_current_user
+from app.lib.authorization import require_current_user
 from app.lib.identifiers import find_or_create_doi_identifier, find_or_create_pubmed_identifier
 from app.lib.scoresets import create_variants_data, search_scoresets as _search_scoresets, VariantData
 from app.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_scoreset_urn
@@ -28,12 +28,10 @@ from app.models.target_gene import TargetGene
 from app.models.user import User
 from app.models.variant import Variant
 from app.models.wild_type_sequence import WildTypeSequence
-# from app.tasks.scoreset_tasks import create_variants_task
 from app.view_models import scoreset
 from app.view_models.search import ScoresetsSearch
 
 logger = logging.getLogger(__name__)
-
 
 null_values_re = re.compile(
     r'\s+|none|nan|na|undefined|n/a|null|nil',
@@ -42,7 +40,7 @@ null_values_re = re.compile(
 
 
 def is_null(value):
-    '''Return True if a string represents a null value.'''
+    """Return True if a string represents a null value."""
     value = str(value).strip().lower()
     return null_values_re.fullmatch(value) or not value
 
@@ -60,8 +58,8 @@ router = APIRouter(
     response_model=list[scoreset.ShortScoreset]
 )
 def search_scoresets(
-    search: ScoresetsSearch,  # = Body(..., embed=True),
-    db: Session = Depends(deps.get_db)
+        search: ScoresetsSearch,  # = Body(..., embed=True),
+        db: Session = Depends(deps.get_db)
 ) -> Any:
     """
     Search scoresets.
@@ -75,9 +73,9 @@ def search_scoresets(
     response_model=list[scoreset.ShortScoreset]
 )
 def search_my_scoresets(
-    search: ScoresetsSearch,  # = Body(..., embed=True),
-    db: Session = Depends(deps.get_db),
-    user: User = Depends(require_current_user)
+        search: ScoresetsSearch,  # = Body(..., embed=True),
+        db: Session = Depends(deps.get_db),
+        user: User = Depends(require_current_user)
 ) -> Any:
     """
     Search scoresets created by the current user..
@@ -86,16 +84,16 @@ def search_my_scoresets(
 
 
 @router.get('/scoresets/{urn}', status_code=200, response_model=scoreset.Scoreset, responses={404: {}, 500: {}})
-def fetch_scoreset(
-    *,
-    urn: str,
-    db: Session = Depends(deps.get_db)
+def show_scoreset(
+        *,
+        urn: str,
+        db: Session = Depends(deps.get_db)
 ) -> Any:
     """
     Fetch a single scoreset by URN.
     """
     try:
-        #item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+        # item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
         item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
     except MultipleResultsFound:
         raise HTTPException(
@@ -109,80 +107,75 @@ def fetch_scoreset(
 
 
 @router.get(
-    "/scoresets/{urn}/scores",
+    '/scoresets/{urn}/scores',
     status_code=200,
     responses={
         200: {
-            "content": {"text/csv": {}},
-            "description": '''Variant scores in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,'''
-                ''' and hgvs_splice), plus score columns defined by the scoreset.'''
+            'content': {'text/csv': {}},
+            'description': """Variant scores in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
+                           """ and hgvs_splice), plus score columns defined by the scoreset."""
         }
     }
 )
-def fetch_scoreset_scores(
-    *,
-    urn: str,
-    db: Session = Depends(deps.get_db),
+def get_scoreset_scores_csv(
+        *,
+        urn: str,
+        db: Session = Depends(deps.get_db),
 ) -> Any:
     """
-    Fetch scores from a scoreset, by scoreset URN.
-    """
-    scoreset = db.query(Scoreset).filter(Scoreset.urn==urn).first()
-    if not scoreset:
-        raise HTTPException(
-            status_code=404, detail=f"Recipe with ID {id} not found"
-        )
-    # PostgreSQL’s own JSONB data type does not preserve the order of keys.
-    # So we would have to store this data in a different type of field if we wanted to guarantee their order.
-    # scoreset.dataset_columns has the correct order while scoreset.variants doesn't have.
-    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + scoreset.dataset_columns["score_columns"]
-    type_column = "score_data"
-    rows = format_csv_rows(scoreset.variants, columns=columns, dtype=type_column)
-    stream = io.StringIO()
-    writer = csv.DictWriter(
-        stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL
-    )
-    writer.writeheader()
-    writer.writerows(rows)
-    return StreamingResponse(iter([stream.getvalue()]),
-                                 media_type="text/csv"
-    )
-
-@router.get(
-    "/scoresets/{urn}/counts",
-    status_code=200,
-    responses={
-        200: {
-            "content": {"text/csv": {}},
-            "description": '''Variant counts in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,'''
-                ''' and hgvs_splice), plus score columns defined by the scoreset.'''
-        }
-    })
-async def fetch_scoreset_counts(
-    *,
-    urn: str,
-    db: Session = Depends(deps.get_db),
-) -> Any:
-    """
-    Get counts values for a scoreset.
+    Return scores from a scoreset, identified by URN, in CSV format.
     """
     scoreset = db.query(Scoreset).filter(Scoreset.urn == urn).first()
     if not scoreset:
         raise HTTPException(
-            status_code=404, detail=f"Recipe with ID {id} not found"
+            status_code=404, detail=f'Scoreset with URN {urn} not found'
         )
-    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + scoreset.dataset_columns["count_columns"]
-    type_column = "count_data"
-    rows = format_csv_rows(scoreset.variants, columns=columns, dtype=type_column)
+    columns = ['accession', 'hgvs_nt', 'hgvs_splice', 'hgvs_pro'] + scoreset.dataset_columns['score_columns']
+    type_column = 'score_data'
+    rows_data = get_csv_rows_data(scoreset.variants, columns=columns, dtype=type_column)
     stream = io.StringIO()
     writer = csv.DictWriter(
         stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL
     )
     writer.writeheader()
-    writer.writerows(rows)
-    return StreamingResponse(iter([stream.getvalue()]),
-                             media_type="text/csv"
-                             )
+    writer.writerows(rows_data)
+    return StreamingResponse(iter([stream.getvalue()]), media_type='text/csv')
+
+
+@router.get(
+    '/scoresets/{urn}/counts',
+    status_code=200,
+    responses={
+        200: {
+            'content': {'text/csv': {}},
+            'description': """Variant counts in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
+                           """ and hgvs_splice), plus score columns defined by the scoreset."""
+        }
+    })
+async def get_scoreset_counts_csv(
+        *,
+        urn: str,
+        db: Session = Depends(deps.get_db),
+) -> Any:
+    """
+    Return counts from a scoreset, identified by URN, in CSV format.
+    """
+    scoreset = db.query(Scoreset).filter(Scoreset.urn == urn).first()
+    if not scoreset:
+        raise HTTPException(
+            status_code=404, detail=f'Recipe with ID {id} not found'
+        )
+    columns = ['accession', 'hgvs_nt', 'hgvs_splice', 'hgvs_pro'] + scoreset.dataset_columns['count_columns']
+    type_column = 'count_data'
+    rows_data = get_csv_rows_data(scoreset.variants, columns=columns, dtype=type_column)
+    stream = io.StringIO()
+    writer = csv.DictWriter(
+        stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL
+    )
+    writer.writeheader()
+    writer.writerows(rows_data)
+    return StreamingResponse(iter([stream.getvalue()]), media_type='text/csv')
+
 
 class HGVSColumns:
     NUCLEOTIDE: str = 'hgvs_nt'  # dataset.constants.hgvs_nt_column
@@ -194,12 +187,12 @@ class HGVSColumns:
         return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
-@router.post("/scoresets/", response_model=scoreset.Scoreset, responses={422: {}})
+@router.post('/scoresets/', response_model=scoreset.Scoreset, responses={422: {}})
 async def create_scoreset(
-    *,
-    item_create: scoreset.ScoresetCreate,
-    db: Session = Depends(deps.get_db),
-    user: User = Depends(require_current_user)
+        *,
+        item_create: scoreset.ScoresetCreate,
+        db: Session = Depends(deps.get_db),
+        user: User = Depends(require_current_user)
 ) -> Any:
     """
     Create a scoreset.
@@ -229,10 +222,14 @@ async def create_scoreset(
         genome_id=item_create.target_gene.reference_maps[0].genome_id,
         target=target_gene
     )
-    doi_identifiers = [await find_or_create_doi_identifier(db, identifier.identifier) for identifier in item_create.doi_identifiers or []]
-    pubmed_identifiers = [await find_or_create_pubmed_identifier(db, identifier.identifier) for identifier in item_create.pubmed_identifiers or []]
+    doi_identifiers = [await find_or_create_doi_identifier(db, identifier.identifier) for identifier in
+                       item_create.doi_identifiers or []]
+    pubmed_identifiers = [await find_or_create_pubmed_identifier(db, identifier.identifier) for identifier in
+                          item_create.pubmed_identifiers or []]
     item = Scoreset(
-        **jsonable_encoder(item_create, by_alias=False, exclude=['doi_identifiers', 'experiment_urn', 'keywords', 'pubmed_identifiers', 'target_gene']),
+        **jsonable_encoder(item_create, by_alias=False,
+                           exclude=['doi_identifiers', 'experiment_urn', 'keywords', 'pubmed_identifiers',
+                                    'target_gene']),
         experiment=experiment,
         target_gene=target_gene,
         doi_identifiers=doi_identifiers,
@@ -250,14 +247,14 @@ async def create_scoreset(
     return item
 
 
-@router.post("/scoresets/{urn}/variants/data", response_model=scoreset.Scoreset, responses={422: {}})
+@router.post('/scoresets/{urn}/variants/data', response_model=scoreset.Scoreset, responses={422: {}})
 async def upload_scoreset_variant_data(
-    *,
-    urn: str,
-    counts_file: Optional[UploadFile] = File(None),
-    scores_file: UploadFile = File(...),
-    db: Session = Depends(deps.get_db),
-    user: User = Depends(require_current_user)
+        *,
+        urn: str,
+        counts_file: Optional[UploadFile] = File(None),
+        scores_file: UploadFile = File(...),
+        db: Session = Depends(deps.get_db),
+        user: User = Depends(require_current_user)
 ) -> Any:
     """
     Upload scores and variant count files for a scoreset, and initiate processing these files to
@@ -266,7 +263,7 @@ async def upload_scoreset_variant_data(
 
     # TODO Confirm access.
 
-    #item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+    # item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
     item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
     if not item.urn or not scores_file:
         return None
@@ -285,7 +282,7 @@ async def upload_scoreset_variant_data(
         filepath_or_buffer=scores_file.file,
         sep=',',
         encoding='utf-8',
-        quotechar='"',
+        quotechar='\'',
         comment='#',
         na_values=extra_na_values,
         keep_default_na=True,
@@ -310,7 +307,7 @@ async def upload_scoreset_variant_data(
             filepath_or_buffer=counts_file.file,
             sep=',',
             encoding='utf-8',
-            quotechar='"',
+            quotechar='\'',
             comment='#',
             na_values=extra_na_values,
             keep_default_na=True,
@@ -321,21 +318,23 @@ async def upload_scoreset_variant_data(
                 # MaveScoresDataset.AdditionalColumns.SCORES: float,
             }
         ).replace(null_values_re, np.NaN)
-        for c in HGVSColumns.options():
-            if c not in counts_df.columns:
-                counts_df[c] = np.NaN
-        # Original codes
-        # count_columns = {col for col in counts_df.columns if col not in HGVSColumns.options()}
-        # List can have a same order as the uploaded CSV file. Dict will messy the order.
-        count_columns = [col for col in counts_df.columns if col not in HGVSColumns.options()]
-    variants_data = create_variants_data(scores_df, counts_df, None) # , index_col)
+    for c in HGVSColumns.options():
+        if c not in counts_df.columns:
+            counts_df[c] = np.NaN
+    # Original codes
+    # count_columns = {col for col in counts_df.columns if col not in HGVSColumns.options()}
+    # List can have a same order as the uploaded CSV file. Dict will messy the order.
+    count_columns = [col for col in counts_df.columns if col not in HGVSColumns.options()]
+
+
+    variants_data = create_variants_data(scores_df, counts_df, None)  # , index_col)
     if variants_data:
         logger.error(f'{item.urn}:{variants_data[-1]}')
     logger.error(variants_data)
 
     # with transaction.atomic():
     logger.error(f'Deleting existing variants for {item.urn}')
-    #self.instance.delete_variants()
+    # self.instance.delete_variants()
     logger.error(f'Creating variants for {item.urn}')
     create_variants(db, item, variants_data)
     logger.error(f'Saving {item.urn}')
@@ -347,14 +346,14 @@ async def upload_scoreset_variant_data(
     item.modified_by = user
     db.add(item)
 
-    #create_variants_task.submit_task(kwargs={
+    # create_variants_task.submit_task(kwargs={
     #    'user_id': None,
     #    'scoreset_urn': item.urn,
     #    'scores': None
     #    # 'counts',
     #    # 'index_col',
     #    # 'dataset_columns'
-    #})
+    # })
 
     db.commit()
     db.refresh(item)
@@ -380,20 +379,20 @@ def bulk_create_urns(n, scoreset, reset_counter=False) -> List[str]:
     start_value = 0 if reset_counter else scoreset.num_variants
     parent_urn = scoreset.urn
     child_urns = [
-        "{}#{}".format(parent_urn, start_value + (i + 1)) for i in range(n)
+        '{}#{}'.format(parent_urn, start_value + (i + 1)) for i in range(n)
     ]
     current_value = start_value + n
     scoreset.num_variants = current_value
     return child_urns
 
 
-@router.put("/scoresets/{urn}", response_model=scoreset.Scoreset, responses={422: {}})
+@router.put('/scoresets/{urn}', response_model=scoreset.Scoreset, responses={422: {}})
 async def update_scoreset(
-    *,
-    urn: str,
-    item_update: scoreset.ScoresetUpdate,
-    db: Session = Depends(deps.get_db),
-    user: User = Depends(require_current_user)
+        *,
+        urn: str,
+        item_update: scoreset.ScoresetUpdate,
+        db: Session = Depends(deps.get_db),
+        user: User = Depends(require_current_user)
 ) -> Any:
     """
     Update a scoreset .
@@ -403,7 +402,7 @@ async def update_scoreset(
             status_code=400, detail=f'The request contained no updated item.'
         )
 
-    #item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+    # item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
     item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
     if not item:
         raise HTTPException(
@@ -413,7 +412,7 @@ async def update_scoreset(
 
     if item.private is True:
         for var, value in vars(item_update).items():
-            if var not in ["keywords", 'doi_identifiers', 'experiment_urn', 'pubmed_identifiers', 'target_gene']:
+            if var not in ['keywords', 'doi_identifiers', 'experiment_urn', 'pubmed_identifiers', 'target_gene']:
                 setattr(item, var, value) if value else None
         item.doi_identifiers = [await find_or_create_doi_identifier(db, identifier.identifier) for identifier in
                                 item_update.doi_identifiers or []]
@@ -424,7 +423,7 @@ async def update_scoreset(
         await item.set_keywords(db, item_update.keywords)
 
         # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the scoreset's
-        # target_gene to null, because we have set cascade="all,delete-orphan" on Scoreset.target_gene. (Since the
+        # target_gene to null, because we have set cascade='all,delete-orphan' on Scoreset.target_gene. (Since the
         # relationship is defined with the target gene as owner, this is actually set up in the backref attribute of
         # TargetGene.scoreset.)
         #
@@ -454,7 +453,7 @@ async def update_scoreset(
         )
     else:
         for var, value in vars(item_update).items():
-            if var not in ["keywords", 'doi_identifiers', 'experiment_urn', 'pubmed_identifiers', 'target_gene']:
+            if var not in ['keywords', 'doi_identifiers', 'experiment_urn', 'pubmed_identifiers', 'target_gene']:
                 setattr(item, var, value) if value else None
 
     db.add(item)
@@ -464,12 +463,12 @@ async def update_scoreset(
     return item
 
 
-@router.delete("/scoresets/{urn}", responses={422: {}})
+@router.delete('/scoresets/{urn}', responses={422: {}})
 async def delete_scoreset(
-    *,
-    urn: str,
-    db: Session = Depends(deps.get_db),
-    user: User = Depends(require_current_user)
+        *,
+        urn: str,
+        db: Session = Depends(deps.get_db),
+        user: User = Depends(require_current_user)
 ) -> Any:
     """
     Delete a scoreset .
@@ -500,10 +499,10 @@ async def delete_scoreset(
     response_model=scoreset.Scoreset
 )
 def publish_scoreset(
-    *,
-    urn: str,
-    db: Session = Depends(deps.get_db),
-    user: User = Depends(require_current_user)
+        *,
+        urn: str,
+        db: Session = Depends(deps.get_db),
+        user: User = Depends(require_current_user)
 ) -> Any:
     """
     Publish a scoreset.
@@ -520,7 +519,8 @@ def publish_scoreset(
         )
     if not item.experiment.experiment_set:
         raise HTTPException(
-            status_code=500, detail='This scoreset\'s experiment does not belong to an experiment set and cannot be published.'
+            status_code=500,
+            detail='This scoreset\'s experiment does not belong to an experiment set and cannot be published.'
         )
 
     published_date = date.today()
@@ -548,9 +548,9 @@ def publish_scoreset(
     return item
 
 
-def format_csv_rows(variants, columns, dtype, na_rep="NA"):
+def get_csv_rows_data(variants, columns, dtype, na_rep='NA'):
     """
-    Formats each variant into a dictionary row containing the keys specified
+    Format each variant into a dictionary row containing the keys specified
     in `columns`.
 
     Parameters
@@ -568,22 +568,22 @@ def format_csv_rows(variants, columns, dtype, na_rep="NA"):
     -------
     list[dict]
     """
-    rowdicts = []
+    row_dicts = []
     for variant in variants:
         data = {}
         for column_key in columns:
-            if column_key == "hgvs_nt":
+            if column_key == 'hgvs_nt':
                 value = str(variant.hgvs_nt)
-            elif column_key == "hgvs_pro":
+            elif column_key == 'hgvs_pro':
                 value = str(variant.hgvs_pro)
-            elif column_key == "hgvs_splice":
+            elif column_key == 'hgvs_splice':
                 value = str(variant.hgvs_splice)
-            elif column_key == "accession":
+            elif column_key == 'accession':
                 value = str(variant.urn)
             else:
                 value = str(variant.data[dtype][column_key])
             if is_null(value):
                 value = na_rep
             data[column_key] = value
-        rowdicts.append(data)
-    return rowdicts
+        row_dicts.append(data)
+    return row_dicts

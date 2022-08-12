@@ -4,8 +4,8 @@ from typing import List, Optional
 from pydantic import conlist
 
 from app.view_models.base.base import BaseModel
-from app.view_models.reference_map import ReferenceMap, ReferenceMapCreate, SavedReferenceMap
-from app.view_models.wild_type_sequence import SavedWildTypeSequence, WildTypeSequence, WildTypeSequenceCreate
+from app.view_models.reference_map import ReferenceMap, ReferenceMapCreate
+from app.view_models.wild_type_sequence import WildTypeSequence, WildTypeSequenceCreate
 
 
 class TargetGeneBase(BaseModel):

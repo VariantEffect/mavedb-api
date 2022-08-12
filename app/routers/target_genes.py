@@ -1,8 +1,8 @@
+from typing import Any, List
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from typing import Any, List
-
 
 import app
 from app import deps
@@ -19,25 +19,25 @@ router = APIRouter(
 
 @router.get('/', status_code=200, response_model=List[app.view_models.target_gene.TargetGene], responses={404: {}})
 def list_target_genes(
-    *,
-    db: Session = Depends(deps.get_db),
+        *,
+        db: Session = Depends(deps.get_db),
 ) -> Any:
-    '''
+    """
     List target genes.
-    '''
+    """
     items = db.query(TargetGene).order_by(TargetGene.name).all()
     return items
 
 
 @router.get('/{item_id}', status_code=200, response_model=target_gene.TargetGene, responses={404: {}})
 def fetch_target_gene(
-    *,
-    item_id: int,
-    db: Session = Depends(deps.get_db),
+        *,
+        item_id: int,
+        db: Session = Depends(deps.get_db),
 ) -> Any:
-    '''
+    """
     Fetch a single target gene by ID.
-    '''
+    """
     item = db.query(TargetGene).filter(TargetGene.id == item_id).first()
     if not item:
         raise HTTPException(
@@ -52,8 +52,8 @@ def fetch_target_gene(
     response_model=List[app.view_models.target_gene.TargetGene]
 )
 def search_target_genes(
-    search: TextSearch,
-    db: Session = Depends(deps.get_db)
+        search: TextSearch,
+        db: Session = Depends(deps.get_db)
 ) -> Any:
     """
     Search target genes.
@@ -67,8 +67,8 @@ def search_target_genes(
     else:
         raise HTTPException(status_code=500, detail='Search text is required')
 
-    items = query.order_by(TargetGene.name)\
-        .limit(50)\
+    items = query.order_by(TargetGene.name) \
+        .limit(50) \
         .all()
     if not items:
         items = []

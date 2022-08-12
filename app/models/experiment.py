@@ -1,4 +1,5 @@
 from datetime import date
+
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.event import listens_for
 from sqlalchemy.orm import relationship, backref

@@ -13,6 +13,8 @@ from .sra_identifier import SraIdentifier
 from .variant import Variant
 from app.lib.temp_urns import generate_temp_urn
 
+# TODO Reformat code without removing dependencies whose use is not detected.
+
 scoresets_doi_identifiers_association_table = Table(
     # 'dataset_scoreset_doi_ids',
     'scoreset_doi_identifiers',
@@ -99,7 +101,7 @@ class Scoreset(Base):
 
     # experiment_id = Column(Integer, ForeignKey('dataset_experiment.id'), nullable=False)
     experiment_id = Column(Integer, ForeignKey('experiments.id'), nullable=False)
-    #experiment = relationship('Experiment', back_populates='scoresets')
+    # experiment = relationship('Experiment', back_populates='scoresets')
     experiment = relationship('Experiment', backref=backref('scoresets', cascade='all,delete-orphan'))
     licence_id = Column(Integer, nullable=True)  # TODO
     replaces_id = Column(Integer, nullable=True)  # TODO

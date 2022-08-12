@@ -1,13 +1,13 @@
-import typing as t
+from typing import Any, Dict
 
 from sqlalchemy.orm import as_declarative, declared_attr
 
-class_registry: t.Dict = {}
+class_registry: Dict = {}
 
 
 @as_declarative(class_registry=class_registry)
 class Base:
-    id: t.Any
+    id: Any
     __name__: str
 
     # Generate __tablename__ automatically

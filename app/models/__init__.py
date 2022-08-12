@@ -9,6 +9,7 @@ __all__ = [
     'reference_genome',
     'reference_map',
     'refseq_identifier',
+    'role',
     'scoreset',
     'sra_identifier',
     'target_gene',

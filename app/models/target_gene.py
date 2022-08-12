@@ -10,6 +10,7 @@ from .refseq_identifier import RefseqIdentifier
 from .uniprot_identifier import UnitprotIdentifier
 from .wild_type_sequence import WildTypeSequence
 
+# TODO Reformat code without removing dependencies whose use is not detected.
 
 class TargetGene(Base):
     # __tablename__ = 'genome_targetgene'

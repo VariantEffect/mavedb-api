@@ -1,6 +1,7 @@
 from datetime import date
-from pydantic.types import Optional
 from typing import Dict, List
+
+from pydantic.types import Optional
 
 from app.view_models.base.base import BaseModel
 from app.view_models.experiment import Experiment, SavedExperiment

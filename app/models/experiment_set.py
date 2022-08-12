@@ -1,4 +1,5 @@
 from datetime import date
+
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 from sqlalchemy.schema import Table
@@ -6,7 +7,6 @@ from sqlalchemy.schema import Table
 from app.db.base import Base
 from app.deps import JSONB
 from app.lib.temp_urns import generate_temp_urn
-
 
 experiment_sets_doi_identifiers_association_table = Table(
     # 'dataset_experimentset_doi_ids',
@@ -18,7 +18,6 @@ experiment_sets_doi_identifiers_association_table = Table(
     Column('doi_identifier_id', ForeignKey('doi_identifiers.id'), primary_key=True)
 )
 
-
 experiment_sets_keywords_association_table = Table(
     # 'dataset_experimentset_keywords',
     'experiment_set_keywords',
@@ -29,9 +28,8 @@ experiment_sets_keywords_association_table = Table(
     Column('keyword_id', ForeignKey('keywords.id'), primary_key=True)
 )
 
-
 experiment_sets_pubmed_identifiers_association_table = Table(
-   # 'dataset_experimentset_pubmed_ids',
+    # 'dataset_experimentset_pubmed_ids',
     'experiment_set_pubmed_identifiers',
     Base.metadata,
     # Column('experimentset_id', ForeignKey('dataset_experimentset.id'), primary_key=True),
@@ -39,7 +37,6 @@ experiment_sets_pubmed_identifiers_association_table = Table(
     Column('experiment_set_id', ForeignKey('experiment_sets.id'), primary_key=True),
     Column('pubmed_identifier_id', ForeignKey('pubmed_identifiers.id'), primary_key=True)
 )
-
 
 experiment_sets_sra_identifiers_association_table = Table(
     # 'dataset_experimentset_sra_ids',
@@ -84,7 +81,12 @@ class ExperimentSet(Base):
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    keyword_objs = relationship('Keyword', secondary=experiment_sets_keywords_association_table, backref='experiment_sets')
-    doi_identifiers = relationship('DoiIdentifier', secondary=experiment_sets_doi_identifiers_association_table, backref='experiment_sets')
-    pubmed_identifiers = relationship('PubmedIdentifier', secondary=experiment_sets_pubmed_identifiers_association_table, backref='experiment_sets')
-    sra_identifiers = relationship('SraIdentifier', secondary=experiment_sets_sra_identifiers_association_table, backref='experiment_sets')
+    keyword_objs = relationship('Keyword', secondary=experiment_sets_keywords_association_table,
+                                backref='experiment_sets')
+    doi_identifiers = relationship('DoiIdentifier', secondary=experiment_sets_doi_identifiers_association_table,
+                                   backref='experiment_sets')
+    pubmed_identifiers = relationship('PubmedIdentifier',
+                                      secondary=experiment_sets_pubmed_identifiers_association_table,
+                                      backref='experiment_sets')
+    sra_identifiers = relationship('SraIdentifier', secondary=experiment_sets_sra_identifiers_association_table,
+                                   backref='experiment_sets')
