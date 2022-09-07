@@ -56,7 +56,7 @@ class ExperimentSet(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     urn = Column(String(64), nullable=True, default=generate_temp_urn)  # index=True, nullable=True
-    title = Column(String(250), nullable=False)
+    title = Column(String, nullable=False)
     method_text = Column(String, nullable=False)
     abstract_text = Column(String, nullable=False)
     short_description = Column(String, nullable=False)
@@ -66,7 +66,7 @@ class ExperimentSet(Base):
     approved = Column(Boolean, nullable=False, default=False)
     # published_date = Column('publish_date', Date, nullable=True)
     published_date = Column(Date, nullable=True)
-    processing_state = Column(String(32), nullable=True)
+    processing_state = Column(String, nullable=True)
 
     # TODO Refactor the way we handle child collections?
     # num_experiments = Column('last_child_value', Integer, nullable=False, default=0)

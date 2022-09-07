@@ -18,8 +18,8 @@ class TargetGene(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    name = Column(String(256), nullable=False)
-    category = Column(String(32), nullable=False)
+    name = Column(String, nullable=False)
+    category = Column(String, nullable=False)
 
     # ensembl_id_id = Column(Integer, ForeignKey('metadata_ensemblidentifier.id'), nullable=True)
     ensembl_id_id = Column(Integer, ForeignKey('ensembl_identifiers.id'), nullable=True)

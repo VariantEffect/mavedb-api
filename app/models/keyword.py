@@ -10,6 +10,6 @@ class Keyword(Base):
     __tablename__ = 'keywords'
 
     id = Column(Integer, primary_key=True, index=True)
-    text = Column(String(250), nullable=False, unique=True)
+    text = Column(String, nullable=False, unique=True)
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)

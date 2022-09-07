@@ -10,9 +10,9 @@ class ReferenceGenome(Base):
     __tablename__ = 'reference_genomes'
 
     id = Column(Integer, primary_key=True, index=True)
-    short_name = Column(String(256), nullable=False)
-    organism_name = Column(String(256), nullable=False)
     genome_id_id = Column(Integer, nullable=True)  # , ForeignKey('target_gene.id'), nullable=True)
     # genome_id = relationship('Genome', back_populates='reference_maps')
+    short_name = Column(String, nullable=False)
+    organism_name = Column(String, nullable=False)
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
