@@ -463,7 +463,6 @@ async def update_scoreset(
             genome_id=item_update.target_gene.reference_maps[0].genome_id,
             target=target_gene
         )
-    else:
         for var, value in vars(item_update).items():
             if var not in ['keywords', 'doi_identifiers', 'experiment_urn', 'pubmed_identifiers', 'target_gene']:
                 setattr(item, var, value) if value else None
