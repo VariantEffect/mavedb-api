@@ -10,12 +10,19 @@ from requests import Request
 from starlette import status
 from starlette.responses import JSONResponse
 
+from sqlalchemy.orm import configure_mappers
+
+from app.models import *
 from app.routers import access_keys, doi_identifiers, experiment_sets, experiments, pubmed_identifiers, \
-    reference_genomes, scoresets, target_genes, users
+    reference_genomes, scoresets, target_gene_identifiers, target_genes, users
 
 logging.basicConfig()
 # Un-comment this line to log all queries:
 # logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+
+# Scan all our model classes and create backref attributes. Otherwise these attributes only get added to classes once an
+# instance of the related class has been created.
+configure_mappers()
 
 app = FastAPI()
 app.add_middleware(
@@ -32,6 +39,7 @@ app.include_router(experiments.router)
 app.include_router(pubmed_identifiers.router)
 app.include_router(reference_genomes.router)
 app.include_router(scoresets.router)
+app.include_router(target_gene_identifiers.router)
 app.include_router(target_genes.router)
 app.include_router(users.router)
 

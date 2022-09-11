@@ -17,7 +17,8 @@ from sqlalchemy.orm.exc import MultipleResultsFound
 
 from app import deps
 from app.lib.authorization import require_current_user
-from app.lib.identifiers import find_or_create_doi_identifier, find_or_create_pubmed_identifier
+from app.lib.identifiers import create_external_gene_identifier_offset, EXTERNAL_GENE_IDENTIFIER_CLASSES,\
+    find_or_create_doi_identifier, find_or_create_pubmed_identifier
 from app.lib.scoresets import create_variants_data, search_scoresets as _search_scoresets, VariantData
 from app.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_scoreset_urn
 from app.models.enums.processing_state import ProcessingState
@@ -214,10 +215,14 @@ async def create_scoreset(
         **jsonable_encoder(
             item_create.target_gene,
             by_alias=False,
-            exclude=['reference_maps', 'wt_sequence'],
+            exclude=['external_identifiers', 'reference_maps', 'wt_sequence'],
         ),
         wt_sequence=wt_sequence
     )
+    for external_gene_identifier_offset_create in item_create.target_gene.external_identifiers:
+        offset = external_gene_identifier_offset_create.offset
+        identifier_create = external_gene_identifier_offset_create.identifier
+        external_gene_identifier = await create_external_gene_identifier_offset(db, target_gene, identifier_create.db_name, identifier_create.identifier, offset)
     reference_map = ReferenceMap(
         genome_id=item_create.target_gene.reference_maps[0].genome_id,
         target=target_gene
@@ -336,7 +341,7 @@ async def upload_scoreset_variant_data(
     logger.error(f'Deleting existing variants for {item.urn}')
     # self.instance.delete_variants()
     logger.error(f'Creating variants for {item.urn}')
-    create_variants(db, item, variants_data)
+    item.num_variants = create_variants(db, item, variants_data)
     logger.error(f'Saving {item.urn}')
 
     item.dataset_columns = {
@@ -364,7 +369,7 @@ async def upload_scoreset_variant_data(
 # @transaction.atomic
 def create_variants(db, scoreset: Scoreset, variants_data: list[VariantData], batch_size=None) -> int:
     num_variants = len(variants_data)
-    variant_urns = bulk_create_urns(num_variants, scoreset)
+    variant_urns = bulk_create_urns(num_variants, scoreset, True)
     variants = (
         Variant(urn=urn, scoreset_id=scoreset.id, **kwargs)
         for urn, kwargs in zip(variant_urns, variants_data)
@@ -423,7 +428,7 @@ async def update_scoreset(
         await item.set_keywords(db, item_update.keywords)
 
         # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the scoreset's
-        # target_gene to null, because we have set cascade='all,delete-orphan' on Scoreset.target_gene. (Since the
+        # target_gene to None, because we have set cascade='all,delete-orphan' on Scoreset.target_gene. (Since the
         # relationship is defined with the target gene as owner, this is actually set up in the backref attribute of
         # TargetGene.scoreset.)
         #
@@ -441,10 +446,17 @@ async def update_scoreset(
             **jsonable_encoder(
                 item_update.target_gene,
                 by_alias=False,
-                exclude=['reference_maps', 'wt_sequence'],
+                exclude=['external_identifiers', 'reference_maps', 'wt_sequence'],
             ),
             wt_sequence=wt_sequence
         )
+        for external_gene_identifier_offset_create in item_update.target_gene.external_identifiers:
+            offset = external_gene_identifier_offset_create.offset
+            identifier_create = external_gene_identifier_offset_create.identifier
+            external_gene_identifier = await create_external_gene_identifier_offset(db, target_gene,
+                                                                                    identifier_create.db_name,
+                                                                                    identifier_create.identifier,
+                                                                                    offset)
         item.target_gene = target_gene
 
         reference_map = ReferenceMap(
