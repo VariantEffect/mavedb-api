@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Dict
 
+from pydantic import Field
 from pydantic.types import Optional
 
 from app.view_models.base.base import BaseModel
@@ -33,8 +34,8 @@ class ScoresetCreate(ScoresetBase):
 
 
 class ScoresetUpdate(ScoresetBase):
-    doi_identifiers: list[SavedDoiIdentifier]
-    pubmed_identifiers: list[SavedPubmedIdentifier]
+    doi_identifiers: list[DoiIdentifierCreate]
+    pubmed_identifiers: list[PubmedIdentifierCreate]
     target_gene: TargetGeneCreate
 
 
