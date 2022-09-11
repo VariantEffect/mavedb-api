@@ -4,6 +4,7 @@ __all__ = [
     'ensembl_identifier',
     'experiment',
     'experiment_set',
+    'genome_identifier',
     'keyword',
     'pubmed_identifier',
     'reference_genome',
