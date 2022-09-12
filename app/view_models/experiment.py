@@ -9,9 +9,9 @@ from app.view_models.user import SavedUser, User
 
 class ExperimentBase(BaseModel):
     title: str
-    short_description: str
-    abstract_text: str
-    method_text: str
+    short_description: Optional[str]
+    abstract_text: Optional[str]
+    method_text: Optional[str]
     extra_metadata: Dict
     keywords: Optional[list[str]]
 
@@ -31,11 +31,17 @@ class ExperimentBase(BaseModel):
 
 
 class ExperimentCreate(ExperimentBase):
+    short_description: str
+    abstract_text: str
+    method_text: str
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     pubmed_identifiers: Optional[list[PubmedIdentifierCreate]]
 
 
 class ExperimentUpdate(ExperimentBase):
+    short_description: str
+    abstract_text: str
+    method_text: str
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     pubmed_identifiers: Optional[list[PubmedIdentifierCreate]]
 
