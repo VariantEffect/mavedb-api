@@ -40,6 +40,21 @@ null_values_re = re.compile(
 )
 
 
+async def fetch_scoreset_by_urn(db, urn):
+    try:
+        # item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
+        item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
+    except MultipleResultsFound:
+        raise HTTPException(
+            status_code=500, detail=f'Multiple scoresets with URN {urn} were found.'
+        )
+    if not item:
+        raise HTTPException(
+            status_code=404, detail=f'Scoreset with URN {urn} not found'
+        )
+    return item
+
+
 def is_null(value):
     """Return True if a string represents a null value."""
     value = str(value).strip().lower()
@@ -85,7 +100,7 @@ def search_my_scoresets(
 
 
 @router.get('/scoresets/{urn}', status_code=200, response_model=scoreset.Scoreset, responses={404: {}, 500: {}})
-def show_scoreset(
+async def show_scoreset(
         *,
         urn: str,
         db: Session = Depends(deps.get_db)
@@ -93,18 +108,8 @@ def show_scoreset(
     """
     Fetch a single scoreset by URN.
     """
-    try:
-        # item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
-        item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
-    except MultipleResultsFound:
-        raise HTTPException(
-            status_code=500, detail=f'Multiple scoresets with URN {urn} were found.'
-        )
-    if not item:
-        raise HTTPException(
-            status_code=404, detail=f'Scoreset with URN {urn} not found'
-        )
-    return item
+
+    return await fetch_scoreset_by_urn(db, urn)
 
 
 @router.get(
@@ -207,6 +212,15 @@ async def create_scoreset(
     if not experiment:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Unknown experiment')
 
+    meta_analysis_source_scoresets = [await fetch_scoreset_by_urn(db, urn) for urn in
+                                      item_create.meta_analysis_source_scoreset_urns or []]
+    print(item_create.meta_analysis_source_scoreset_urns)
+    print(meta_analysis_source_scoresets)
+
+    doi_identifiers = [await find_or_create_doi_identifier(db, identifier.identifier) for identifier in
+                       item_create.doi_identifiers or []]
+    pubmed_identifiers = [await find_or_create_pubmed_identifier(db, identifier.identifier) for identifier in
+                          item_create.pubmed_identifiers or []]
     wt_sequence = WildTypeSequence(**jsonable_encoder(
         item_create.target_gene.wt_sequence,
         by_alias=False
@@ -222,20 +236,18 @@ async def create_scoreset(
     for external_gene_identifier_offset_create in item_create.target_gene.external_identifiers:
         offset = external_gene_identifier_offset_create.offset
         identifier_create = external_gene_identifier_offset_create.identifier
-        external_gene_identifier = await create_external_gene_identifier_offset(db, target_gene, identifier_create.db_name, identifier_create.identifier, offset)
+        await create_external_gene_identifier_offset(db, target_gene, identifier_create.db_name,
+                                                     identifier_create.identifier, offset)
     reference_map = ReferenceMap(
         genome_id=item_create.target_gene.reference_maps[0].genome_id,
         target=target_gene
     )
-    doi_identifiers = [await find_or_create_doi_identifier(db, identifier.identifier) for identifier in
-                       item_create.doi_identifiers or []]
-    pubmed_identifiers = [await find_or_create_pubmed_identifier(db, identifier.identifier) for identifier in
-                          item_create.pubmed_identifiers or []]
     item = Scoreset(
         **jsonable_encoder(item_create, by_alias=False,
-                           exclude=['doi_identifiers', 'experiment_urn', 'keywords', 'pubmed_identifiers',
-                                    'target_gene']),
+                           exclude=['doi_identifiers', 'experiment_urn', 'keywords',
+                                    'meta_analysis_source_scoreset_urns', 'pubmed_identifiers', 'target_gene']),
         experiment=experiment,
+        meta_analysis_source_scoresets=meta_analysis_source_scoresets,
         target_gene=target_gene,
         doi_identifiers=doi_identifiers,
         pubmed_identifiers=pubmed_identifiers,
@@ -243,8 +255,6 @@ async def create_scoreset(
         created_by=user,
         modified_by=user
     )
-    # item.experiment = experiment
-    # item.processing_state = ProcessingState.incomplete
     await item.set_keywords(db, item_create.keywords)
     db.add(item)
     db.commit()

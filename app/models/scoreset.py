@@ -119,11 +119,11 @@ class Scoreset(Base):
     doi_identifiers = relationship('DoiIdentifier', secondary=scoresets_doi_identifiers_association_table, backref='scoresets')
     pubmed_identifiers = relationship('PubmedIdentifier', secondary=scoresets_pubmed_identifiers_association_table, backref='scoresets')
     sra_identifiers = relationship('SraIdentifier', secondary=scoresets_sra_identifiers_association_table, backref='scoresets')
-    meta_analysis_for = relationship(
+    meta_analysis_source_scoresets = relationship(
         'Scoreset',
         secondary=scoresets_meta_analysis_scoresets_association_table,
-        primaryjoin=(scoresets_meta_analysis_scoresets_association_table.c.source_scoreset_id == id),
-        secondaryjoin=(scoresets_meta_analysis_scoresets_association_table.c.meta_analysis_scoreset_id == id),
+        primaryjoin=(scoresets_meta_analysis_scoresets_association_table.c.meta_analysis_scoreset_id == id),
+        secondaryjoin=(scoresets_meta_analysis_scoresets_association_table.c.source_scoreset_id == id),
         backref='meta_analyses'
     )
 

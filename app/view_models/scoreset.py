@@ -1,3 +1,5 @@
+# See https://pydantic-docs.helpmanual.io/usage/postponed_annotations/#self-referencing-models
+from __future__ import annotations
 from datetime import date
 from typing import Dict, Optional
 
@@ -28,6 +30,7 @@ class ScoresetCreate(ScoresetBase):
     """View model for creating a new score set."""
 
     experiment_urn: str
+    meta_analysis_source_scoreset_urns: Optional[list[str]]
     target_gene: TargetGeneCreate
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     pubmed_identifiers: Optional[list[PubmedIdentifierCreate]]
@@ -47,6 +50,7 @@ class SavedScoreset(ScoresetBase):
     urn: str
     num_variants: int
     experiment: SavedExperiment
+    meta_analysis_source_scoresets: list[SavedScoreset]
     doi_identifiers: list[SavedDoiIdentifier]
     pubmed_identifiers: list[SavedPubmedIdentifier]
     published_date: Optional[date]
@@ -66,6 +70,7 @@ class Scoreset(SavedScoreset):
     """Score set view model containing most properties visible to non-admin users, but no variant data."""
 
     experiment: Experiment
+    meta_analysis_source_scoresets: list[Scoreset]
     doi_identifiers: list[DoiIdentifier]
     pubmed_identifiers: list[PubmedIdentifier]
     created_by: Optional[User]
