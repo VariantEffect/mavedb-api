@@ -307,18 +307,14 @@ async def upload_scoreset_variant_data(
         keep_default_na=True,
         dtype={
             **{col: str for col in HGVSColumns.options()},
-            # **{c: str for c in cls.HGVSColumns.options()},
             'scores': float
-            # MaveScoresDataset.AdditionalColumns.SCORES: float,
         }
     ).replace(null_values_re, np.NaN)
     for c in HGVSColumns.options():
         if c not in scores_df.columns:
             scores_df[c] = np.NaN
-    # Original codes
-    # score_columns = {col for col in scores_df.columns if col not in HGVSColumns.options()}
-    # List can have a same order as the uploaded CSV file. Dict will messy the order.
     score_columns = [col for col in scores_df.columns if col not in HGVSColumns.options()]
+
     counts_df = None
     count_columns = []
     if counts_file and counts_file.filename:
@@ -332,9 +328,7 @@ async def upload_scoreset_variant_data(
             keep_default_na=True,
             dtype={
                 **{col: str for col in HGVSColumns.options()},
-                # **{c: str for c in cls.HGVSColumns.options()},
                 'scores': float
-                # MaveScoresDataset.AdditionalColumns.SCORES: float,
             }
         ).replace(null_values_re, np.NaN)
         for c in HGVSColumns.options():
@@ -346,12 +340,7 @@ async def upload_scoreset_variant_data(
     variants_data = create_variants_data(scores_df, counts_df, None)  # , index_col)
     if variants_data:
         logger.error(f'{item.urn}:{variants_data[-1]}')
-    logger.error(variants_data)
 
-    # with transaction.atomic():
-    logger.error(f'Deleting existing variants for {item.urn}')
-    # self.instance.delete_variants()
-    logger.error(f'Creating variants for {item.urn}')
     item.num_variants = create_variants(db, item, variants_data)
     logger.error(f'Saving {item.urn}')
 
