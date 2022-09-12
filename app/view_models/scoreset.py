@@ -22,7 +22,6 @@ class ScoresetBase(BaseModel):
     extra_metadata: Dict
     data_usage_policy: Optional[str]
     licence_id: Optional[int]
-    replaces_id: Optional[int]
     keywords: Optional[list[str]]
 
 
@@ -30,6 +29,7 @@ class ScoresetCreate(ScoresetBase):
     """View model for creating a new score set."""
 
     experiment_urn: str
+    superseded_scoreset_urn: Optional[str]
     meta_analysis_source_scoreset_urns: Optional[list[str]]
     target_gene: TargetGeneCreate
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
@@ -50,6 +50,7 @@ class SavedScoreset(ScoresetBase):
     urn: str
     num_variants: int
     experiment: SavedExperiment
+    superseded_scoreset: Optional[SavedScoreset]
     meta_analysis_source_scoresets: list[SavedScoreset]
     doi_identifiers: list[SavedDoiIdentifier]
     pubmed_identifiers: list[SavedPubmedIdentifier]
@@ -70,6 +71,7 @@ class Scoreset(SavedScoreset):
     """Score set view model containing most properties visible to non-admin users, but no variant data."""
 
     experiment: Experiment
+    superseded_scoreset: Optional[Scoreset]
     meta_analysis_source_scoresets: list[Scoreset]
     doi_identifiers: list[DoiIdentifier]
     pubmed_identifiers: list[PubmedIdentifier]

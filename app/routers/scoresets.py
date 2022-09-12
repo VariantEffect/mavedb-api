@@ -212,10 +212,12 @@ async def create_scoreset(
     if not experiment:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Unknown experiment')
 
+    if item_create.superseded_scoreset_urn is not None:
+        superseded_scoreset = await fetch_scoreset_by_urn(db, item_create.superseded_scoreset_urn)
+    else:
+        superseded_scoreset = None
     meta_analysis_source_scoresets = [await fetch_scoreset_by_urn(db, urn) for urn in
                                       item_create.meta_analysis_source_scoreset_urns or []]
-    print(item_create.meta_analysis_source_scoreset_urns)
-    print(meta_analysis_source_scoresets)
 
     doi_identifiers = [await find_or_create_doi_identifier(db, identifier.identifier) for identifier in
                        item_create.doi_identifiers or []]
@@ -245,8 +247,10 @@ async def create_scoreset(
     item = Scoreset(
         **jsonable_encoder(item_create, by_alias=False,
                            exclude=['doi_identifiers', 'experiment_urn', 'keywords',
-                                    'meta_analysis_source_scoreset_urns', 'pubmed_identifiers', 'target_gene']),
+                                    'meta_analysis_source_scoreset_urns', 'pubmed_identifiers',
+                                    'superseded_scoreset_urn', 'target_gene']),
         experiment=experiment,
+        superseded_scoreset=superseded_scoreset,
         meta_analysis_source_scoresets=meta_analysis_source_scoresets,
         target_gene=target_gene,
         doi_identifiers=doi_identifiers,
