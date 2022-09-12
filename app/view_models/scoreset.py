@@ -1,8 +1,5 @@
 from datetime import date
-from typing import Dict
-
-from pydantic import Field
-from pydantic.types import Optional
+from typing import Dict, Optional
 
 from app.view_models.base.base import BaseModel
 from app.view_models.doi_identifier import DoiIdentifier, DoiIdentifierCreate, SavedDoiIdentifier
@@ -14,7 +11,8 @@ from app.view_models.variant import VariantInDbBase
 
 
 class ScoresetBase(BaseModel):
-    urn: Optional[str]
+    """Base class for score set view models."""
+
     title: str
     method_text: str
     abstract_text: str
@@ -27,6 +25,8 @@ class ScoresetBase(BaseModel):
 
 
 class ScoresetCreate(ScoresetBase):
+    """View model for creating a new score set."""
+
     experiment_urn: str
     target_gene: TargetGeneCreate
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
@@ -34,14 +34,16 @@ class ScoresetCreate(ScoresetBase):
 
 
 class ScoresetUpdate(ScoresetBase):
+    """View model for updating a score set."""
+
     doi_identifiers: list[DoiIdentifierCreate]
     pubmed_identifiers: list[PubmedIdentifierCreate]
     target_gene: TargetGeneCreate
 
 
-# Properties shared by models stored in DB
 class SavedScoreset(ScoresetBase):
-    # id: int
+    """Base class for score set view models representing saved records."""
+
     urn: str
     num_variants: int
     experiment: SavedExperiment
@@ -60,8 +62,9 @@ class SavedScoreset(ScoresetBase):
         arbitrary_types_allowed = True
 
 
-# Properties to return to non-admin clients
 class Scoreset(SavedScoreset):
+    """Score set view model containing most properties visible to non-admin users, but no variant data."""
+
     experiment: Experiment
     doi_identifiers: list[DoiIdentifier]
     pubmed_identifiers: list[PubmedIdentifier]
@@ -73,18 +76,22 @@ class Scoreset(SavedScoreset):
     # processing_state: Optional[str]
 
 
-# Properties to return to clients when variants are requested
 class ScoresetWithVariants(Scoreset):
+    """
+    Score set view model containing a complete set of properties visible to non-admin users, for contexts where variants
+    are requested.
+    """
+
     variants: list[VariantInDbBase]
 
 
-# Properties to return to admin clients
-class AdminScoreset(Scoreset):
-    normalised: bool
-    approved: bool
-
-
 class ShortScoreset(BaseModel):
+    """
+    Target gene view model containing a smaller set of properties to return in list contexts.
+
+    Notice that this is not derived from ScoresetBase.
+    """
+
     urn: str
     title: str
     short_description: str
@@ -100,3 +107,10 @@ class ShortScoreset(BaseModel):
     class Config:
         orm_mode = True
         arbitrary_types_allowed = True
+
+
+class AdminScoreset(Scoreset):
+    """Score set view model containing properties to return to admin clients."""
+
+    normalised: bool
+    approved: bool
