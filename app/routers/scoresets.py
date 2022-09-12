@@ -337,14 +337,11 @@ async def upload_scoreset_variant_data(
                 # MaveScoresDataset.AdditionalColumns.SCORES: float,
             }
         ).replace(null_values_re, np.NaN)
-    for c in HGVSColumns.options():
-        if c not in counts_df.columns:
-            counts_df[c] = np.NaN
-    # Original codes
-    # count_columns = {col for col in counts_df.columns if col not in HGVSColumns.options()}
-    # List can have a same order as the uploaded CSV file. Dict will messy the order.
-    count_columns = [col for col in counts_df.columns if col not in HGVSColumns.options()]
+        for c in HGVSColumns.options():
+            if c not in counts_df.columns:
+                counts_df[c] = np.NaN
 
+        count_columns = [col for col in counts_df.columns if col not in HGVSColumns.options()]
 
     variants_data = create_variants_data(scores_df, counts_df, None)  # , index_col)
     if variants_data:
