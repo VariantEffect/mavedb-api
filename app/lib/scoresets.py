@@ -45,6 +45,9 @@ def search_scoresets(db: Session, owner: Optional[User], search: ScoresetsSearch
         lower_search_text = search.text.lower()
         scoresets_query = scoresets_query.filter(or_(
             Scoreset.urn.contains(lower_search_text),
+            Scoreset.title.contains(lower_search_text),
+            Scoreset.short_description.contains(lower_search_text),
+            Scoreset.abstract_text.contains(lower_search_text),
             Scoreset.target_gene.has(func.lower(TargetGene.name).contains(lower_search_text)),
             Scoreset.target_gene.has(func.lower(TargetGene.category).contains(lower_search_text)),
             Scoreset.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text))
