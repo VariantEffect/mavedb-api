@@ -51,7 +51,8 @@ class SavedScoreset(ScoresetBase):
     num_variants: int
     experiment: SavedExperiment
     superseded_scoreset: Optional[SavedScoreset]
-    meta_analysis_source_scoresets: list[SavedScoreset]
+    meta_analysis_source_scoresets: list[ShortScoreset]
+    meta_analyses: list[ShortScoreset]
     doi_identifiers: list[SavedDoiIdentifier]
     pubmed_identifiers: list[SavedPubmedIdentifier]
     published_date: Optional[date]
@@ -72,7 +73,8 @@ class Scoreset(SavedScoreset):
 
     experiment: Experiment
     superseded_scoreset: Optional[Scoreset]
-    meta_analysis_source_scoresets: list[Scoreset]
+    meta_analysis_source_scoresets: list[ShortScoreset]
+    meta_analyses: list[ShortScoreset]
     doi_identifiers: list[DoiIdentifier]
     pubmed_identifiers: list[PubmedIdentifier]
     created_by: Optional[User]
