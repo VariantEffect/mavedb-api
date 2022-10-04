@@ -44,6 +44,30 @@ class ScoresetUpdate(ScoresetBase):
     target_gene: TargetGeneCreate
 
 
+class ShortScoreset(BaseModel):
+    """
+    Target gene view model containing a smaller set of properties to return in list contexts.
+
+    Notice that this is not derived from ScoresetBase.
+    """
+
+    urn: str
+    title: str
+    short_description: str
+    published_date: Optional[date]
+    replaces_id: Optional[int]
+    num_variants: int
+    experiment: Experiment
+    creation_date: date
+    modification_date: date
+    target_gene: ShortTargetGene
+    private: bool
+
+    class Config:
+        orm_mode = True
+        arbitrary_types_allowed = True
+
+
 class SavedScoreset(ScoresetBase):
     """Base class for score set view models representing saved records."""
 
@@ -92,30 +116,6 @@ class ScoresetWithVariants(Scoreset):
     """
 
     variants: list[VariantInDbBase]
-
-
-class ShortScoreset(BaseModel):
-    """
-    Target gene view model containing a smaller set of properties to return in list contexts.
-
-    Notice that this is not derived from ScoresetBase.
-    """
-
-    urn: str
-    title: str
-    short_description: str
-    published_date: Optional[date]
-    replaces_id: Optional[int]
-    num_variants: int
-    experiment: Experiment
-    creation_date: date
-    modification_date: date
-    target_gene: ShortTargetGene
-    private: bool
-
-    class Config:
-        orm_mode = True
-        arbitrary_types_allowed = True
 
 
 class AdminScoreset(Scoreset):
