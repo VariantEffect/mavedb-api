@@ -1,6 +1,7 @@
 from datetime import date
-from pydantic.types import Optional
 from typing import Dict, List
+
+from pydantic.types import Optional
 
 from app.view_models.base.base import BaseModel
 from app.view_models.experiment import Experiment, SavedExperiment
@@ -8,12 +9,12 @@ from app.view_models.user import SavedUser, User
 
 
 class ExperimentSetBase(BaseModel):
-    urn: Optional[str]
-    title: str
-    method_text: str
-    abstract_text: str
-    short_description: str
-    extra_metadata: Dict
+    urn: str
+    title: Optional[str]
+    method_text: Optional[str]
+    abstract_text: Optional[str]
+    short_description: Optional[str]
+    extra_metadata: Optional[Dict]
     published_date: Optional[date]
 
 

@@ -1,5 +1,4 @@
 from datetime import date
-from typing import List, Optional
 
 from app.view_models.base.base import BaseModel
 

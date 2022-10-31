@@ -1,7 +1,8 @@
 import os
+from typing import Generator
+
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
-from typing import Generator
 
 from app.db.session import SessionLocal
 
@@ -13,7 +14,6 @@ def get_db() -> Generator:
         yield db
     finally:
         db.close()
-
 
 
 if 'PYTEST_RUN_CONFIG' in os.environ:

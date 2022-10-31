@@ -1,18 +1,18 @@
 import secrets
 from typing import Any
 
-from cryptography.hazmat.primitives import serialization as crypto_serialization, serialization
 from cryptography.hazmat.backends import default_backend as crypto_default_backend
+from cryptography.hazmat.primitives import serialization as crypto_serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import APIRouter, Depends
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
 from app import deps
-from app.lib.auth import require_current_user
+from app.lib.authorization import require_current_user
 from app.models.access_key import AccessKey
 from app.models.user import User
-from app.view_models import user, access_key
+from app.view_models import access_key
 
 router = APIRouter(
     prefix='/api/v1',
@@ -42,10 +42,11 @@ def generate_key_pair():
     return private_key, public_key
 
 
-@router.get('/users/me/access-keys', status_code=200, response_model=list[access_key.AccessKey], responses={404: {}, 500: {}})
+@router.get('/users/me/access-keys', status_code=200, response_model=list[access_key.AccessKey],
+            responses={404: {}, 500: {}})
 def list_my_access_keys(
-    *,
-    user: User = Depends(require_current_user)
+        *,
+        user: User = Depends(require_current_user)
 ) -> Any:
     """
     List the current user's access keys.
@@ -53,11 +54,12 @@ def list_my_access_keys(
     return user.access_keys
 
 
-@router.post('/users/me/access-keys', status_code=200, response_model=access_key.NewAccessKey, responses={404: {}, 500: {}})
+@router.post('/users/me/access-keys', status_code=200, response_model=access_key.NewAccessKey,
+             responses={404: {}, 500: {}})
 def create_my_access_key(
-    *,
-    db: Session = Depends(deps.get_db),
-    user: User = Depends(require_current_user)
+        *,
+        db: Session = Depends(deps.get_db),
+        user: User = Depends(require_current_user)
 ) -> Any:
     """
     Create a new access key for the current user.
@@ -83,10 +85,10 @@ def create_my_access_key(
 
 @router.delete('/users/me/access-keys/{key_id}', status_code=200, responses={404: {}, 500: {}})
 def delete_my_access_key(
-    *,
-    key_id: str,
-    db: Session = Depends(deps.get_db),
-    user: User = Depends(require_current_user)
+        *,
+        key_id: str,
+        db: Session = Depends(deps.get_db),
+        user: User = Depends(require_current_user)
 ) -> Any:
     """
     Delete one of the current user's access keys.

@@ -4,14 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-import app.view_models.doi_identifier
 from app import deps
-from app.models.doi_identifier import DoiIdentifier
+from app.view_models.base.base import BaseModel
 from app.view_models.search import TextSearch
+from app.view_models import external_gene_identifier
+from app.lib.identifiers import EXTERNAL_GENE_IDENTIFIER_CLASSES
 
 router = APIRouter(
-    prefix="/api/v1/doiIdentifiers",
-    tags=["DOI identifiers"],
+    prefix="/api/v1/targetGeneIdentifiers",
+    tags=["target gene identifiers"],
     responses={404: {"description": "Not found"}}
 )
 
@@ -19,25 +20,27 @@ router = APIRouter(
 @router.post(
     '/search',
     status_code=200,
-    response_model=List[app.view_models.doi_identifier.DoiIdentifier]
+    response_model=List[external_gene_identifier.ExternalGeneIdentifier]
 )
-def search_doi_identifiers(
+def search_target_gene_identifiers(
+        db_name: str,
         search: TextSearch,
         db: Session = Depends(deps.get_db)
 ) -> Any:
     """
-    Search DOI identifiers.
+    Search target gene identifiers.
     """
 
-    query = db.query(DoiIdentifier)
+    identifier_class = EXTERNAL_GENE_IDENTIFIER_CLASSES[db_name]
+    query = db.query(identifier_class)
 
     if search.text and len(search.text.strip()) > 0:
         lower_search_text = search.text.strip().lower()
-        query = query.filter(func.lower(DoiIdentifier.identifier).contains(lower_search_text))
+        query = query.filter(func.lower(identifier_class.identifier).contains(lower_search_text))
     else:
         raise HTTPException(status_code=500, detail='Search text is required')
 
-    items = query.order_by(DoiIdentifier.identifier) \
+    items = query.order_by(identifier_class.identifier) \
         .limit(50) \
         .all()
     if not items:

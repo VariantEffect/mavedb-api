@@ -13,6 +13,8 @@ from .sra_identifier import SraIdentifier
 from .variant import Variant
 from app.lib.temp_urns import generate_temp_urn
 
+# TODO Reformat code without removing dependencies whose use is not detected.
+
 scoresets_doi_identifiers_association_table = Table(
     # 'dataset_scoreset_doi_ids',
     'scoreset_doi_identifiers',
@@ -75,7 +77,7 @@ class Scoreset(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     urn = Column(String(64), nullable=True, default=generate_temp_urn)  # index=True, nullable=True
-    title = Column(String(250), nullable=False)
+    title = Column(String, nullable=False)
     method_text = Column(String, nullable=False)
     abstract_text = Column(String, nullable=False)
     short_description = Column(String, nullable=False)
@@ -99,10 +101,12 @@ class Scoreset(Base):
 
     # experiment_id = Column(Integer, ForeignKey('dataset_experiment.id'), nullable=False)
     experiment_id = Column(Integer, ForeignKey('experiments.id'), nullable=False)
-    #experiment = relationship('Experiment', back_populates='scoresets')
+    # experiment = relationship('Experiment', back_populates='scoresets')
     experiment = relationship('Experiment', backref=backref('scoresets', cascade='all,delete-orphan'))
     licence_id = Column(Integer, nullable=True)  # TODO
-    replaces_id = Column(Integer, nullable=True)  # TODO
+    superseded_scoreset_id = Column('replaces_id', Integer, ForeignKey('scoresets.id'), nullable=True)  # TODO
+    superseded_scoreset = relationship('Scoreset', uselist=False, remote_side=[id],
+                                         backref=backref('superseding_scoreset', uselist=False))
 
     # created_by_id = Column(Integer, ForeignKey('auth_user.id'), nullable=True)
     created_by_id = Column(Integer, ForeignKey('users.id'), nullable=True)
@@ -117,11 +121,11 @@ class Scoreset(Base):
     doi_identifiers = relationship('DoiIdentifier', secondary=scoresets_doi_identifiers_association_table, backref='scoresets')
     pubmed_identifiers = relationship('PubmedIdentifier', secondary=scoresets_pubmed_identifiers_association_table, backref='scoresets')
     sra_identifiers = relationship('SraIdentifier', secondary=scoresets_sra_identifiers_association_table, backref='scoresets')
-    meta_analysis_for = relationship(
+    meta_analysis_source_scoresets = relationship(
         'Scoreset',
         secondary=scoresets_meta_analysis_scoresets_association_table,
-        primaryjoin=(scoresets_meta_analysis_scoresets_association_table.c.source_scoreset_id == id),
-        secondaryjoin=(scoresets_meta_analysis_scoresets_association_table.c.meta_analysis_scoreset_id == id),
+        primaryjoin=(scoresets_meta_analysis_scoresets_association_table.c.meta_analysis_scoreset_id == id),
+        secondaryjoin=(scoresets_meta_analysis_scoresets_association_table.c.source_scoreset_id == id),
         backref='meta_analyses'
     )
 

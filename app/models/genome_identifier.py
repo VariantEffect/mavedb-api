@@ -5,14 +5,11 @@ from sqlalchemy import Column, Date, Integer, String
 from app.db.base import Base
 
 
-class DoiIdentifier(Base):
-    # __tablename__ = 'metadata_doiidentifier'
-    __tablename__ = 'doi_identifiers'
+class GenomeIdentifier(Base):
+    __tablename__ = 'genome_identifiers'
 
     id = Column(Integer, primary_key=True, index=True)
     identifier = Column(String, nullable=False)
-    # db_name = Column('dbname', String(256), nullable=False)
-    # db_version = Column('dbversion', String(256), nullable=True)
     db_name = Column(String, nullable=False)
     db_version = Column(String, nullable=True)
     url = Column(String, nullable=True)

@@ -28,6 +28,7 @@ def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSe
     if search.text:
         lower_search_text = search.text.lower()
         query = query.filter(or_(
+            Experiment.urn.contains(lower_search_text),
             Experiment.title.contains(lower_search_text),
             Experiment.short_description.contains(lower_search_text),
             Experiment.abstract_text.contains(lower_search_text)

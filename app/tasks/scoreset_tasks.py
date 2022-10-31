@@ -2,12 +2,17 @@ from celery.utils.log import get_task_logger
 
 from app.deps import get_db
 from app.lib.scoresets import create_variants_data
-from app.lib.worker import celery_app, Task
+from app.lib.worker import celery_app
 from app.models.scoreset import Scoreset
 from app.models.variant import Variant
 
-
 logger = get_task_logger(__name__)
+
+
+# TODO Currently unused, but kept here for future reference when we need background processing.
+# In moving from Django to FastAPI, we eliminated the need to use this for short tasks like scoreset ingestion, thanks
+# to FastAPI's support for asynchronous operations. But if any operations are really long-running or computationally
+# intensive, we should move them to a separate process and have the option of moving them to a separate server.
 
 
 @celery_app.task(
@@ -59,7 +64,7 @@ def create_variants_task(self, scoreset_urn, scores, counts, index_col, dataset_
     if variants:
         logger.info(f'{self.urn}:{variants[-1]}')
 
-    #with transaction.atomic():
+    # with transaction.atomic():
     logger.info(f'Deleting existing variants for {self.urn}')
     self.instance.delete_variants()
     logger.info(f'Creating variants for {self.urn}')

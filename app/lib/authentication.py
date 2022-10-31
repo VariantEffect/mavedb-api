@@ -1,11 +1,11 @@
+import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import Request, HTTPException, Depends, Security, Header
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyQuery, APIKeyHeader, APIKeyCookie
+from fastapi import Depends, HTTPException, Request, Security
+from fastapi.security import APIKeyCookie, APIKeyHeader, APIKeyQuery, HTTPAuthorizationCredentials, HTTPBearer
 from jose import jwt
 from sqlalchemy.orm import Session
-from starlette import status
 
 from app import deps
 from app.models.access_key import AccessKey
@@ -24,6 +24,14 @@ wQIDAQAB
 '''
 ORCID_JWT_AUDIENCE = 'APP-GXFVWWJT8H0F50WD'
 
+ACCESS_TOKEN_NAME = 'X-API-key'
+
+logger = logging.getLogger(__name__)
+
+
+####################################################################################################
+# JWT authentication
+####################################################################################################
 
 def decode_jwt(token: str) -> dict:
     try:
@@ -35,8 +43,6 @@ def decode_jwt(token: str) -> dict:
             # ORCID sends an at_hash when using the OpenID Connect implicit flow, even though there is no auth_token.
             options={'verify_at_hash': False}
         )
-        print(decoded_token)
-        # , options=None, audience=None, issuer=None, subject=None, access_token=None)
         return decoded_token
     except Exception as ex:
         print(ex)
@@ -59,32 +65,32 @@ class JWTBearer(HTTPBearer):
             token_payload = self.verify_jwt(credentials.credentials)
             if not token_payload:
                 raise HTTPException(status_code=403, detail='Invalid token or expired token.')
-            return token_payload  # credentials.credentials  # Return the JWT
+            return token_payload
         else:
-            # raise HTTPException(status_code=403, detail='Invalid authorization credentials.')
             return None
 
-    def verify_jwt(self, token: str) -> bool:
-        is_token_valid: bool = False
+    @staticmethod
+    def verify_jwt(token: str) -> bool:
         try:
             payload = decode_jwt(token)
         except:
             payload = None
-        #if payload:
-        #    is_token_valid = True
         return payload
 
 
-ACCESS_TOKEN_NAME = 'access_token'
+####################################################################################################
+# API key authentication
+####################################################################################################
+
 access_token_query = APIKeyQuery(name=ACCESS_TOKEN_NAME, auto_error=False)
 access_token_header = APIKeyHeader(name=ACCESS_TOKEN_NAME, auto_error=False)
 access_token_cookie = APIKeyCookie(name=ACCESS_TOKEN_NAME, auto_error=False)
 
 
 async def get_access_token(
-    # access_token_query: str = Security(access_token_query),
-    access_token_header: Optional[str] = Security(access_token_header),
-    access_token_cookie: Optional[str] = Security(access_token_cookie)
+        # access_token_query: str = Security(access_token_query),
+        access_token_header: Optional[str] = Security(access_token_header),
+        access_token_cookie: Optional[str] = Security(access_token_cookie)
 ) -> Optional[str]:
     return access_token_header or access_token_cookie
 
@@ -93,16 +99,17 @@ async def get_current_user_from_api_key(
         db: Session = Depends(deps.get_db),
         access_token: str = Depends(get_access_token)
 ) -> Optional[User]:
-    print(access_token)
     user = None
     if access_token is not None:
-        print(access_token)
-        print(type(db))
         access_key = db.query(AccessKey).filter(AccessKey.key_id == access_token).one_or_none()
         if access_key:
             user = access_key.user
     return user
 
+
+####################################################################################################
+# Main authentication methods
+####################################################################################################
 
 async def get_current_user(
         api_key_user: Optional[User] = Depends(get_current_user_from_api_key),
@@ -110,8 +117,6 @@ async def get_current_user(
         db: Session = Depends(deps.get_db)
 ) -> Optional[User]:
     user = api_key_user
-    print('HERE')
-    print(user)
     if user is None and token_payload is not None:
         username: str = token_payload['sub']
         if username is not None:
@@ -127,20 +132,10 @@ async def get_current_user(
                     last_name=token_payload['family_name'] if 'family_name' in token_payload else '',
                     date_joined=datetime.now()
                 )
+                logger.info(f'Creating new user with username {user.username}')
                 db.add(user)
                 db.commit()
                 db.refresh(user)
             elif not user.is_active:
                 user = None
     return user
-
-
-async def require_current_user(user: Optional[User] = Depends(get_current_user)) -> User:
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"}
-        )
-    user_value: User = user
-    return user_value

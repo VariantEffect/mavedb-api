@@ -1,4 +1,5 @@
 from datetime import date
+
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.event import listens_for
 from sqlalchemy.orm import relationship, backref
@@ -61,7 +62,7 @@ class Experiment(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     urn = Column(String(64), nullable=True, default=generate_temp_urn)  # index=True, nullable=True
-    title = Column(String(250), nullable=False)
+    title = Column(String, nullable=False)
     short_description = Column(String, nullable=False)
     abstract_text = Column(String, nullable=False)
     method_text = Column(String, nullable=False)
@@ -71,7 +72,7 @@ class Experiment(Base):
     approved = Column(Boolean, nullable=False, default=False)
     # published_date = Column('publish_date', Date, nullable=True)
     published_date = Column(Date, nullable=True)
-    processing_state = Column(String(32), nullable=True)
+    processing_state = Column(String, nullable=True)
 
     # TODO Refactor the way we track the number of scoresets?
     # num_scoresets = Column('last_child_value', Integer, nullable=False, default=0)

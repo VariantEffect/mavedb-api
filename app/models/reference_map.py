@@ -1,9 +1,9 @@
 from datetime import date
+
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer
 from sqlalchemy.orm import relationship, backref
 
 from app.db.base import Base
-from .reference_genome import ReferenceGenome
 
 
 class ReferenceMap(Base):
