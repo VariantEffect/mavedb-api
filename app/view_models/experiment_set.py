@@ -9,12 +9,12 @@ from app.view_models.user import SavedUser, User
 
 
 class ExperimentSetBase(BaseModel):
-    urn: Optional[str]
-    title: str
-    method_text: str
-    abstract_text: str
-    short_description: str
-    extra_metadata: Dict
+    urn: str
+    title: Optional[str]
+    method_text: Optional[str]
+    abstract_text: Optional[str]
+    short_description: Optional[str]
+    extra_metadata: Optional[Dict]
     published_date: Optional[date]
 
 

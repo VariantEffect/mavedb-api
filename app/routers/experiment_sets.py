@@ -1,4 +1,5 @@
 from typing import Any
+from operator import attrgetter
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -32,4 +33,6 @@ def fetch_experiment_set(
         raise HTTPException(
             status_code=404, detail=f'Experiment set with URN {urn} not found'
         )
+    else:
+        item.experiments.sort(key=attrgetter('urn'))
     return item
