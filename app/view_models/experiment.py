@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 from app.view_models.base.base import BaseModel
 from app.view_models.doi_identifier import DoiIdentifierCreate, SavedDoiIdentifier, DoiIdentifier
 from app.view_models.pubmed_identifier import PubmedIdentifierCreate, SavedPubmedIdentifier, PubmedIdentifier
+from app.view_models.raw_read_identifier import RawReadIdentifierCreate, SavedRawReadIdentifier, RawReadIdentifier
 from app.view_models.user import SavedUser, User
 
 
@@ -36,6 +37,7 @@ class ExperimentCreate(ExperimentBase):
     method_text: str
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     pubmed_identifiers: Optional[list[PubmedIdentifierCreate]]
+    raw_read_identifiers: Optional[list[RawReadIdentifierCreate]]
 
 
 class ExperimentUpdate(ExperimentBase):
@@ -44,6 +46,7 @@ class ExperimentUpdate(ExperimentBase):
     method_text: str
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     pubmed_identifiers: Optional[list[PubmedIdentifierCreate]]
+    raw_read_identifiers: Optional[list[RawReadIdentifierCreate]]
 
 
 # Properties shared by models stored in DB
@@ -58,6 +61,7 @@ class SavedExperiment(ExperimentBase):
     experiment_set_urn: Optional[str]
     doi_identifiers: list[SavedDoiIdentifier]
     pubmed_identifiers: list[SavedPubmedIdentifier]
+    raw_read_identifiers: list[SavedRawReadIdentifier]
     processing_state: Optional[str]
 
     class Config:
@@ -68,6 +72,7 @@ class SavedExperiment(ExperimentBase):
 class Experiment(SavedExperiment):
     doi_identifiers: list[DoiIdentifier]
     pubmed_identifiers: list[PubmedIdentifier]
+    raw_read_identifiers: list[RawReadIdentifier]
     created_by: Optional[User]
     modified_by: Optional[User]
 

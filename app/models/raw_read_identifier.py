@@ -5,7 +5,7 @@ from sqlalchemy import Column, Date, Integer, String
 from app.db.base import Base
 
 
-class SraIdentifier(Base):
+class RawReadIdentifier(Base):
     # __tablename__ = 'metadata_sraidentifier'
     __tablename__ = 'sra_identifiers'
 

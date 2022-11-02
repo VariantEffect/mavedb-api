@@ -14,7 +14,7 @@ __all__ = [
     'refseq_offset',
     'role',
     'scoreset',
-    'sra_identifier',
+    'raw_read_identifier.py',
     'target_gene',
     'uniprot_identifier',
     'uniprot_offset',

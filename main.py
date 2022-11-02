@@ -12,9 +12,12 @@ from starlette.responses import JSONResponse
 
 from sqlalchemy.orm import configure_mappers
 
-from app.models import *
+from app.models import raw_read_identifier
+#from app.models import *
+#I don't know why this one can't work after changing the sra_identifier.py name to raw_read_identifiter.py
+
 from app.routers import access_keys, doi_identifiers, experiment_sets, experiments, pubmed_identifiers, \
-    reference_genomes, scoresets, target_gene_identifiers, target_genes, users
+    reference_genomes, scoresets, target_gene_identifiers, target_genes, users, raw_read_identifiers
 
 logging.basicConfig()
 # Un-comment this line to log all queries:
@@ -42,6 +45,7 @@ app.include_router(scoresets.router)
 app.include_router(target_gene_identifiers.router)
 app.include_router(target_genes.router)
 app.include_router(users.router)
+app.include_router(raw_read_identifiers.router)
 
 
 @app.exception_handler(RequestValidationError)

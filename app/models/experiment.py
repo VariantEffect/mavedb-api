@@ -44,7 +44,8 @@ experiments_pubmed_identifiers_association_table = Table(
 )
 
 
-experiments_sra_identifiers_association_table = Table(
+#experiments_sra_identifiers_association_table = Table(
+experiments_raw_read_identifiers_association_table = Table(
     # 'dataset_experiment_sra_ids',
     'experiment_sra_identifiers',
     Base.metadata,
@@ -96,7 +97,8 @@ class Experiment(Base):
     keyword_objs = relationship('Keyword', secondary=experiments_keywords_association_table, backref='experiments')
     doi_identifiers = relationship('DoiIdentifier', secondary=experiments_doi_identifiers_association_table, backref='experiments')
     pubmed_identifiers = relationship('PubmedIdentifier', secondary=experiments_pubmed_identifiers_association_table, backref='experiments')
-    sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
+    #sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
+    raw_read_identifiers = relationship('RawReadIdentifier', secondary=experiments_raw_read_identifiers_association_table,backref='experiments')
 
     # Unfortunately, we can't use association_proxy here, because in spite of what the documentation seems to imply, it
     # doesn't check for a pre-existing keyword with the same text.

@@ -9,7 +9,8 @@ from app.models.enums.processing_state import ProcessingState
 from .doi_identifier import DoiIdentifier
 from .keyword import Keyword
 from .pubmed_identifier import PubmedIdentifier
-from .sra_identifier import SraIdentifier
+#from .raw_read_identifier import SraIdentifier
+from .raw_read_identifier import RawReadIdentifier
 from .variant import Variant
 from app.lib.temp_urns import generate_temp_urn
 
@@ -59,7 +60,8 @@ scoresets_pubmed_identifiers_association_table = Table(
 )
 
 
-scoresets_sra_identifiers_association_table = Table(
+#scoresets_sra_identifiers_association_table = Table(
+scoresets_raw_read_identifiers_association_table = Table(
     # 'dataset_scoreset_sra_ids',
     'scoreset_sra_identifiers',
     Base.metadata,
@@ -120,7 +122,8 @@ class Scoreset(Base):
     keyword_objs = relationship('Keyword', secondary=scoresets_keywords_association_table, backref='scoresets')
     doi_identifiers = relationship('DoiIdentifier', secondary=scoresets_doi_identifiers_association_table, backref='scoresets')
     pubmed_identifiers = relationship('PubmedIdentifier', secondary=scoresets_pubmed_identifiers_association_table, backref='scoresets')
-    sra_identifiers = relationship('SraIdentifier', secondary=scoresets_sra_identifiers_association_table, backref='scoresets')
+    #sra_identifiers = relationship('SraIdentifier', secondary=scoresets_sra_identifiers_association_table, backref='scoresets')
+    raw_read_identifiers = relationship('RawReadIdentifier', secondary=scoresets_raw_read_identifiers_association_table,backref='scoresets')
     meta_analysis_source_scoresets = relationship(
         'Scoreset',
         secondary=scoresets_meta_analysis_scoresets_association_table,
