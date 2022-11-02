@@ -38,7 +38,8 @@ experiment_sets_pubmed_identifiers_association_table = Table(
     Column('pubmed_identifier_id', ForeignKey('pubmed_identifiers.id'), primary_key=True)
 )
 
-experiment_sets_sra_identifiers_association_table = Table(
+#experiment_sets_sra_identifiers_association_table = Table(
+experiment_sets_raw_read_identifiers_association_table = Table(
     # 'dataset_experimentset_sra_ids',
     'experiment_set_sra_identifiers',
     Base.metadata,
@@ -88,5 +89,6 @@ class ExperimentSet(Base):
     pubmed_identifiers = relationship('PubmedIdentifier',
                                       secondary=experiment_sets_pubmed_identifiers_association_table,
                                       backref='experiment_sets')
-    sra_identifiers = relationship('SraIdentifier', secondary=experiment_sets_sra_identifiers_association_table,
+    #sra_identifiers = relationship('SraIdentifier', secondary=experiment_sets_sra_identifiers_association_table, backref='experiment_sets')
+    raw_read_identifiers = relationship('RawReadIdentifier', secondary=experiment_sets_raw_read_identifiers_association_table,
                                    backref='experiment_sets')
