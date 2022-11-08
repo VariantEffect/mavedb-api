@@ -74,7 +74,8 @@ class SavedScoreset(ScoresetBase):
     urn: str
     num_variants: int
     experiment: SavedExperiment
-    superseded_scoreset: Optional[SavedScoreset]
+    superseded_scoreset: Optional[ShortScoreset]
+    superseding_scoreset: Optional[SavedScoreset]
     meta_analysis_source_scoresets: list[ShortScoreset]
     meta_analyses: list[ShortScoreset]
     doi_identifiers: list[SavedDoiIdentifier]
@@ -96,7 +97,8 @@ class Scoreset(SavedScoreset):
     """Score set view model containing most properties visible to non-admin users, but no variant data."""
 
     experiment: Experiment
-    superseded_scoreset: Optional[Scoreset]
+    superseded_scoreset: Optional[ShortScoreset]
+    superseding_scoreset: Optional[Scoreset]
     meta_analysis_source_scoresets: list[ShortScoreset]
     meta_analyses: list[ShortScoreset]
     doi_identifiers: list[DoiIdentifier]
