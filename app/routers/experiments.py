@@ -10,7 +10,7 @@ from app import deps
 from app.lib.authentication import get_current_user
 from app.lib.authorization import require_current_user
 from app.lib.experiments import search_experiments as _search_experiments
-from app.lib.identifiers import find_or_create_doi_identifier, find_or_create_pubmed_identifier
+from app.lib.identifiers import find_or_create_doi_identifier, find_or_create_pubmed_identifier, find_or_create_raw_read_identifier
 from app.models.experiment import Experiment
 from app.models.scoreset import Scoreset
 from app.models.user import User
@@ -145,10 +145,13 @@ async def create_experiment(
                        item_create.doi_identifiers or []]
     pubmed_identifiers = [await find_or_create_pubmed_identifier(db, identifier.identifier) for identifier in
                           item_create.pubmed_identifiers or []]
+    raw_read_identifiers = [await find_or_create_raw_read_identifier(db, identifier.identifier) for identifier in
+                          item_create.raw_read_identifiers or []]
     item = Experiment(
-        **jsonable_encoder(item_create, by_alias=False, exclude=['doi_identifiers', 'keywords', 'pubmed_identifiers']),
+        **jsonable_encoder(item_create, by_alias=False, exclude=['doi_identifiers', 'keywords', 'pubmed_identifiers', 'raw_read_identifiers']),
         doi_identifiers=doi_identifiers,
         pubmed_identifiers=pubmed_identifiers,
+        raw_read_identifiers=raw_read_identifiers,
         created_by=user,
         modified_by=user
     )
@@ -186,8 +189,11 @@ async def update_experiment(
                        item_update.doi_identifiers or []]
     pubmed_identifiers = [await find_or_create_pubmed_identifier(db, identifier.identifier) for identifier in
                           item_update.pubmed_identifiers or []]
+    raw_read_identifiers = [await find_or_create_raw_read_identifier(db, identifier.identifier) for identifier in
+                          item_update.raw_read_identifiers or []]
     item.doi_identifiers = doi_identifiers
     item.pubmed_identifiers = pubmed_identifiers
+    item.raw_read_identifiers = raw_read_identifiers
 
     await item.set_keywords(db, item_update.keywords)
     item.modified_by = user

@@ -13,6 +13,7 @@ from app.models.refseq_offset import RefseqOffset
 from app.models.target_gene import TargetGene
 from app.models.uniprot_identifier import UniprotIdentifier
 from app.models.uniprot_offset import UniprotOffset
+from app.models.raw_read_identifier import RawReadIdentifier
 
 EXTERNAL_GENE_IDENTIFIER_CLASSES = {
     'Ensembl': EnsemblIdentifier,
@@ -65,6 +66,15 @@ async def find_or_create_pubmed_identifier(db: Session, identifier: str):
         )
     return pubmed_identifier
 
+async def find_or_create_raw_read_identifier(db: Session, identifier: str):
+    raw_read_identifier = db.query(RawReadIdentifier).filter(RawReadIdentifier.identifier == identifier).one_or_none()
+    if not raw_read_identifier:
+        raw_read_identifier = RawReadIdentifier(
+            identifier=identifier,
+            db_name='RawRead',
+            url=f'http://www.ebi.ac.uk/ena/data/view/{identifier}'
+        )
+    return raw_read_identifier
 
 async def find_or_create_external_gene_identifier(db: Session, db_name: str, identifier: str):
     # TODO Handle key errors.
