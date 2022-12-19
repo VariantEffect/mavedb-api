@@ -181,7 +181,7 @@ async def update_experiment(
         return None
 
     pairs = {k: v for k, v in vars(item_update).items() if
-             k not in ['doi_identifiers', 'keywords', 'pubmed_identifiers']}
+             k not in ['doi_identifiers', 'keywords', 'pubmed_identifiers', 'raw_read_identifiers']}
     for var, value in pairs.items():  # vars(item_update).items():
         setattr(item, var, value) if value else None
 

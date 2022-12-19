@@ -71,7 +71,7 @@ async def find_or_create_raw_read_identifier(db: Session, identifier: str):
     if not raw_read_identifier:
         raw_read_identifier = RawReadIdentifier(
             identifier=identifier,
-            db_name='RawRead',
+            db_name='SRA',
             url=f'http://www.ebi.ac.uk/ena/data/view/{identifier}'
         )
     return raw_read_identifier
