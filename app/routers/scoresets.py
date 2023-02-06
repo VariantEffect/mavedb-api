@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, File, status, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
-from mavecore.validation.constants import null_values_list
+from mavecore.validation.constants.general import null_values_list
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import MultipleResultsFound
 
