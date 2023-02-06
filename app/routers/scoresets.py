@@ -415,6 +415,7 @@ async def update_scoreset(
         )
     # TODO Ensure that the current user has edit rights for this scoreset.
 
+    # Editing unpublished scoreset
     if item.private is True:
         for var, value in vars(item_update).items():
             if var not in ['keywords', 'doi_identifiers', 'experiment_urn', 'pubmed_identifiers', 'target_gene']:
@@ -466,7 +467,11 @@ async def update_scoreset(
         for var, value in vars(item_update).items():
             if var not in ['keywords', 'doi_identifiers', 'experiment_urn', 'pubmed_identifiers', 'target_gene']:
                 setattr(item, var, value) if value else None
-
+    # Editing published scoreset
+    else:
+        for var, value in vars(item_update).items():
+            if var in ['title', 'method_text', 'abstract_text', 'short_description']:
+                setattr(item, var, value) if value else None
     db.add(item)
 
     db.commit()
