@@ -11,9 +11,9 @@ services:
       - .:/code
     command: bash -c "uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
 #    command: bash -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
-#      - $PWD:/srv/app
+#      - $PWD:/srv/src
 #      - $PWD/logs:/var/log/celery
-#      - /srv/app/docs
+#      - /srv/src/docs
 #    env_file:
 #      - settings/.settings-development.env
     ports:

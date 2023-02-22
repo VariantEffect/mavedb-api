@@ -32,9 +32,9 @@ config.set_section_option('alembic', 'sqlalchemy.url', f'postgresql://{DB_USERNA
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 # target_metadata = None
-from app.db.base import Base
-# from app.models.doi_identifier import DoiIdentifier
-from app.models import *
+from src.db.base import Base
+# from src.models.doi_identifier import DoiIdentifier
+from src.models import *
 target_metadata = Base.metadata
 
 
