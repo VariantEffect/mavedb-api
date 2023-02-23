@@ -12,9 +12,7 @@ from starlette.responses import JSONResponse
 
 from sqlalchemy.orm import configure_mappers
 
-from src.models import raw_read_identifier
-#from src.models import *
-#I don't know why this one can't work after changing the sra_identifier.py name to raw_read_identifiter.py
+from src.models import *
 
 from src.routers import access_keys, doi_identifiers, experiment_sets, experiments, pubmed_identifiers, \
     reference_genomes, scoresets, target_gene_identifiers, target_genes, users, raw_read_identifiers
