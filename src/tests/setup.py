@@ -4,9 +4,11 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from main import app
 from src.db.base import Base
 from src.deps import get_db
-from main import app
+from src.lib.authorization import require_current_user
+from src.models.user import User
 
 
 # To store the test database temporarily on disk:
@@ -31,7 +33,20 @@ def override_get_db():
         db.close()
 
 
+def override_current_user():
+    yield User(
+        #id=1,
+        username='someuser',
+        first_name='First',
+        last_name='Last',
+        is_active=True,
+        is_staff=False,
+        is_superuser=False,
+    )
+
 app.dependency_overrides[get_db] = override_get_db
+app.dependency_overrides[require_current_user] = override_current_user
+
 client = TestClient(app)
 
 

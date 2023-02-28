@@ -3,13 +3,14 @@ from __future__ import annotations
 from datetime import date
 from typing import Dict, Optional
 
-from src.view_models.base.base import BaseModel
+from src.view_models.base.base import BaseModel, validator
 from src.view_models.doi_identifier import DoiIdentifier, DoiIdentifierCreate, SavedDoiIdentifier
 from src.view_models.experiment import Experiment, SavedExperiment
 from src.view_models.pubmed_identifier import PubmedIdentifier, PubmedIdentifierCreate, SavedPubmedIdentifier
 from src.view_models.target_gene import SavedTargetGene, ShortTargetGene, TargetGene, TargetGeneCreate
 from src.view_models.user import SavedUser, User
 from src.view_models.variant import VariantInDbBase
+from src.lib.validation import urn, keywords
 
 
 class ScoresetBase(BaseModel):
@@ -25,7 +26,15 @@ class ScoresetBase(BaseModel):
     keywords: Optional[list[str]]
 
 
-class ScoresetCreate(ScoresetBase):
+class ScoresetModify(ScoresetBase):
+
+    @validator('keywords')
+    def validate_keywords(cls, v):
+        keywords.validate_keywords(v)
+        return v
+
+
+class ScoresetCreate(ScoresetModify):
     """View model for creating a new score set."""
 
     experiment_urn: str
@@ -35,8 +44,25 @@ class ScoresetCreate(ScoresetBase):
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     pubmed_identifiers: Optional[list[PubmedIdentifierCreate]]
 
+    @validator('superseded_scoreset_urn', 'meta_analysis_source_scoreset_urns')
+    def validate_scoreset_urn(cls, v):
+        if v is None:
+            pass
+        # For superseded_scoreset_urn
+        elif type(v) == str:
+            urn.validate_mavedb_urn_scoreset(v)
+        # For meta_analysis_source_scoreset_urns
+        else:
+            [urn.validate_mavedb_urn_scoreset(s) for s in v]
+        return v
 
-class ScoresetUpdate(ScoresetBase):
+    @validator('experiment_urn')
+    def validate_experiment_urn(cls, v):
+        urn.validate_mavedb_urn_experiment(v)
+        return v
+
+
+class ScoresetUpdate(ScoresetModify):
     """View model for updating a score set."""
 
     doi_identifiers: list[DoiIdentifierCreate]

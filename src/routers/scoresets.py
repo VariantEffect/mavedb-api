@@ -21,6 +21,9 @@ from src.lib.identifiers import create_external_gene_identifier_offset, EXTERNAL
     find_or_create_doi_identifier, find_or_create_pubmed_identifier
 from src.lib.scoresets import create_variants_data, search_scoresets as _search_scoresets, VariantData
 from src.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_scoreset_urn
+from src.lib.validation import exceptions
+from src.lib.validation.dataframe import validate_column_names, validate_dataframes_define_same_variants, validate_score, \
+                                        validate_dataframes
 from src.models.enums.processing_state import ProcessingState
 from src.models.experiment import Experiment
 from src.models.reference_map import ReferenceMap
@@ -296,7 +299,6 @@ async def upload_scoreset_variant_data(
         + [str(x).upper() for x in null_values_list]
         + [str(x).capitalize() for x in null_values_list]
     )
-
     scores_df = pd.read_csv(
         filepath_or_buffer=scores_file.file,
         sep=',',
@@ -309,11 +311,19 @@ async def upload_scoreset_variant_data(
             **{col: str for col in HGVSColumns.options()},
             'scores': float
         }
-    ).replace(null_values_re, np.NaN)
+    )#.replace(null_values_re, np.NaN) String will be replaced to NaN value
     for c in HGVSColumns.options():
         if c not in scores_df.columns:
             scores_df[c] = np.NaN
     score_columns = [col for col in scores_df.columns if col not in HGVSColumns.options()]
+    if scores_file:
+        try:
+            validate_column_names(scores_df)
+            for col in score_columns:
+                for val in scores_df[col]:
+                    validate_score(val)
+        except exceptions.ValidationError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     counts_df = None
     count_columns = []
@@ -336,6 +346,19 @@ async def upload_scoreset_variant_data(
                 counts_df[c] = np.NaN
 
         count_columns = [col for col in counts_df.columns if col not in HGVSColumns.options()]
+    if counts_file:
+        try:
+            validate_column_names(counts_df)
+        except exceptions.ValidationError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    if scores_file and counts_file:
+        try:
+            #validate_dataframes_define_same_variants(scores_df, counts_df)
+            # Horrible validation. Raises many problems.
+            validate_dataframes(item.target_gene.wt_sequence.sequence, scores_df, counts_df)
+        except exceptions.ValidationError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     variants_data = create_variants_data(scores_df, counts_df, None)  # , index_col)
     if variants_data:

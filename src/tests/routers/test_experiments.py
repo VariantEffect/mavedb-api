@@ -11,9 +11,10 @@ def test_create_experiment(test_empty_db):
         "methodText": "Methods",
         "abstractText": "Abstract",
         "shortDescription": "Test experiment",
-        "extraMetadata": {"key": "value"}
+        "extraMetadata": {"key": "value"},
+        "keywords": []
     }
-    response = client.post("/api/v1/experiments", json=experiment_to_create)
+    response = client.post("/api/v1/experiments/", json=experiment_to_create)
     assert response.status_code == 200
     response_data = response.json()
     experiment_urn = response_data['urn']
@@ -28,7 +29,42 @@ def test_create_experiment(test_empty_db):
         'numScoresets': 0,
         'creationDate': date.today().isoformat(),
         'modificationDate': date.today().isoformat(),
-        'publishedDate': None
+        'publishedDate': None,
+        'createdBy': {'orcidId': 'someuser', 'firstName': 'First', 'lastName': 'Last', 'email': None, 'roles': []},
+        'modifiedBy': {'orcidId': 'someuser', 'firstName': 'First', 'lastName': 'Last', 'email': None, 'roles': []},
+        "processingState": None,
+        "doiIdentifiers": [],
+        "pubmedIdentifiers": [],
+        "rawReadIdentifiers": []
     }
     expected_response = experiment_to_create | added_fields
     assert json.dumps(response_data, sort_keys=True) == json.dumps(expected_response, sort_keys=True)
+
+def test_create_experiment_with_invalid_doi(test_empty_db):
+    experiment_to_create = {
+        "title": "Test Experiment Title",
+        "methodText": "Methods",
+        "abstractText": "Abstract",
+        "shortDescription": "Test experiment",
+        "extraMetadata": {"key": "value"},
+        "doiIdentifiers": [{"identifier": "10.bf"}],
+        "pubmedIdentifiers": [],
+        "keywords": []
+    }
+    response = client.post("/api/v1/experiments/", json=experiment_to_create)
+    assert response.status_code == 422
+
+def test_create_experiment_with_invalid_pubmed(test_empty_db):
+    experiment_to_create = {
+        "title": "Test Experiment Title",
+        "methodText": "Methods",
+        "abstractText": "Abstract",
+        "shortDescription": "Test experiment",
+        "extraMetadata": {"key": "value"},
+        "doiIdentifiers": [],
+        "pubmedIdentifiers": [{"identifier": "cccc"}],
+        "keywords": []
+    }
+    response = client.post("/api/v1/experiments/", json=experiment_to_create)
+    assert response.status_code == 422
+

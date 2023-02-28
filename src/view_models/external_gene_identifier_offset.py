@@ -1,5 +1,6 @@
-from src.view_models.base.base import BaseModel
+from src.view_models.base.base import BaseModel, validator
 from src.view_models import external_gene_identifier
+from src.lib.validation import identifier
 
 
 class ExternalGeneIdentifierOffsetBase(BaseModel):
@@ -9,6 +10,11 @@ class ExternalGeneIdentifierOffsetBase(BaseModel):
 
 class ExternalGeneIdentifierOffsetCreate(ExternalGeneIdentifierOffsetBase):
     identifier: external_gene_identifier.ExternalGeneIdentifierCreate
+
+    @validator('identifier')
+    def validate_identifier(cls, v):
+        identifier.validate_external_identifier(v)
+        return v
 
 
 # Properties shared by models stored in DB

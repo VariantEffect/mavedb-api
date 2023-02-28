@@ -1,4 +1,7 @@
-from src.view_models.base.base import BaseModel
+import idutils
+
+from src.view_models.base.base import BaseModel, validator
+from src.lib.validation.exceptions import ValidationError
 
 
 class PubmedIdentifierBase(BaseModel):
@@ -6,7 +9,13 @@ class PubmedIdentifierBase(BaseModel):
 
 
 class PubmedIdentifierCreate(PubmedIdentifierBase):
-    pass
+
+    @validator('identifier')
+    def must_be_valid_pubmed(cls, v):
+        if not idutils.is_pmid(v):
+            # ValidationError shows weird error and test can't catch it.
+            raise ValueError("{} is not a valid PubMed identifier.".format(v))
+        return v
 
 
 # Properties shared by models stored in DB

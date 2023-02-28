@@ -1,6 +1,7 @@
 from datetime import date
 
-from src.view_models.base.base import BaseModel
+from src.view_models.base.base import BaseModel, validator
+from src.lib.validation import target
 
 
 class WildTypeSequenceBase(BaseModel):
@@ -8,11 +9,24 @@ class WildTypeSequenceBase(BaseModel):
     sequence: str
 
 
-class WildTypeSequenceCreate(WildTypeSequenceBase):
+class WildTypeSequenceModify(WildTypeSequenceBase):
+
+    @validator('sequence_type')
+    def validate_category(cls, v):
+        target.validate_sequence_category(v)
+        return v
+
+    @validator('sequence')
+    def validate_sequence(cls, v):
+        target.validate_target_sequence(v)
+        return v
+
+
+class WildTypeSequenceCreate(WildTypeSequenceModify):
     pass
 
 
-class WildTypeSequenceUpdate(WildTypeSequenceBase):
+class WildTypeSequenceUpdate(WildTypeSequenceModify):
     pass
 
 

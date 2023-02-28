@@ -5,9 +5,10 @@ from pydantic import conlist
 from pydantic.utils import GetterDict
 
 from src.view_models import external_gene_identifier_offset
-from src.view_models.base.base import BaseModel
+from src.view_models.base.base import BaseModel, validator
 from src.view_models.reference_map import ReferenceMap, ReferenceMapCreate
 from src.view_models.wild_type_sequence import WildTypeSequence, WildTypeSequenceCreate
+from src.lib.validation import target
 
 
 class ExternalIdentifiersGetter(GetterDict):
@@ -41,7 +42,15 @@ class TargetGeneBase(BaseModel):
         getter_dict: ExternalIdentifiersGetter
 
 
-class TargetGeneCreate(TargetGeneBase):
+class TargetGeneModify(TargetGeneBase):
+
+    @validator('category')
+    def validate_category(cls, v):
+        target.validate_target_category(v)
+        return v
+
+
+class TargetGeneCreate(TargetGeneModify):
     """View model for creating a new target gene."""
 
     reference_maps: conlist(ReferenceMapCreate, min_items=1)
@@ -49,7 +58,7 @@ class TargetGeneCreate(TargetGeneBase):
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffsetCreate]
 
 
-class TargetGeneUpdate(TargetGeneBase):
+class TargetGeneUpdate(TargetGeneModify):
     """View model for updating a target gene."""
 
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffsetCreate]

@@ -1,11 +1,12 @@
 from datetime import date
 from typing import Any, Dict, Optional
 
-from src.view_models.base.base import BaseModel
+from src.view_models.base.base import BaseModel, validator
 from src.view_models.doi_identifier import DoiIdentifierCreate, SavedDoiIdentifier, DoiIdentifier
 from src.view_models.pubmed_identifier import PubmedIdentifierCreate, SavedPubmedIdentifier, PubmedIdentifier
 from src.view_models.raw_read_identifier import RawReadIdentifierCreate, SavedRawReadIdentifier, RawReadIdentifier
 from src.view_models.user import SavedUser, User
+from src.lib.validation import keywords
 
 
 class ExperimentBase(BaseModel):
@@ -31,7 +32,15 @@ class ExperimentBase(BaseModel):
     #    return v.title()
 
 
-class ExperimentCreate(ExperimentBase):
+class ExperimentModify(ExperimentBase):
+
+    @validator('keywords')
+    def validate_keywords(cls, v):
+        keywords.validate_keywords(v)
+        return v
+
+
+class ExperimentCreate(ExperimentModify):
     short_description: str
     abstract_text: str
     method_text: str
@@ -40,7 +49,7 @@ class ExperimentCreate(ExperimentBase):
     raw_read_identifiers: Optional[list[RawReadIdentifierCreate]]
 
 
-class ExperimentUpdate(ExperimentBase):
+class ExperimentUpdate(ExperimentModify):
     short_description: str
     abstract_text: str
     method_text: str
