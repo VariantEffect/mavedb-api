@@ -1,6 +1,7 @@
 import datetime
 from decimal import Decimal
 
+import six
 
 NON_FIELD_ERRORS = '__all__'
 

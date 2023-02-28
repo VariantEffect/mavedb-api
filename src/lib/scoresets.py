@@ -17,7 +17,7 @@ from src.lib.mave.constants import (
 )
 from src.lib.mave.utils import is_csv_null
 from src.models.experiment import Experiment
-from src.models.keyword import Keyword
+from src.models.legacy_keyword import LegacyKeyword
 from src.models.reference_genome import ReferenceGenome
 from src.models.reference_map import ReferenceMap
 from src.models.scoreset import Scoreset
@@ -50,7 +50,7 @@ def search_scoresets(db: Session, owner: Optional[User], search: ScoresetsSearch
             Scoreset.abstract_text.contains(lower_search_text),
             Scoreset.target_gene.has(func.lower(TargetGene.name).contains(lower_search_text)),
             Scoreset.target_gene.has(func.lower(TargetGene.category).contains(lower_search_text)),
-            Scoreset.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text))
+            Scoreset.keyword_objs.any(func.lower(LegacyKeyword.text).contains(lower_search_text))
             # TODO Add: ORGANISM_NAME UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
         ))
 

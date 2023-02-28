@@ -9,7 +9,7 @@ from src.db.base import Base
 from src.deps import JSONB
 from src.lib.temp_urns import generate_temp_urn
 from src.models.experiment_set import ExperimentSet
-from src.models.keyword import Keyword
+from src.models.legacy_keyword import LegacyKeyword
 
 experiments_doi_identifiers_association_table = Table(
     # 'dataset_experiment_doi_ids',
@@ -22,7 +22,7 @@ experiments_doi_identifiers_association_table = Table(
 )
 
 
-experiments_keywords_association_table = Table(
+experiments_legacy_keywords_association_table = Table(
     # 'dataset_experiment_keywords',
     'experiment_keywords',
     Base.metadata,
@@ -94,7 +94,7 @@ class Experiment(Base):
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
     #scoresets = relationship('Scoreset', back_populates='experiment')
-    keyword_objs = relationship('Keyword', secondary=experiments_keywords_association_table, backref='experiments')
+    legacy_keyword_objs = relationship('LegacyKeyword', secondary=experiments_legacy_keywords_association_table, backref='experiments')
     doi_identifiers = relationship('DoiIdentifier', secondary=experiments_doi_identifiers_association_table, backref='experiments')
     pubmed_identifiers = relationship('PubmedIdentifier', secondary=experiments_pubmed_identifiers_association_table, backref='experiments')
     #sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
@@ -108,11 +108,11 @@ class Experiment(Base):
     # _updated_doi_identifiers: list[str] = None
 
     @property
-    def keywords(self) -> list[str]:
+    def legacy_keywords(self) -> list[str]:
         # if self._updated_keywords:
         #     return self._updated_keywords
         # else:
-        keyword_objs = self.keyword_objs or []  # getattr(self, 'keyword_objs', [])
+        keyword_objs = self.legacy_keyword_objs or []  # getattr(self, 'keyword_objs', [])
         return list(map(lambda keyword_obj: keyword_obj.text, keyword_objs))
 
     async def set_keywords(self, db, keywords: list[str]):
@@ -124,9 +124,9 @@ class Experiment(Base):
     #     self._keyword_objs = [await self._find_or_create_keyword(text) for text in keywords]
 
     async def _find_or_create_keyword(self, db, keyword_text):
-        keyword_obj = db.query(Keyword).filter(Keyword.text == keyword_text).one_or_none()
+        keyword_obj = db.query(LegacyKeyword).filter(LegacyKeyword.text == keyword_text).one_or_none()
         if not keyword_obj:
-            keyword_obj = Keyword(text=keyword_text)
+            keyword_obj = LegacyKeyword(text=keyword_text)
             # object_session.add(keyword_obj)
         return keyword_obj
 

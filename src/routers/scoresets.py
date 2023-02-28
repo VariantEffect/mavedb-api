@@ -24,6 +24,7 @@ from src.lib.urns import generate_experiment_set_urn, generate_experiment_urn, g
 from src.lib.validation import exceptions
 from src.lib.validation.dataframe import validate_column_names, validate_dataframes_define_same_variants, validate_score, \
                                         validate_dataframes
+from src.models.controlled_keyword import ControlledKeyword
 from src.models.enums.processing_state import ProcessingState
 from src.models.experiment import Experiment
 from src.models.reference_map import ReferenceMap
@@ -196,7 +197,7 @@ class HGVSColumns:
         return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
-@router.post('/scoresets/', response_model=scoreset.Scoreset, responses={422: {}})
+@router.post('/scoresets/', response_model=scoreset.Scoreset, responses={422: {}, 500: {}})
 async def create_scoreset(
         *,
         item_create: scoreset.ScoresetCreate,
@@ -262,7 +263,11 @@ async def create_scoreset(
         created_by=user,
         modified_by=user
     )
-    await item.set_keywords(db, item_create.keywords)
+    keywords = {key: [ControlledKeyword(key, keyword.value, keyword.vocabulary) for keyword in keywords] for key, keywords in item_create.keywords}
+    try:
+        await item.set_keywords(db, keywords)
+    except Exception:
+        raise HTTPException(status_code=500, detail='Invalid keywords')
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -449,7 +454,12 @@ async def update_scoreset(
         item.pubmed_identifiers = [await find_or_create_pubmed_identifier(db, identifier.identifier) for identifier in
                                    item_update.pubmed_identifiers or []]
 
-        await item.set_keywords(db, item_update.keywords)
+        keywords = {key: [ControlledKeyword(key, keyword.value, keyword.vocabulary) for keyword in keywords] for
+                    key, keywords in item_update.keywords}
+        try:
+            await item.set_keywords(db, keywords)
+        except Exception:
+            raise HTTPException(status_code=500, detail='Invalid keywords')
 
         # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the scoreset's
         # target_gene to None, because we have set cascade='all,delete-orphan' on Scoreset.target_gene. (Since the

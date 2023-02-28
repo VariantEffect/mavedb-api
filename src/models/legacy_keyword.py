@@ -5,7 +5,7 @@ from sqlalchemy import Column, Date, Integer, String
 from src.db.base import Base
 
 
-class Keyword(Base):
+class LegacyKeyword(Base):
     # __tablename__ = 'metadata_keyword'
     __tablename__ = 'keywords'
 

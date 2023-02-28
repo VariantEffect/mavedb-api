@@ -3,14 +3,15 @@ from __future__ import annotations
 from datetime import date
 from typing import Dict, Optional
 
+from src.lib.validation import urn, keywords
 from src.view_models.base.base import BaseModel, validator
 from src.view_models.doi_identifier import DoiIdentifier, DoiIdentifierCreate, SavedDoiIdentifier
 from src.view_models.experiment import Experiment, SavedExperiment
+from src.view_models.keyword import Keyword, KeywordBase
 from src.view_models.pubmed_identifier import PubmedIdentifier, PubmedIdentifierCreate, SavedPubmedIdentifier
 from src.view_models.target_gene import SavedTargetGene, ShortTargetGene, TargetGene, TargetGeneCreate
 from src.view_models.user import SavedUser, User
 from src.view_models.variant import VariantInDbBase
-from src.lib.validation import urn, keywords
 
 
 class ScoresetBase(BaseModel):
@@ -23,7 +24,7 @@ class ScoresetBase(BaseModel):
     extra_metadata: Dict
     data_usage_policy: Optional[str]
     licence_id: Optional[int]
-    keywords: Optional[list[str]]
+    keywords: Optional[Dict[str, KeywordBase]]
 
 
 class ScoresetModify(ScoresetBase):
@@ -41,6 +42,7 @@ class ScoresetCreate(ScoresetModify):
     superseded_scoreset_urn: Optional[str]
     meta_analysis_source_scoreset_urns: Optional[list[str]]
     target_gene: TargetGeneCreate
+    keywords: Optional[Dict[str, Keyword]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     pubmed_identifiers: Optional[list[PubmedIdentifierCreate]]
 
@@ -65,6 +67,7 @@ class ScoresetCreate(ScoresetModify):
 class ScoresetUpdate(ScoresetModify):
     """View model for updating a score set."""
 
+    keywords: Optional[Dict[str, Keyword]]
     doi_identifiers: list[DoiIdentifierCreate]
     pubmed_identifiers: list[PubmedIdentifierCreate]
     target_gene: TargetGeneCreate
@@ -88,6 +91,7 @@ class ShortScoreset(BaseModel):
     modification_date: date
     target_gene: ShortTargetGene
     private: bool
+    keywords: Optional[Dict[str, Keyword]]
 
     class Config:
         orm_mode = True
@@ -104,6 +108,7 @@ class SavedScoreset(ScoresetBase):
     superseding_scoreset: Optional[SavedScoreset]
     meta_analysis_source_scoresets: list[ShortScoreset]
     meta_analyses: list[ShortScoreset]
+    keywords: Optional[Dict[str, Keyword]]
     doi_identifiers: list[SavedDoiIdentifier]
     pubmed_identifiers: list[SavedPubmedIdentifier]
     published_date: Optional[date]
@@ -127,6 +132,7 @@ class Scoreset(SavedScoreset):
     superseding_scoreset: Optional[Scoreset]
     meta_analysis_source_scoresets: list[ShortScoreset]
     meta_analyses: list[ShortScoreset]
+    keywords: Optional[Dict[str, Keyword]]
     doi_identifiers: list[DoiIdentifier]
     pubmed_identifiers: list[PubmedIdentifier]
     created_by: Optional[User]
@@ -151,3 +157,4 @@ class AdminScoreset(Scoreset):
 
     normalised: bool
     approved: bool
+    legacy_keywords: Optional[list[str]]

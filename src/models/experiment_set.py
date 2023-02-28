@@ -18,7 +18,7 @@ experiment_sets_doi_identifiers_association_table = Table(
     Column('doi_identifier_id', ForeignKey('doi_identifiers.id'), primary_key=True)
 )
 
-experiment_sets_keywords_association_table = Table(
+experiment_sets_legacy_keywords_association_table = Table(
     # 'dataset_experimentset_keywords',
     'experiment_set_keywords',
     Base.metadata,
@@ -82,7 +82,7 @@ class ExperimentSet(Base):
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    keyword_objs = relationship('Keyword', secondary=experiment_sets_keywords_association_table,
+    keyword_objs = relationship('LegacyKeyword', secondary=experiment_sets_legacy_keywords_association_table,
                                 backref='experiment_sets')
     doi_identifiers = relationship('DoiIdentifier', secondary=experiment_sets_doi_identifiers_association_table,
                                    backref='experiment_sets')
