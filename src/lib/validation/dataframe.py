@@ -25,6 +25,10 @@ from fqfa.util.translate import translate_dna
 # take dataframe, output as csv to temp directory, use standard library
 
 
+class DataframeValidationError(ValueError):
+    pass
+
+
 def validate_dataframes(target_seq: str, scores, counts=None):
     """
     Validates scores and counts dataframes for MaveDB upload. This function performs
