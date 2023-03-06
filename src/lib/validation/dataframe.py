@@ -13,7 +13,13 @@ from src.lib.validation.exceptions import ValidationError
 from src.lib.validation.variant import validate_hgvs_string
 from src.lib.validation.utilities import convert_hgvs_nt_to_hgvs_pro
 from src.lib.validation.target import validate_target_sequence
-
+from fqfa.util.infer import infer_sequence_type
+from fqfa.util.nucleotide import (
+    reverse_complement,
+    convert_dna_to_rna,
+    convert_rna_to_dna,
+)
+from fqfa.util.translate import translate_dna
 # handle with pandas all null strings
 # provide a csv or a pandas dataframe
 # take dataframe, output as csv to temp directory, use standard library
@@ -101,6 +107,7 @@ def validate_column_names(dataframe, scores=True):
     columns = dataframe.columns
 
     # check that there are no duplicate column names
+    # This one seems useless cause duplicate column names will be processed automatically
     if len(columns) != len(set(columns)):
         raise ValidationError("There cannot be duplicate column names.")
 
@@ -120,21 +127,22 @@ def validate_column_names(dataframe, scores=True):
             raise ValidationError("Column names must not be null.")  # in readable_null_values_list:
         if columns[i] in [hgvs_nt_column, hgvs_pro_column, hgvs_splice_column]:
             count += 1
-        # mark what type of column the current column is
-        if columns[i] == hgvs_nt_column:
-            hgvs_nt = True
-        elif columns[i] == hgvs_pro_column:
-            hgvs_pro = True
-        elif columns[i] == hgvs_splice_column:
-            hgvs_splice = True
-        elif columns[i] == required_score_column:
-            score_column = True
-        # check for uppercase and raise error
-        elif (columns[i] == hgvs_nt_column.upper() or
-              columns[i] == hgvs_pro_column.upper() or
-              columns[i] == hgvs_splice_column.upper() or
-              columns[i] == required_score_column.upper()):
-            raise ValidationError("hgvs columns and score column should be lowercase.")
+
+    for column in dataframe.columns:
+        if len(dataframe.index) != dataframe[column].isnull().sum():
+            if column == hgvs_nt_column:
+                hgvs_nt = True
+            elif column == hgvs_pro_column:
+                hgvs_pro = True
+            elif column == hgvs_splice_column:
+                hgvs_splice = True
+            elif column == required_score_column:
+                score_column = True
+            elif (column == hgvs_nt_column.upper() or
+                  column == hgvs_pro_column.upper() or
+                  column == hgvs_splice_column.upper() or
+                  column == required_score_column.upper()):
+                raise ValidationError("hgvs columns and score column should be lowercase.")
 
     # there should be at least one of hgvs_nt or hgvs_pro column
     # if count == 0:
@@ -231,7 +239,22 @@ def validate_values_by_column(dataset, target_seq: str):
     # check that prefixes all match and are consistent with one another
     hgvs_nt_prefix = None
 
+    sequence_type = infer_sequence_type(target_seq)
+    if sequence_type=="dna":
+        target_dna_seq = target_seq
+        target_rna_seq = convert_dna_to_rna(target_seq)
+        target_aa_seq = translate_dna(target_seq)[0]
+    elif sequence_type=="rna":
+        targe_dna_seq = convert_rna_to_dna(target_seq)
+        target_rna_seq = target_seq
+        target_aa_seq = translate_dna(targe_dna_seq)[0]
+    else:
+        target_dna_seq = None
+        target_rna_seq = None
+        target_aa_seq = target_seq
+
     # loop through row by row, validate hgvs strings, make sure nt and pro are consistent with one another
+    # TODO: Haven't finished this part yet. target_seq for hgvs_nt
     for i in range(len(dataset)):
         # NaN type is numpy.float64 so it will be validated.
         if hgvs_nt and dataset.loc[i, hgvs_nt_column] is not None:
@@ -251,7 +274,7 @@ def validate_values_by_column(dataset, target_seq: str):
         if hgvs_pro and dataset.loc[i, hgvs_pro_column] is not None:
             validate_hgvs_string(value=dataset.loc[i, hgvs_pro_column],
                                  column="p",
-                                 targetseq=target_seq,
+                                 targetseq=target_aa_seq,
                                  splice_present=hgvs_splice)
         if hgvs_splice and dataset.loc[i, hgvs_splice_column] is not None:
             validate_hgvs_string(value=dataset.loc[i, hgvs_splice_column],
@@ -298,11 +321,11 @@ def validate_index_column(column, hgvs: str):
     col_set = set(column)
     if len(col_set) != len(column):
         raise ValidationError(
-            "Each value in hgvs_'{}' column must be unique.".format(hgvs)
+            "Each value in hgvs_{} column must be unique.".format(hgvs)
         )
     if np.nan in col_set:
         raise ValidationError(
-            "Primary column (hgvs_'{}') must not contain missing values.".format(hgvs)
+            "Primary column hgvs_{} must not contain missing values.".format(hgvs)
         )
 
 

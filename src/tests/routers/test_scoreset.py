@@ -448,8 +448,26 @@ def test_valid_score_file(test_empty_db):
     assert response.status_code == 200
 
 """
+# This one can't work cause duplicate column names will be processed automatically
+def test_score_file_with_duplicate_columns(test_empty_db):
+    create_reference_genome()
+    scoreset = create_scoreset()
+    urn = scoreset["urn"]
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+    score_csv_path = os.path.join(current_directory, "scores_with_duplicate_columns.csv")
+    count_csv_path = os.path.join(current_directory, "counts.csv")
+    # csv_path = os.path.join("/Users/da.e/Desktop/Estelle Computer/Programming Work/mavedb-api/app/tests/", "scores.csv")
+    with open(score_csv_path, "rb") as f1, open(count_csv_path, "rb") as f2:
+        response = client.post(f"/api/v1/scoresets/{urn}/variants/data", files={'scores_file': ('scores.csv', f1, "text/csv"),
+                                                                                'counts_file': ('counts.csv', f2, "text/csv")})
+    # check the response status code and data
+    print(response.json())
+    assert response.status_code == 400
+    assert response.json() == {"detail": "There cannot be duplicate column names."}
+"""
+
+
 # Is it a ccorect way?
-# Can't pass
 def test_score_file_without_score_column(test_empty_db):
     create_reference_genome()
     scoreset = create_scoreset()
@@ -457,11 +475,11 @@ def test_score_file_without_score_column(test_empty_db):
     current_directory = os.path.dirname(os.path.abspath(__file__))
     score_csv_path = os.path.join(current_directory, "scores_without_score_column.csv")
     with open(score_csv_path, "rb") as f:
-            response = client.post(f"/api/v1/scoresets/{urn}/variants/data", files={'scores_file': ('scores.csv', f, "text/csv")})
+            response = client.post(f"/api/v1/scoresets/{urn}/variants/data", files={'scores_file': ('scores_without_score_column.csv', f, "text/csv")})
     assert response.status_code == 400
     assert response.json() == {"detail": "A scores dataframe must include a `score` column."}
-"""
-"""
+
+
 # Show other problem. Can't pass.
 def test_scores_and_counts_define_different_variants(test_empty_db):
     create_reference_genome()
@@ -472,10 +490,10 @@ def test_scores_and_counts_define_different_variants(test_empty_db):
     count_csv_path = os.path.join(current_directory, "counts_with_different_variants.csv")
     with open(score_csv_path, "rb") as f1, open(count_csv_path, "rb") as f2:
             response = client.post(f"/api/v1/scoresets/{urn}/variants/data", files={'scores_file': ('scores.csv', f1, "text/csv"),
-                                                                         'counts_file': ('counts.csv', f2, "text/csv")})
+                                                                         'counts_file': ('counts_with_different_variants.csv', f2, "text/csv")})
     assert response.status_code == 400
     assert response.json() == {"detail": "Your score and counts files do not define the same variants. Check that the hgvs columns in both files match."}
-"""
+
 def test_score_file_with_letter(test_empty_db):
     create_reference_genome()
     scoreset = create_scoreset()
@@ -483,10 +501,10 @@ def test_score_file_with_letter(test_empty_db):
     current_directory = os.path.dirname(os.path.abspath(__file__))
     score_csv_path = os.path.join(current_directory, "scores_with_string.csv")
     with open(score_csv_path, "rb") as f:
-            response = client.post(f"/api/v1/scoresets/{urn}/variants/data", files={'scores_file': ('scores.csv', f, "text/csv")})
+            response = client.post(f"/api/v1/scoresets/{urn}/variants/data", files={'scores_file': ('scores_with_string.csv', f, "text/csv")})
     assert response.status_code == 400
     assert response.json() == {"detail": "Each value in score column must be a number. ' abc' has the type 'str'."}
-"""
+
 # can't catch error
 def test_score_file_without_hgvs_columns(test_empty_db):
     create_reference_genome()
@@ -495,14 +513,13 @@ def test_score_file_without_hgvs_columns(test_empty_db):
     current_directory = os.path.dirname(os.path.abspath(__file__))
     score_csv_path = os.path.join(current_directory, "scores_without_hgvs_column.csv")
     with open(score_csv_path, "rb") as f:
-            response = client.post(f"/api/v1/scoresets/{urn}/variants/data", files={'scores_file': ('scores.csv', f, "text/csv")})
+            response = client.post(f"/api/v1/scoresets/{urn}/variants/data", files={'scores_file': ('scores_without_hgvs_column.csv', f, "text/csv")})
     assert response.status_code == 400
     # I'm confused. There're two validations about this. This one is in validate_column_names
     # The other one is in validate_values_by_column. It raises ValidationError("Missing required hgvs and/or score columns.")
     # And then there's one more ValidationError("Must include either hgvs_nt or hgvs_pro column.")
     assert response.json() == {"detail": "Must include hgvs_nt or hgvs_pro column."}
 
-# Can't catch error
 def test_score_file_hgvs_pro_has_same_values(test_empty_db):
     create_reference_genome()
     scoreset = create_scoreset()
@@ -510,14 +527,10 @@ def test_score_file_hgvs_pro_has_same_values(test_empty_db):
     current_directory = os.path.dirname(os.path.abspath(__file__))
     score_csv_path = os.path.join(current_directory, "scores_hgvs_pro_has_same_values.csv")
     with open(score_csv_path, "rb") as f:
-            response = client.post(f"/api/v1/scoresets/{urn}/variants/data", files={'scores_file': ('scores.csv', f, "text/csv")})
+            response = client.post(f"/api/v1/scoresets/{urn}/variants/data", files={'scores_file': ('scores_hgvs_pro_has_same_values.csv', f, "text/csv")})
     assert response.status_code == 400
     assert response.json() == {"detail": "Each value in hgvs_pro column must be unique."}
-"""
 
-"""
-# can't pass 
-next one 
 def test_score_and_count_files_have_hgvs_nt_and_pro(test_empty_db):
     create_reference_genome()
     scoreset = create_scoreset()
@@ -530,9 +543,7 @@ def test_score_and_count_files_have_hgvs_nt_and_pro(test_empty_db):
                                files={'scores_file': ('scores_with_hgvs_nt_and_pro.csv', f1, "text/csv"),
                                       'counts_file': ('counts_with_hgvs_nt_and_pro.csv', f2, "text/csv")})
     assert response.status_code == 200
-"""
 
-"""
 # Can't catch error.
 def test_score_file_has_not_match_hgvs_nt_and_pro(test_empty_db):
     create_reference_genome()
@@ -542,10 +553,9 @@ def test_score_file_has_not_match_hgvs_nt_and_pro(test_empty_db):
     score_csv_path = os.path.join(current_directory, "scores_hgvs_nt_not_match_pro.csv")
     with open(score_csv_path, "rb") as f:
         response = client.post(f"/api/v1/scoresets/{urn}/variants/data",
-                               files={'scores_file': ('scores.csv', f, "text/csv")})
+                               files={'scores_file': ('scores_hgvs_nt_not_match_pro.csv', f, "text/csv")})
     assert response.status_code == 400
     #assert response.json() == {"detail": "Each value in hgvs_pro column must be unique."}
-"""
 
 def test_score_file_has_invalid_hgvs_pro_prefix(test_empty_db):
     create_reference_genome()
@@ -555,7 +565,7 @@ def test_score_file_has_invalid_hgvs_pro_prefix(test_empty_db):
     score_csv_path = os.path.join(current_directory, "scores_with_invalid_hgvs_pro_prefix.csv")
     with open(score_csv_path, "rb") as f:
         response = client.post(f"/api/v1/scoresets/{urn}/variants/data",
-                               files={'scores_file': ('scores.csv', f, "text/csv")})
+                               files={'scores_file': ('scores_with_invalid_hgvs_pro_prefix.csv', f, "text/csv")})
     assert response.status_code == 400
 
 def test_score_file_has_invalid_hgvs_nt_prefix(test_empty_db):
@@ -566,6 +576,19 @@ def test_score_file_has_invalid_hgvs_nt_prefix(test_empty_db):
     score_csv_path = os.path.join(current_directory, "scores_with_invalid_hgvs_nt_prefix.csv")
     with open(score_csv_path, "rb") as f:
         response = client.post(f"/api/v1/scoresets/{urn}/variants/data",
-                               files={'scores_file': ('scores.csv', f, "text/csv")})
+                               files={'scores_file': ('scores_with_invalid_hgvs_nt_prefix.csv', f, "text/csv")})
     assert response.status_code == 400
 
+def test_count_file_has_score_column(test_empty_db):
+    create_reference_genome()
+    scoreset = create_scoreset()
+    urn = scoreset["urn"]
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+    score_csv_path = os.path.join(current_directory, "scores.csv")
+    count_csv_path = os.path.join(current_directory, "counts_with_score.csv")
+    with open(score_csv_path, "rb") as f1, open(count_csv_path, "rb") as f2:
+        response = client.post(f"/api/v1/scoresets/{urn}/variants/data",
+                               files={'scores_file': ('scores.csv', f1, "text/csv"),
+                                      'counts_file': ('counts_with_score.csv', f2, "text/csv")})
+    assert response.status_code == 400
+    assert response.json() == {"detail": "A counts dataframe should not include a `score` column, include `score` column in a scores dataframe."}

@@ -316,6 +316,7 @@ async def upload_scoreset_variant_data(
         if c not in scores_df.columns:
             scores_df[c] = np.NaN
     score_columns = [col for col in scores_df.columns if col not in HGVSColumns.options()]
+    """
     if scores_file:
         try:
             validate_column_names(scores_df)
@@ -324,7 +325,7 @@ async def upload_scoreset_variant_data(
                     validate_score(val)
         except exceptions.ValidationError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
+    """
     counts_df = None
     count_columns = []
     if counts_file and counts_file.filename:
@@ -346,13 +347,14 @@ async def upload_scoreset_variant_data(
                 counts_df[c] = np.NaN
 
         count_columns = [col for col in counts_df.columns if col not in HGVSColumns.options()]
+    """
     if counts_file:
         try:
             validate_column_names(counts_df)
         except exceptions.ValidationError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-    if scores_file and counts_file:
+    """
+    if scores_file:
         try:
             #validate_dataframes_define_same_variants(scores_df, counts_df)
             # Horrible validation. Raises many problems.
