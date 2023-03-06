@@ -18,14 +18,15 @@ from src.lib.validation.dataframe import (
     validate_dataframes_define_same_variants,
     validate_index_column,
     validate_hgvs_nt_and_hgvs_pro_represent_same_change,
+    sort_dataframe_columns,
     DataframeValidationError,
 )
 
 # generic test dataframe used for many tests
 TEST_DF_DICT = {
                 hgvs_nt_column: ["c.1A>G", "c.1A>T"],
-                hgvs_pro_column: ["p.Met1Val", "p.Met1Leu"],
                 hgvs_splice_column: ["c.1A>G", "c.1A>T"],
+                hgvs_pro_column: ["p.Met1Val", "p.Met1Leu"],
                 required_score_column: [1.0, 2.0],
                 "extra": [12.0, 3.0],
                 "count1": [3.0, 5.0],
@@ -55,12 +56,22 @@ class TestNullColumnsOrRows(TestCase):
         with self.assertRaises(DataframeValidationError):
             validate_no_null_columns_or_rows(self.dataframe)
 
+    def test_allow_null_hgvs_columns(self):
+        self.dataframe[hgvs_splice_column] = pd.NA
+        validate_no_null_columns_or_rows(self.dataframe)
+        self.dataframe[hgvs_nt_column] = pd.NA
+        validate_no_null_columns_or_rows(self.dataframe)
+
     def test_allow_missing_scores(self):
         self.dataframe.loc[0, required_score_column] = pd.NA
         validate_no_null_columns_or_rows(self.dataframe)
 
     def test_allow_missing_extras(self):
         self.dataframe.loc[1, "extra"] = pd.NA
+        validate_no_null_columns_or_rows(self.dataframe)
+
+    def test_allow_missing_hgvs(self):
+        self.dataframe.loc[1, hgvs_splice_column] = pd.NA
         validate_no_null_columns_or_rows(self.dataframe)
 
 
@@ -172,22 +183,25 @@ class TestColumnNames(TestCase):
                 with self.assertRaises(DataframeValidationError):
                     validate_column_names(self.dataframe.drop([required_score_column], axis=1).rename(columns={hgvs_splice_column: value}), kind="counts")
 
-    def test_sort_column_names(self):
-        # TODO: fix this up
-        self.dataframe = pd.DataFrame(
-            {
-                "other": 5,
-                required_score_column: [1.000],
-                hgvs_splice_column: ["c.1A>G"],
-                hgvs_pro_column: ["p.Leu5Glu"],
-                hgvs_nt_column: ["g.1A>G"],
-            }
-        )
-        dataset = validate_column_names(self.dataframe)
-        self.assertTrue(dataset.columns[0] == hgvs_nt_column)
-        self.assertTrue(dataset.columns[1] == hgvs_pro_column)
-        self.assertTrue(dataset.columns[2] == hgvs_splice_column)
-        self.assertTrue(dataset.columns[3] == required_score_column)
+    def test_ignore_column_ordering(self):
+        validate_column_names(self.dataframe[[hgvs_splice_column, "extra", "count1", hgvs_pro_column, "score", hgvs_nt_column, "count2"]], kind="scores")
+        validate_column_names(self.dataframe[[hgvs_splice_column, "extra", "count1", hgvs_pro_column, hgvs_nt_column, "count2"]], kind="counts")
+
+class TestSortDataframeColumns(TestCase):
+    def setUp(self):
+        self.dataframe = pd.DataFrame(TEST_DF_DICT)
+
+    def test_preserve_sorted(self):
+        sorted = sort_dataframe_columns(self.dataframe)
+        pd.testing.assert_frame_equal(self.dataframe, sorted)
+
+    def test_sort_dataframe(self):
+        sorted = sort_dataframe_columns(self.dataframe[[hgvs_splice_column, "extra", "count1", hgvs_pro_column, required_score_column, hgvs_nt_column, "count2"]])
+        pd.testing.assert_frame_equal(self.dataframe, sorted)
+
+    def test_sort_dataframe_preserves_extras_order(self):
+        sorted = sort_dataframe_columns(self.dataframe[[hgvs_splice_column, "count2", hgvs_pro_column, required_score_column, hgvs_nt_column, "count1", "extra"]])
+        pd.testing.assert_frame_equal(self.dataframe[[hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column, "count2", "count1", "extras"]], sorted)
 
 
 class TestValidateValuesByColumn(TestCase):
