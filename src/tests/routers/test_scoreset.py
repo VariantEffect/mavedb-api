@@ -592,3 +592,16 @@ def test_count_file_has_score_column(test_empty_db):
                                       'counts_file': ('counts_with_score.csv', f2, "text/csv")})
     assert response.status_code == 400
     assert response.json() == {"detail": "A counts dataframe should not include a `score` column, include `score` column in a scores dataframe."}
+
+def test_score_file_column_name_has_nan(test_empty_db):
+    create_reference_genome()
+    scoreset = create_scoreset()
+    urn = scoreset["urn"]
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+    score_csv_path = os.path.join(current_directory, "scores_with_nan_column_name.csv")
+    with open(score_csv_path, "rb") as f:
+        response = client.post(f"/api/v1/scoresets/{urn}/variants/data",
+                               files={'scores_file': ('scores_with_nan_column_name.csv', f, "text/csv")})
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Column names must not be null."}
+
