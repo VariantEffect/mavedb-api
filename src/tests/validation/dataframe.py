@@ -19,6 +19,7 @@ from src.lib.validation.dataframe import (
     validate_index_column,
     validate_hgvs_nt_and_hgvs_pro_represent_same_change,
     sort_dataframe_columns,
+    standardize_dataframe,
     DataframeValidationError,
 )
 
@@ -187,21 +188,46 @@ class TestColumnNames(TestCase):
         validate_column_names(self.dataframe[[hgvs_splice_column, "extra", "count1", hgvs_pro_column, "score", hgvs_nt_column, "count2"]], kind="scores")
         validate_column_names(self.dataframe[[hgvs_splice_column, "extra", "count1", hgvs_pro_column, hgvs_nt_column, "count2"]], kind="counts")
 
+
 class TestSortDataframeColumns(TestCase):
     def setUp(self):
         self.dataframe = pd.DataFrame(TEST_DF_DICT)
 
     def test_preserve_sorted(self):
-        sorted = sort_dataframe_columns(self.dataframe)
-        pd.testing.assert_frame_equal(self.dataframe, sorted)
+        sorted_df = sort_dataframe_columns(self.dataframe)
+        pd.testing.assert_frame_equal(self.dataframe, sorted_df)
 
     def test_sort_dataframe(self):
-        sorted = sort_dataframe_columns(self.dataframe[[hgvs_splice_column, "extra", "count1", hgvs_pro_column, required_score_column, hgvs_nt_column, "count2"]])
-        pd.testing.assert_frame_equal(self.dataframe, sorted)
+        sorted_df = sort_dataframe_columns(self.dataframe[[hgvs_splice_column, "extra", "count1", hgvs_pro_column, required_score_column, hgvs_nt_column, "count2"]])
+        pd.testing.assert_frame_equal(self.dataframe, sorted_df)
 
     def test_sort_dataframe_preserves_extras_order(self):
-        sorted = sort_dataframe_columns(self.dataframe[[hgvs_splice_column, "count2", hgvs_pro_column, required_score_column, hgvs_nt_column, "count1", "extra"]])
-        pd.testing.assert_frame_equal(self.dataframe[[hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column, "count2", "count1", "extras"]], sorted)
+        sorted_df = sort_dataframe_columns(self.dataframe[[hgvs_splice_column, "count2", hgvs_pro_column, required_score_column, hgvs_nt_column, "count1", "extra"]])
+        pd.testing.assert_frame_equal(self.dataframe[[hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column, "count2", "count1", "extra"]], sorted_df)
+
+
+class TestStandardizeDataframe(TestCase):
+    def setUp(self):
+        self.dataframe = pd.DataFrame(TEST_DF_DICT)
+
+    def test_preserve_standardized(self):
+        standardized_df = standardize_dataframe(self.dataframe)
+        pd.testing.assert_frame_equal(self.dataframe, standardized_df)
+
+    def test_standardize_changes_case(self):
+        standardized_df = standardize_dataframe(self.dataframe.rename(columns={hgvs_nt_column: hgvs_nt_column.upper()}))
+        pd.testing.assert_frame_equal(self.dataframe, standardized_df)
+        standardized_df = standardize_dataframe(self.dataframe.rename(columns={required_score_column: required_score_column.title()}))
+        pd.testing.assert_frame_equal(self.dataframe, standardized_df)
+
+    def test_standardize_preserves_extras_case(self):
+        standardized_df = standardize_dataframe(self.dataframe.rename(columns={"extra": "extra".upper()}))
+        pd.testing.assert_frame_equal(self.dataframe.rename(columns={"extra": "extra".upper()}), standardized_df)
+
+    def test_standardize_sorts_columns(self):
+        standardized_df = standardize_dataframe(self.dataframe[[hgvs_splice_column, "count2", hgvs_pro_column, required_score_column, hgvs_nt_column, "count1", "extra"]])
+        pd.testing.assert_frame_equal(self.dataframe[[hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column, "count2", "count1", "extra"]], standardized_df)
+
 
 
 class TestValidateValuesByColumn(TestCase):
