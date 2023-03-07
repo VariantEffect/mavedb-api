@@ -1,3 +1,4 @@
+import pandas as pd
 from numpy.testing import assert_array_equal
 from pandas.testing import assert_frame_equal
 from mavehgvs.variant import Variant
@@ -87,25 +88,31 @@ def validate_no_null_columns_or_rows(dataframe):
         raise ValidationError("Dataset should not contain null columns or rows.")
 
 
-def validate_column_names(dataframe, scores=True):
+def validate_column_names(dataframe: pd.DataFrame, kind: str):
     # TODO: return errors to user regarding column name ordering
-    """
-    This function validates the columns in a dataframe. The first columns should be
-    an hgvs column such as hgvs_nt, hgvs_pro, and hgvs_splice. There should be at least
-    one column beyond the hgvs columns. A scores dataframe should have a score column and
-    a counts dataframe should have a counts column. There should not be any null columns.
-    The column names will also be validated against unusual file conversions that could
-    corrupt the column names.
+    """Validate the columns in an input dataframe.
+
+    This function validates the column names in hte input dataframe. It can be run for
+    either a "scores" dataframe or a "counts" dataframe. A "scores" dataframe must have
+    a column named 'score' and a "counts" dataframe cannot have a column named 'score'.
+
+    The function also checks for a valid combination of columns that define variants.
+
+    Basic checks are performed to make sure that a column name is not empty, null, or
+    whitespace, as well as making sure there are no duplicate column names.
 
     Parameters
-    __________
+    ----------
     dataframe : pandas.DataFrame
         The scores or counts dataframe to be validated.
 
+    kind : str
+        Either "counts" or "scores" depending on the kind of dataframe being validated.
+
     Raises
-    ______
-    ValidationError
-        If the column names are not formatted correctly.
+    ------
+    DataframeValidationError
+        If the column names are not valid.
     """
     # get columns from dataframe
     columns = dataframe.columns
