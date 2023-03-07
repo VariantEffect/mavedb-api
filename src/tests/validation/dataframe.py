@@ -143,8 +143,8 @@ class TestColumnNames(TestCase):
         validate_column_names(self.dataframe[[hgvs_pro_column, "count1", "count2", hgvs_nt_column]], kind="counts")
 
     def test_validation_is_case_insensitive(self):
-        validate_column_names(self.dataframe.rename(columns={hgvs_nt_column: hgvs_nt_column.upper()}))
-        validate_column_names(self.dataframe.rename(columns={required_score_column: required_score_column.title()}))
+        validate_column_names(self.dataframe.rename(columns={hgvs_nt_column: hgvs_nt_column.upper()}), kind="scores")
+        validate_column_names(self.dataframe.rename(columns={required_score_column: required_score_column.title()}), kind="scores")
 
     def test_duplicate_hgvs_column_names(self):
         with self.assertRaises(DataframeValidationError):

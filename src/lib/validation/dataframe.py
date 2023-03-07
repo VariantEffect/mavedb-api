@@ -48,11 +48,11 @@ def validate_dataframes(target_seq: str, scores, counts=None):
         If any of the validation fails.
     """
     #validate_no_null_columns_or_rows(scores)
-    scores = validate_column_names(scores)
+    scores = validate_column_names(scores, kind="scores")
     validate_values_by_column(scores, target_seq)
     if counts is not None:
         #validate_no_null_columns_or_rows(counts)
-        counts = validate_column_names(counts, scores=False)
+        counts = validate_column_names(counts, kind="counts")
         validate_values_by_column(counts, target_seq)
         validate_dataframes_define_same_variants(scores, counts)
 
@@ -82,10 +82,8 @@ def validate_no_null_columns_or_rows(dataframe):
         dataframe = dataframe.drop([hgvs_splice_column], axis=1)
     df = dataframe.dropna(axis=0, how='all')
     df = df.dropna(axis=1, how='all')
-    try:
-        assert_frame_equal(df, dataframe)
-    except AssertionError:
-        raise ValidationError("Dataset should not contain null columns or rows.")
+    if not df.equals(dataframe):
+        raise DataframeValidationError("Dataset should not contain null columns or rows.")
 
 
 def validate_column_names(dataframe: pd.DataFrame, kind: str):
@@ -114,13 +112,15 @@ def validate_column_names(dataframe: pd.DataFrame, kind: str):
     DataframeValidationError
         If the column names are not valid.
     """
+    if kind not in ["scores", "counts"]:
+        raise ValueError("kind only accepts scores and counts")
     # get columns from dataframe
     columns = dataframe.columns
 
     # check that there are no duplicate column names
     # This one seems useless cause duplicate column names will be processed automatically
     if len(columns) != len(set(columns)):
-        raise ValidationError("There cannot be duplicate column names.")
+        raise DataframeValidationError("There cannot be duplicate column names.")
 
     # count instances of hgvs columns
     count = 0
@@ -135,7 +135,7 @@ def validate_column_names(dataframe: pd.DataFrame, kind: str):
         # if is_null(columns[i]) or columns[i] is None:
         if not isinstance(columns[i], str) or columns[i] == "" or columns[i].isspace():
             # above condition will check that value is not None or np.nan also
-            raise ValidationError("Column names must not be null.")  # in readable_null_values_list:
+            raise DataframeValidationError("Column names must not be null.")  # in readable_null_values_list:
         if columns[i] in [hgvs_nt_column, hgvs_pro_column, hgvs_splice_column]:
             count += 1
 
@@ -153,16 +153,18 @@ def validate_column_names(dataframe: pd.DataFrame, kind: str):
                   column == hgvs_pro_column.upper() or
                   column == hgvs_splice_column.upper() or
                   column == required_score_column.upper()):
-                raise ValidationError("hgvs columns and score column should be lowercase.")
+                raise DataframeValidationError("hgvs columns and score column should be lowercase.")
 
     # there should be at least one of hgvs_nt or hgvs_pro column
     # if count == 0:
     if not hgvs_nt and not hgvs_pro:
-        raise ValidationError("Must include hgvs_nt or hgvs_pro column.")  # or hgvs_splice column.")
+        raise DataframeValidationError("Must include hgvs_nt or hgvs_pro column.")  # or hgvs_splice column.")
 
     # splice should not be defined in nt is not
-    if hgvs_splice and not hgvs_nt:
-        raise ValidationError("Must define hgvs_nt column if defining hgvs_splice column.")
+    if hgvs_splice:
+        if not hgvs_nt or not hgvs_pro:
+            raise DataframeValidationError("Must define hgvs_nt and hgvs_pro columns if defining hgvs_splice column.")
+
 
     # first columns should be hgvs columns, reorder columns to meet this requirement
     if score_column:
@@ -180,14 +182,14 @@ def validate_column_names(dataframe: pd.DataFrame, kind: str):
 
     # there should be at least one additional column beyond the hgvs columns
     if len(columns) == count:
-        raise ValidationError("There must be at least one additional column beyond the hgvs columns.")
+        raise DataframeValidationError("There must be at least one additional column beyond the hgvs columns.")
 
     # if dataframe is a scores df make sure it has a score column
     # also make sure counts df has a counts column and not a score column
-    if scores and not score_column:
-        raise ValidationError("A scores dataframe must include a `score` column.")
-    if not scores and score_column:
-        raise ValidationError("A counts dataframe should not include a `score` column, include `score` "
+    if kind == "scores" and not score_column:
+        raise DataframeValidationError("A scores dataframe must include a `score` column.")
+    if kind == "counts" and score_column:
+        raise DataframeValidationError("A counts dataframe should not include a `score` column, include `score` "
                               "column in a scores dataframe.")
 
     return dataframe
