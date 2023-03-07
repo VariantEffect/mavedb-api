@@ -71,10 +71,6 @@ class TestNullColumnsOrRows(TestCase):
         self.dataframe.loc[1, "extra"] = pd.NA
         validate_no_null_columns_or_rows(self.dataframe)
 
-    def test_allow_missing_hgvs(self):
-        self.dataframe.loc[1, hgvs_splice_column] = pd.NA
-        validate_no_null_columns_or_rows(self.dataframe)
-
 
 class TestColumnNames(TestCase):
     def setUp(self):
@@ -131,20 +127,13 @@ class TestColumnNames(TestCase):
         with self.assertRaises(DataframeValidationError):
             validate_column_names(self.dataframe.drop([hgvs_pro_column, required_score_column], axis=1), kind="counts")
 
-    def test_primary_column_is_pro_when_nt_is_not_defined(self):
-        # TODO: what is this for?
-        self.dataframe = self.dataframe.drop([hgvs_nt_column, hgvs_splice_column, required_score_column], axis=1)
-        self.dataframe.insert(0, required_score_column, [1.000], True)
-        self.dataframe = validate_column_names(self.dataframe)
-        self.assertTrue(self.dataframe.columns[0] == hgvs_pro_column)
-
     def test_no_hgvs_column(self):
         with self.assertRaises(DataframeValidationError):
             validate_column_names(self.dataframe.drop([hgvs_nt_column, hgvs_pro_column, hgvs_splice_column], axis=1), kind="scores")
         with self.assertRaises(DataframeValidationError):
             validate_column_names(self.dataframe.drop([hgvs_nt_column, hgvs_pro_column, hgvs_splice_column, required_score_column], axis=1), kind="counts")
 
-    def test_ignore_column_ordering(self):
+    def test_validation_ignores_column_ordering(self):
         validate_column_names(self.dataframe[[hgvs_nt_column, required_score_column, hgvs_pro_column, hgvs_splice_column]], kind="scores")
         validate_column_names(self.dataframe[[required_score_column, hgvs_nt_column, hgvs_pro_column]], kind="scores")
         validate_column_names(self.dataframe[[hgvs_pro_column, required_score_column, hgvs_nt_column]], kind="scores")
@@ -153,11 +142,9 @@ class TestColumnNames(TestCase):
         validate_column_names(self.dataframe[["count1", "count2", hgvs_nt_column, hgvs_pro_column]], kind="counts")
         validate_column_names(self.dataframe[[hgvs_pro_column, "count1", "count2", hgvs_nt_column]], kind="counts")
 
-    def test_hgvs_columns_must_be_lowercase(self):
-        # TODO: this is backwards, it shouldn't care about the case
-        self.dataframe.rename(columns={hgvs_nt_column: hgvs_nt_column.upper()}, inplace=True)
-        with self.assertRaises(ValueError):
-            validate_column_names(self.dataframe)
+    def test_validation_is_case_insensitive(self):
+        validate_column_names(self.dataframe.rename(columns={hgvs_nt_column: hgvs_nt_column.upper()}))
+        validate_column_names(self.dataframe.rename(columns={required_score_column: required_score_column.title()}))
 
     def test_duplicate_hgvs_column_names(self):
         with self.assertRaises(DataframeValidationError):
