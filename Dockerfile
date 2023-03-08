@@ -20,13 +20,13 @@ RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 COPY alembic /code/alembic
 COPY alembic.ini /code/alembic.ini
 COPY src /code/src
-COPY ./main.py /code/main.py
+COPY src/mavedb/server_main.py /code/main.py
 
-# Tell Docker that we will listen on port 3000.
-EXPOSE 3000
+# Tell Docker that we will listen on port 8000.
+EXPOSE 8000
 
 # Set up the path Python will use to find modules.
 ENV PYTHONPATH "${PYTHONPATH}:/code/src"
 
 # At container startup, run the application using uvicorn.
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000"]
+CMD ["uvicorn", "mavedb.server_main:app", "--host", "0.0.0.0", "--port", "8000"]

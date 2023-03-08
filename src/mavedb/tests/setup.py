@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from main import app
+from mavedb.server_main import app
 from mavedb.db.base import Base
 from mavedb.deps import get_db
 from mavedb.lib.authorization import require_current_user
