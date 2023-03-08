@@ -1,3 +1,4 @@
+import pandas as pd
 from numpy.testing import assert_array_equal
 from pandas.testing import assert_frame_equal
 from mavehgvs.variant import Variant
@@ -13,10 +14,20 @@ from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.variant import validate_hgvs_string
 from mavedb.lib.validation.utilities import convert_hgvs_nt_to_hgvs_pro
 from mavedb.lib.validation.target import validate_target_sequence
-
+from fqfa.util.infer import infer_sequence_type
+from fqfa.util.nucleotide import (
+    reverse_complement,
+    convert_dna_to_rna,
+    convert_rna_to_dna,
+)
+from fqfa.util.translate import translate_dna
 # handle with pandas all null strings
 # provide a csv or a pandas dataframe
 # take dataframe, output as csv to temp directory, use standard library
+
+
+class DataframeValidationError(ValueError):
+    pass
 
 
 def validate_dataframes(target_seq: str, scores, counts=None):
@@ -37,11 +48,11 @@ def validate_dataframes(target_seq: str, scores, counts=None):
         If any of the validation fails.
     """
     #validate_no_null_columns_or_rows(scores)
-    scores = validate_column_names(scores)
+    scores = validate_column_names(scores, kind="scores")
     validate_values_by_column(scores, target_seq)
     if counts is not None:
         #validate_no_null_columns_or_rows(counts)
-        counts = validate_column_names(counts, scores=False)
+        counts = validate_column_names(counts, kind="counts")
         validate_values_by_column(counts, target_seq)
         validate_dataframes_define_same_variants(scores, counts)
 
@@ -71,38 +82,45 @@ def validate_no_null_columns_or_rows(dataframe):
         dataframe = dataframe.drop([hgvs_splice_column], axis=1)
     df = dataframe.dropna(axis=0, how='all')
     df = df.dropna(axis=1, how='all')
-    try:
-        assert_frame_equal(df, dataframe)
-    except AssertionError:
-        raise ValidationError("Dataset should not contain null columns or rows.")
+    if not df.equals(dataframe):
+        raise DataframeValidationError("Dataset should not contain null columns or rows.")
 
 
-def validate_column_names(dataframe, scores=True):
+def validate_column_names(dataframe: pd.DataFrame, kind: str):
     # TODO: return errors to user regarding column name ordering
-    """
-    This function validates the columns in a dataframe. The first columns should be
-    an hgvs column such as hgvs_nt, hgvs_pro, and hgvs_splice. There should be at least
-    one column beyond the hgvs columns. A scores dataframe should have a score column and
-    a counts dataframe should have a counts column. There should not be any null columns.
-    The column names will also be validated against unusual file conversions that could
-    corrupt the column names.
+    """Validate the columns in an input dataframe.
+
+    This function validates the column names in hte input dataframe. It can be run for
+    either a "scores" dataframe or a "counts" dataframe. A "scores" dataframe must have
+    a column named 'score' and a "counts" dataframe cannot have a column named 'score'.
+
+    The function also checks for a valid combination of columns that define variants.
+
+    Basic checks are performed to make sure that a column name is not empty, null, or
+    whitespace, as well as making sure there are no duplicate column names.
 
     Parameters
-    __________
+    ----------
     dataframe : pandas.DataFrame
         The scores or counts dataframe to be validated.
 
+    kind : str
+        Either "counts" or "scores" depending on the kind of dataframe being validated.
+
     Raises
-    ______
-    ValidationError
-        If the column names are not formatted correctly.
+    ------
+    DataframeValidationError
+        If the column names are not valid.
     """
+    if kind not in ["scores", "counts"]:
+        raise ValueError("kind only accepts scores and counts")
     # get columns from dataframe
     columns = dataframe.columns
 
     # check that there are no duplicate column names
+    # This one seems useless cause duplicate column names will be processed automatically
     if len(columns) != len(set(columns)):
-        raise ValidationError("There cannot be duplicate column names.")
+        raise DataframeValidationError("There cannot be duplicate column names.")
 
     # count instances of hgvs columns
     count = 0
@@ -117,33 +135,36 @@ def validate_column_names(dataframe, scores=True):
         # if is_null(columns[i]) or columns[i] is None:
         if not isinstance(columns[i], str) or columns[i] == "" or columns[i].isspace():
             # above condition will check that value is not None or np.nan also
-            raise ValidationError("Column names must not be null.")  # in readable_null_values_list:
+            raise DataframeValidationError("Column names must not be null.")  # in readable_null_values_list:
         if columns[i] in [hgvs_nt_column, hgvs_pro_column, hgvs_splice_column]:
             count += 1
-        # mark what type of column the current column is
-        if columns[i] == hgvs_nt_column:
-            hgvs_nt = True
-        elif columns[i] == hgvs_pro_column:
-            hgvs_pro = True
-        elif columns[i] == hgvs_splice_column:
-            hgvs_splice = True
-        elif columns[i] == required_score_column:
-            score_column = True
-        # check for uppercase and raise error
-        elif (columns[i] == hgvs_nt_column.upper() or
-              columns[i] == hgvs_pro_column.upper() or
-              columns[i] == hgvs_splice_column.upper() or
-              columns[i] == required_score_column.upper()):
-            raise ValidationError("hgvs columns and score column should be lowercase.")
+
+    for column in dataframe.columns:
+        if len(dataframe.index) != dataframe[column].isnull().sum():
+            if column == hgvs_nt_column:
+                hgvs_nt = True
+            elif column == hgvs_pro_column:
+                hgvs_pro = True
+            elif column == hgvs_splice_column:
+                hgvs_splice = True
+            elif column == required_score_column:
+                score_column = True
+            elif (column == hgvs_nt_column.upper() or
+                  column == hgvs_pro_column.upper() or
+                  column == hgvs_splice_column.upper() or
+                  column == required_score_column.upper()):
+                raise DataframeValidationError("hgvs columns and score column should be lowercase.")
 
     # there should be at least one of hgvs_nt or hgvs_pro column
     # if count == 0:
     if not hgvs_nt and not hgvs_pro:
-        raise ValidationError("Must include hgvs_nt or hgvs_pro column.")  # or hgvs_splice column.")
+        raise DataframeValidationError("Must include hgvs_nt or hgvs_pro column.")  # or hgvs_splice column.")
 
     # splice should not be defined in nt is not
-    if hgvs_splice and not hgvs_nt:
-        raise ValidationError("Must define hgvs_nt column if defining hgvs_splice column.")
+    if hgvs_splice:
+        if not hgvs_nt or not hgvs_pro:
+            raise DataframeValidationError("Must define hgvs_nt and hgvs_pro columns if defining hgvs_splice column.")
+
 
     # first columns should be hgvs columns, reorder columns to meet this requirement
     if score_column:
@@ -161,14 +182,14 @@ def validate_column_names(dataframe, scores=True):
 
     # there should be at least one additional column beyond the hgvs columns
     if len(columns) == count:
-        raise ValidationError("There must be at least one additional column beyond the hgvs columns.")
+        raise DataframeValidationError("There must be at least one additional column beyond the hgvs columns.")
 
     # if dataframe is a scores df make sure it has a score column
     # also make sure counts df has a counts column and not a score column
-    if scores and not score_column:
-        raise ValidationError("A scores dataframe must include a `score` column.")
-    if not scores and score_column:
-        raise ValidationError("A counts dataframe should not include a `score` column, include `score` "
+    if kind == "scores" and not score_column:
+        raise DataframeValidationError("A scores dataframe must include a `score` column.")
+    if kind == "counts" and score_column:
+        raise DataframeValidationError("A counts dataframe should not include a `score` column, include `score` "
                               "column in a scores dataframe.")
 
     return dataframe
@@ -231,7 +252,22 @@ def validate_values_by_column(dataset, target_seq: str):
     # check that prefixes all match and are consistent with one another
     hgvs_nt_prefix = None
 
+    sequence_type = infer_sequence_type(target_seq)
+    if sequence_type=="dna":
+        target_dna_seq = target_seq
+        target_rna_seq = convert_dna_to_rna(target_seq)
+        target_aa_seq = translate_dna(target_seq)[0]
+    elif sequence_type=="rna":
+        targe_dna_seq = convert_rna_to_dna(target_seq)
+        target_rna_seq = target_seq
+        target_aa_seq = translate_dna(targe_dna_seq)[0]
+    else:
+        target_dna_seq = None
+        target_rna_seq = None
+        target_aa_seq = target_seq
+
     # loop through row by row, validate hgvs strings, make sure nt and pro are consistent with one another
+    # TODO: Haven't finished this part yet. target_seq for hgvs_nt
     for i in range(len(dataset)):
         # NaN type is numpy.float64 so it will be validated.
         if hgvs_nt and dataset.loc[i, hgvs_nt_column] is not None:
@@ -251,7 +287,7 @@ def validate_values_by_column(dataset, target_seq: str):
         if hgvs_pro and dataset.loc[i, hgvs_pro_column] is not None:
             validate_hgvs_string(value=dataset.loc[i, hgvs_pro_column],
                                  column="p",
-                                 targetseq=target_seq,
+                                 targetseq=target_aa_seq,
                                  splice_present=hgvs_splice)
         if hgvs_splice and dataset.loc[i, hgvs_splice_column] is not None:
             validate_hgvs_string(value=dataset.loc[i, hgvs_splice_column],
@@ -298,11 +334,11 @@ def validate_index_column(column, hgvs: str):
     col_set = set(column)
     if len(col_set) != len(column):
         raise ValidationError(
-            "Each value in hgvs_'{}' column must be unique.".format(hgvs)
+            "Each value in hgvs_{} column must be unique.".format(hgvs)
         )
     if np.nan in col_set:
         raise ValidationError(
-            "Primary column (hgvs_'{}') must not contain missing values.".format(hgvs)
+            "Primary column hgvs_{} must not contain missing values.".format(hgvs)
         )
 
 

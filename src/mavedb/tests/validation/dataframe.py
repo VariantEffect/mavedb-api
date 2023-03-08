@@ -7,7 +7,7 @@ from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
     hgvs_pro_column,
     hgvs_splice_column,
-    required_score_column
+    required_score_column,
 )
 from mavedb.lib.validation.dataframe import (
     validate_no_null_columns_or_rows,
@@ -17,143 +17,205 @@ from mavedb.lib.validation.dataframe import (
     validate_dataframes_define_same_variants,
     validate_index_column,
     validate_hgvs_nt_and_hgvs_pro_represent_same_change,
+    sort_dataframe_columns,
+    standardize_dataframe,
+    DataframeValidationError,
 )
 from mavedb.lib.validation.exceptions import ValidationError
 
 
-# let pandas handle the types of null values to allow
-
-
-class TestValidateNoNullColumnsOrRows(TestCase):
-    def setUp(self):
-        self.dataframe = pd.DataFrame(
-            {
-                hgvs_nt_column: ["c.1A>G"],
-                hgvs_pro_column: ["p.Leu5Glu"],
-                hgvs_splice_column: ["c.1A>G"],
-                required_score_column: 1.0,
+# generic test dataframe used for many tests
+TEST_DF_DICT = {
+                hgvs_nt_column: ["c.1A>G", "c.1A>T"],
+                hgvs_splice_column: ["c.1A>G", "c.1A>T"],
+                hgvs_pro_column: ["p.Met1Val", "p.Met1Leu"],
+                required_score_column: [1.0, 2.0],
+                "extra": [12.0, 3.0],
+                "count1": [3.0, 5.0],
+                "count2": [9, 10],
             }
-        )
+
+
+class TestNullColumnsOrRows(TestCase):
+    def setUp(self):
+        self.dataframe = pd.DataFrame(TEST_DF_DICT)
 
     def test_valid(self):
         validate_no_null_columns_or_rows(self.dataframe)
 
     def test_null_row(self):
-        self.dataframe.loc[1] = [np.nan, np.nan, np.nan, np.nan]
-        with self.assertRaises(AssertionError):
+        self.dataframe.loc[1] = pd.NA
+        with self.assertRaises(DataframeValidationError):
             validate_no_null_columns_or_rows(self.dataframe)
 
-    def test_null_column(self):
-        self.dataframe[required_score_column][0] = np.nan
-        with self.assertRaises(AssertionError):
+    def test_null_score_column(self):
+        self.dataframe[required_score_column] = pd.NA
+        with self.assertRaises(DataframeValidationError):
             validate_no_null_columns_or_rows(self.dataframe)
 
+    def test_null_extra_column(self):
+        self.dataframe["extra"] = pd.NA
+        with self.assertRaises(DataframeValidationError):
+            validate_no_null_columns_or_rows(self.dataframe)
 
-class TestValidateColumnNames(TestCase):
+    def test_allow_null_hgvs_columns(self):
+        self.dataframe[hgvs_splice_column] = pd.NA
+        validate_no_null_columns_or_rows(self.dataframe)
+        self.dataframe[hgvs_nt_column] = pd.NA
+        validate_no_null_columns_or_rows(self.dataframe)
+
+    def test_allow_missing_scores(self):
+        self.dataframe.loc[0, required_score_column] = pd.NA
+        validate_no_null_columns_or_rows(self.dataframe)
+
+    def test_allow_missing_extras(self):
+        self.dataframe.loc[1, "extra"] = pd.NA
+        validate_no_null_columns_or_rows(self.dataframe)
+
+
+class TestColumnNames(TestCase):
     def setUp(self):
-        self.dataframe = pd.DataFrame(
-            {
-                hgvs_nt_column: ["c.1A>G"],
-                hgvs_pro_column: ["p.Leu5Glu"],
-                hgvs_splice_column: ["c.1A>G"],
-                required_score_column: [1.000],
-            }
-        )
+        self.dataframe = pd.DataFrame(TEST_DF_DICT)
 
-    def test_valid_scores_column_names(self):
-        validate_column_names(self.dataframe)
-
-    def test_valid_counts_column_names(self):
-        self.dataframe = self.dataframe.drop([required_score_column], axis=1)
-        self.dataframe["count"] = [5]
-        validate_column_names(self.dataframe, scores=False)
-
-    def test_valid_just_hgvs_nt_hgvs_column(self):
-        self.dataframe = self.dataframe.drop([hgvs_pro_column, hgvs_splice_column], axis=1)
-        validate_column_names(self.dataframe)
-
-    def test_valid_just_hgvs_pro_hgvs_column(self):
-        self.dataframe = self.dataframe.drop([hgvs_nt_column, hgvs_splice_column], axis=1)
-        validate_column_names(self.dataframe)
-
-    def test_primary_column_is_pro_when_nt_is_not_defined(self):
-        self.dataframe = self.dataframe.drop([hgvs_nt_column, hgvs_splice_column, required_score_column], axis=1)
-        self.dataframe.insert(0, required_score_column, [1.000], True)
-        self.dataframe = validate_column_names(self.dataframe)
-        self.assertTrue(self.dataframe.columns[0] == hgvs_pro_column)
-
-    def test_missing_hgvs_column(self):
-        self.dataframe = self.dataframe.drop([hgvs_nt_column, hgvs_pro_column, hgvs_splice_column], axis=1)
-        with self.assertRaises(ValidationError):
-            validate_column_names(self.dataframe)
-
-    def test_hgvs_in_wrong_location(self):
-        self.dataframe = self.dataframe[[hgvs_nt_column, required_score_column, hgvs_pro_column, hgvs_splice_column]]
-        validate_column_names(self.dataframe)  # validation fixes problem, should pass
-
-    def test_no_additional_columns_beyond_hgvs_scores_df(self):
-        self.dataframe = self.dataframe.drop([hgvs_pro_column, hgvs_splice_column, required_score_column], axis=1)
-        with self.assertRaises(ValidationError):
-            validate_column_names(self.dataframe)
-
-    def test_no_additional_columns_beyond_hgvs_counts_df(self):
-        self.dataframe = self.dataframe.drop([hgvs_pro_column, hgvs_splice_column, required_score_column], axis=1)
-        with self.assertRaises(ValidationError):
-            validate_column_names(self.dataframe, scores=False)
-
-    def test_hgvs_columns_must_be_lowercase(self):
-        self.dataframe.rename(columns={hgvs_nt_column: hgvs_nt_column.upper()}, inplace=True)
+    def test_only_two_kinds_of_dataframe(self):
         with self.assertRaises(ValueError):
+            validate_column_names(self.dataframe, kind="score2")
+
+    def test_require_dataframe_kind(self):
+        with self.assertRaises(TypeError):
             validate_column_names(self.dataframe)
 
-    def test_duplicate_column_names(self):
-        self.dataframe.rename(columns={hgvs_pro_column: hgvs_nt_column}, inplace=True)
-        with self.assertRaises(ValidationError):
-            validate_column_names(self.dataframe)
+    def test_score_df_has_score_column(self):
+        validate_column_names(self.dataframe, kind="scores")
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe.drop([required_score_column], axis=1), kind="scores")
 
-    def test_null_column_name(self):
-        null_values = [None, np.nan, "", 1, "   "]
-        for value in null_values:
-            self.dataframe.rename(columns={hgvs_splice_column: value}, inplace=True)
-            with self.assertRaises(ValidationError):
-                validate_column_names(self.dataframe)
+    def test_count_df_lacks_score_column(self):
+        validate_column_names(self.dataframe.drop([required_score_column], axis=1), kind="counts")
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe, kind="counts")
 
-    def test_no_score_column_with_scores_df(self):
-        self.dataframe = self.dataframe.drop([required_score_column], axis=1)
-        self.dataframe["count"] = [1]
-        with self.assertRaises(ValidationError):
-            validate_column_names(self.dataframe)
+    def test_df_with_only_scores(self):
+        validate_column_names(self.dataframe[[hgvs_pro_column, required_score_column]], kind="scores")
 
-    def test_no_additional_column_with_counts_df(self):
-        self.dataframe = self.dataframe.drop([required_score_column], axis=1)
-        with self.assertRaises(ValidationError):
-            validate_column_names(self.dataframe, scores=False)
+    def test_count_df_must_have_data(self):
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe[[hgvs_nt_column, hgvs_pro_column]], kind="counts")
 
-    def test_invalid_missing_either_required_hgvs_column(self):
-        self.dataframe = self.dataframe.drop([hgvs_pro_column, hgvs_nt_column], axis=1)
-        with self.assertRaises(ValidationError):
-            validate_column_names(self.dataframe, scores=False)
+    def test_just_hgvs_nt(self):
+        validate_column_names(self.dataframe.drop([hgvs_pro_column, hgvs_splice_column], axis=1), kind="scores")
+        validate_column_names(self.dataframe.drop([hgvs_pro_column, hgvs_splice_column, required_score_column], axis=1), kind="counts")
 
-    def test_invalid_splice_column_defined_when_nt_column_is_not(self):
-        self.dataframe = self.dataframe.drop([hgvs_nt_column], axis=1)
-        with self.assertRaises(ValidationError):
-            validate_column_names(self.dataframe, scores=False)
+    def test_just_hgvs_pro(self):
+        validate_column_names(self.dataframe.drop([hgvs_nt_column, hgvs_splice_column], axis=1), kind="scores")
+        validate_column_names(self.dataframe.drop([hgvs_nt_column, hgvs_splice_column, required_score_column], axis=1), kind="counts")
 
-    def test_sort_column_names(self):
-        self.dataframe = pd.DataFrame(
-            {
-                "other": 5,
-                required_score_column: [1.000],
-                hgvs_splice_column: ["c.1A>G"],
-                hgvs_pro_column: ["p.Leu5Glu"],
-                hgvs_nt_column: ["g.1A>G"],
-            }
-        )
-        dataset = validate_column_names(self.dataframe)
-        self.assertTrue(dataset.columns[0] == hgvs_nt_column)
-        self.assertTrue(dataset.columns[1] == hgvs_pro_column)
-        self.assertTrue(dataset.columns[2] == hgvs_splice_column)
-        self.assertTrue(dataset.columns[3] == required_score_column)
+    def test_just_hgvs_pro_and_nt(self):
+        validate_column_names(self.dataframe.drop([hgvs_splice_column], axis=1), kind="scores")
+        validate_column_names(self.dataframe.drop([hgvs_splice_column, required_score_column], axis=1), kind="counts")
+
+    def test_hgvs_splice_must_have_pro_and_nt(self):
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe.drop([hgvs_nt_column, hgvs_pro_column], axis=1), kind="scores")
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe.drop([hgvs_nt_column], axis=1), kind="scores")
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe.drop([hgvs_pro_column], axis=1), kind="scores")
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe.drop([hgvs_nt_column, hgvs_pro_column, required_score_column], axis=1), kind="counts")
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe.drop([hgvs_nt_column, required_score_column], axis=1), kind="counts")
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe.drop([hgvs_pro_column, required_score_column], axis=1), kind="counts")
+
+    def test_no_hgvs_column(self):
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe.drop([hgvs_nt_column, hgvs_pro_column, hgvs_splice_column], axis=1), kind="scores")
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe.drop([hgvs_nt_column, hgvs_pro_column, hgvs_splice_column, required_score_column], axis=1), kind="counts")
+
+    def test_validation_ignores_column_ordering(self):
+        validate_column_names(self.dataframe[[hgvs_nt_column, required_score_column, hgvs_pro_column, hgvs_splice_column]], kind="scores")
+        validate_column_names(self.dataframe[[required_score_column, hgvs_nt_column, hgvs_pro_column]], kind="scores")
+        validate_column_names(self.dataframe[[hgvs_pro_column, required_score_column, hgvs_nt_column]], kind="scores")
+
+        validate_column_names(self.dataframe[[hgvs_nt_column, "count1", hgvs_pro_column, hgvs_splice_column, "count2"]], kind="counts")
+        validate_column_names(self.dataframe[["count1", "count2", hgvs_nt_column, hgvs_pro_column]], kind="counts")
+        validate_column_names(self.dataframe[[hgvs_pro_column, "count1", "count2", hgvs_nt_column]], kind="counts")
+
+    def test_validation_is_case_insensitive(self):
+        validate_column_names(self.dataframe.rename(columns={hgvs_nt_column: hgvs_nt_column.upper()}), kind="scores")
+        validate_column_names(self.dataframe.rename(columns={required_score_column: required_score_column.title()}), kind="scores")
+
+    def test_duplicate_hgvs_column_names(self):
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe.rename(columns={hgvs_pro_column: hgvs_nt_column}), kind="scores")
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe.drop([required_score_column], axis=1).rename(columns={hgvs_pro_column: hgvs_nt_column}), kind="counts")
+
+    def test_duplicate_score_column_names(self):
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe.rename(columns={"extra": required_score_column}), kind="scores")
+
+    def test_duplicate_data_column_names(self):
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe.rename(columns={"count2": "count1"}), kind="scores")
+        with self.assertRaises(DataframeValidationError):
+            validate_column_names(self.dataframe.drop([required_score_column], axis=1).rename(columns={"count2": "count1"}), kind="counts")
+
+    def test_invalid_column_names(self):
+        invalid_values = [None, np.nan, pd.NA, "", " "]
+        for value in invalid_values:
+            with self.subTest(value=value):
+                with self.assertRaises(DataframeValidationError):
+                    validate_column_names(self.dataframe.rename(columns={hgvs_splice_column: value}), kind="scores")
+                with self.assertRaises(DataframeValidationError):
+                    validate_column_names(self.dataframe.drop([required_score_column], axis=1).rename(columns={hgvs_splice_column: value}), kind="counts")
+
+    def test_ignore_column_ordering(self):
+        validate_column_names(self.dataframe[[hgvs_splice_column, "extra", "count1", hgvs_pro_column, "score", hgvs_nt_column, "count2"]], kind="scores")
+        validate_column_names(self.dataframe[[hgvs_splice_column, "extra", "count1", hgvs_pro_column, hgvs_nt_column, "count2"]], kind="counts")
+
+
+class TestSortDataframeColumns(TestCase):
+    def setUp(self):
+        self.dataframe = pd.DataFrame(TEST_DF_DICT)
+
+    def test_preserve_sorted(self):
+        sorted_df = sort_dataframe_columns(self.dataframe)
+        pd.testing.assert_frame_equal(self.dataframe, sorted_df)
+
+    def test_sort_dataframe(self):
+        sorted_df = sort_dataframe_columns(self.dataframe[[hgvs_splice_column, "extra", "count1", hgvs_pro_column, required_score_column, hgvs_nt_column, "count2"]])
+        pd.testing.assert_frame_equal(self.dataframe, sorted_df)
+
+    def test_sort_dataframe_preserves_extras_order(self):
+        sorted_df = sort_dataframe_columns(self.dataframe[[hgvs_splice_column, "count2", hgvs_pro_column, required_score_column, hgvs_nt_column, "count1", "extra"]])
+        pd.testing.assert_frame_equal(self.dataframe[[hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column, "count2", "count1", "extra"]], sorted_df)
+
+
+class TestStandardizeDataframe(TestCase):
+    def setUp(self):
+        self.dataframe = pd.DataFrame(TEST_DF_DICT)
+
+    def test_preserve_standardized(self):
+        standardized_df = standardize_dataframe(self.dataframe)
+        pd.testing.assert_frame_equal(self.dataframe, standardized_df)
+
+    def test_standardize_changes_case(self):
+        standardized_df = standardize_dataframe(self.dataframe.rename(columns={hgvs_nt_column: hgvs_nt_column.upper()}))
+        pd.testing.assert_frame_equal(self.dataframe, standardized_df)
+        standardized_df = standardize_dataframe(self.dataframe.rename(columns={required_score_column: required_score_column.title()}))
+        pd.testing.assert_frame_equal(self.dataframe, standardized_df)
+
+    def test_standardize_preserves_extras_case(self):
+        standardized_df = standardize_dataframe(self.dataframe.rename(columns={"extra": "extra".upper()}))
+        pd.testing.assert_frame_equal(self.dataframe.rename(columns={"extra": "extra".upper()}), standardized_df)
+
+    def test_standardize_sorts_columns(self):
+        standardized_df = standardize_dataframe(self.dataframe[[hgvs_splice_column, "count2", hgvs_pro_column, required_score_column, hgvs_nt_column, "count1", "extra"]])
+        pd.testing.assert_frame_equal(self.dataframe[[hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column, "count2", "count1", "extra"]], standardized_df)
+
 
 
 class TestValidateValuesByColumn(TestCase):
