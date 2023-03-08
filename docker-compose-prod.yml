@@ -2,7 +2,7 @@ version: "3"
 
 services:
   app:
-    image: mavedb-api/mavedb-api:dev
+    image: mavedb-api/mavedb-api:latest
     build:
       context: .
     command: bash -c "uvicorn mavedb.server_main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=./ssl/server.key --ssl-certfile=./ssl/server.crt"
