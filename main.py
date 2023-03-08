@@ -12,10 +12,11 @@ from starlette.responses import JSONResponse
 
 from sqlalchemy.orm import configure_mappers
 
-from src.models import *
+from mavedb.models import *
 
-from src.routers import access_keys, doi_identifiers, experiment_sets, experiments, pubmed_identifiers, \
-    reference_genomes, scoresets, target_gene_identifiers, target_genes, users, raw_read_identifiers
+from mavedb.routers import access_keys, experiment_sets, experiments, target_genes, users
+from mavedb.routers import pubmed_identifiers, doi_identifiers, target_gene_identifiers, raw_read_identifiers, \
+    scoresets, reference_genomes
 
 logging.basicConfig()
 # Un-comment this line to log all queries:
