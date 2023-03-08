@@ -133,3 +133,6 @@ dmypy.json
 
 # Java
 .java-version
+
+# MacOS
+.DS_Store
