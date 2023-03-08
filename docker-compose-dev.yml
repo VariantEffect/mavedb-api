@@ -44,21 +44,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: mavedb_dev
-#      POSTGRES_USER: $MAVEDB_DB_USER
-#      POSTGRES_PASSWORD: $MAVEDB_DB_PASSWORD
-#      POSTGRES_DB: $MAVEDB_DB_NAME
-  #    MAVEDB_DUMP_FILE: $MAVEDB_DUMP_FILE
-
-#  pgadmin:
-#    container_name: pgadmin
-#    image: dpage/pgadmin4
-#    environment:
-#      - PGADMIN_DEFAULT_EMAIL=pgadmin4@pgadmin.org
-#      - PGADMIN_DEFAULT_PASSWORD=admin
-#    ports:
-#      - "5050:80"
-#    depends_on:
-#      - db
 
 #  rabbitmq:
 #    image: rabbitmq:3.8.3
