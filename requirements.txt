@@ -5,8 +5,6 @@ cryptography~=37.0.4
 fastapi~=0.71.0
 # fastapi-oidc~=0.0.9
 humps~=0.2.2
-git+https://github.com/VariantEffect/MaveCore@update_camelCase
-# mavecore~=0.1.5
 mavehgvs~=0.4.0
 metapub~=0.5.5
 numpy~=1.22.3
