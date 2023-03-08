@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-import src.view_models.doi_identifier
 from mavedb import deps
 from mavedb.models.doi_identifier import DoiIdentifier
+from mavedb.view_models import doi_identifier
 from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
@@ -19,7 +19,7 @@ router = APIRouter(
 @router.post(
     '/search',
     status_code=200,
-    response_model=List[src.view_models.doi_identifier.DoiIdentifier]
+    response_model=List[doi_identifier.DoiIdentifier]
 )
 def search_doi_identifiers(
         search: TextSearch,

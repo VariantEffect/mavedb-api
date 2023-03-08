@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-import src.view_models.pubmed_identifier
 from mavedb import deps
 from mavedb.models.pubmed_identifier import PubmedIdentifier
+from mavedb.view_models import pubmed_identifier
 from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
@@ -19,7 +19,7 @@ router = APIRouter(
 @router.post(
     '/search',
     status_code=200,
-    response_model=List[src.view_models.pubmed_identifier.PubmedIdentifier]
+    response_model=List[pubmed_identifier.PubmedIdentifier]
 )
 def search_pubmed_identifiers(
         search: TextSearch,

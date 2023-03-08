@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-import src.view_models.raw_read_identifier
 from mavedb import deps
 from mavedb.models.raw_read_identifier import RawReadIdentifier
+from mavedb.view_models import raw_read_identifier
 from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
@@ -19,7 +19,7 @@ router = APIRouter(
 @router.post(
     '/search',
     status_code=200,
-    response_model=List[src.view_models.raw_read_identifier.RawReadIdentifier]
+    response_model=List[raw_read_identifier.RawReadIdentifier]
 )
 def search_raw_read_identifiers(
         search: TextSearch,

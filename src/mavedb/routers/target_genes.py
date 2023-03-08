@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-import src
 from mavedb import deps
 from mavedb.models.target_gene import TargetGene
 from mavedb.view_models import target_gene
@@ -17,7 +16,7 @@ router = APIRouter(
 )
 
 
-@router.get('/', status_code=200, response_model=List[src.view_models.target_gene.TargetGene], responses={404: {}})
+@router.get('/', status_code=200, response_model=List[target_gene.TargetGene], responses={404: {}})
 def list_target_genes(
         *,
         db: Session = Depends(deps.get_db),
@@ -49,7 +48,7 @@ def fetch_target_gene(
 @router.post(
     '/search',
     status_code=200,
-    response_model=List[src.view_models.target_gene.TargetGene]
+    response_model=List[target_gene.TargetGene]
 )
 def search_target_genes(
         search: TextSearch,
