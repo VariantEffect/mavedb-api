@@ -188,6 +188,11 @@ class TestSortDataframeColumns(TestCase):
         sorted_df = sort_dataframe_columns(self.dataframe[[hgvs_splice_column, "extra", "count1", hgvs_pro_column, required_score_column, hgvs_nt_column, "count2"]])
         pd.testing.assert_frame_equal(self.dataframe, sorted_df)
 
+    def test_sort_dataframe_is_case_insensitive(self):
+        self.dataframe = self.dataframe.rename(columns={hgvs_nt_column: hgvs_nt_column.upper()})
+        sorted_df = sort_dataframe_columns(self.dataframe)
+        pd.testing.assert_frame_equal(self.dataframe, sorted_df)
+
     def test_sort_dataframe_preserves_extras_order(self):
         sorted_df = sort_dataframe_columns(self.dataframe[[hgvs_splice_column, "count2", hgvs_pro_column, required_score_column, hgvs_nt_column, "count1", "extra"]])
         pd.testing.assert_frame_equal(self.dataframe[[hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column, "count2", "count1", "extra"]], sorted_df)

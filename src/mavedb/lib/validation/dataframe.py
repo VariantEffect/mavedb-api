@@ -30,6 +30,9 @@ class DataframeValidationError(ValueError):
     pass
 
 
+STANDARD_COLUMNS = (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column)
+
+
 def sort_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     Sort the columns of the given dataframe according to the expected ordering in MaveDB.
@@ -51,13 +54,12 @@ def sort_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
     pandas.DataFrame
         The dataframe with the same data but sorted columns
     """
-    static_columns = (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column)
 
     def column_sort_function(value, columns):
-        if value in static_columns:
-            return static_columns.index(value)
+        if value.lower() in STANDARD_COLUMNS:
+            return STANDARD_COLUMNS.index(value.lower())
         else:
-            return columns.index(value) + 10
+            return columns.index(value) + len(STANDARD_COLUMNS)
 
     old_columns = list(df.columns)
     new_columns = sorted(old_columns, key=lambda v: column_sort_function(v, old_columns))
@@ -66,7 +68,32 @@ def sort_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    pass
+    """
+    Standardize a dataframe by sorting the columns and changing the standard column names to lowercase.
+
+    The standard column names are:
+    * hgvs_nt
+    * hgvs_splice
+    * hgvs_pro
+    * score
+
+    Case for other columns is preserved.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The dataframe to standardize
+
+    Returns
+    -------
+    pandas.DataFrame
+        The standardized dataframe
+    """
+    new_columns = [x.lower() if x.lower() in STANDARD_COLUMNS else x for x in df.columns]
+    df.columns = new_columns
+
+    return sort_dataframe_columns(df)
+
 
 def validate_dataframes(target_seq: str, scores, counts=None):
     """
