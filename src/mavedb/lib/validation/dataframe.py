@@ -6,8 +6,8 @@ import numpy as np
 
 from src.mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
-    hgvs_pro_column,
     hgvs_splice_column,
+    hgvs_pro_column,
     required_score_column
 )
 from src.mavedb.lib.validation.exceptions import ValidationError
@@ -29,6 +29,44 @@ from fqfa.util.translate import translate_dna
 class DataframeValidationError(ValueError):
     pass
 
+
+def sort_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Sort the columns of the given dataframe according to the expected ordering in MaveDB.
+
+    MaveDB expects that dataframes have columns in the following order (note some columns are optional):
+    * hgvs_nt
+    * hgvs_splice
+    * hgvs_pro
+    * score
+    * other
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The dataframe with columns to sort
+
+    Returns
+    -------
+    pandas.DataFrame
+        The dataframe with the same data but sorted columns
+    """
+    static_columns = (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column)
+
+    def column_sort_function(value, columns):
+        if value in static_columns:
+            return static_columns.index(value)
+        else:
+            return columns.index(value) + 10
+
+    old_columns = list(df.columns)
+    new_columns = sorted(old_columns, key=lambda v: column_sort_function(v, old_columns))
+
+    return df[new_columns]
+
+
+def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    pass
 
 def validate_dataframes(target_seq: str, scores, counts=None):
     """
