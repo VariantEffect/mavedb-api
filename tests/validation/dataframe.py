@@ -3,14 +3,14 @@ import numpy as np
 import pandas as pd
 from io import StringIO
 
-from src.mavedb.lib.validation.constants.general import (
+from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
     hgvs_pro_column,
     hgvs_splice_column,
     required_score_column,
 )
 
-from src.mavedb.lib.validation.dataframe import (
+from mavedb.lib.validation.dataframe import (
     validate_no_null_columns_or_rows,
     validate_column_names,
     validate_values_by_column,
@@ -19,7 +19,7 @@ from src.mavedb.lib.validation.dataframe import (
     validate_index_column,
     validate_hgvs_nt_and_hgvs_pro_represent_same_change,
     sort_dataframe_columns,
-    #standardize_dataframe,
+    standardize_dataframe,
     DataframeValidationError,
 )
 
@@ -214,7 +214,6 @@ class TestStandardizeDataframe(TestCase):
     def test_standardize_sorts_columns(self):
         standardized_df = standardize_dataframe(self.dataframe[[hgvs_splice_column, "count2", hgvs_pro_column, required_score_column, hgvs_nt_column, "count1", "extra"]])
         pd.testing.assert_frame_equal(self.dataframe[[hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column, "count2", "count1", "extra"]], standardized_df)
-
 
 
 class TestValidateValuesByColumn(TestCase):

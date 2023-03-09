@@ -4,16 +4,16 @@ from pandas.testing import assert_frame_equal
 from mavehgvs.variant import Variant
 import numpy as np
 
-from src.mavedb.lib.validation.constants.general import (
+from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
     hgvs_splice_column,
     hgvs_pro_column,
     required_score_column
 )
-from src.mavedb.lib.validation.exceptions import ValidationError
-from src.mavedb.lib.validation.variant import validate_hgvs_string
-from src.mavedb.lib.validation.utilities import convert_hgvs_nt_to_hgvs_pro
-from src.mavedb.lib.validation.target import validate_target_sequence
+from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.lib.validation.variant import validate_hgvs_string
+from mavedb.lib.validation.utilities import convert_hgvs_nt_to_hgvs_pro
+from mavedb.lib.validation.target import validate_target_sequence
 from fqfa.util.infer import infer_sequence_type
 from fqfa.util.nucleotide import (
     reverse_complement,
