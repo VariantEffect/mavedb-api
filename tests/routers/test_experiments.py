@@ -2,7 +2,7 @@ from datetime import date
 import json
 import re
 
-from mavedb.tests.setup import client, test_empty_db
+from tests.conftest import client
 
 
 def test_create_experiment(test_empty_db):

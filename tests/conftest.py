@@ -44,6 +44,7 @@ def override_current_user():
         is_superuser=False,
     )
 
+
 app.dependency_overrides[get_db] = override_get_db
 app.dependency_overrides[require_current_user] = override_current_user
 

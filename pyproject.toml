@@ -78,3 +78,8 @@ exclude = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mavedb"]
+
+[tool.pytest.ini_options]
+addopts = [
+    "--import-mode=importlib",
+]

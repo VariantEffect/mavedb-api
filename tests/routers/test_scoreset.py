@@ -3,8 +3,8 @@ from datetime import date
 import json
 import re
 
-from mavedb.tests.setup import client, TestingSessionLocal
 from mavedb.models.reference_genome import ReferenceGenome
+from tests.conftest import client, TestingSessionLocal
 
 """
 #Test one. Can ignore it.
