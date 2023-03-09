@@ -4,16 +4,16 @@ from pandas.testing import assert_frame_equal
 from mavehgvs.variant import Variant
 import numpy as np
 
-from mavedb.lib.validation.constants.general import (
+from src.mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
     hgvs_pro_column,
     hgvs_splice_column,
     required_score_column
 )
-from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.lib.validation.variant import validate_hgvs_string
-from mavedb.lib.validation.utilities import convert_hgvs_nt_to_hgvs_pro
-from mavedb.lib.validation.target import validate_target_sequence
+from src.mavedb.lib.validation.exceptions import ValidationError
+from src.mavedb.lib.validation.variant import validate_hgvs_string
+from src.mavedb.lib.validation.utilities import convert_hgvs_nt_to_hgvs_pro
+from src.mavedb.lib.validation.target import validate_target_sequence
 from fqfa.util.infer import infer_sequence_type
 from fqfa.util.nucleotide import (
     reverse_complement,
@@ -141,22 +141,16 @@ def validate_column_names(dataframe: pd.DataFrame, kind: str):
 
     for column in dataframe.columns:
         if len(dataframe.index) != dataframe[column].isnull().sum():
-            if column == hgvs_nt_column:
+            if column.lower() == hgvs_nt_column:
                 hgvs_nt = True
-            elif column == hgvs_pro_column:
+            elif column.lower() == hgvs_pro_column:
                 hgvs_pro = True
-            elif column == hgvs_splice_column:
+            elif column.lower() == hgvs_splice_column:
                 hgvs_splice = True
-            elif column == required_score_column:
+            elif column.lower() == required_score_column:
                 score_column = True
-            elif (column == hgvs_nt_column.upper() or
-                  column == hgvs_pro_column.upper() or
-                  column == hgvs_splice_column.upper() or
-                  column == required_score_column.upper()):
-                raise DataframeValidationError("hgvs columns and score column should be lowercase.")
 
     # there should be at least one of hgvs_nt or hgvs_pro column
-    # if count == 0:
     if not hgvs_nt and not hgvs_pro:
         raise DataframeValidationError("Must include hgvs_nt or hgvs_pro column.")  # or hgvs_splice column.")
 
@@ -165,7 +159,7 @@ def validate_column_names(dataframe: pd.DataFrame, kind: str):
         if not hgvs_nt or not hgvs_pro:
             raise DataframeValidationError("Must define hgvs_nt and hgvs_pro columns if defining hgvs_splice column.")
 
-
+    """
     # first columns should be hgvs columns, reorder columns to meet this requirement
     if score_column:
         score = dataframe.pop(required_score_column)
@@ -179,7 +173,7 @@ def validate_column_names(dataframe: pd.DataFrame, kind: str):
     if hgvs_nt:
         nt_column = dataframe.pop(hgvs_nt_column)
         dataframe.insert(0, hgvs_nt_column, nt_column)
-
+    """
     # there should be at least one additional column beyond the hgvs columns
     if len(columns) == count:
         raise DataframeValidationError("There must be at least one additional column beyond the hgvs columns.")
@@ -217,7 +211,7 @@ def validate_values_by_column(dataset, target_seq: str):
     """
     # first check that dataframe is not empty
     if dataset.empty:
-        raise ValidationError("Dataset must not be empty.")
+        raise DataframeValidationError("Dataset must not be empty.")
 
     # validate target sequence
     validate_target_sequence(target_seq)
@@ -238,16 +232,12 @@ def validate_values_by_column(dataset, target_seq: str):
                 hgvs_splice = True
             elif column == required_score_column:
                 score = True
-    if hgvs_nt is False and hgvs_pro is False and hgvs_splice is False and score is False:
-        raise ValidationError("Missing required hgvs and/or score columns.")
 
     # check that the first column, hgvs_nt or hgvs_pro, is valid
     if hgvs_nt:
         validate_index_column(dataset["hgvs_nt"], hgvs="nt")
-    elif hgvs_pro:
+    if hgvs_pro:
         validate_index_column(dataset["hgvs_pro"], hgvs="pro")
-    else:
-        raise ValidationError("Must include either hgvs_nt or hgvs_pro column.")
 
     # check that prefixes all match and are consistent with one another
     hgvs_nt_prefix = None
@@ -271,34 +261,46 @@ def validate_values_by_column(dataset, target_seq: str):
     for i in range(len(dataset)):
         # NaN type is numpy.float64 so it will be validated.
         if hgvs_nt and dataset.loc[i, hgvs_nt_column] is not None:
-            validate_hgvs_string(value=dataset.loc[i, hgvs_nt_column],
-                                 column="nt",
-                                 targetseq=target_seq,
-                                 splice_present=hgvs_splice)
+            try:
+                validate_hgvs_string(value=dataset.loc[i, hgvs_nt_column],
+                                     column="nt",
+                                     targetseq=target_seq,
+                                     splice_present=hgvs_splice)
+            except Exception:
+                raise DataframeValidationError
             if hgvs_nt_prefix:
                 if Variant(dataset.loc[i, hgvs_nt_column]).prefix != hgvs_nt_prefix:
-                    raise ValidationError("All prefixes within the hgvs_nt column must be the same.")
+                    raise DataframeValidationError("All prefixes within the hgvs_nt column must be the same.")
                 # if prefix is non-coding, there should not be an hgvs_pro value
                 if hgvs_nt_prefix == "n":
                     if hgvs_pro_column and dataset.loc[i, hgvs_pro_column] is not None:
-                        raise ValidationError("Cannot have hgvs_pro value with non-coding hgvs_nt value.")
+                        raise DataframeValidationError("Cannot have hgvs_pro value with non-coding hgvs_nt value.")
             else:  # assign the prefix value since it has not yet been assigned
                 hgvs_nt_prefix = Variant(dataset.loc[i, hgvs_nt_column]).prefix
         if hgvs_pro and dataset.loc[i, hgvs_pro_column] is not None:
-            validate_hgvs_string(value=dataset.loc[i, hgvs_pro_column],
-                                 column="p",
-                                 targetseq=target_aa_seq,
-                                 splice_present=hgvs_splice)
+            try:
+                validate_hgvs_string(value=dataset.loc[i, hgvs_pro_column],
+                                     column="p",
+                                     targetseq=target_aa_seq,
+                                     splice_present=hgvs_splice)
+            except Exception:
+                raise DataframeValidationError
         if hgvs_splice and dataset.loc[i, hgvs_splice_column] is not None:
-            validate_hgvs_string(value=dataset.loc[i, hgvs_splice_column],
-                                 column="splice",
-                                 targetseq=target_seq,
-                                 splice_present=hgvs_splice)
+            try:
+                validate_hgvs_string(value=dataset.loc[i, hgvs_splice_column],
+                                     column="splice",
+                                     targetseq=target_seq,
+                                     splice_present=hgvs_splice)
+            except Exception:
+                raise DataframeValidationError
             if hgvs_nt_prefix != 'g':
-                raise ValidationError("hgvs_nt prefix must be genomic when splice present.")
+                raise DataframeValidationError("hgvs_nt prefix must be genomic when splice present.")
         if score:
-            s = validate_score(dataset.loc[i, required_score_column])
-            dataset.loc[i, required_score_column] = s
+            try:
+                s = validate_score(dataset.loc[i, required_score_column])
+                dataset.loc[i, required_score_column] = s
+            except Exception:
+                raise DataframeValidationError
         if hgvs_nt and hgvs_pro and dataset.loc[i, hgvs_nt_column] is not None and dataset.loc[i, hgvs_pro_column] is not None:
             # TODO: ensure this function is implemented correctly before applying, complete unit testing
             if not Variant(dataset.loc[i, hgvs_pro_column]).is_multi_variant():  # can only convert to single hgvs_pro variants
@@ -344,7 +346,7 @@ def validate_index_column(column, hgvs: str):
 
 def validate_score(score):
     if isinstance(score, float) or isinstance(score, int):
-        pass
+        return score
     elif isinstance(score, str):
         try:
             return float(score)
