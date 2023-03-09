@@ -10,6 +10,17 @@ from mavedb.models.scoreset import Scoreset
 
 
 def generate_experiment_set_urn(db: Session):
+    """
+    Generate a new URN for an experiment set.
+
+    Experiment set URNs include an 8-digit, zero-padded, sequentially-assigned numeric part. This function finds the
+    maximum value in the database and adds one to form the new URN. To ensure atomicity, it should be called in the
+    context of a database transaction.
+
+    :param db: An active database session
+    :return: The next available experiment set URN
+    """
+
     # PostgreSQL-specific operator: ~
     # TODO Provide an alternative for use with SQLite in unit tests.
     # TODO We can't use func.max if an experiment set URN's numeric part will ever have anything other than 8 digits,
@@ -27,6 +38,26 @@ def generate_experiment_set_urn(db: Session):
 
 
 def generate_experiment_urn(db: Session, experiment_set: ExperimentSet, experiment_is_meta_analysis: bool):
+    """
+    Generate a new URN for an experiment.
+
+    Experiment URNs include a two sequentially-assigned parts: a numeric part from the parent experiment set and a
+    lowercase alphabetic part identifying the experiment within its set. The alphabetic part is assigned as follows:
+    ```
+    a, b, ..., z, aa, ab, ..., az, ba, ... bz, ... zz, aaa, ..., zzz, aaaa, ...
+    ```
+    This function looks at the database records for other experiments in the set and finds the maximum value of the
+    alphabetic part, then increments it to form the new URN. To ensure atomicity, it should be called in the context of
+    a database transaction to ensure atomicity.
+
+    For meta-analyses, the suffix is always 0. There can only be one meta-analysis per experiment set.
+
+    :param db: An active database session
+    :param experiment_set: The experiment set to which this experiment belongs
+    :param experiment_is_meta_analysis: Whether the experiment is a meta-analysis
+    :return: The next available experiment URN
+    """
+
     experiment_set_urn = experiment_set.urn
 
     if experiment_is_meta_analysis:
@@ -61,6 +92,21 @@ def generate_experiment_urn(db: Session, experiment_set: ExperimentSet, experime
 
 
 def generate_scoreset_urn(db: Session, experiment: Experiment):
+    """
+    Generate a new URN for a score set.
+
+    Score set URNs append a sequentially-assigned numeric part to their parent experiment URNs. This numeric part is not
+    zero-padded to a fixed width.
+
+    This function looks at the database records for other scoresets belonging to the experiment and finds the maximum
+    value of the numeric part, then increments it to form the new URN. To ensure atomicity, it should be called in the
+    context of a database transaction.
+
+    :param db: An active database session
+    :param experiment: The experiment to which this score set belongs
+    :return: The next available score set URN
+    """
+
     experiment_urn = experiment.urn
 
     # PostgreSQL-specific operator: ~

@@ -35,6 +35,13 @@ EXTERNAL_GENE_IDENTIFIER_OFFSET_ATTRIBUTES = {
 
 
 async def find_or_create_doi_identifier(db: Session, identifier: str):
+    """
+    Find an existing DOI identifier record with the specified identifier string, or create a new one.
+
+    :param db: An active database session
+    :param identifier: A valid DOI identifier
+    :return: An existing DoiIdentifier containing the specified identifier string, or a new, unsaved DoiIdentifier
+    """
     doi_identifier = db.query(DoiIdentifier).filter(DoiIdentifier.identifier == identifier).one_or_none()
     if not doi_identifier:
         doi_identifier = DoiIdentifier(
@@ -56,6 +63,13 @@ def fetch_pubmed_citation_html(identifier: str):
 
 
 async def find_or_create_pubmed_identifier(db: Session, identifier: str):
+    """
+    Find an existing PubMed identifier record with the specified identifier string, or create a new one.
+
+    :param db: An active database session
+    :param identifier: A valid PubMed identifier
+    :return: An existing PubmedIdentifier containing the specified identifier string, or a new, unsaved PubmedIdentifier
+    """
     pubmed_identifier = db.query(PubmedIdentifier).filter(PubmedIdentifier.identifier == identifier).one_or_none()
     if not pubmed_identifier:
         pubmed_identifier = PubmedIdentifier(
@@ -77,6 +91,16 @@ async def find_or_create_raw_read_identifier(db: Session, identifier: str):
     return raw_read_identifier
 
 async def find_or_create_external_gene_identifier(db: Session, db_name: str, identifier: str):
+    """
+    Find an existing gene identifier record with the specified gene database name and identifier string, or create a new
+    one.
+
+    :param db: An active database session
+    :param identifier: A valid identifier
+    :return: An existing EnsemblIdentifier, RefseqIdentifier, or UniprotIdentifier containing the specified identifier
+      string, or a new, unsaved instance of one of these classes
+    """
+
     # TODO Handle key errors.
     identifier_class: Union[EnsemblIdentifier, RefseqIdentifier, UniprotIdentifier] = EXTERNAL_GENE_IDENTIFIER_CLASSES[db_name]
 
