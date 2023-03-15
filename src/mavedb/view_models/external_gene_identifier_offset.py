@@ -11,9 +11,10 @@ class ExternalGeneIdentifierOffsetBase(BaseModel):
 class ExternalGeneIdentifierOffsetCreate(ExternalGeneIdentifierOffsetBase):
     identifier: external_gene_identifier.ExternalGeneIdentifierCreate
 
-    @validator('identifier')
-    def validate_identifier(cls, v):
-        identifier.validate_external_identifier(v)
+    @validator('offset')
+    def validate_offset(cls, v):
+        if v < 0:
+            raise ValueError("Offset should not be a negative number")
         return v
 
 

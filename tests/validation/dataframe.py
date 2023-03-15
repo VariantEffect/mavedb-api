@@ -3,13 +3,14 @@ import numpy as np
 import pandas as pd
 from io import StringIO
 
-from mavedb.lib.validation.constants.general import (
+from src.mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
     hgvs_pro_column,
     hgvs_splice_column,
     required_score_column,
 )
-from mavedb.lib.validation.dataframe import (
+
+from src.mavedb.lib.validation.dataframe import (
     validate_no_null_columns_or_rows,
     validate_column_names,
     validate_values_by_column,
@@ -18,11 +19,9 @@ from mavedb.lib.validation.dataframe import (
     validate_index_column,
     validate_hgvs_nt_and_hgvs_pro_represent_same_change,
     sort_dataframe_columns,
-    standardize_dataframe,
+    #standardize_dataframe,
     DataframeValidationError,
 )
-from mavedb.lib.validation.exceptions import ValidationError
-
 
 # generic test dataframe used for many tests
 TEST_DF_DICT = {
@@ -235,56 +234,56 @@ class TestValidateValuesByColumn(TestCase):
 
     def test_non_numeric_values_in_score_column(self):
         self.dataframe.loc[0, [required_score_column]] = "not a float"
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(DataframeValidationError):
             validate_values_by_column(self.dataframe, target_seq=self.target_seq)
 
     def test_invalid_row_hgvs_is_not_a_string(self):
         self.dataframe.loc[0, [hgvs_nt_column]] = 1.0
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(DataframeValidationError):
             validate_values_by_column(self.dataframe, target_seq=self.target_seq)
 
     def test_empty_no_variants_parsed(self):
         self.dataframe = self.dataframe.drop(axis='rows', index=[0, 1, 2])
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(DataframeValidationError):
             validate_values_by_column(self.dataframe, target_seq=self.target_seq)
 
     def test_invalid_hgvs_nt_in_column(self):
         self.dataframe = self.dataframe.drop([hgvs_pro_column, hgvs_splice_column], axis=1)
         self.dataframe.loc[0, [hgvs_nt_column]] = "p.Thr1Ala"
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(DataframeValidationError):
             validate_values_by_column(self.dataframe, target_seq=self.target_seq)
 
     def test_invalid_hgvs_pro_in_column(self):
         self.dataframe = self.dataframe.drop([hgvs_nt_column, hgvs_splice_column], axis=1)
         self.dataframe.loc[0, [hgvs_pro_column]] = "c.1A>G"
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(DataframeValidationError):
             validate_values_by_column(self.dataframe, target_seq=self.target_seq)
 
     def test_invalid_hgvs_splice_in_column(self):
         self.dataframe = self.dataframe.drop([hgvs_pro_column], axis=1)
         self.dataframe.loc[0, [hgvs_splice_column]] = "g.1A>G"
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(DataframeValidationError):
             validate_values_by_column(self.dataframe, target_seq=self.target_seq)
 
     def test_invalid_variants_do_not_represent_same_change(self):
         self.dataframe.loc[0, [hgvs_nt_column]] = "c.3A>G"
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(DataframeValidationError):
             validate_values_by_column(self.dataframe, target_seq=self.target_seq)
 
     def test_does_not_allow_wt(self):
         self.dataframe.loc[0, [hgvs_nt_column]] = "_wt"
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(DataframeValidationError):
             validate_values_by_column(self.dataframe, target_seq=self.target_seq)
 
     def test_does_not_allow_sy(self):
         self.dataframe.loc[0, [hgvs_pro_column]] = "_sy"
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(DataframeValidationError):
             validate_values_by_column(self.dataframe, target_seq=self.target_seq)
 
     def test_parses_numeric_column_values_into_float(self):
         self.dataframe.loc[0, [required_score_column]] = "1.1"
         self.assertTrue(type(self.dataframe[required_score_column][0]) == str)
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(DataframeValidationError):
             validate_values_by_column(self.dataframe, target_seq=self.target_seq)
         self.assertFalse(type(self.dataframe[required_score_column][0]) == float)
         self.dataframe.loc[0, [required_score_column]] = 1
@@ -314,14 +313,14 @@ class TestValidateValuesByColumn(TestCase):
     def test_invalid_genomic_and_transcript_mixed_in_nt_column(self):
         self.dataframe.loc[0, [hgvs_nt_column]] = "c.4A>G"
         self.dataframe = self.dataframe.drop([hgvs_splice_column], axis=1)
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(DataframeValidationError):
             validate_values_by_column(self.dataframe, target_seq=self.target_seq)
 
     def test_invalid_nt_not_genomic_when_splice_present(self):
         self.dataframe.loc[0, [hgvs_nt_column]] = "c.4A>G"
         self.dataframe.loc[1, [hgvs_nt_column]] = "c.5C>G"
         self.dataframe.loc[2, [hgvs_nt_column]] = "c.6A>G"
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(DataframeValidationError):
             validate_values_by_column(self.dataframe, target_seq=self.target_seq)
 
     def test_noncoding_hgvs_nt_should_not_have_hgvs_pro_columns(self):
@@ -329,7 +328,7 @@ class TestValidateValuesByColumn(TestCase):
         self.dataframe.loc[0, [hgvs_nt_column]] = "n.4A>G"
         self.dataframe.loc[1, [hgvs_nt_column]] = "n.5C>G"
         self.dataframe.loc[2, [hgvs_nt_column]] = "n.6A>G"
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(DataframeValidationError):
             validate_values_by_column(self.dataframe, target_seq=self.target_seq)
         self.dataframe.loc[0, [hgvs_pro_column]] = None
         self.dataframe.loc[1, [hgvs_pro_column]] = None
@@ -347,7 +346,7 @@ class TestValidateValuesByColumn(TestCase):
 
     def test_invalid_splice_not_defined_when_nt_is_genomic(self):
         self.dataframe = self.dataframe.drop([hgvs_splice_column], axis=1)
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(DataframeValidationError):
             validate_values_by_column(self.dataframe, target_seq=self.target_seq)
 
     def test_invalid_zero_is_not_parsed_as_none(self):
@@ -377,7 +376,7 @@ class TestValidateValuesByColumn(TestCase):
                 required_score_column: [1.000, 0.5, 1.5],
             }
         )
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(DataframeValidationError):
             validate_values_by_column(self.dataframe, target_seq=self.target_seq)
 
 
