@@ -33,6 +33,34 @@ class DataframeValidationError(ValueError):
 STANDARD_COLUMNS = (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column)
 
 
+def infer_column_type(col: pd.Series) -> str:
+    """
+    Infer whether the given column contains string or numeric data.
+
+    Columns that contain only NA values are considered "numeric" columns.
+
+    Parameters
+    ----------
+    col : pandas.Series
+        The column to inspect
+
+    Returns
+    -------
+    str
+        One of "string", "numeric", or "mixed"
+    """
+    if np.all(col.isna()):
+        return "numeric"
+    else:
+        col_numeric = pd.to_numeric(col, errors="coerce")
+        if np.all(col_numeric.isna()):  # nothing converted to a number
+            return "string"
+        elif np.all(col.isna() == col_numeric.isna()):  # all non-NA values converted
+            return "numeric"
+        else:  # some values converted but not all
+            return "mixed"
+
+
 def sort_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     Sort the columns of the given dataframe according to the expected ordering in MaveDB.

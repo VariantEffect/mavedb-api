@@ -11,6 +11,7 @@ from mavedb.lib.validation.constants.general import (
 )
 
 from mavedb.lib.validation.dataframe import (
+    infer_column_type,
     validate_no_null_columns_or_rows,
     validate_column_names,
     validate_values_by_column,
@@ -33,6 +34,44 @@ TEST_DF_DICT = {
                 "count1": [3.0, 5.0],
                 "count2": [9, 10],
             }
+
+
+class TestInferColumnType(TestCase):
+    def test_floats(self):
+        test_data = pd.Series([12.0, 1.0, -0.012, 5.75])
+        self.assertEqual(infer_column_type(test_data), "numeric")
+
+    def test_ints(self):
+        test_data = pd.Series([12, 1, 0, -5])
+        self.assertEqual(infer_column_type(test_data), "numeric")
+
+    def test_floats_with_na(self):
+        test_data = pd.Series([12.0, 1.0, None, -0.012, 5.75])
+        self.assertEqual(infer_column_type(test_data), "numeric")
+
+    def test_ints_with_na(self):
+        test_data = pd.Series([12, 1, None, 0, -5])
+        self.assertEqual(infer_column_type(test_data), "numeric")
+
+    def test_convertable_strings(self):
+        test_data = pd.Series(["12.5", 1.25, "0", "-5"])
+        self.assertEqual(infer_column_type(test_data), "numeric")
+
+    def test_strings(self):
+        test_data = pd.Series(["hello", "test", "suite", "123abc"])
+        self.assertEqual(infer_column_type(test_data), "string")
+
+    def test_strings_with_na(self):
+        test_data = pd.Series(["hello", "test", None, "suite", "123abc"])
+        self.assertEqual(infer_column_type(test_data), "string")
+
+    def test_mixed(self):
+        test_data = pd.Series(["hello", 12.123, -75, "123abc"])
+        self.assertEqual(infer_column_type(test_data), "mixed")
+
+    def test_mixed_with_na(self):
+        test_data = pd.Series(["hello", None, 12.123, -75, "123abc"])
+        self.assertEqual(infer_column_type(test_data), "mixed")
 
 
 class TestNullColumnsOrRows(TestCase):
