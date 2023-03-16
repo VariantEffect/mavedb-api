@@ -148,33 +148,51 @@ def validate_dataframes(target_seq: str, scores, counts=None):
         validate_dataframes_define_same_variants(scores, counts)
 
 
-def validate_no_null_columns_or_rows(dataframe):
-    # TODO: we may not need this - current datasets exist where all values are None
+def validate_no_null_data_columns(df: pd.DataFrame) -> None:
     """
-    Checks that there are no null columns or rows in the dataframe. Note that a null
-    column may still have a valid column name.
+    Checks that there are no null data columns (non-HGVS) in the dataframe.
+
+    Note that a null column may still have a valid column name.
 
     Parameters
     __________
-    dataframe : pandas.DataFrame
+    df : pandas.DataFrame
         The scores or counts dataframe being validated
 
     Raises
     ______
-    ValidationError
-        If there are null columns or rows in the dataframe
+    DataframeValidationError
+        If there are null data columns in the dataframe
     """
-    # first drop any columns where null columns are allowed
-    if hgvs_nt_column:
-        dataframe = dataframe.drop([hgvs_nt_column], axis=1)
-    if hgvs_pro_column:
-        dataframe = dataframe.drop([hgvs_pro_column], axis=1)
-    if hgvs_splice_column:
-        dataframe = dataframe.drop([hgvs_splice_column], axis=1)
-    df = dataframe.dropna(axis=0, how='all')
-    df = df.dropna(axis=1, how='all')
-    if not df.equals(dataframe):
-        raise DataframeValidationError("Dataset should not contain null columns or rows.")
+    null_columns = list()
+    for cname in df.columns:
+        if cname in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
+            continue
+        else:
+            if infer_column_type(df[cname]) == "empty":
+                null_columns.append(cname)
+
+    if len(null_columns) > 0:
+        raise DataframeValidationError(f"data columns contains no data: {', '.join(null_columns)}")
+
+
+def validate_no_null_rows(df: pd.DataFrame) -> None:
+    """
+    Checks that there are no fully null rows in the dataframe.
+
+    Parameters
+    __________
+    df : pandas.DataFrame
+        The scores or counts dataframe being validated
+
+    Raises
+    ______
+    DataframeValidationError
+        If there are null rows in the dataframe
+    """
+    null_rows = df.apply(lambda row: np.all(row.isna()), axis=1)
+    if sum(null_rows) > 0:
+        raise DataframeValidationError(f"found {sum(null_rows)} null rows in the data frame")
 
 
 def validate_column_names(dataframe: pd.DataFrame, kind: str):

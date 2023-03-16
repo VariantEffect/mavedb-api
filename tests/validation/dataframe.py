@@ -12,7 +12,8 @@ from mavedb.lib.validation.constants.general import (
 
 from mavedb.lib.validation.dataframe import (
     infer_column_type,
-    validate_no_null_columns_or_rows,
+    validate_no_null_data_columns,
+    validate_no_null_rows,
     validate_column_names,
     validate_values_by_column,
     validate_score,
@@ -80,38 +81,47 @@ class DfTestCase(TestCase):
             })
 
 
-class TestNullColumnsOrRows(DfTestCase):
+class TestNullDataColumns(DfTestCase):
     def test_valid(self):
-        validate_no_null_columns_or_rows(self.dataframe)
-
-    def test_null_row(self):
-        self.dataframe.loc[1] = None
-        with self.assertRaises(DataframeValidationError):
-            validate_no_null_columns_or_rows(self.dataframe)
+        validate_no_null_data_columns(self.dataframe)
 
     def test_null_score_column(self):
         self.dataframe[required_score_column] = None
         with self.assertRaises(DataframeValidationError):
-            validate_no_null_columns_or_rows(self.dataframe)
+            validate_no_null_data_columns(self.dataframe)
 
     def test_null_extra_column(self):
         self.dataframe["extra"] = None
         with self.assertRaises(DataframeValidationError):
-            validate_no_null_columns_or_rows(self.dataframe)
+            validate_no_null_data_columns(self.dataframe)
 
     def test_allow_null_hgvs_columns(self):
         self.dataframe[hgvs_splice_column] = None
-        validate_no_null_columns_or_rows(self.dataframe)
+        validate_no_null_data_columns(self.dataframe)
         self.dataframe[hgvs_nt_column] = None
-        validate_no_null_columns_or_rows(self.dataframe)
+        validate_no_null_data_columns(self.dataframe)
 
     def test_allow_missing_scores(self):
         self.dataframe.loc[0, required_score_column] = None
-        validate_no_null_columns_or_rows(self.dataframe)
+        validate_no_null_data_columns(self.dataframe)
 
     def test_allow_missing_extras(self):
         self.dataframe.loc[1, "extra"] = None
-        validate_no_null_columns_or_rows(self.dataframe)
+        validate_no_null_data_columns(self.dataframe)
+
+
+class TestNullRows(DfTestCase):
+    def test_valid(self):
+        validate_no_null_rows(self.dataframe)
+
+    def test_null_row(self):
+        self.dataframe.loc[1] = None
+        with self.assertRaises(DataframeValidationError):
+            validate_no_null_rows(self.dataframe)
+
+    def test_only_hgvs_row(self):
+        self.dataframe.loc[1, [required_score_column, "extra", "count1", "count2"]] = None
+        validate_no_null_rows(self.dataframe)
 
 
 class TestColumnNames(DfTestCase):
