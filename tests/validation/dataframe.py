@@ -24,17 +24,6 @@ from mavedb.lib.validation.dataframe import (
     DataframeValidationError,
 )
 
-# generic test dataframe used for many tests
-TEST_DF_DICT = {
-                hgvs_nt_column: ["c.1A>G", "c.1A>T"],
-                hgvs_splice_column: ["c.1A>G", "c.1A>T"],
-                hgvs_pro_column: ["p.Met1Val", "p.Met1Leu"],
-                required_score_column: [1.0, 2.0],
-                "extra": [12.0, 3.0],
-                "count1": [3.0, 5.0],
-                "count2": [9, 10],
-            }
-
 
 class TestInferColumnType(TestCase):
     def test_floats(self):
@@ -74,10 +63,20 @@ class TestInferColumnType(TestCase):
         self.assertEqual(infer_column_type(test_data), "mixed")
 
 
-class TestNullColumnsOrRows(TestCase):
+class DfTestCase(TestCase):
     def setUp(self):
-        self.dataframe = pd.DataFrame(TEST_DF_DICT)
+        self.dataframe = pd.DataFrame({
+                hgvs_nt_column: ["c.1A>G", "c.1A>T"],
+                hgvs_splice_column: ["c.1A>G", "c.1A>T"],
+                hgvs_pro_column: ["p.Met1Val", "p.Met1Leu"],
+                required_score_column: [1.0, 2.0],
+                "extra": [12.0, 3.0],
+                "count1": [3.0, 5.0],
+                "count2": [9, 10],
+            })
 
+
+class TestNullColumnsOrRows(DfTestCase):
     def test_valid(self):
         validate_no_null_columns_or_rows(self.dataframe)
 
@@ -111,10 +110,7 @@ class TestNullColumnsOrRows(TestCase):
         validate_no_null_columns_or_rows(self.dataframe)
 
 
-class TestColumnNames(TestCase):
-    def setUp(self):
-        self.dataframe = pd.DataFrame(TEST_DF_DICT)
-
+class TestColumnNames(DfTestCase):
     def test_only_two_kinds_of_dataframe(self):
         with self.assertRaises(ValueError):
             validate_column_names(self.dataframe, kind="score2")
@@ -215,10 +211,7 @@ class TestColumnNames(TestCase):
         validate_column_names(self.dataframe[[hgvs_splice_column, "extra", "count1", hgvs_pro_column, hgvs_nt_column, "count2"]], kind="counts")
 
 
-class TestSortDataframeColumns(TestCase):
-    def setUp(self):
-        self.dataframe = pd.DataFrame(TEST_DF_DICT)
-
+class TestSortDataframeColumns(DfTestCase):
     def test_preserve_sorted(self):
         sorted_df = sort_dataframe_columns(self.dataframe)
         pd.testing.assert_frame_equal(self.dataframe, sorted_df)
@@ -237,10 +230,7 @@ class TestSortDataframeColumns(TestCase):
         pd.testing.assert_frame_equal(self.dataframe[[hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column, "count2", "count1", "extra"]], sorted_df)
 
 
-class TestStandardizeDataframe(TestCase):
-    def setUp(self):
-        self.dataframe = pd.DataFrame(TEST_DF_DICT)
-
+class TestStandardizeDataframe(DfTestCase):
     def test_preserve_standardized(self):
         standardized_df = standardize_dataframe(self.dataframe)
         pd.testing.assert_frame_equal(self.dataframe, standardized_df)
