@@ -34,8 +34,11 @@ STANDARD_COLUMNS = (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, require
 
 
 def infer_column_type(col: pd.Series) -> str:
-    """
-    Infer whether the given column contains string or numeric data.
+    """Infer whether the given column contains string or numeric data.
+
+    The function returns "string" for string columns or "numeric" for numeric columns.
+    If there is a mixture of types it returns "mixed".
+    If every value in the column is `None` or NA it returns "empty".
 
     Parameters
     ----------
@@ -60,8 +63,7 @@ def infer_column_type(col: pd.Series) -> str:
 
 
 def sort_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Sort the columns of the given dataframe according to the expected ordering in MaveDB.
+    """Sort the columns of the given dataframe according to the expected ordering in MaveDB.
 
     MaveDB expects that dataframes have columns in the following order (note some columns are optional):
     * hgvs_nt
@@ -94,8 +96,7 @@ def sort_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Standardize a dataframe by sorting the columns and changing the standard column names to lowercase.
+    """Standardize a dataframe by sorting the columns and changing the standard column names to lowercase.
 
     The standard column names are:
     * hgvs_nt
@@ -121,10 +122,10 @@ def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return sort_dataframe_columns(df)
 
 
-def validate_dataframes(target_seq: str, scores, counts=None):
-    """
-    Validates scores and counts dataframes for MaveDB upload. This function performs
-    comprehensive validation.
+def validate_dataframes(target_seq: str, scores, counts=None) -> None:
+    """Validates scores and counts dataframes for MaveDB upload.
+
+    This function performs comprehensive validation by calling other validators.
 
     Parameters
     __________
@@ -149,8 +150,7 @@ def validate_dataframes(target_seq: str, scores, counts=None):
 
 
 def validate_no_null_data_columns(df: pd.DataFrame) -> None:
-    """
-    Checks that there are no null data columns (non-HGVS) in the dataframe.
+    """Check that there are no null data columns (non-HGVS) in the dataframe.
 
     Note that a null column may still have a valid column name.
 
@@ -173,12 +173,12 @@ def validate_no_null_data_columns(df: pd.DataFrame) -> None:
                 null_columns.append(cname)
 
     if len(null_columns) > 0:
-        raise DataframeValidationError(f"data columns contains no data: {', '.join(null_columns)}")
+        null_column_string = ", ".join(f"'{c}'" for c in null_columns)
+        raise DataframeValidationError(f"data columns contains no data: {null_column_string}")
 
 
 def validate_no_null_rows(df: pd.DataFrame) -> None:
-    """
-    Checks that there are no fully null rows in the dataframe.
+    """Check that there are no fully null rows in the dataframe.
 
     Parameters
     __________
@@ -195,107 +195,61 @@ def validate_no_null_rows(df: pd.DataFrame) -> None:
         raise DataframeValidationError(f"found {sum(null_rows)} null rows in the data frame")
 
 
-def validate_column_names(dataframe: pd.DataFrame, kind: str):
-    # TODO: return errors to user regarding column name ordering
-    """Validate the columns in an input dataframe.
+def validate_column_names(df: pd.DataFrame, kind: str) -> None:
+    """Validate the column names in a dataframe.
 
-    This function validates the column names in hte input dataframe. It can be run for
-    either a "scores" dataframe or a "counts" dataframe. A "scores" dataframe must have
-    a column named 'score' and a "counts" dataframe cannot have a column named 'score'.
+    This function validates the column names in the given dataframe.
+    It can be run for either a "scores" dataframe or a "counts" dataframe.
+    A "scores" dataframe must have a column named 'score' and a "counts" dataframe cannot have a column named 'score'.
 
     The function also checks for a valid combination of columns that define variants.
 
-    Basic checks are performed to make sure that a column name is not empty, null, or
-    whitespace, as well as making sure there are no duplicate column names.
+    Basic checks are performed to make sure that a column name is not empty, null, or whitespace,
+    as well as making sure there are no duplicate column names.
 
     Parameters
     ----------
-    dataframe : pandas.DataFrame
-        The scores or counts dataframe to be validated.
+    df : pandas.DataFrame
+        The scores or counts dataframe to be validated
 
     kind : str
-        Either "counts" or "scores" depending on the kind of dataframe being validated.
+        Either "counts" or "scores" depending on the kind of dataframe being validated
 
     Raises
     ------
     DataframeValidationError
-        If the column names are not valid.
+        If the column names are not valid
     """
-    if kind not in ["scores", "counts"]:
+    if any(type(c) != str for c in df.columns):
+        raise DataframeValidationError("column names must be strings")
+
+    if any(c.isspace() for c in df.columns) or any(len(c) == 0 for c in df.columns):
+        raise DataframeValidationError("column names cannot be empty or whitespace")
+
+    columns = [c.lower() for c in df.columns]
+
+    if kind == "scores":
+        if required_score_column not in columns:
+            raise DataframeValidationError(f"score dataframe must have a '{required_score_column}' column")
+    elif kind == "counts":
+        if required_score_column in columns:
+            raise DataframeValidationError(f"counts dataframe must not have a '{required_score_column}' column")
+    else:
         raise ValueError("kind only accepts scores and counts")
-    # get columns from dataframe
-    columns = dataframe.columns
 
-    # check that there are no duplicate column names
-    # This one seems useless cause duplicate column names will be processed automatically
+    if hgvs_splice_column in columns:
+        if hgvs_nt_column not in columns or hgvs_pro_column not in columns:
+            raise DataframeValidationError(f"dataframes with '{hgvs_splice_column}' must also define '{hgvs_nt_column}' and '{hgvs_pro_column}'")
+
     if len(columns) != len(set(columns)):
-        raise DataframeValidationError("There cannot be duplicate column names.")
+        raise DataframeValidationError("duplicate column names are not allowed (this check is case insensitive)")
 
-    # count instances of hgvs columns
-    count = 0
-    # note presence of different columns
-    hgvs_nt = False
-    hgvs_pro = False
-    hgvs_splice = False
-    score_column = False
-    for i in range(len(columns)):
-        # there should not be any null columns
-        # check for empty strings, np.nan, and None
-        # if is_null(columns[i]) or columns[i] is None:
-        if not isinstance(columns[i], str) or columns[i] == "" or columns[i].isspace():
-            # above condition will check that value is not None or np.nan also
-            raise DataframeValidationError("Column names must not be null.")  # in readable_null_values_list:
-        if columns[i] in [hgvs_nt_column, hgvs_pro_column, hgvs_splice_column]:
-            count += 1
+    if set(columns).isdisjoint({hgvs_nt_column, hgvs_splice_column, hgvs_pro_column}):
+        raise DataframeValidationError("dataframe does not define any variant columns")
 
-    for column in dataframe.columns:
-        if len(dataframe.index) != dataframe[column].isnull().sum():
-            if column.lower() == hgvs_nt_column:
-                hgvs_nt = True
-            elif column.lower() == hgvs_pro_column:
-                hgvs_pro = True
-            elif column.lower() == hgvs_splice_column:
-                hgvs_splice = True
-            elif column.lower() == required_score_column:
-                score_column = True
+    if set(columns).issubset({hgvs_nt_column, hgvs_splice_column, hgvs_pro_column}):
+        raise DataframeValidationError("dataframe does not define any data columns")
 
-    # there should be at least one of hgvs_nt or hgvs_pro column
-    if not hgvs_nt and not hgvs_pro:
-        raise DataframeValidationError("Must include hgvs_nt or hgvs_pro column.")  # or hgvs_splice column.")
-
-    # splice should not be defined in nt is not
-    if hgvs_splice:
-        if not hgvs_nt or not hgvs_pro:
-            raise DataframeValidationError("Must define hgvs_nt and hgvs_pro columns if defining hgvs_splice column.")
-
-    """
-    # first columns should be hgvs columns, reorder columns to meet this requirement
-    if score_column:
-        score = dataframe.pop(required_score_column)
-        dataframe.insert(0, required_score_column, score)
-    if hgvs_splice:
-        splice_column = dataframe.pop(hgvs_splice_column)
-        dataframe.insert(0, hgvs_splice_column, splice_column)
-    if hgvs_pro:
-        pro_column = dataframe.pop(hgvs_pro_column)
-        dataframe.insert(0, hgvs_pro_column, pro_column)
-    if hgvs_nt:
-        nt_column = dataframe.pop(hgvs_nt_column)
-        dataframe.insert(0, hgvs_nt_column, nt_column)
-    """
-    # there should be at least one additional column beyond the hgvs columns
-    if len(columns) == count:
-        raise DataframeValidationError("There must be at least one additional column beyond the hgvs columns.")
-
-    # if dataframe is a scores df make sure it has a score column
-    # also make sure counts df has a counts column and not a score column
-    if kind == "scores" and not score_column:
-        raise DataframeValidationError("A scores dataframe must include a `score` column.")
-    if kind == "counts" and score_column:
-        raise DataframeValidationError("A counts dataframe should not include a `score` column, include `score` "
-                              "column in a scores dataframe.")
-
-    return dataframe
 
 
 def validate_values_by_column(dataset, target_seq: str):
