@@ -62,6 +62,10 @@ class TestInferColumnType(TestCase):
         test_data = pd.Series(["hello", None, 12.123, -75, "123abc"])
         self.assertEqual(infer_column_type(test_data), "mixed")
 
+    def test_all_na(self):
+        test_data = pd.Series([None] * 5)
+        self.assertEqual(infer_column_type(test_data), "empty")
+
 
 class DfTestCase(TestCase):
     def setUp(self):

@@ -37,8 +37,6 @@ def infer_column_type(col: pd.Series) -> str:
     """
     Infer whether the given column contains string or numeric data.
 
-    Columns that contain only NA values are considered "numeric" columns.
-
     Parameters
     ----------
     col : pandas.Series
@@ -47,10 +45,10 @@ def infer_column_type(col: pd.Series) -> str:
     Returns
     -------
     str
-        One of "string", "numeric", or "mixed"
+        One of "string", "numeric", "mixed", or "empty"
     """
     if np.all(col.isna()):
-        return "numeric"
+        return "empty"
     else:
         col_numeric = pd.to_numeric(col, errors="coerce")
         if np.all(col_numeric.isna()):  # nothing converted to a number
