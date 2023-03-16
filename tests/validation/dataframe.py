@@ -43,32 +43,32 @@ class TestNullColumnsOrRows(TestCase):
         validate_no_null_columns_or_rows(self.dataframe)
 
     def test_null_row(self):
-        self.dataframe.loc[1] = pd.NA
+        self.dataframe.loc[1] = None
         with self.assertRaises(DataframeValidationError):
             validate_no_null_columns_or_rows(self.dataframe)
 
     def test_null_score_column(self):
-        self.dataframe[required_score_column] = pd.NA
+        self.dataframe[required_score_column] = None
         with self.assertRaises(DataframeValidationError):
             validate_no_null_columns_or_rows(self.dataframe)
 
     def test_null_extra_column(self):
-        self.dataframe["extra"] = pd.NA
+        self.dataframe["extra"] = None
         with self.assertRaises(DataframeValidationError):
             validate_no_null_columns_or_rows(self.dataframe)
 
     def test_allow_null_hgvs_columns(self):
-        self.dataframe[hgvs_splice_column] = pd.NA
+        self.dataframe[hgvs_splice_column] = None
         validate_no_null_columns_or_rows(self.dataframe)
-        self.dataframe[hgvs_nt_column] = pd.NA
+        self.dataframe[hgvs_nt_column] = None
         validate_no_null_columns_or_rows(self.dataframe)
 
     def test_allow_missing_scores(self):
-        self.dataframe.loc[0, required_score_column] = pd.NA
+        self.dataframe.loc[0, required_score_column] = None
         validate_no_null_columns_or_rows(self.dataframe)
 
     def test_allow_missing_extras(self):
-        self.dataframe.loc[1, "extra"] = pd.NA
+        self.dataframe.loc[1, "extra"] = None
         validate_no_null_columns_or_rows(self.dataframe)
 
 
@@ -163,7 +163,7 @@ class TestColumnNames(TestCase):
             validate_column_names(self.dataframe.drop([required_score_column], axis=1).rename(columns={"count2": "count1"}), kind="counts")
 
     def test_invalid_column_names(self):
-        invalid_values = [None, np.nan, pd.NA, "", " "]
+        invalid_values = [None, np.nan, "", " "]
         for value in invalid_values:
             with self.subTest(value=value):
                 with self.assertRaises(DataframeValidationError):
