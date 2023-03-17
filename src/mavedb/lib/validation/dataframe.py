@@ -147,7 +147,7 @@ def validate_dataframes(target_seq: str, scores, counts=None) -> None:
         #validate_no_null_columns_or_rows(counts)
         counts = validate_column_names(counts, kind="counts")
         validate_values_by_column(counts, target_seq)
-        validate_dataframes_define_same_variants(scores, counts)
+        validate_variant_column_agreement(scores, counts)
 
 
 def validate_no_null_data_columns(df: pd.DataFrame) -> None:
