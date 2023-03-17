@@ -38,7 +38,7 @@ def validate_sequence_category(sequence_type: str):
     """
     if sequence_type not in valid_sequence_types:
         raise ValidationError("{} is not a valid sequence type. Valid sequence types are "
-                              "Infer, DNA, and Protein".format(sequence_type))
+                              "infer, dna, and protein".format(sequence_type))
 
 
 def validate_target_sequence(sequence_type: str, target_seq: str):

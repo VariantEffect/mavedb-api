@@ -19,6 +19,8 @@ class WildTypeSequenceModify(WildTypeSequenceBase):
     @validator('sequence')
     def validate_identifier(cls, field_value, values, field, config):
         # If sequence_type is invalid, values["sequence_type"] doesn't exist.
+        # In creating target gene, values["sequence_type"] will throw error before the previous validator works.
+        # However, in creating a wile_type_sequence, previous validator will work first.
         if "sequence_type" in values.keys():
             sequence_type = values["sequence_type"]
             # field_value is sequence
