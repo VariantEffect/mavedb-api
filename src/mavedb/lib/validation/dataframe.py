@@ -252,7 +252,7 @@ def validate_column_names(df: pd.DataFrame, kind: str) -> None:
         raise DataframeValidationError("dataframe does not define any data columns")
 
 
-def validate_hgvs_columns(df: pd.DataFrame, targetseq: str, targetseq_type: str = "infer") -> None:
+def validate_hgvs_columns(df: pd.DataFrame, target_seq: str, target_seq_type: str = "infer") -> None:
     """Validate the contents of the HGVS variant columns.
 
     This function assumes that the validate_column_names validator has already been passed.
@@ -261,9 +261,9 @@ def validate_hgvs_columns(df: pd.DataFrame, targetseq: str, targetseq_type: str 
     ----------
     df : pandas.DataFrame
         A scores or counts dataframe
-    targetseq : str
+    target_seq : str
         The target sequence to validate the variants against
-    targetseq_type : str
+    target_seq_type : str
         The type of target sequence, which can be one of "dna", "protein", or "infer"
 
     Raises
@@ -275,10 +275,10 @@ def validate_hgvs_columns(df: pd.DataFrame, targetseq: str, targetseq_type: str 
     DataframeValidationError
         If any variant fails validation
     """
-    if targetseq_type == "infer":
-        targetseq_type = infer_sequence_type(targetseq)
+    if target_seq_type == "infer":
+        target_seq_type = infer_sequence_type(target_seq)
 
-    if targetseq_type not in ("dna", "protein"):
+    if target_seq_type not in ("dna", "protein"):
         raise ValueError("invalid target sequence type")
 
     # map the columns so we can ignore case and track what's present
@@ -321,15 +321,17 @@ def validate_hgvs_columns(df: pd.DataFrame, targetseq: str, targetseq_type: str 
         if not all(s.startswith("p.") for s in strings):
             raise DataframeValidationError(f"variant column '{hgvs_columns[hgvs_pro_column]}' has invalid variant prefixes")
 
-    # test prefix consistency for splice (must be "c.")
+    # test prefix consistency for splice (must be "c." or "n.")
     if hgvs_splice_column in hgvs_columns:
         strings = df[hgvs_columns[hgvs_splice_column]].dropna()
-        if not all(s.startswith("c.") for s in strings):
+        if len(set(s[:2] for s in strings)) > 1:
+            raise DataframeValidationError(f"variant column '{hgvs_columns[hgvs_splice_column]}' has inconsistent variant prefixes")
+        elif not all(s[:2] in ("c.", "n.") for s in strings):
             raise DataframeValidationError(f"variant column '{hgvs_columns[hgvs_splice_column]}' has invalid variant prefixes")
 
-    # test prefix consistency for nt (must be "cngmor." and consistent)
+    # test prefix consistency for nt (must be "cngmo." and consistent)
     if hgvs_nt_column in hgvs_columns:
-        prefixes = [f"{a}." for a in "cngmor"]
+        prefixes = [f"{a}." for a in "cngmo"]
         strings = df[hgvs_columns[hgvs_nt_column]].dropna()
         if len(set(s[:2] for s in strings)) > 1:
             raise DataframeValidationError(f"variant column '{hgvs_columns[hgvs_nt_column]}' has inconsistent variant prefixes")
@@ -340,11 +342,17 @@ def validate_hgvs_columns(df: pd.DataFrame, targetseq: str, targetseq_type: str 
     if hgvs_splice_column in hgvs_columns:
         if df[hgvs_columns[hgvs_nt_column]][0][:2] not in ("g.", "m.", "o."):
             raise DataframeValidationError(f"variant column '{hgvs_columns[hgvs_nt_column]}' must use valid genomic prefix when '{hgvs_columns[hgvs_splice_column]}' is present")
+        if hgvs_pro_column in hgvs_columns:
+            if df[hgvs_columns[hgvs_splice_column]][0][:2] != "c.":
+                raise DataframeValidationError(f"variant column '{hgvs_columns[hgvs_splice_column]}' must use 'c.' prefix when '{hgvs_columns[hgvs_pro_column]}' is present")
+        else:
+            if df[hgvs_columns[hgvs_splice_column]][0][:2] != "n.":
+                raise DataframeValidationError(f"variant column '{hgvs_columns[hgvs_splice_column]}' must use 'n.' prefix when protein variants are not present")
     elif hgvs_pro_column in hgvs_columns and hgvs_nt_column in hgvs_columns:
         if df[hgvs_columns[hgvs_nt_column]][0][:2] != "c.":
-            raise DataframeValidationError(f"variant column '{hgvs_columns[hgvs_nt_column]}' must use 'c.' prefix when '{hgvs_columns[hgvs_pro_column]}' is present and '{hgvs_columns[hgvs_splice_column]}' is absent")
+            raise DataframeValidationError(f"variant column '{hgvs_columns[hgvs_nt_column]}' must use 'c.' prefix when '{hgvs_columns[hgvs_pro_column]}' is present and splicing variants are not present")
     elif hgvs_nt_column in hgvs_columns:  # just hgvs_nt
-        if df[hgvs_columns[hgvs_nt_column]][0][:2] not in ("n.", "r."):
+        if df[hgvs_columns[hgvs_nt_column]][0][:2] != "n.":
             raise DataframeValidationError(f"variant column '{hgvs_columns[hgvs_nt_column]}' does not have a valid prefix for nucleotide-only variants")
 
     # validate hgvs strings for internal consistency
@@ -358,12 +366,10 @@ def validate_hgvs_columns(df: pd.DataFrame, targetseq: str, targetseq_type: str 
                     invalid_variants.append(f"invalid variant string '{s}' at row {i}")
 
     if hgvs_nt_column in hgvs_columns:
-        if df[hgvs_columns[hgvs_nt_column]][0].startswith("r"):
-            targetseq = convert_dna_to_rna(targetseq).lower()
         for i, s in df[hgvs_columns[hgvs_nt_column]].items():
             if s is not None:
                 try:
-                    Variant(s, targetseq=targetseq)
+                    Variant(s, targetseq=target_seq)
                 except MaveHgvsParseError:
                     try:
                         Variant(s)
@@ -373,12 +379,12 @@ def validate_hgvs_columns(df: pd.DataFrame, targetseq: str, targetseq_type: str 
                         invalid_variants.append(f"target sequence mismatch for '{s}' at row {i}")
 
     if hgvs_pro_column in hgvs_columns:
-        if targetseq_type == "dna":
-            targetseq = translate_dna(targetseq)[0]
+        if target_seq_type == "dna":
+            target_seq = translate_dna(target_seq)[0]
         for i, s in df[hgvs_columns[hgvs_pro_column]].items():
             if s is not None:
                 try:
-                    Variant(s, targetseq=targetseq)
+                    Variant(s, targetseq=target_seq)
                 except MaveHgvsParseError:
                     try:
                         Variant(s)
@@ -412,7 +418,7 @@ def validate_data_columns(df: pd.DataFrame) -> None:
     # TODO extra columns
 
 
-def validate_dataframes_define_same_variants(scores, counts):
+def validate_variant_column_agreement(scores, counts):
     # TODO update
     """
     Checks if two `pd.DataFrame` objects parsed from uploaded files
