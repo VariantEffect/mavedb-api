@@ -17,7 +17,7 @@ from mavedb.lib.validation.dataframe import (
     validate_column_names,
     validate_hgvs_columns,
     validate_data_columns,
-    validate_variant_column_agreement,
+    validate_variant_columns_match,
     sort_dataframe_columns,
     standardize_dataframe,
     DataframeValidationError,
@@ -582,19 +582,19 @@ class TestDataframesDefineSameVariants(TestCase):
         )
 
     def test_valid(self):
-        validate_variant_column_agreement(self.scores, self.counts)
+        validate_variant_columns_match(self.scores, self.counts)
 
     def test_counts_defines_different_nt_variants(self):
         self.counts[hgvs_nt_column][0] = "c.2A>G"
         with self.assertRaises(ValidationError):
-            validate_variant_column_agreement(self.scores, self.counts)
+            validate_variant_columns_match(self.scores, self.counts)
 
     def test_counts_defines_different_splice_variants(self):
         self.counts[hgvs_splice_column][0] = "c.2A>G"
         with self.assertRaises(ValidationError):
-            validate_variant_column_agreement(self.scores, self.counts)
+            validate_variant_columns_match(self.scores, self.counts)
 
     def test_counts_defines_different_pro_variants(self):
         self.counts[hgvs_pro_column][0] = "p.Leu75Glu"
         with self.assertRaises(ValidationError):
-            validate_variant_column_agreement(self.scores, self.counts)
+            validate_variant_columns_match(self.scores, self.counts)

@@ -345,7 +345,7 @@ async def upload_scoreset_variant_data(
     """
     if scores_file:
         try:
-            #validate_variant_column_agreement(scores_df, counts_df)
+            #validate_variant_columns_match(scores_df, counts_df)
             # Horrible validation. Raises many problems.
             validate_dataframes(item.target_gene.wt_sequence.sequence, scores_df, counts_df)
         except exceptions.ValidationError as e:

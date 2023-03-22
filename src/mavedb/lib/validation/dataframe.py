@@ -4,7 +4,7 @@ from pandas.testing import assert_frame_equal
 from mavehgvs.variant import Variant
 from mavehgvs.exceptions import MaveHgvsParseError
 import numpy as np
-from typing import Optional
+from typing import Optional, Tuple
 
 from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
@@ -124,59 +124,122 @@ def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return sort_dataframe_columns(df)
 
 
-def validate_dataframes(target_seq: str, scores, counts=None) -> None:
-    """Validates scores and counts dataframes for MaveDB upload.
-
-    This function performs comprehensive validation by calling other validators.
-
-    Parameters
-    __________
-    scores : pandas.DataFrame
-        The scores data as a pandas dataframe.
-    counts : pandas.DataFrame
-        The counts data as a pandas dataframe.
-
-    Raises
-    ______
-    ValidationError
-        If any of the validation fails.
+def validate_dataframe(df: pd.DataFrame, kind: str, target_seq: str, target_seq_type: str) -> None:
     """
-    #validate_no_null_columns_or_rows(scores)
-    scores = validate_column_names(scores, kind="scores")
-    validate_values_by_column(scores, target_seq)
-    if counts is not None:
-        #validate_no_null_columns_or_rows(counts)
-        counts = validate_column_names(counts, kind="counts")
-        validate_values_by_column(counts, target_seq)
-        validate_variant_column_agreement(scores, counts)
-
-
-def validate_no_null_data_columns(df: pd.DataFrame) -> None:
-    """Check that there are no null data columns (non-HGVS) in the dataframe.
-
-    Note that a null column may still have a valid column name.
+    Validate that a given dataframe passes all checks.
 
     Parameters
-    __________
+    ----------
     df : pandas.DataFrame
-        The scores or counts dataframe being validated
+        The dataframe to validate
+    kind : str
+        The kind of dataframe "counts" or "scores"
+    target_seq : str
+        The target sequence to validate variants against
+    target_seq_type : str
+        The kind of target sequence, one of "infer" "dna" or "protein"
+
+    Returns
+    -------
+    None
 
     Raises
-    ______
+    ------
     DataframeValidationError
-        If there are null data columns in the dataframe
+        If one of the validators called raises an exception
     """
-    null_columns = list()
-    for cname in df.columns:
-        if cname in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
-            continue
-        else:
-            if infer_column_type(df[cname]) == "empty":
-                null_columns.append(cname)
+    # basic checks
+    validate_column_names(df, kind)
+    validate_no_null_rows(df)
 
-    if len(null_columns) > 0:
-        null_column_string = ", ".join(f"'{c}'" for c in null_columns)
-        raise DataframeValidationError(f"data columns contains no data: {null_column_string}")
+    # validate individual columns
+    column_mapping = {c.lower(): c for c in df.columns}
+    index_column = choose_dataframe_index_column(df)
+    for c in column_mapping:
+        if c in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
+            is_index = column_mapping[c] == index_column
+            if not is_index and not df[column_mapping[c]].isna().all():  # ignore null non-index HGVS columns
+                validate_hgvs_column(df[column_mapping[c]], is_index, target_seq, target_seq_type)
+        else:
+            force_numeric = (c == required_score_column) or (kind == "counts")
+            validate_data_column(df[column_mapping[c]], force_numeric)
+
+    # validate hgvs agreement
+    prefixes = dict()
+    for c in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
+        prefixes[c] = None
+        if c in column_mapping:
+            if not df[column_mapping[c]].isna().all():
+                prefixes[c] = df[column_mapping[c]].dropna()[0][0]
+    validate_hgvs_prefix_combinations(hgvs_nt=prefixes[hgvs_nt_column], hgvs_splice=prefixes[hgvs_splice_column], hgvs_pro=prefixes[hgvs_pro_column])
+
+
+def validate_and_standardize_dataframe_pair(scores_df: pd.DataFrame, counts_df: Optional[pd.DataFrame], target_seq: str, target_seq_type: str) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+    """
+    Perform validation and standardization on a pair of score and count dataframes.
+
+    Parameters
+    ----------
+    scores_df : pandas.DataFrame
+        The scores dataframe
+    counts_df : Optional[pandas.DataFrame]
+        The counts dataframe, can be None if not present
+    target_seq : str
+        The target sequence for the dataset
+    target_seq_type : str
+        The target sequence type, can be "infer" "dna" or "protein"
+
+    Returns
+    -------
+    Tuple[pd.DataFrame, Optional[pd.DataFrame]]
+        The standardized score and count dataframes, or score and None if no count dataframe was provided
+
+    Raises
+    ------
+    DataframeValidationError
+        If one of the validation functions raises an exception
+    """
+    # validate the dataframes
+    validate_dataframe(scores_df, "scores", target_seq, target_seq_type)
+    if counts_df is not None:
+        validate_dataframe(counts_df, "counts", target_seq, target_seq_type)
+        validate_variant_columns_match(scores_df, counts_df)
+
+    new_scores_df = standardize_dataframe(scores_df)
+    if counts_df is not None:
+        new_counts_df = standardize_dataframe(counts_df)
+    else:
+        new_counts_df = None
+    return new_scores_df, new_counts_df
+
+
+def choose_dataframe_index_column(df: pd.DataFrame) -> str:
+    """
+    Identify the HGVS variant column that should be used as the index column in this dataframe.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The dataframe to check
+
+    Returns
+    -------
+    str
+        The column name of the index column
+
+    Raises
+    ------
+    ValueError
+        If no valid HGVS variant column is found
+    """
+    column_mapping = {c.lower(): c for c in df.columns if not df[c].isna().all()}
+
+    if hgvs_nt_column in column_mapping:
+        return column_mapping[hgvs_nt_column]
+    elif hgvs_pro_column in column_mapping:
+        return column_mapping[hgvs_pro_column]
+    else:
+        raise ValueError("failed to find valid HGVS variant column")
 
 
 def validate_no_null_rows(df: pd.DataFrame) -> None:
@@ -253,138 +316,7 @@ def validate_column_names(df: pd.DataFrame, kind: str) -> None:
         raise DataframeValidationError("dataframe does not define any data columns")
 
 
-def validate_hgvs_columns(df: pd.DataFrame, target_seq: str, target_seq_type: str = "infer") -> None:
-    """Validate the contents of the HGVS variant columns.
-
-    This function assumes that the validate_column_names validator has already been passed.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        A scores or counts dataframe
-    target_seq : str
-        The target sequence to validate the variants against
-    target_seq_type : str
-        The type of target sequence, which can be one of "dna", "protein", or "infer"
-
-    Raises
-    ------
-    ValueError
-        If the target sequence is not DNA or protein
-    ValueError
-        If a dataframe with no HGVS variant columns is passed
-    DataframeValidationError
-        If any variant fails validation
-    """
-    if target_seq_type == "infer":
-        target_seq_type = infer_sequence_type(target_seq)
-
-    if target_seq_type not in ("dna", "protein"):
-        raise ValueError("invalid target sequence type")
-
-    # map the columns so we can ignore case and track what's present
-    hgvs_columns = dict()
-    for c in df.columns:
-        if c.lower() == hgvs_nt_column:
-            if not df[c].isna().all():
-                hgvs_columns[hgvs_nt_column] = c
-        elif c.lower() == hgvs_splice_column:
-            if not df[c].isna().all():
-                hgvs_columns[hgvs_splice_column] = c
-        elif c.lower() == hgvs_pro_column:
-            if not df[c].isna().all():
-                hgvs_columns[hgvs_pro_column] = c
-
-    # determine the index column
-    if hgvs_splice_column in hgvs_columns:
-        index_column = hgvs_columns[hgvs_nt_column]
-    elif hgvs_nt_column in hgvs_columns:
-        index_column = hgvs_columns[hgvs_nt_column]
-    elif hgvs_pro_column in hgvs_columns:
-        index_column = hgvs_columns[hgvs_pro_column]
-    else:
-        raise ValueError("cannot validate dataframe with no hgvs columns")
-
-    # make sure the hgvs columns are string columns
-    for k in hgvs_columns:
-        if infer_column_type(df[hgvs_columns[k]]) != "string":
-            raise DataframeValidationError(f"variant column '{k}' cannot contain numeric data")
-
-    # test that the index column is complete and unique
-    if df[index_column].isna().any():
-        raise DataframeValidationError(f"primary variant column '{index_column}' cannot contain null values")
-    if not df[index_column].is_unique:
-        raise DataframeValidationError(f"primary variant column '{index_column}' must contain unique values")
-
-    # test prefix consistency for protein (must be "p.")
-    if hgvs_pro_column in hgvs_columns:
-        strings = df[hgvs_columns[hgvs_pro_column]].dropna()
-        if not all(s.startswith("p.") for s in strings):
-            raise DataframeValidationError(f"variant column '{hgvs_columns[hgvs_pro_column]}' has invalid variant prefixes")
-
-    # test prefix consistency for splice (must be "c." or "n.")
-    if hgvs_splice_column in hgvs_columns:
-        strings = df[hgvs_columns[hgvs_splice_column]].dropna()
-        if len(set(s[:2] for s in strings)) > 1:
-            raise DataframeValidationError(f"variant column '{hgvs_columns[hgvs_splice_column]}' has inconsistent variant prefixes")
-        elif not all(s[:2] in ("c.", "n.") for s in strings):
-            raise DataframeValidationError(f"variant column '{hgvs_columns[hgvs_splice_column]}' has invalid variant prefixes")
-
-    # test prefix consistency for nt (must be "cngmo." and consistent)
-    if hgvs_nt_column in hgvs_columns:
-        prefixes = [f"{a}." for a in "cngmo"]
-        strings = df[hgvs_columns[hgvs_nt_column]].dropna()
-        if len(set(s[:2] for s in strings)) > 1:
-            raise DataframeValidationError(f"variant column '{hgvs_columns[hgvs_nt_column]}' has inconsistent variant prefixes")
-        elif not all(s[:2] in prefixes for s in strings):
-            raise DataframeValidationError(f"variant column '{hgvs_columns[hgvs_nt_column]}' has invalid variant prefixes")
-
-    # validate hgvs strings for internal consistency
-    invalid_variants = list()
-    if hgvs_splice_column in hgvs_columns:
-        for i, s in df[hgvs_columns[hgvs_splice_column]].items():
-            if s is not None:
-                try:
-                    Variant(s)  # splice variants are not validated against the target sequence
-                except MaveHgvsParseError:
-                    invalid_variants.append(f"invalid variant string '{s}' at row {i}")
-
-    if hgvs_nt_column in hgvs_columns:
-        for i, s in df[hgvs_columns[hgvs_nt_column]].items():
-            if s is not None:
-                try:
-                    Variant(s, targetseq=target_seq)
-                except MaveHgvsParseError:
-                    try:
-                        Variant(s)
-                    except MaveHgvsParseError:
-                        invalid_variants.append(f"invalid variant string '{s}' at row {i}")
-                    else:
-                        invalid_variants.append(f"target sequence mismatch for '{s}' at row {i}")
-
-    if hgvs_pro_column in hgvs_columns:
-        if target_seq_type == "dna":
-            target_seq = translate_dna(target_seq)[0]
-        for i, s in df[hgvs_columns[hgvs_pro_column]].items():
-            if s is not None:
-                try:
-                    Variant(s, targetseq=target_seq)
-                except MaveHgvsParseError:
-                    try:
-                        Variant(s)
-                    except MaveHgvsParseError:
-                        invalid_variants.append(f"invalid variant string '{s}' at row {i}")
-                    else:
-                        invalid_variants.append(f"target sequence mismatch for '{s}' at row {i}")
-
-    if len(invalid_variants) > 0:
-        raise DataframeValidationError(f"encountered {len(invalid_variants)} invalid variant strings: {(', '.join(invalid_variants))}")
-
-    # validate hgvs strings for consistency across columns
-    # TODO
-
-
-def validate_hgvs_column(column: pd.Series, is_index: bool, target_seq: str, target_seq_type: str = "infer") -> None:
+def validate_hgvs_column(column: pd.Series, is_index: bool, target_seq: str, target_seq_type) -> None:
     """
     Validate the variants in an HGVS column from a dataframe.
 
@@ -533,7 +465,7 @@ def validate_hgvs_prefix_combinations(hgvs_nt: Optional[str], hgvs_splice: Optio
             raise DataframeValidationError("nucleotide variants must use 'n.' prefix when only nucleotide variants are defined")
 
 
-def validate_variant_combinations(df: pd.DataFrame) -> None:
+def validate_variant_consistency(df: pd.DataFrame) -> None:
     """
     Ensure that variants defined in a single row describe the same variant.
 
@@ -550,57 +482,64 @@ def validate_variant_combinations(df: pd.DataFrame) -> None:
     pass
 
 
-def validate_data_columns(df: pd.DataFrame) -> None:
-    """Validate the contents of the data columns.
+def validate_data_column(column: pd.Series, force_numeric: bool = False) -> None:
+    """
+    Validate the contents of a data column.
 
     Parameters
     ----------
-    df : pandas.DataFrame
-        A scores or counts dataframe
+    column : pandas.Series
+        A data column from a dataframe
+    force_numeric : bool
+        Force the data to be numeric, used for score column and count data
+
+    Returns
+    -------
+    None
 
     Raises
     ------
     DataframeValidationError
-        If the data fails validation
+        If the data is all null
+    DataframeValidationError
+        If the data is of mixed numeric and string types
+    DataframeValidationError
+        If the data is not numeric and force_numeric is True
+
     """
-    if infer_column_type(df[required_score_column]) != "numeric":
-        raise DataframeValidationError(f"column '{required_score_column}' must contain numeric values")
-    # TODO extra columns
+    column_type = infer_column_type(column)
+    if column_type == "empty":
+        raise DataframeValidationError(f"data column '{column.name}' contains no data")
+    elif column_type == "mixed":
+        raise DataframeValidationError(f"data column '{column.name}' has mixed string and numeric types")
+    elif force_numeric and column_type != "numeric":
+        raise DataframeValidationError(f"data column '{column.name}' must contain only numeric data")
 
 
-def validate_variant_column_agreement(scores, counts):
-    # TODO update
+def validate_variant_columns_match(df1: pd.DataFrame, df2: pd.DataFrame):
     """
-    Checks if two `pd.DataFrame` objects parsed from uploaded files
-    define the same variants.
+    Checks if two dataframes have matching HGVS columns.
+
+    The check performed is order-independent.
+    This function is used to validate a pair of scores and counts dataframes that were uploaded together.
 
     Parameters
     ----------
-    scores : pandas.DataFrame
-        Scores dataframe parsed from an uploaded scores file.
-    counts : pandas.DataFrame
-        Scores dataframe parsed from an uploaded counts file.
+    df1 : pandas.DataFrame
+        Dataframe parsed from an uploaded scores file
+    df2 : pandas.DataFrame
+        Dataframe parsed from an uploaded counts file
 
     Raises
-    ______
-    ValidationError
-        If score and counts files do not define the same variants.
+    ------
+    DataframeValidationError
+        If both dataframes do not define the same variant columns
+    DataframeValidationError
+        If both dataframes do not define the same variants within each column
     """
-    try:
-        assert_array_equal(
-            scores[hgvs_nt_column].sort_values().values,
-            counts[hgvs_nt_column].sort_values().values,
-        )
-        assert_array_equal(
-            scores[hgvs_splice_column].sort_values().values,
-            counts[hgvs_splice_column].sort_values().values,
-        )
-        assert_array_equal(
-            scores[hgvs_pro_column].sort_values().values,
-            counts[hgvs_pro_column].sort_values().values,
-        )
-    except AssertionError:
-        raise ValidationError(
-            "Your score and counts files do not define the same variants. "
-            "Check that the hgvs columns in both files match."
-        )
+    for c in df1.columns:
+        if c.lower() in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
+            if c not in df2:
+                raise DataframeValidationError("both score and count dataframes must define matching HGVS columns")
+            elif df1[c].sort_values().values != df2[c].sort_values().values:
+                raise DataframeValidationError(f"both score and count dataframes must define matching variants, discrepancy found in '{c}'")
