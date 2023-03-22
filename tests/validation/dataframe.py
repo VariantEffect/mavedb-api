@@ -328,12 +328,12 @@ class TestValidateHgvsColumns(DfTestCase):
             }),
         ]
 
-    def test_valid_combinations(self):
+    def test_valid_hgvs_combinations(self):
         for df in self.valid_hgvs_dataframes:
             with self.subTest(df=df):
                 validate_hgvs_columns(df, target_seq=self.target_seq)
 
-    def test_invalid_combinations(self):
+    def test_invalid_hgvs_combinations(self):
         for df in self.invalid_hgvs_dataframes:
             with self.subTest(df=df):
                 with self.assertRaises(DataframeValidationError):
