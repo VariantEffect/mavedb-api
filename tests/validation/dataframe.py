@@ -12,14 +12,18 @@ from mavedb.lib.validation.constants.general import (
 
 from mavedb.lib.validation.dataframe import (
     infer_column_type,
-    validate_no_null_data_columns,
-    validate_no_null_rows,
-    validate_column_names,
-    validate_hgvs_columns,
-    validate_data_columns,
-    validate_variant_columns_match,
     sort_dataframe_columns,
     standardize_dataframe,
+    validate_dataframe,
+    validate_and_standardize_dataframe_pair,
+    choose_dataframe_index_column,
+    validate_no_null_rows,
+    validate_column_names,
+    validate_hgvs_column,
+    validate_hgvs_prefix_combinations,
+    validate_variant_consistency,
+    validate_data_column,
+    validate_variant_columns_match,
     DataframeValidationError,
 )
 
@@ -76,38 +80,28 @@ class DfTestCase(TestCase):
                 "extra": [12.0, 3.0],
                 "count1": [3.0, 5.0],
                 "count2": [9, 10],
+                "extra2": ["pathogenic", "benign"],
             })
 
         self.target_seq = "ATG"
 
 
-class TestNullDataColumns(DfTestCase):
+class TestValidateDataColumn(DfTestCase):
     def test_valid(self):
-        validate_no_null_data_columns(self.dataframe)
+        validate_data_column(self.dataframe[required_score_column])
 
-    def test_null_score_column(self):
+    def test_null_column(self):
         self.dataframe[required_score_column] = None
         with self.assertRaises(DataframeValidationError):
-            validate_no_null_data_columns(self.dataframe)
+            validate_data_column(self.dataframe[required_score_column])
 
-    def test_null_extra_column(self):
-        self.dataframe["extra"] = None
+    def test_missing_data(self):
+        self.dataframe.loc[0, "extra"] = None
+        validate_data_column(self.dataframe["extra"])
+
+    def test_force_numeric(self):
         with self.assertRaises(DataframeValidationError):
-            validate_no_null_data_columns(self.dataframe)
-
-    def test_allow_null_hgvs_columns(self):
-        self.dataframe[hgvs_splice_column] = None
-        validate_no_null_data_columns(self.dataframe)
-        self.dataframe[hgvs_nt_column] = None
-        validate_no_null_data_columns(self.dataframe)
-
-    def test_allow_missing_scores(self):
-        self.dataframe.loc[0, required_score_column] = None
-        validate_no_null_data_columns(self.dataframe)
-
-    def test_allow_missing_extras(self):
-        self.dataframe.loc[1, "extra"] = None
-        validate_no_null_data_columns(self.dataframe)
+            validate_data_column(self.dataframe["extra2"], force_numeric=True)
 
 
 class TestNullRows(DfTestCase):
