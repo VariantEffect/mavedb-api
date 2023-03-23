@@ -21,8 +21,7 @@ from mavedb.lib.scoresets import create_variants_data, search_scoresets as _sear
 from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_scoreset_urn
 from mavedb.lib.validation import exceptions
 from mavedb.lib.validation.constants.general import null_values_list
-from mavedb.lib.validation.dataframe import validate_column_names, \
-                                        validate_dataframes
+from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_pair
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.reference_map import ReferenceMap
