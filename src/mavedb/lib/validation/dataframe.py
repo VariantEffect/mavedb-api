@@ -359,7 +359,7 @@ def validate_hgvs_column(column: pd.Series, is_index: bool, target_seq: str, tar
     if target_seq_type not in ("dna", "protein"):
         raise ValueError("invalid target sequence type")
 
-    if infer_column_type(column) != "string":
+    if infer_column_type(column) not in ("string", "empty"):
         raise DataframeValidationError(f"variant column '{column.name}' cannot contain numeric data")
 
     if is_index:
@@ -541,5 +541,9 @@ def validate_variant_columns_match(df1: pd.DataFrame, df2: pd.DataFrame):
         if c.lower() in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
             if c not in df2:
                 raise DataframeValidationError("both score and count dataframes must define matching HGVS columns")
-            elif df1[c].sort_values().values != df2[c].sort_values().values:
+            elif np.any(df1[c].sort_values().values != df2[c].sort_values().values):
                 raise DataframeValidationError(f"both score and count dataframes must define matching variants, discrepancy found in '{c}'")
+    for c in df2.columns:
+        if c.lower() in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
+            if c not in df1:
+                raise DataframeValidationError("both score and count dataframes must define matching HGVS columns")
