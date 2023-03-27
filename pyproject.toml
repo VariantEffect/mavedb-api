@@ -1,0 +1,85 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mavedb"
+dynamic = ["version"]
+description = "API for MaveDB, the database of Multiplexed Assays of Variant Effect."
+readme = "README.md"
+license = "AGPL-3.0-only"
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dependencies = [
+    "fqfa~=1.2.3",
+    "humps~=0.2.2",
+    "IDUtils~=1.2.0",
+    "mavehgvs~=0.4.0",
+    "metapub~=0.5.5",
+    "numpy~=1.22.3",
+    "pandas~=1.4.1",
+    "pydantic~=1.9.1",
+    "python-dotenv~=0.20.0",
+    "SQLAlchemy~=1.4.31",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "flake8",
+    "pre-commit",
+    "pytest~=7.0.1",
+]
+server = [
+    "alembic~=1.7.6",
+    "authlib~=0.15.5",
+    "cryptography~=37.0.4",
+    "celery~=5.2.3",
+    "fastapi~=0.71.0",
+    "orcid~=1.0.3",
+    "psycopg2~=2.9.3",
+    "python-jose[cryptography]~=3.3.0",
+    "python-multipart~=0.0.5",
+    "requests~=2.28.1",
+    "starlette~=0.17.1",
+    "uvicorn[standard]",
+]
+
+[project.urls]
+repository = "https://github.com/VariantEffect/mavedb-api"
+documentation = "https://mavedb.org/docs/mavedb/"
+
+[tool.black]
+line-length = 120
+
+[flake8]
+max-line-length = 120
+extend-ignore = "E203"
+
+[tool.hatch]
+metadata.allow-direct-references = true
+
+[tool.hatch.version]
+path = "src/mavedb/__init__.py"
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "docker-compose-dev.yml",
+    "docker-compose-prod.yml",
+    "docs/",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mavedb"]
+
+[tool.pytest.ini_options]
+addopts = [
+    "--import-mode=importlib",
+]
