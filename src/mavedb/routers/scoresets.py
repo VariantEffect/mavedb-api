@@ -12,7 +12,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.exc import MultipleResultsFound
+from sqlalchemy.exc import MultipleResultsFound
 
 from mavedb import deps
 from mavedb.lib.authorization import require_current_user
