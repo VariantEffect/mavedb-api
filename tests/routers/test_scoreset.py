@@ -473,7 +473,7 @@ def test_score_file_without_score_column(test_empty_db):
     with open(score_csv_path, "rb") as f:
             response = client.post(f"/api/v1/scoresets/{urn}/variants/data", files={'scores_file': ('scores_without_score_column.csv', f, "text/csv")})
     assert response.status_code == 400
-    assert response.json() == {"detail": "A scores dataframe must include a `score` column."}
+    assert response.json() == {"detail": "score dataframe must have a 'score' column"}
 
 
 # Show other problem. Can't pass.
@@ -488,7 +488,7 @@ def test_scores_and_counts_define_different_variants(test_empty_db):
             response = client.post(f"/api/v1/scoresets/{urn}/variants/data", files={'scores_file': ('scores.csv', f1, "text/csv"),
                                                                          'counts_file': ('counts_with_different_variants.csv', f2, "text/csv")})
     assert response.status_code == 400
-    assert response.json() == {"detail": "Your score and counts files do not define the same variants. Check that the hgvs columns in both files match."}
+    assert response.json() == {"detail": "both score and count dataframes must define matching variants, discrepancy found in 'hgvs_pro'"}
 
 def test_score_file_with_letter(test_empty_db):
     create_reference_genome()
@@ -499,7 +499,7 @@ def test_score_file_with_letter(test_empty_db):
     with open(score_csv_path, "rb") as f:
             response = client.post(f"/api/v1/scoresets/{urn}/variants/data", files={'scores_file': ('scores_with_string.csv', f, "text/csv")})
     assert response.status_code == 400
-    assert response.json() == {"detail": "Each value in score column must be a number. ' abc' has the type 'str'."}
+    assert response.json() == {"detail": "data column 'score' has mixed string and numeric types"}
 
 # can't catch error
 def test_score_file_without_hgvs_columns(test_empty_db):
@@ -587,7 +587,7 @@ def test_count_file_has_score_column(test_empty_db):
                                files={'scores_file': ('scores.csv', f1, "text/csv"),
                                       'counts_file': ('counts_with_score.csv', f2, "text/csv")})
     assert response.status_code == 400
-    assert response.json() == {"detail": "A counts dataframe should not include a `score` column, include `score` column in a scores dataframe."}
+    assert response.json() == {"detail": "counts dataframe must not have a 'score' column"}
 
 def test_score_file_column_name_has_nan(test_empty_db):
     create_reference_genome()
@@ -599,5 +599,5 @@ def test_score_file_column_name_has_nan(test_empty_db):
         response = client.post(f"/api/v1/scoresets/{urn}/variants/data",
                                files={'scores_file': ('scores_with_nan_column_name.csv', f, "text/csv")})
     assert response.status_code == 400
-    assert response.json() == {"detail": "Column names must not be null."}
+    assert response.json() == {"detail": "column names cannot be empty or whitespace"}
 
