@@ -28,10 +28,6 @@ from fqfa.util.translate import translate_dna
 # take dataframe, output as csv to temp directory, use standard library
 
 
-class DataframeValidationError(ValueError):
-    pass
-
-
 STANDARD_COLUMNS = (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column)
 
 
@@ -145,7 +141,7 @@ def validate_dataframe(df: pd.DataFrame, kind: str, target_seq: str, target_seq_
 
     Raises
     ------
-    DataframeValidationError
+    ValidationError
         If one of the validators called raises an exception
     """
     # basic checks
@@ -196,7 +192,7 @@ def validate_and_standardize_dataframe_pair(scores_df: pd.DataFrame, counts_df: 
 
     Raises
     ------
-    DataframeValidationError
+    ValidationError
         If one of the validation functions raises an exception
     """
     # validate the dataframes
@@ -252,12 +248,12 @@ def validate_no_null_rows(df: pd.DataFrame) -> None:
 
     Raises
     ______
-    DataframeValidationError
+    ValidationError
         If there are null rows in the dataframe
     """
     null_rows = df.apply(lambda row: np.all(row.isna()), axis=1)
     if sum(null_rows) > 0:
-        raise DataframeValidationError(f"found {sum(null_rows)} null rows in the data frame")
+        raise ValidationError(f"found {sum(null_rows)} null rows in the data frame")
 
 
 def validate_column_names(df: pd.DataFrame, kind: str) -> None:
@@ -282,38 +278,38 @@ def validate_column_names(df: pd.DataFrame, kind: str) -> None:
 
     Raises
     ------
-    DataframeValidationError
+    ValidationError
         If the column names are not valid
     """
     if any(type(c) != str for c in df.columns):
-        raise DataframeValidationError("column names must be strings")
+        raise ValidationError("column names must be strings")
 
     if any(c.isspace() for c in df.columns) or any(len(c) == 0 for c in df.columns):
-        raise DataframeValidationError("column names cannot be empty or whitespace")
+        raise ValidationError("column names cannot be empty or whitespace")
 
     columns = [c.lower() for c in df.columns]
 
     if kind == "scores":
         if required_score_column not in columns:
-            raise DataframeValidationError(f"score dataframe must have a '{required_score_column}' column")
+            raise ValidationError(f"score dataframe must have a '{required_score_column}' column")
     elif kind == "counts":
         if required_score_column in columns:
-            raise DataframeValidationError(f"counts dataframe must not have a '{required_score_column}' column")
+            raise ValidationError(f"counts dataframe must not have a '{required_score_column}' column")
     else:
         raise ValueError("kind only accepts scores and counts")
 
     if hgvs_splice_column in columns:
         if hgvs_nt_column not in columns or hgvs_pro_column not in columns:
-            raise DataframeValidationError(f"dataframes with '{hgvs_splice_column}' must also define '{hgvs_nt_column}' and '{hgvs_pro_column}'")
+            raise ValidationError(f"dataframes with '{hgvs_splice_column}' must also define '{hgvs_nt_column}' and '{hgvs_pro_column}'")
 
     if len(columns) != len(set(columns)):
-        raise DataframeValidationError("duplicate column names are not allowed (this check is case insensitive)")
+        raise ValidationError("duplicate column names are not allowed (this check is case insensitive)")
 
     if set(columns).isdisjoint({hgvs_nt_column, hgvs_splice_column, hgvs_pro_column}):
-        raise DataframeValidationError("dataframe does not define any variant columns")
+        raise ValidationError("dataframe does not define any variant columns")
 
     if set(columns).issubset({hgvs_nt_column, hgvs_splice_column, hgvs_pro_column}):
-        raise DataframeValidationError("dataframe does not define any data columns")
+        raise ValidationError("dataframe does not define any data columns")
 
 
 def validate_hgvs_column(column: pd.Series, is_index: bool, target_seq: str, target_seq_type) -> None:
@@ -347,26 +343,24 @@ def validate_hgvs_column(column: pd.Series, is_index: bool, target_seq: str, tar
         If the target sequence is not valid for the variants (e.g. protein sequence for nucleotide variants)
     ValueError
         If the column name is not recognized
-    DataframeValidationError
+    ValidationError
         If the column contains multiple prefixes or the wrong prefix for that column name
-    DataframeValidationError
+    ValidationError
         If an index column contains missing values
-    DataframeValidationError
+    ValidationError
         If one of the variants fails validation
     """
-    if target_seq_type == "infer":
-        target_seq_type = infer_sequence_type(target_seq)
     if target_seq_type not in ("dna", "protein"):
         raise ValueError("invalid target sequence type")
 
     if infer_column_type(column) not in ("string", "empty"):
-        raise DataframeValidationError(f"variant column '{column.name}' cannot contain numeric data")
+        raise ValidationError(f"variant column '{column.name}' cannot contain numeric data")
 
     if is_index:
         if column.isna().any():
-            raise DataframeValidationError(f"primary variant column '{column.name}' cannot contain null values")
+            raise ValidationError(f"primary variant column '{column.name}' cannot contain null values")
         if not column.is_unique:
-            raise DataframeValidationError(f"primary variant column '{column.name}' must contain unique values")
+            raise ValidationError(f"primary variant column '{column.name}' must contain unique values")
 
     # check the variant prefixes
     if column.name.lower() == hgvs_nt_column:
@@ -378,9 +372,9 @@ def validate_hgvs_column(column: pd.Series, is_index: bool, target_seq: str, tar
     else:
         raise ValueError(f"unrecognized hgvs column name '{column.name}'")
     if len(set(s[:2] for s in column.dropna())) > 1:
-        raise DataframeValidationError(f"variant column '{column.name}' has inconsistent variant prefixes")
+        raise ValidationError(f"variant column '{column.name}' has inconsistent variant prefixes")
     if not all(s[:2] in prefixes for s in column.dropna()):
-        raise DataframeValidationError(f"variant column '{column.name}' has invalid variant prefixes")
+        raise ValidationError(f"variant column '{column.name}' has invalid variant prefixes")
 
     # validate the individual variant strings
     # prepare the target sequence for validation
@@ -409,7 +403,7 @@ def validate_hgvs_column(column: pd.Series, is_index: bool, target_seq: str, tar
                     invalid_variants.append(f"target sequence mismatch for '{s}' at row {i}")
     # format and raise an error message that contains all invalid variants
     if len(invalid_variants) > 0:
-        raise DataframeValidationError(f"encountered {len(invalid_variants)} invalid variant strings: {(', '.join(invalid_variants))}")
+        raise ValidationError(f"encountered {len(invalid_variants)} invalid variant strings: {(', '.join(invalid_variants))}")
 
 
 def validate_hgvs_prefix_combinations(hgvs_nt: Optional[str], hgvs_splice: Optional[str], hgvs_pro: Optional[str]) -> None:
@@ -436,7 +430,7 @@ def validate_hgvs_prefix_combinations(hgvs_nt: Optional[str], hgvs_splice: Optio
     ------
     ValueError
         If upstream validation failed and an invalid prefix string was passed to this function
-    DataframeValidationError
+    ValidationError
         If the combination of prefixes is not valid
     """
     # ensure that the prefixes are valid - this validation should have been performed before this function was called
@@ -450,19 +444,19 @@ def validate_hgvs_prefix_combinations(hgvs_nt: Optional[str], hgvs_splice: Optio
     # test agreement of prefixes across columns
     if hgvs_splice is not None:
         if hgvs_nt not in list("gmo"):
-            raise DataframeValidationError("nucleotide variants must use valid genomic prefix when splice variants are present")
+            raise ValidationError("nucleotide variants must use valid genomic prefix when splice variants are present")
         if hgvs_pro is not None:
             if hgvs_splice != "c":
-                raise DataframeValidationError("splice variants' must use 'c.' prefix when protein variants are present")
+                raise ValidationError("splice variants' must use 'c.' prefix when protein variants are present")
         else:
             if hgvs_splice != "n":
-                raise DataframeValidationError("splice variants must use 'n.' prefix when protein variants are not present")
+                raise ValidationError("splice variants must use 'n.' prefix when protein variants are not present")
     elif hgvs_pro is not None and hgvs_nt is not None:
         if hgvs_nt != "c":
-            raise DataframeValidationError("nucleotide variants must use 'c.' prefix when protein variants are present and splicing variants are not present")
+            raise ValidationError("nucleotide variants must use 'c.' prefix when protein variants are present and splicing variants are not present")
     elif hgvs_nt is not None:  # just hgvs_nt
         if hgvs_nt != "n":
-            raise DataframeValidationError("nucleotide variants must use 'n.' prefix when only nucleotide variants are defined")
+            raise ValidationError("nucleotide variants must use 'n.' prefix when only nucleotide variants are defined")
 
 
 def validate_variant_consistency(df: pd.DataFrame) -> None:
@@ -499,21 +493,21 @@ def validate_data_column(column: pd.Series, force_numeric: bool = False) -> None
 
     Raises
     ------
-    DataframeValidationError
+    ValidationError
         If the data is all null
-    DataframeValidationError
+    ValidationError
         If the data is of mixed numeric and string types
-    DataframeValidationError
+    ValidationError
         If the data is not numeric and force_numeric is True
 
     """
     column_type = infer_column_type(column)
     if column_type == "empty":
-        raise DataframeValidationError(f"data column '{column.name}' contains no data")
+        raise ValidationError(f"data column '{column.name}' contains no data")
     elif column_type == "mixed":
-        raise DataframeValidationError(f"data column '{column.name}' has mixed string and numeric types")
+        raise ValidationError(f"data column '{column.name}' has mixed string and numeric types")
     elif force_numeric and column_type != "numeric":
-        raise DataframeValidationError(f"data column '{column.name}' must contain only numeric data")
+        raise ValidationError(f"data column '{column.name}' must contain only numeric data")
 
 
 def validate_variant_columns_match(df1: pd.DataFrame, df2: pd.DataFrame):
@@ -532,18 +526,18 @@ def validate_variant_columns_match(df1: pd.DataFrame, df2: pd.DataFrame):
 
     Raises
     ------
-    DataframeValidationError
+    ValidationError
         If both dataframes do not define the same variant columns
-    DataframeValidationError
+    ValidationError
         If both dataframes do not define the same variants within each column
     """
     for c in df1.columns:
         if c.lower() in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
             if c not in df2:
-                raise DataframeValidationError("both score and count dataframes must define matching HGVS columns")
+                raise ValidationError("both score and count dataframes must define matching HGVS columns")
             elif np.any(df1[c].sort_values().values != df2[c].sort_values().values):
-                raise DataframeValidationError(f"both score and count dataframes must define matching variants, discrepancy found in '{c}'")
+                raise ValidationError(f"both score and count dataframes must define matching variants, discrepancy found in '{c}'")
     for c in df2.columns:
         if c.lower() in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
             if c not in df1:
-                raise DataframeValidationError("both score and count dataframes must define matching HGVS columns")
+                raise ValidationError("both score and count dataframes must define matching HGVS columns")
