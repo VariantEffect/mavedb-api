@@ -346,7 +346,7 @@ async def upload_scoreset_variant_data(
         try:
             #validate_variant_columns_match(scores_df, counts_df)
             # Horrible validation. Raises many problems.
-            validate_dataframes(item.target_gene.wt_sequence.sequence, scores_df, counts_df)
+            validate_and_standardize_dataframe_pair(scores_df, counts_df, item.target_gene.wt_sequence.sequence, item.target_gene.wt_sequence.sequence_type)
         except exceptions.ValidationError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
