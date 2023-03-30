@@ -514,7 +514,7 @@ def test_score_file_without_hgvs_columns(test_empty_db):
     # I'm confused. There're two validations about this. This one is in validate_column_names
     # The other one is in validate_values_by_column. It raises ValidationError("Missing required hgvs and/or score columns.")
     # And then there's one more ValidationError("Must include either hgvs_nt or hgvs_pro column.")
-    assert response.json() == {"detail": "Must include hgvs_nt or hgvs_pro column."}
+    assert response.json() == {"detail": "failed to find valid HGVS variant column"}
 
 def test_score_file_hgvs_pro_has_same_values(test_empty_db):
     create_reference_genome()
@@ -525,7 +525,7 @@ def test_score_file_hgvs_pro_has_same_values(test_empty_db):
     with open(score_csv_path, "rb") as f:
             response = client.post(f"/api/v1/scoresets/{urn}/variants/data", files={'scores_file': ('scores_hgvs_pro_has_same_values.csv', f, "text/csv")})
     assert response.status_code == 400
-    assert response.json() == {"detail": "Each value in hgvs_pro column must be unique."}
+    assert response.json() == {"detail": "primary variant column 'hgvs_pro' must contain unique values"}
 
 def test_score_and_count_files_have_hgvs_nt_and_pro(test_empty_db):
     create_reference_genome()
