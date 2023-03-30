@@ -154,7 +154,7 @@ def validate_dataframe(df: pd.DataFrame, kind: str, target_seq: str, target_seq_
     for c in column_mapping:
         if c in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
             is_index = column_mapping[c] == index_column
-            if not is_index and not df[column_mapping[c]].isna().all():  # ignore null non-index HGVS columns
+            if is_index or not df[column_mapping[c]].isna().all():  # ignore null non-index HGVS columns
                 validate_hgvs_column(df[column_mapping[c]], is_index, target_seq, target_seq_type)
         else:
             force_numeric = (c == required_score_column) or (kind == "counts")
@@ -225,7 +225,7 @@ def choose_dataframe_index_column(df: pd.DataFrame) -> str:
 
     Raises
     ------
-    ValueError
+    ValidationError
         If no valid HGVS variant column is found
     """
     column_mapping = {c.lower(): c for c in df.columns if not df[c].isna().all()}
@@ -235,7 +235,7 @@ def choose_dataframe_index_column(df: pd.DataFrame) -> str:
     elif hgvs_pro_column in column_mapping:
         return column_mapping[hgvs_pro_column]
     else:
-        raise ValueError("failed to find valid HGVS variant column")
+        raise ValidationError("failed to find valid HGVS variant column")
 
 
 def validate_no_null_rows(df: pd.DataFrame) -> None:
@@ -535,6 +535,8 @@ def validate_variant_columns_match(df1: pd.DataFrame, df2: pd.DataFrame):
         if c.lower() in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
             if c not in df2:
                 raise ValidationError("both score and count dataframes must define matching HGVS columns")
+            elif df1[c].isnull().all() and df2[c].isnull().all():
+                continue
             elif np.any(df1[c].sort_values().values != df2[c].sort_values().values):
                 raise ValidationError(f"both score and count dataframes must define matching variants, discrepancy found in '{c}'")
     for c in df2.columns:
