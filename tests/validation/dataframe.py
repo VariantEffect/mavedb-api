@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from io import StringIO
 import itertools
+import pytest
 
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.constants.general import (
@@ -85,7 +86,7 @@ class DfTestCase(TestCase):
             })
 
         self.target_seq = "ATG"
-        self.target_seq_type = "infer"
+        self.target_seq_type = "dna"
 
 
 class TestValidateDataColumn(DfTestCase):
@@ -177,10 +178,12 @@ class TestColumnNames(DfTestCase):
             validate_column_names(self.dataframe.drop([hgvs_pro_column, required_score_column], axis=1), kind="counts")
 
     def test_no_hgvs_column(self):
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError) as exc_info:
             validate_column_names(self.dataframe.drop([hgvs_nt_column, hgvs_pro_column, hgvs_splice_column], axis=1), kind="scores")
-        with self.assertRaises(ValidationError):
+        assert f"dataframe does not define any variant columns" in str(exc_info.value)
+        with pytest.raises(ValidationError) as exc_info:
             validate_column_names(self.dataframe.drop([hgvs_nt_column, hgvs_pro_column, hgvs_splice_column, required_score_column], axis=1), kind="counts")
+        assert f"dataframe does not define any variant columns" in str(exc_info.value)
 
     def test_validation_ignores_column_ordering(self):
         validate_column_names(self.dataframe[[hgvs_nt_column, required_score_column, hgvs_pro_column, hgvs_splice_column]], kind="scores")
