@@ -12,7 +12,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.exc import MultipleResultsFound
+from sqlalchemy.exc import MultipleResultsFound
 
 from mavedb import deps
 from mavedb.lib.authorization import require_current_user
@@ -21,8 +21,7 @@ from mavedb.lib.scoresets import create_variants_data, search_scoresets as _sear
 from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_scoreset_urn
 from mavedb.lib.validation import exceptions
 from mavedb.lib.validation.constants.general import null_values_list
-from mavedb.lib.validation.dataframe import validate_column_names, validate_score, \
-                                        validate_dataframes
+from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_pair
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.reference_map import ReferenceMap
@@ -315,16 +314,6 @@ async def upload_scoreset_variant_data(
         if c not in scores_df.columns:
             scores_df[c] = np.NaN
     score_columns = [col for col in scores_df.columns if col not in HGVSColumns.options()]
-    """
-    if scores_file:
-        try:
-            validate_column_names(scores_df)
-            for col in score_columns:
-                for val in scores_df[col]:
-                    validate_score(val)
-        except exceptions.ValidationError as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    """
     counts_df = None
     count_columns = []
     if counts_file and counts_file.filename:
@@ -355,9 +344,9 @@ async def upload_scoreset_variant_data(
     """
     if scores_file:
         try:
-            #validate_dataframes_define_same_variants(scores_df, counts_df)
+            #validate_variant_columns_match(scores_df, counts_df)
             # Horrible validation. Raises many problems.
-            validate_dataframes(item.target_gene.wt_sequence.sequence, scores_df, counts_df)
+            validate_and_standardize_dataframe_pair(scores_df, counts_df, item.target_gene.wt_sequence.sequence, item.target_gene.wt_sequence.sequence_type)
         except exceptions.ValidationError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 

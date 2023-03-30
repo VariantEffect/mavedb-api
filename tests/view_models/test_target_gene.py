@@ -43,7 +43,7 @@ def test_create_invalid_sequence_type(test_empty_db):
     with pytest.raises(ValueError) as exc_info:
         TargetGeneCreate(name=name, category=category, reference_maps=reference_maps,
                          external_identifiers=external_identifiers, wt_sequence=wt_sequence)
-    assert "sequence_type is invalid." in str(exc_info.value)
+    assert f"'{wt_sequence['sequenceType']}' is not a valid sequence type" in str(exc_info.value)
 
 def test_create_not_match_sequence_and_type(test_empty_db):
     name = "UBE2I"
@@ -58,7 +58,7 @@ def test_create_not_match_sequence_and_type(test_empty_db):
     with pytest.raises(ValueError) as exc_info:
         TargetGeneCreate(name=name, category=category, reference_maps=reference_maps,
                          external_identifiers=external_identifiers, wt_sequence=wt_sequence)
-    assert "sequence type does not match sequence_type. sequence type is protein, while sequence_type is dna." in str(exc_info.value)
+    assert f"invalid {wt_sequence['sequenceType']} sequence provided" in str(exc_info.value)
 
 def test_create_invalid_sequence(test_empty_db):
     name = "UBE2I"
@@ -73,4 +73,4 @@ def test_create_invalid_sequence(test_empty_db):
     with pytest.raises(ValueError) as exc_info:
         TargetGeneCreate(name=name, category=category, reference_maps=reference_maps,
                          external_identifiers=external_identifiers, wt_sequence=wt_sequence)
-    assert "sequence is invalid. It is not a correct target sequence." in str(exc_info.value)
+    assert f"invalid {wt_sequence['sequenceType']} sequence provided" in str(exc_info.value)
