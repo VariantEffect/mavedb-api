@@ -38,7 +38,7 @@ def validate_sequence_category(sequence_type: str):
         If the sequence type provided is not valid.
     """
     if sequence_type not in valid_sequence_types:
-        raise ValidationError(f"{sequence_type} is not a valid sequence type. Valid sequence types are {', '.join(valid_sequence_types)}")
+        raise ValidationError(f"'{sequence_type}' is not a valid sequence type")
 
 
 def validate_target_sequence(target_seq: str, target_seq_type: str):
