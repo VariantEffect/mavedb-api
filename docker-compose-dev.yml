@@ -5,11 +5,7 @@ services:
     image: mavedb-api/mavedb-api:dev
     build:
       context: .
-    volumes:
-      - .:/code
     command: bash -c "uvicorn mavedb.server_main:app --host 0.0.0.0 --port 8000 --reload"
-    ports:
-      - "8002:8000"
     depends_on:
       - db
     environment:
@@ -18,17 +14,21 @@ services:
       DB_DATABASE_NAME: mavedb_dev
       DB_USERNAME: postgres
       DB_PASSWORD: postgres
+    ports:
+      - "8002:8000"
+    volumes:
+      - .:/code
 
   db:
     image: postgres:14
-    volumes:
-      - mavedb-data-dev:/var/lib/postgresql/data
-    ports:
-      - "5434:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: mavedb_dev
+    ports:
+      - "5434:5432"
+    volumes:
+      - mavedb-data-dev:/var/lib/postgresql/data
 
 #  rabbitmq:
 #    image: rabbitmq:3.8.3
