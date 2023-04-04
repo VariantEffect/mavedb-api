@@ -60,10 +60,6 @@ documentation = "https://mavedb.org/docs/mavedb/"
 extend-exclude = "alembic/versions"
 line-length = 120
 
-[flake8]
-max-line-length = 120
-extend-ignore = "E203"
-
 [tool.hatch]
 metadata.allow-direct-references = true
 
