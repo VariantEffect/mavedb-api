@@ -28,8 +28,7 @@ class ScoresetBase(BaseModel):
 
 
 class ScoresetModify(ScoresetBase):
-
-    @validator('keywords')
+    @validator("keywords")
     def validate_keywords(cls, v):
         keywords.validate_keywords(v)
         return v
@@ -45,7 +44,7 @@ class ScoresetCreate(ScoresetModify):
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     pubmed_identifiers: Optional[list[PubmedIdentifierCreate]]
 
-    @validator('superseded_scoreset_urn', 'meta_analysis_source_scoreset_urns')
+    @validator("superseded_scoreset_urn", "meta_analysis_source_scoreset_urns")
     def validate_scoreset_urn(cls, v):
         if v is None:
             pass
@@ -57,7 +56,7 @@ class ScoresetCreate(ScoresetModify):
             [urn.validate_mavedb_urn_scoreset(s) for s in v]
         return v
 
-    @validator('experiment_urn')
+    @validator("experiment_urn")
     def validate_experiment_urn(cls, v):
         urn.validate_mavedb_urn_experiment(v)
         return v

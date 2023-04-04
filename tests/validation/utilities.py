@@ -1,13 +1,9 @@
 from unittest import TestCase
 
 from mavedb.lib.validation.constants.general import null_values_list
-from mavedb.lib.validation.variant import validate_hgvs_string #validate_pro_variant, validate_nt_variant
+from mavedb.lib.validation.variant import validate_hgvs_string  # validate_pro_variant, validate_nt_variant
 
-from mavedb.lib.validation.utilities import (
-    is_null,
-    generate_hgvs,
-    construct_hgvs_pro
-)
+from mavedb.lib.validation.utilities import is_null, generate_hgvs, construct_hgvs_pro
 
 
 class TestIsNull(TestCase):
@@ -54,7 +50,7 @@ class TestConvertHgvsNtToHgvsPro(TestCase):
         self.hgvs_pro_values = ["p.Thr2Ala", "p.Thr2Arg", "p.Thr2="]
 
     def test_wt_hgvs_nt(self):
-        #convert_hgvs_nt_to_hgvs_pro(hgvs_nt="g.4A>G", )
+        # convert_hgvs_nt_to_hgvs_pro(hgvs_nt="g.4A>G", )
         pass
 
     def test_wt_hgvs_pro(self):
@@ -74,7 +70,6 @@ class TestConvertHgvsNtToHgvsPro(TestCase):
 
 
 class TestVariantTypeHelperFunctions(TestCase):
-
     def test_test_is_wild_type(self):
         pass
 

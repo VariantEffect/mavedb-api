@@ -43,4 +43,3 @@ def validate_keyword(keyword: str):
     """
     if is_null(keyword) or not isinstance(keyword, str):
         raise ValidationError("{} not a valid keyword. Keywords must be non null strings.".format(keyword))
-

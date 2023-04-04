@@ -6,7 +6,7 @@ from mavedb.view_models.base.base import BaseModel
 
 
 class UserBase(BaseModel):
-    username: str = Field(..., alias='orcidId')
+    username: str = Field(..., alias="orcidId")
     first_name: Optional[str]
     last_name: Optional[str]
     email: Optional[str]
@@ -23,7 +23,7 @@ class AdminUserUpdate(BaseModel):
     first_name: Optional[str]
     last_name: Optional[str]
     email: Optional[str]
-    roles: list[Literal['admin']]
+    roles: list[Literal["admin"]]
 
 
 # Properties shared by models stored in DB

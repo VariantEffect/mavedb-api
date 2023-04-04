@@ -7,7 +7,7 @@ from mavedb.db.base import Base
 
 class EnsemblIdentifier(Base):
     # __tablename__ = 'metadata_ensemblidentifier'
-    __tablename__ = 'ensembl_identifiers'
+    __tablename__ = "ensembl_identifiers"
 
     id = Column(Integer, primary_key=True, index=True)
     identifier = Column(String, nullable=False)

@@ -19,8 +19,10 @@ def validate_target_category(category: str):
         If the target category provided is not valid.
     """
     if category not in valid_categories:
-        raise ValidationError("{} is not a valid target category. Valid categories are "
-                              "Protein coding, Regulatory, and Other noncoding".format(category))
+        raise ValidationError(
+            "{} is not a valid target category. Valid categories are "
+            "Protein coding, Regulatory, and Other noncoding".format(category)
+        )
 
 
 def validate_sequence_category(sequence_type: str):

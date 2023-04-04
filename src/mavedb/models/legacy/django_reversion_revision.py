@@ -4,7 +4,7 @@ from mavedb.db.base import Base
 
 
 class DjangoReversionRevision(Base):
-    __tablename__ = 'reversion_revision'
+    __tablename__ = "reversion_revision"
 
     id = Column(Integer, primary_key=True, index=True)
     date_created = Column(DateTime(timestamp=True), nullable=False)

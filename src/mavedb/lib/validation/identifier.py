@@ -9,8 +9,11 @@ def validate_db_name(db_name: str):
     if db_name.strip() == "" or not db_name:
         raise ValidationError("db_name should not be empty")
     if db_name not in valid_dbnames:
-        raise ValidationError(f"The `db_name` key within the identifier attribute of the external identifier should "
-                              f"take one of the following values: {valid_dbnames}.")
+        raise ValidationError(
+            f"The `db_name` key within the identifier attribute of the external identifier should "
+            f"take one of the following values: {valid_dbnames}."
+        )
+
 
 def validate_identifier(db_name: str, identifier: str):
     if db_name == "UniProt":
@@ -19,6 +22,7 @@ def validate_identifier(db_name: str, identifier: str):
         validate_refseq_identifier(identifier)
     elif db_name == "Ensembl":
         validate_ensembl_identifier(identifier)
+
 
 def validate_sra_identifier(identifier: str):
     """
@@ -41,10 +45,7 @@ def validate_sra_identifier(identifier: str):
         or idutils.is_arrayexpress_array(identifier)
         or idutils.is_arrayexpress_experiment(identifier)
     ):
-        raise ValidationError(
-            f"'{identifier} is not a valid SRA, GEO, ArrayExpress or BioProject "
-            "accession."
-        )
+        raise ValidationError(f"'{identifier} is not a valid SRA, GEO, ArrayExpress or BioProject " "accession.")
 
 
 def validate_ensembl_identifier(identifier: str):
@@ -116,9 +117,7 @@ def validate_genome_identifier(identifier: str):
         If the identifier is not a valid genome identifier.
     """
     if not idutils.is_genome(identifier):
-        raise ValidationError(
-            f"'{identifier}' is not a valid GenBank or RefSeq genome assembly."
-        )
+        raise ValidationError(f"'{identifier}' is not a valid GenBank or RefSeq genome assembly.")
 
 
 def validate_sra_list(values: list[str]):

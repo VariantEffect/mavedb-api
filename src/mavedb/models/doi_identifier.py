@@ -7,7 +7,7 @@ from mavedb.db.base import Base
 
 class DoiIdentifier(Base):
     # __tablename__ = 'metadata_doiidentifier'
-    __tablename__ = 'doi_identifiers'
+    __tablename__ = "doi_identifiers"
 
     id = Column(Integer, primary_key=True, index=True)
     identifier = Column(String, nullable=False)

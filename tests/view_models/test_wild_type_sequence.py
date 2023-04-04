@@ -3,7 +3,15 @@ from mavedb.view_models.wild_type_sequence import WildTypeSequenceCreate
 import pytest
 
 
-@pytest.mark.parametrize("sequence_type, sequence", [("dna", "ATGAGTATTCAACATTTCCGTGTC"), ("dna", "ATGAGTATtcaatcTTTCCGTGTC"), ("protein", "STARTREK"), ("Protein", "startrek")])
+@pytest.mark.parametrize(
+    "sequence_type, sequence",
+    [
+        ("dna", "ATGAGTATTCAACATTTCCGTGTC"),
+        ("dna", "ATGAGTATtcaatcTTTCCGTGTC"),
+        ("protein", "STARTREK"),
+        ("Protein", "startrek"),
+    ],
+)
 def test_create_wild_type_sequence(test_empty_db, sequence_type, sequence):
     wildTypeSeq = WildTypeSequenceCreate(sequence_type=sequence_type, sequence=sequence)
     assert wildTypeSeq.sequence_type == sequence_type.lower()

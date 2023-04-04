@@ -29,7 +29,7 @@ def is_null(value):
         return True
     else:
         return False
-    #return null_values_re.fullmatch(value) or not value
+    # return null_values_re.fullmatch(value) or not value
 
 
 def generate_hgvs(prefix: str = "c") -> str:
@@ -87,11 +87,15 @@ def construct_hgvs_pro(wt: str, mutant: str, position: int, target_seq: Optional
     # TODO account for when variant codon is None, a deletion event
     # check that the provided 3 letter amino acid codes are valid
     if wt not in aa_dict_key_1.values():
-        raise ValueError("wt 3 letter amino acid code {} is invalid, "
-                         "must be one of the following: {}".format(wt, list(aa_dict_key_1.values())))
+        raise ValueError(
+            "wt 3 letter amino acid code {} is invalid, "
+            "must be one of the following: {}".format(wt, list(aa_dict_key_1.values()))
+        )
     if mutant not in aa_dict_key_1.values():
-        raise ValueError("wt 3 letter amino acid code {} is invalid, "
-                         "must be one of the following: {}".format(mutant, list(aa_dict_key_1.values())))
+        raise ValueError(
+            "wt 3 letter amino acid code {} is invalid, "
+            "must be one of the following: {}".format(mutant, list(aa_dict_key_1.values()))
+        )
 
     if wt == mutant:
         hgvs = "p." + wt + str(position) + "="
@@ -99,7 +103,7 @@ def construct_hgvs_pro(wt: str, mutant: str, position: int, target_seq: Optional
         hgvs = "p." + wt + str(position) + mutant
     # validate variant
     Variant(hgvs)
-    #var.validate_hgvs_string(value=hgvs, column="p", targetseq=target_seq)
+    # var.validate_hgvs_string(value=hgvs, column="p", targetseq=target_seq)
     return hgvs
 
 
@@ -124,7 +128,7 @@ def convert_hgvs_nt_to_hgvs_pro(hgvs_nt: str, target_seq: str):
         If target_seq is not made solely of characters ACTG.
     """
     # check that the hgvs_nt variant is valid with regards to the target sequence
-    #validate_hgvs_string(value=hgvs_nt,
+    # validate_hgvs_string(value=hgvs_nt,
     #                     column="nt",
     #                     targetseq=target_seq)
 
@@ -157,7 +161,7 @@ def convert_hgvs_nt_to_hgvs_pro(hgvs_nt: str, target_seq: str):
         # now that we have the variant_position, get codon_number
         codon_number = round((variant_position / 3) + 0.5)
         # use codon_number to get target_codon from target_seq
-        target_codon = target_seq[(codon_number - 1) * 3: codon_number * 3]
+        target_codon = target_seq[(codon_number - 1) * 3 : codon_number * 3]
 
     # declare variables for codon data
     # keep track of the number and location of the changes within the codon
@@ -179,9 +183,7 @@ def convert_hgvs_nt_to_hgvs_pro(hgvs_nt: str, target_seq: str):
     elif _is_deletion(hgvs_nt):  # target_codon was deleted
         variant_codon = None
         sub_one = None  # no nucleotide substitutions
-    elif _is_substitution_one_base(
-        hgvs_nt
-    ):  # variant_codon has one nucleotide substitution
+    elif _is_substitution_one_base(hgvs_nt):  # variant_codon has one nucleotide substitution
         # instantiate Variant object
         variant = Variant(hgvs_nt)
         # get index of nucleotide substitution
@@ -191,9 +193,7 @@ def convert_hgvs_nt_to_hgvs_pro(hgvs_nt: str, target_seq: str):
         # set other possible indices for codon substitution to None
         sub_two = None
         sub_three = None
-    elif _is_substitution_two_bases_nonadjacent(
-        hgvs_nt
-    ):  # variant has two nucleotide substitutions, non-adjacent
+    elif _is_substitution_two_bases_nonadjacent(hgvs_nt):  # variant has two nucleotide substitutions, non-adjacent
         # instantiate Variant object
         variant = Variant(hgvs_nt)
         # get indices of nucleotide substitutions
@@ -212,9 +212,7 @@ def convert_hgvs_nt_to_hgvs_pro(hgvs_nt: str, target_seq: str):
         sub_one = int(str(variant.positions[0])) % 3 - 1
         # get string of substituted nucleotides
         sub_nucs = variant.sequence
-        if (
-            len(sub_nucs) == 2
-        ):  # variant codon has two adjacent nucleotide substitutions
+        if len(sub_nucs) == 2:  # variant codon has two adjacent nucleotide substitutions
             # assign additional nucleotide substitution indices
             sub_two = sub_one + 1
             # get nucleotides of substitutions

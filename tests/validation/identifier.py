@@ -95,4 +95,3 @@ class TestUniprotValidators(TestCase):
 
     def test_passes_valid_uniprot_id(self):
         validate_uniprot_identifier("P01133")
-

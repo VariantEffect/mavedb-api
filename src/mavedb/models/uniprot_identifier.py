@@ -7,7 +7,7 @@ from mavedb.db.base import Base
 
 class UniprotIdentifier(Base):
     # __tablename__ = 'metadata_uniprotidentifier'
-    __tablename__ = 'uniprot_identifiers'
+    __tablename__ = "uniprot_identifiers"
 
     id = Column(Integer, primary_key=True, index=True)
     identifier = Column(String, nullable=False)

@@ -4,7 +4,7 @@ from mavedb.db.base import Base
 
 
 class DjangoReversionVersion(Base):
-    __tablename__ = 'reversion_version'
+    __tablename__ = "reversion_version"
 
     id = Column(Integer, primary_key=True, index=True)
     object_id = Column(String(191), nullable=False)

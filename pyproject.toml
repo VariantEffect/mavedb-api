@@ -57,6 +57,7 @@ repository = "https://github.com/VariantEffect/mavedb-api"
 documentation = "https://mavedb.org/docs/mavedb/"
 
 [tool.black]
+extend-exclude = "alembic/versions"
 line-length = 120
 
 [flake8]

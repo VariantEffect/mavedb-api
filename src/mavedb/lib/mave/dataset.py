@@ -12,7 +12,7 @@ from fqfa.util.translate import translate_dna
 from fqfa.util.infer import infer_sequence_type
 
 from . import constants
-from .utils import (is_csv_null, NULL_VALUES, READABLE_NULL_VALUES)
+from .utils import is_csv_null, NULL_VALUES, READABLE_NULL_VALUES
 
 
 class MaveDataset:
@@ -36,15 +36,11 @@ class MaveDataset:
 
     # ---------------------- Construction------------------------------------ #
     @classmethod
-    def for_scores(
-        cls, file: Union[str, TextIO, BinaryIO]
-    ) -> "MaveScoresDataset":
+    def for_scores(cls, file: Union[str, TextIO, BinaryIO]) -> "MaveScoresDataset":
         return cls._for_type(file=file, dataset_type=cls.DatasetType.SCORES)
 
     @classmethod
-    def for_counts(
-        cls, file: Union[str, TextIO, BinaryIO]
-    ) -> "MaveCountsDataset":
+    def for_counts(cls, file: Union[str, TextIO, BinaryIO]) -> "MaveCountsDataset":
         return cls._for_type(file=file, dataset_type=cls.DatasetType.COUNTS)
 
     @classmethod
@@ -61,10 +57,7 @@ class MaveDataset:
             file_contents = file_contents.strip()
             handle = StringIO(file_contents)
         else:
-            raise TypeError(
-                f"Expected file path or buffer object. "
-                f"Got '{type(file).__name__}'"
-            )
+            raise TypeError(f"Expected file path or buffer object. " f"Got '{type(file).__name__}'")
 
         extra_na_values = set(
             list(NULL_VALUES)
@@ -92,9 +85,7 @@ class MaveDataset:
         elif dataset_type == cls.DatasetType.COUNTS:
             return MaveCountsDataset(df)
         else:
-            raise ValueError(
-                f"'{dataset_type}' is not a recognised dataset type."
-            )
+            raise ValueError(f"'{dataset_type}' is not a recognised dataset type.")
 
     # ---------------------- Public ----------------------------------------- #
     @property
@@ -163,9 +154,7 @@ class MaveDataset:
             Replaces `np.NaN` with `None` for JSON compatibility.
         """
         if serializable:
-            return self._df.where(
-                cond=pd.notnull(self._df), other=None, inplace=False
-            )
+            return self._df.where(cond=pd.notnull(self._df), other=None, inplace=False)
         return self._df.copy(deep=True)
 
     def match_other(self, other: "MaveDataset") -> Optional[bool]:
@@ -188,10 +177,7 @@ class MaveDataset:
         if self.index_column != other.index_column:
             return False
 
-        return all(
-            self._df[column].equals(other._df[column])
-            for column in self.HGVSColumns.options()
-        )
+        return all(self._df[column].equals(other._df[column]) for column in self.HGVSColumns.options())
 
     def to_dict(self) -> Dict[str, Dict]:
         """
@@ -202,9 +188,7 @@ class MaveDataset:
         # Convert np.NaN values to None for consistency across all columns and
         # for compatibility in PostgresSQL queries. Replaces all values which
         # are considered null by pandas with None by masking pd.notnull cells.
-        return self._df.where(
-            cond=pd.notnull(self._df), other=None, inplace=False
-        ).to_dict(orient="index")
+        return self._df.where(cond=pd.notnull(self._df), other=None, inplace=False).to_dict(orient="index")
 
     def validate(
         self,
@@ -225,15 +209,12 @@ class MaveDataset:
                 ._validate_genomic_variants(targetseq, relaxed_ordering)
                 ._validate_transcript_variants(targetseq, relaxed_ordering)
                 ._validate_protein_variants(targetseq, relaxed_ordering)
-                ._validate_index_column(
-                    allow_duplicates=allow_index_duplicates
-                )
+                ._validate_index_column(allow_duplicates=allow_index_duplicates)
             )
 
         if self.is_empty:
             self._errors.append(
-                f"No variants could be parsed from your {self.label} file. "
-                f"Please upload a non-empty file."
+                f"No variants could be parsed from your {self.label} file. " f"Please upload a non-empty file."
             )
             return self
 
@@ -274,12 +255,7 @@ class MaveDataset:
                 self.HGVSColumns.NUCLEOTIDE: 0,
                 self.HGVSColumns.TRANSCRIPT: 1,
                 self.HGVSColumns.PROTEIN: 2,
-                **{
-                    c: (2 + i)
-                    for (i, c) in enumerate(
-                        self.AdditionalColumns.options(), start=1
-                    )
-                },
+                **{c: (2 + i) for (i, c) in enumerate(self.AdditionalColumns.options(), start=1)},
             },
         )
 
@@ -337,9 +313,7 @@ class MaveDataset:
                 self._df[c] = np.NaN
 
         column_order = self._column_order
-        sorted_columns = list(
-            sorted(self.columns, key=lambda x: column_order[x])
-        )
+        sorted_columns = list(sorted(self.columns, key=lambda x: column_order[x]))
 
         self._df = self._df[sorted_columns]
         return self
@@ -350,9 +324,7 @@ class MaveDataset:
         if self._column_is_null(self.HGVSColumns.NUCLEOTIDE):
             return self
 
-        defines_transcript_variants = not self._column_is_null(
-            self.HGVSColumns.TRANSCRIPT
-        )
+        defines_transcript_variants = not self._column_is_null(self.HGVSColumns.TRANSCRIPT)
         validated_variants, prefixes, errors = self._validate_variants(
             column=self.HGVSColumns.NUCLEOTIDE,
             splice_defined=defines_transcript_variants,
@@ -451,9 +423,7 @@ class MaveDataset:
 
         return self
 
-    def _validate_index_column(
-        self, allow_duplicates: bool = False
-    ) -> "MaveDataset":
+    def _validate_index_column(self, allow_duplicates: bool = False) -> "MaveDataset":
         if self._errors:
             return self
 
@@ -506,15 +476,11 @@ class MaveDataset:
             else:
                 try:
                     if variant.lower() == "_sy":
-                        errors.append(
-                            "'_sy' is no longer supported and should be "
-                            "replaced by 'p.(=)'"
-                        )
+                        errors.append("'_sy' is no longer supported and should be " "replaced by 'p.(=)'")
                         return variant
                     elif variant.lower() == "_wt":
                         errors.append(
-                            "'_wt' is no longer supported and should be "
-                            "replaced by one of 'g.=', 'c.=' or 'n.='"
+                            "'_wt' is no longer supported and should be " "replaced by one of 'g.=', 'c.=' or 'n.='"
                         )
                         return variant
 
@@ -593,10 +559,7 @@ class MaveDataset:
                     f"The accepted protein variant prefix is 'p.'"
                 )
         else:
-            raise ValueError(
-                f"Unknown column '{column}'. Expected one "
-                f"of {', '.join(self.HGVSColumns.options())}"
-            )
+            raise ValueError(f"Unknown column '{column}'. Expected one " f"of {', '.join(self.HGVSColumns.options())}")
 
         return None
 
@@ -632,9 +595,7 @@ class MaveScoresDataset(MaveDataset):
         for c in should_be_numeric:
             if c in self.columns:
                 try:
-                    self._df[c] = self._df[c].astype(
-                        dtype=float, errors="raise"
-                    )
+                    self._df[c] = self._df[c].astype(dtype=float, errors="raise")
                 except ValueError as e:
                     self._errors.append(f"{c}: {str(e)}")
 

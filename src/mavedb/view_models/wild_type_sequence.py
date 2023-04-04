@@ -12,8 +12,7 @@ class WildTypeSequenceBase(BaseModel):
 
 
 class WildTypeSequenceModify(WildTypeSequenceBase):
-
-    @validator('sequence_type')
+    @validator("sequence_type")
     def validate_category(cls, field_value, values, field, config):
         field_value = field_value.lower()
         target.validate_sequence_category(field_value)
@@ -24,7 +23,7 @@ class WildTypeSequenceModify(WildTypeSequenceBase):
                 raise ValueError("sequence is invalid")
         return field_value
 
-    @validator('sequence')
+    @validator("sequence")
     def validate_identifier(cls, field_value, values, field, config):
         # If sequence_type is invalid, values["sequence_type"] doesn't exist.
         field_value = field_value.upper()

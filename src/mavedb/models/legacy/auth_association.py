@@ -4,7 +4,7 @@ from mavedb.db.base import Base
 
 
 class AuthAssociation(Base):
-    __tablename__ = 'social_auth_association'
+    __tablename__ = "social_auth_association"
 
     id = Column(Integer, primary_key=True, index=True)
     server_url = Column(String(255), nullable=False)

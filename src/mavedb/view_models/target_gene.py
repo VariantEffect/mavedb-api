@@ -22,10 +22,10 @@ class ExternalIdentifiersGetter(GetterDict):
     """
 
     def get(self, key: str, default: Any) -> Any:
-        if key == 'external_identifiers':
-            ensembl_offset = getattr(self._obj, 'ensembl_offset')
-            refseq_offset = getattr(self._obj, 'refseq_offset')
-            uniprot_offset = getattr(self._obj, 'uniprot_offset')
+        if key == "external_identifiers":
+            ensembl_offset = getattr(self._obj, "ensembl_offset")
+            refseq_offset = getattr(self._obj, "refseq_offset")
+            uniprot_offset = getattr(self._obj, "uniprot_offset")
             return list(filter(lambda x: x is not None, [ensembl_offset, refseq_offset, uniprot_offset]))
         else:
             return super().get(key, default)
@@ -43,8 +43,7 @@ class TargetGeneBase(BaseModel):
 
 
 class TargetGeneModify(TargetGeneBase):
-
-    @validator('category')
+    @validator("category")
     def validate_category(cls, v):
         target.validate_target_category(v)
         return v

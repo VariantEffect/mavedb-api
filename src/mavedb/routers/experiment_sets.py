@@ -9,18 +9,12 @@ from mavedb.models.experiment_set import ExperimentSet
 from mavedb.view_models import experiment_set
 
 router = APIRouter(
-    prefix='/api/v1/experimentSets',
-    tags=['experiment-sets'],
-    responses={404: {'description': 'Not found'}}
+    prefix="/api/v1/experimentSets", tags=["experiment-sets"], responses={404: {"description": "Not found"}}
 )
 
 
-@router.get('/{urn}', status_code=200, response_model=experiment_set.ExperimentSet, responses={404: {}})
-def fetch_experiment_set(
-        *,
-        urn: str,
-        db: Session = Depends(deps.get_db)
-) -> Any:
+@router.get("/{urn}", status_code=200, response_model=experiment_set.ExperimentSet, responses={404: {}})
+def fetch_experiment_set(*, urn: str, db: Session = Depends(deps.get_db)) -> Any:
     """
     Fetch a single experiment set by URN.
     """
@@ -30,9 +24,7 @@ def fetch_experiment_set(
     if not item:
         # the exception is raised, not returned - you will get a validation
         # error otherwise.
-        raise HTTPException(
-            status_code=404, detail=f'Experiment set with URN {urn} not found'
-        )
+        raise HTTPException(status_code=404, detail=f"Experiment set with URN {urn} not found")
     else:
-        item.experiments.sort(key=attrgetter('urn'))
+        item.experiments.sort(key=attrgetter("urn"))
     return item

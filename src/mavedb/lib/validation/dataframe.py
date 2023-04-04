@@ -10,7 +10,7 @@ from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
     hgvs_splice_column,
     hgvs_pro_column,
-    required_score_column
+    required_score_column,
 )
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.variant import validate_hgvs_string
@@ -23,6 +23,7 @@ from fqfa.util.nucleotide import (
     convert_rna_to_dna,
 )
 from fqfa.util.translate import translate_dna
+
 # handle with pandas all null strings
 # provide a csv or a pandas dataframe
 # take dataframe, output as csv to temp directory, use standard library
@@ -167,10 +168,14 @@ def validate_dataframe(df: pd.DataFrame, kind: str, target_seq: str, target_seq_
         if c in column_mapping:
             if not df[column_mapping[c]].isna().all():
                 prefixes[c] = df[column_mapping[c]].dropna()[0][0]
-    validate_hgvs_prefix_combinations(hgvs_nt=prefixes[hgvs_nt_column], hgvs_splice=prefixes[hgvs_splice_column], hgvs_pro=prefixes[hgvs_pro_column])
+    validate_hgvs_prefix_combinations(
+        hgvs_nt=prefixes[hgvs_nt_column], hgvs_splice=prefixes[hgvs_splice_column], hgvs_pro=prefixes[hgvs_pro_column]
+    )
 
 
-def validate_and_standardize_dataframe_pair(scores_df: pd.DataFrame, counts_df: Optional[pd.DataFrame], target_seq: str, target_seq_type: str) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+def validate_and_standardize_dataframe_pair(
+    scores_df: pd.DataFrame, counts_df: Optional[pd.DataFrame], target_seq: str, target_seq_type: str
+) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
     """
     Perform validation and standardization on a pair of score and count dataframes.
 
@@ -300,7 +305,9 @@ def validate_column_names(df: pd.DataFrame, kind: str) -> None:
 
     if hgvs_splice_column in columns:
         if hgvs_nt_column not in columns or hgvs_pro_column not in columns:
-            raise ValidationError(f"dataframes with '{hgvs_splice_column}' must also define '{hgvs_nt_column}' and '{hgvs_pro_column}'")
+            raise ValidationError(
+                f"dataframes with '{hgvs_splice_column}' must also define '{hgvs_nt_column}' and '{hgvs_pro_column}'"
+            )
 
     if len(columns) != len(set(columns)):
         raise ValidationError("duplicate column names are not allowed (this check is case insensitive)")
@@ -403,10 +410,14 @@ def validate_hgvs_column(column: pd.Series, is_index: bool, target_seq: str, tar
                     invalid_variants.append(f"target sequence mismatch for '{s}' at row {i}")
     # format and raise an error message that contains all invalid variants
     if len(invalid_variants) > 0:
-        raise ValidationError(f"encountered {len(invalid_variants)} invalid variant strings: {(', '.join(invalid_variants))}")
+        raise ValidationError(
+            f"encountered {len(invalid_variants)} invalid variant strings: {(', '.join(invalid_variants))}"
+        )
 
 
-def validate_hgvs_prefix_combinations(hgvs_nt: Optional[str], hgvs_splice: Optional[str], hgvs_pro: Optional[str]) -> None:
+def validate_hgvs_prefix_combinations(
+    hgvs_nt: Optional[str], hgvs_splice: Optional[str], hgvs_pro: Optional[str]
+) -> None:
     """
     Validate the combination of HGVS variant prefixes.
 
@@ -453,7 +464,9 @@ def validate_hgvs_prefix_combinations(hgvs_nt: Optional[str], hgvs_splice: Optio
                 raise ValidationError("splice variants must use 'n.' prefix when protein variants are not present")
     elif hgvs_pro is not None and hgvs_nt is not None:
         if hgvs_nt != "c":
-            raise ValidationError("nucleotide variants must use 'c.' prefix when protein variants are present and splicing variants are not present")
+            raise ValidationError(
+                "nucleotide variants must use 'c.' prefix when protein variants are present and splicing variants are not present"
+            )
     elif hgvs_nt is not None:  # just hgvs_nt
         if hgvs_nt != "n":
             raise ValidationError("nucleotide variants must use 'n.' prefix when only nucleotide variants are defined")
@@ -538,7 +551,9 @@ def validate_variant_columns_match(df1: pd.DataFrame, df2: pd.DataFrame):
             elif df1[c].isnull().all() and df2[c].isnull().all():
                 continue
             elif np.any(df1[c].sort_values().values != df2[c].sort_values().values):
-                raise ValidationError(f"both score and count dataframes must define matching variants, discrepancy found in '{c}'")
+                raise ValidationError(
+                    f"both score and count dataframes must define matching variants, discrepancy found in '{c}'"
+                )
     for c in df2.columns:
         if c.lower() in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
             if c not in df1:

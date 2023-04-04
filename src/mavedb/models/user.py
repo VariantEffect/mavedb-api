@@ -5,16 +5,16 @@ from mavedb.db.base import Base
 from mavedb.models.role import Role
 
 users_roles_association_table = Table(
-    'users_roles',
+    "users_roles",
     Base.metadata,
-    Column('user_id', ForeignKey('users.id'), primary_key=True),
-    Column('role_id', ForeignKey('roles.id'), primary_key=True)
+    Column("user_id", ForeignKey("users.id"), primary_key=True),
+    Column("role_id", ForeignKey("roles.id"), primary_key=True),
 )
 
 
 class User(Base):
     # __tablename__ = 'auth_user'
-    __tablename__ = 'users'
+    __tablename__ = "users"
 
     id = Column(Integer, primary_key=True)
     username = Column(String, index=True, nullable=False)
@@ -26,7 +26,7 @@ class User(Base):
     is_active = Column(Boolean, nullable=False)
     date_joined = Column(DateTime, nullable=True)
     email = Column(String, nullable=True)
-    role_objs = relationship('Role', secondary=users_roles_association_table, backref='users')
+    role_objs = relationship("Role", secondary=users_roles_association_table, backref="users")
     last_login = Column(DateTime, nullable=True)
 
     # password = Column(String, default='abcd')  # TODO Remove when the database is rebuilt from scratch.

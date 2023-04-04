@@ -6,11 +6,7 @@ from mavedb.lib.exceptions import ValidationError
 from mavehgvs import Variant, MaveHgvsParseError
 
 from .utils import is_csv_null
-from .constants import (
-    HGVS_NT_COLUMN,
-    HGVS_PRO_COLUMN,
-    HGVS_SPLICE_COLUMN
-)
+from .constants import HGVS_NT_COLUMN, HGVS_PRO_COLUMN, HGVS_SPLICE_COLUMN
 
 
 def validate_hgvs_string(
@@ -27,23 +23,16 @@ def validate_hgvs_string(
         value = value.decode()
     if not isinstance(value, str):
         raise ValidationError(
-            "Variant HGVS values input must be strings. "
-            "'{}' has the type '{}'.".format(value, type(value).__name__)
+            "Variant HGVS values input must be strings. " "'{}' has the type '{}'.".format(value, type(value).__name__)
         )
 
     if value.lower() == "_sy":
-        raise ValidationError(
-            "_sy is no longer supported and should be replaced by p.(=)"
-        )
+        raise ValidationError("_sy is no longer supported and should be replaced by p.(=)")
     elif value.lower() == "_wt":
-        raise ValidationError(
-            "_wt is no longer supported and should be replaced by (cgnp).="
-        )
+        raise ValidationError("_wt is no longer supported and should be replaced by (cgnp).=")
 
     try:
-        variant = Variant(
-            s=value, targetseq=targetseq, relaxed_ordering=relaxed_ordering
-        )
+        variant = Variant(s=value, targetseq=targetseq, relaxed_ordering=relaxed_ordering)
     except MaveHgvsParseError as error:
         raise ValidationError(f"{value}: {str(error)}")
 
@@ -65,19 +54,15 @@ def validate_hgvs_string(
     elif column in ("splice", HGVS_SPLICE_COLUMN):
         if prefix not in "cn":
             raise ValidationError(
-                f"'{value}' is not a transcript variant. The accepted "
-                f"transcript variant prefixes are 'c.', 'n.'."
+                f"'{value}' is not a transcript variant. The accepted " f"transcript variant prefixes are 'c.', 'n.'."
             )
     elif column in ("p", HGVS_PRO_COLUMN):
         if prefix not in "p":
             raise ValidationError(
-                f"'{value}' is not a protein variant. The accepted "
-                f"protein variant prefix is 'p.'."
+                f"'{value}' is not a protein variant. The accepted " f"protein variant prefix is 'p.'."
             )
     else:
-        raise ValueError(
-            "Unknown column '{}'. Expected nt, splice or p".format(column)
-        )
+        raise ValueError("Unknown column '{}'. Expected nt, splice or p".format(column))
 
     return str(variant)
 

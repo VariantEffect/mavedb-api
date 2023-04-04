@@ -19,7 +19,7 @@ logger = get_task_logger(__name__)
     bind=True,
     ignore_result=True,
     # base=BaseCreateVariantsTask,
-    serializer='pickle'
+    serializer="pickle",
 )
 def create_variants_task(self, scoreset_urn, scores, counts, index_col, dataset_columns, user_id=None):
     """
@@ -56,20 +56,20 @@ def create_variants_task(self, scoreset_urn, scores, counts, index_col, dataset_
     db = next(get_db())
     self.instance = db.query(Scoreset).get(Scoreset.urn == scoreset_urn).one_or_none()
 
-    logger.info(f'Sending scores dataframe with {len(scores)} rows.')
-    logger.info(f'Sending counts dataframe with {len(counts)} rows.')
-    logger.info(f'Formatting variants for {self.urn}')
+    logger.info(f"Sending scores dataframe with {len(scores)} rows.")
+    logger.info(f"Sending counts dataframe with {len(counts)} rows.")
+    logger.info(f"Formatting variants for {self.urn}")
     variants = create_variants_data(scores, counts, index_col)
 
     if variants:
-        logger.info(f'{self.urn}:{variants[-1]}')
+        logger.info(f"{self.urn}:{variants[-1]}")
 
     # with transaction.atomic():
-    logger.info(f'Deleting existing variants for {self.urn}')
+    logger.info(f"Deleting existing variants for {self.urn}")
     self.instance.delete_variants()
-    logger.info(f'Creating variants for {self.urn}')
+    logger.info(f"Creating variants for {self.urn}")
     Variant.bulk_create(self.instance, variants)
-    logger.info(f'Saving {self.urn}')
+    logger.info(f"Saving {self.urn}")
     self.instance.dataset_columns = dataset_columns
     self.instance.save()
 

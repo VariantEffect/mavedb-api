@@ -1,0 +1,8 @@
+repos:
+  - repo: https://github.com/psf/black
+    rev: 23.3.0
+    hooks:
+      - id: black
+        # Latest version of Python supported by the project
+        # See https://pre-commit.com/#top_level-default_language_version
+        language_version: python3.9

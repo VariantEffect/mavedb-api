@@ -7,7 +7,7 @@ from mavedb.db.base import Base
 
 class RefseqIdentifier(Base):
     # __tablename__ = 'metadata_refseqidentifier'
-    __tablename__ = 'refseq_identifiers'
+    __tablename__ = "refseq_identifiers"
 
     id = Column(Integer, primary_key=True, index=True)
     identifier = Column(String, nullable=False)

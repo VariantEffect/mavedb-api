@@ -10,21 +10,12 @@ from mavedb.view_models import doi_identifier
 from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
-    prefix="/api/v1/doiIdentifiers",
-    tags=["DOI identifiers"],
-    responses={404: {"description": "Not found"}}
+    prefix="/api/v1/doiIdentifiers", tags=["DOI identifiers"], responses={404: {"description": "Not found"}}
 )
 
 
-@router.post(
-    '/search',
-    status_code=200,
-    response_model=List[doi_identifier.DoiIdentifier]
-)
-def search_doi_identifiers(
-        search: TextSearch,
-        db: Session = Depends(deps.get_db)
-) -> Any:
+@router.post("/search", status_code=200, response_model=List[doi_identifier.DoiIdentifier])
+def search_doi_identifiers(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
     Search DOI identifiers.
     """
@@ -35,11 +26,9 @@ def search_doi_identifiers(
         lower_search_text = search.text.strip().lower()
         query = query.filter(func.lower(DoiIdentifier.identifier).contains(lower_search_text))
     else:
-        raise HTTPException(status_code=500, detail='Search text is required')
+        raise HTTPException(status_code=500, detail="Search text is required")
 
-    items = query.order_by(DoiIdentifier.identifier) \
-        .limit(50) \
-        .all()
+    items = query.order_by(DoiIdentifier.identifier).limit(50).all()
     if not items:
         items = []
     return items

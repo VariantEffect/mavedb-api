@@ -7,7 +7,7 @@ from mavedb.db.base import Base
 
 class RawReadIdentifier(Base):
     # __tablename__ = 'metadata_sraidentifier'
-    __tablename__ = 'sra_identifiers'
+    __tablename__ = "sra_identifiers"
 
     id = Column(Integer, primary_key=True, index=True)
     identifier = Column(String, nullable=False)

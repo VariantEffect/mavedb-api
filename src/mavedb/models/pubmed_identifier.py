@@ -7,7 +7,7 @@ from mavedb.db.base import Base
 
 class PubmedIdentifier(Base):
     # __tablename__ = 'metadata_pubmedidentifier'
-    __tablename__ = 'pubmed_identifiers'
+    __tablename__ = "pubmed_identifiers"
 
     id = Column(Integer, primary_key=True, index=True)
     identifier = Column(String, nullable=False)

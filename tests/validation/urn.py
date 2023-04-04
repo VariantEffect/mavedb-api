@@ -35,11 +35,11 @@ class TestValidateUrn(TestCase):
     def test_valid_mavedb_urn_variant(self):
         # TODO find a valid variant urn
         pass
-        #validate_mavedb_urn_variant("")
+        # validate_mavedb_urn_variant("")
 
     def test_invalid_mavedb_urn_variant(self):
         with self.assertRaises(ValidationError):
-            validate_mavedb_urn_variant("urn:mavedb:00000002-a-1") # this is a scoreset urn
+            validate_mavedb_urn_variant("urn:mavedb:00000002-a-1")  # this is a scoreset urn
 
 
 class TestValidateTmpUrn(TestCase):
@@ -76,4 +76,4 @@ class TestValidateTmpUrn(TestCase):
 
     def test_invalid_tmp_mavedb_urn_variant(self):
         with self.assertRaises(ValidationError):
-            validate_mavedb_urn_variant("urn:mavedb:00000002-a-1") # this is a scoreset urn
+            validate_mavedb_urn_variant("urn:mavedb:00000002-a-1")  # this is a scoreset urn

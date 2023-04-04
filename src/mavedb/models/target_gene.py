@@ -12,9 +12,10 @@ from .wild_type_sequence import WildTypeSequence
 
 # TODO Reformat code without removing dependencies whose use is not detected.
 
+
 class TargetGene(Base):
     # __tablename__ = 'genome_targetgene'
-    __tablename__ = 'target_genes'
+    __tablename__ = "target_genes"
 
     id = Column(Integer, primary_key=True, index=True)
 
@@ -26,13 +27,22 @@ class TargetGene(Base):
     # ensembl_id = relationship('EnsemblIdentifier', backref='target_genes')
     # refseq_id_id = Column(Integer, nullable=True)  # , ForeignKey('dataset_scoreset.id'), nullable=False)
     # scoreset_id = Column(Integer, ForeignKey('dataset_scoreset.id'), nullable=False)
-    scoreset_id = Column(Integer, ForeignKey('scoresets.id'), nullable=False)
-    #scoreset = relationship('Scoreset', back_populates='target_gene')
-    scoreset = relationship('Scoreset', backref=backref('target_gene', cascade='all,delete-orphan', single_parent=True, uselist=False), single_parent=True)
+    scoreset_id = Column(Integer, ForeignKey("scoresets.id"), nullable=False)
+    # scoreset = relationship('Scoreset', back_populates='target_gene')
+    scoreset = relationship(
+        "Scoreset",
+        backref=backref("target_gene", cascade="all,delete-orphan", single_parent=True, uselist=False),
+        single_parent=True,
+    )
     # uniprot_id_id = Column(Integer, nullable=True)  # , ForeignKey('dataset_scoreset.id'), nullable=False)
     # wt_sequence_id = Column(Integer, ForeignKey('genome_wildtypesequence.id'), nullable=False)
-    wt_sequence_id = Column(Integer, ForeignKey('wild_type_sequences.id'), nullable=False)
-    wt_sequence = relationship('WildTypeSequence', backref=backref('target_gene', single_parent=True, uselist=False), cascade='all,delete-orphan', single_parent=True)
+    wt_sequence_id = Column(Integer, ForeignKey("wild_type_sequences.id"), nullable=False)
+    wt_sequence = relationship(
+        "WildTypeSequence",
+        backref=backref("target_gene", single_parent=True, uselist=False),
+        cascade="all,delete-orphan",
+        single_parent=True,
+    )
 
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
