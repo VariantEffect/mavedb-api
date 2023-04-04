@@ -1,5 +1,4 @@
 from mavedb.view_models.pubmed_identifier import PubmedIdentifierCreate
-from mavedb.lib.validation.exceptions import ValidationError
 import pytest
 
 

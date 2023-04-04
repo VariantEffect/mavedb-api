@@ -13,6 +13,7 @@ from fqfa.util.infer import infer_sequence_type
 
 from . import constants
 from .utils import is_csv_null, NULL_VALUES, READABLE_NULL_VALUES
+from ..validation.constants.general import null_values_re
 
 
 class MaveDataset:

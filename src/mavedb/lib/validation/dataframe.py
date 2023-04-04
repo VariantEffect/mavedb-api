@@ -1,6 +1,4 @@
 import pandas as pd
-from numpy.testing import assert_array_equal
-from pandas.testing import assert_frame_equal
 from mavehgvs.variant import Variant
 from mavehgvs.exceptions import MaveHgvsParseError
 import numpy as np
@@ -13,15 +11,6 @@ from mavedb.lib.validation.constants.general import (
     required_score_column,
 )
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.lib.validation.variant import validate_hgvs_string
-from mavedb.lib.validation.utilities import convert_hgvs_nt_to_hgvs_pro
-from mavedb.lib.validation.target import validate_target_sequence
-from fqfa.util.infer import infer_sequence_type
-from fqfa.util.nucleotide import (
-    reverse_complement,
-    convert_dna_to_rna,
-    convert_rna_to_dna,
-)
 from fqfa.util.translate import translate_dna
 
 # handle with pandas all null strings
@@ -465,7 +454,8 @@ def validate_hgvs_prefix_combinations(
     elif hgvs_pro is not None and hgvs_nt is not None:
         if hgvs_nt != "c":
             raise ValidationError(
-                "nucleotide variants must use 'c.' prefix when protein variants are present and splicing variants are not present"
+                "nucleotide variants must use 'c.' prefix when protein variants are present and splicing variants are"
+                " not present"
             )
     elif hgvs_nt is not None:  # just hgvs_nt
         if hgvs_nt != "n":

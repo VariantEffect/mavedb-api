@@ -1,6 +1,13 @@
 from unittest import TestCase
 
-from mavedb.lib.validation.urn import *
+from mavedb.lib.validation.urn import (
+    validate_mavedb_urn,
+    validate_mavedb_urn_experiment,
+    validate_mavedb_urn_experimentset,
+    validate_mavedb_urn_scoreset,
+    validate_mavedb_urn_variant,
+    ValidationError,
+)
 
 
 class TestValidateUrn(TestCase):

@@ -101,7 +101,7 @@ def get_experiment_all_scoresets(*, urn: str, db: Session = Depends(deps.get_db)
         db.query(Scoreset).filter(Scoreset.experiment_id == experiment.id).filter(Scoreset.urn.contains("urn")).all()
     )
     if not scoreset_list:
-        raise HTTPException(status_code=404, detail=f"No associated score set")
+        raise HTTPException(status_code=404, detail="No associated score set")
     else:
         scoreset_list.sort(key=attrgetter("urn"))
     return scoreset_list

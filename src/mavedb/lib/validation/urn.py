@@ -1,6 +1,12 @@
 import uuid
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.lib.validation.constants.urn import *
+from mavedb.lib.validation.constants.urn import (
+    MAVEDB_ANY_URN_RE,
+    MAVEDB_EXPERIMENT_URN_RE,
+    MAVEDB_EXPERIMENTSET_URN_RE,
+    MAVEDB_SCORESET_URN_RE,
+    MAVEDB_VARIANT_URN_RE,
+)
 
 
 def validate_mavedb_urn(urn: str):

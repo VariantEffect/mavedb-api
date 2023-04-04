@@ -6,6 +6,11 @@ from sqlalchemy import pool
 
 from alembic import context
 
+# Import model metadata for autogenerate support.
+# Linters will flag mavedb.models.* as unused, but we must import it.
+from mavedb.db.base import Base
+from mavedb.models import *  # noqa: F401,F403
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
@@ -28,16 +33,6 @@ DB_PASSWORD = os.getenv("DB_PASSWORD") or "abc123"
 config.set_section_option(
     "alembic", "sqlalchemy.url", f"postgresql://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_DATABASE_NAME}"
 )
-
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-# target_metadata = None
-from mavedb.db.base import Base
-
-# from mavedb.models.doi_identifier import DoiIdentifier
-from mavedb.models import *
 
 target_metadata = Base.metadata
 

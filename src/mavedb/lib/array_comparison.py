@@ -218,7 +218,6 @@ elif sys.platform[:5] == "linux":
     def memusage(_proc_pid_stat="/proc/%s/stat" % (os.getpid())):
         """
         Return virtual memory size in bytes of the running python.
-
         """
         try:
             with open(_proc_pid_stat, "r") as f:
@@ -233,7 +232,6 @@ else:
     def memusage():
         """
         Return memory usage of running python. [Not implemented]
-
         """
         raise NotImplementedError
 
@@ -246,7 +244,6 @@ if sys.platform[:5] == "linux":
 
         Return number of jiffies (1/100ths of a second) that this
         process has been scheduled in user mode. See man 5 proc.
-
         """
         import time
 
@@ -270,7 +267,6 @@ else:
 
         Return number of jiffies (1/100ths of a second) that this
         process has been scheduled in user mode. See man 5 proc.
-
         """
         import time
 
@@ -356,7 +352,6 @@ def assert_equal(actual, desired, err_msg="", verbose=True):
     in the inputs, but they are in the same positions.
 
     >>> np.testing.assert_equal(np.array([1.0, 2.0, np.nan]), [1, 2, np.nan])
-
     """
     __tracebackhide__ = True  # Hide traceback for py.test
     if isinstance(desired, dict):
@@ -490,7 +485,6 @@ def print_assert_equal(test_string, actual, desired):
     [0, 1]
     DESIRED:
     [0, 2]
-
     """
     __tracebackhide__ = True  # Hide traceback for py.test
     import pprint
@@ -685,7 +679,6 @@ def assert_approx_equal(actual, desired, significant=7, err_msg="", verbose=True
 
     >>> abs(0.12345670e-20/1e-21 - 0.12345672e-20/1e-21) >= 10**-(8-1)
     True
-
     """
     __tracebackhide__ = True  # Hide traceback for py.test
     import numpy as np

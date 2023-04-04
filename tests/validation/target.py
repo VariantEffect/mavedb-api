@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from mavedb.lib.validation.target import *
+from mavedb.lib.validation.target import validate_sequence_category, validate_target_category, validate_target_sequence
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.constants.target import valid_categories, valid_sequence_types
 

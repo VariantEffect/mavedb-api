@@ -384,7 +384,7 @@ async def update_scoreset(
     Update a scoreset .
     """
     if not item_update:
-        raise HTTPException(status_code=400, detail=f"The request contained no updated item.")
+        raise HTTPException(status_code=400, detail="The request contained no updated item.")
 
     # item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
     item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()

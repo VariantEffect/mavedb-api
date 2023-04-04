@@ -18,7 +18,7 @@ class ExperimentBase(BaseModel):
     keywords: Optional[list[str]]
 
     @classmethod
-    def from_orm(cls, obj: Any) -> "Order":
+    def from_orm(cls, obj: Any):
         try:
             obj.experiment_set_urn = obj.experiment_set.urn
         except AttributeError:

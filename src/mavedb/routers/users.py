@@ -71,7 +71,7 @@ async def update_user(
     Update a user.
     """
     if not item_update:
-        raise HTTPException(status_code=400, detail=f"The request contained no updated item.")
+        raise HTTPException(status_code=400, detail="The request contained no updated item.")
 
     try:
         item = db.query(User).filter(User.id == id).one_or_none()

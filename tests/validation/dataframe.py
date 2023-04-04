@@ -1,7 +1,6 @@
 from unittest import TestCase
 import numpy as np
 import pandas as pd
-from io import StringIO
 import itertools
 import pytest
 
@@ -17,14 +16,10 @@ from mavedb.lib.validation.dataframe import (
     infer_column_type,
     sort_dataframe_columns,
     standardize_dataframe,
-    validate_dataframe,
-    validate_and_standardize_dataframe_pair,
-    choose_dataframe_index_column,
     validate_no_null_rows,
     validate_column_names,
     validate_hgvs_column,
     validate_hgvs_prefix_combinations,
-    validate_variant_consistency,
     validate_data_column,
     validate_variant_columns_match,
 )
@@ -190,7 +185,7 @@ class TestColumnNames(DfTestCase):
             validate_column_names(
                 self.dataframe.drop([hgvs_nt_column, hgvs_pro_column, hgvs_splice_column], axis=1), kind="scores"
             )
-        assert f"dataframe does not define any variant columns" in str(exc_info.value)
+        assert "dataframe does not define any variant columns" in str(exc_info.value)
         with pytest.raises(ValidationError) as exc_info:
             validate_column_names(
                 self.dataframe.drop(
@@ -198,7 +193,7 @@ class TestColumnNames(DfTestCase):
                 ),
                 kind="counts",
             )
-        assert f"dataframe does not define any variant columns" in str(exc_info.value)
+        assert "dataframe does not define any variant columns" in str(exc_info.value)
 
     def test_validation_ignores_column_ordering(self):
         validate_column_names(

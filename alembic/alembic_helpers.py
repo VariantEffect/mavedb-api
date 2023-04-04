@@ -10,7 +10,7 @@ def table_does_not_exist(table, schema=None):
     config = op.get_context().config
     engine = engine_from_config(config.get_section(config.config_ini_section), prefix="sqlalchemy.")
     insp = reflection.Inspector.from_engine(engine)
-    return insp.has_table(table, schema) == False
+    return insp.has_table(table, schema) is False
 
 
 def table_has_column(table, column):
