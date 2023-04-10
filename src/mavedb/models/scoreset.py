@@ -102,7 +102,8 @@ class Scoreset(Base):
     experiment_id = Column(Integer, ForeignKey("experiments.id"), nullable=False)
     # experiment = relationship('Experiment', back_populates='scoresets')
     experiment = relationship("Experiment", backref=backref("scoresets", cascade="all,delete-orphan"))
-    licence_id = Column(Integer, nullable=True)  # TODO
+    licence_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    license = relationship("License")
     superseded_scoreset_id = Column("replaces_id", Integer, ForeignKey("scoresets.id"), nullable=True)  # TODO
     superseded_scoreset = relationship(
         "Scoreset", uselist=False, remote_side=[id], backref=backref("superseding_scoreset", uselist=False)

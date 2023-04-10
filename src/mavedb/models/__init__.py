@@ -7,6 +7,7 @@ __all__ = [
     "experiment_set",
     "genome_identifier",
     "keyword",
+    "license",
     "pubmed_identifier",
     "raw_read_identifier",
     "reference_genome",
