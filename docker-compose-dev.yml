@@ -8,12 +8,11 @@ services:
     command: bash -c "uvicorn mavedb.server_main:app --host 0.0.0.0 --port 8000 --reload"
     depends_on:
       - db
+    env_file:
+      - settings/.env.dev
     environment:
       DB_HOST: db
       DB_PORT: 5432
-      DB_DATABASE_NAME: mavedb_dev
-      DB_USERNAME: postgres
-      DB_PASSWORD: postgres
     ports:
       - "8002:8000"
     volumes:
@@ -21,10 +20,8 @@ services:
 
   db:
     image: postgres:14
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: mavedb_dev
+    env_file:
+      - settings/.env.dev
     ports:
       - "5434:5432"
     volumes:
