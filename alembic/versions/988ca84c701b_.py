@@ -35,7 +35,7 @@ def upgrade():
     op.alter_column('scoresets', 'licence_id',
                existing_type=sa.INTEGER(),
                nullable=False)
-    op.create_foreign_key(None, 'scoresets', 'users', ['licence_id'], ['id'])
+    op.create_foreign_key(None, 'scoresets', 'licenses', ['licence_id'], ['id'])
     op.create_foreign_key(None, 'scoresets', 'scoresets', ['replaces_id'], ['id'])
     # ### end Alembic commands ###
 
