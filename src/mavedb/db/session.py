@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 # TODO Move these to a central config object.
 DB_HOST = os.getenv("DB_HOST") or "localhost"
 DB_PORT = os.getenv("DB_PORT") or 5432
-DB_DATABASE_NAME = os.getenv("DB_DATABASE_NAME") or "mavedb"
+DB_DATABASE_NAME = os.getenv("DB_DATABASE_NAME")
 DB_USERNAME = os.getenv("DB_USERNAME")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 
