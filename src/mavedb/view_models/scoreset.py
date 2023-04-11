@@ -6,6 +6,7 @@ from typing import Dict, Optional
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.doi_identifier import DoiIdentifier, DoiIdentifierCreate, SavedDoiIdentifier
 from mavedb.view_models.experiment import Experiment, SavedExperiment
+from mavedb.view_models.license import License, SavedLicense, ShortLicense
 from mavedb.view_models.pubmed_identifier import PubmedIdentifier, PubmedIdentifierCreate, SavedPubmedIdentifier
 from mavedb.view_models.target_gene import SavedTargetGene, ShortTargetGene, TargetGene, TargetGeneCreate
 from mavedb.view_models.user import SavedUser, User
@@ -23,7 +24,6 @@ class ScoresetBase(BaseModel):
     short_description: str
     extra_metadata: Dict
     data_usage_policy: Optional[str]
-    licence_id: Optional[int]
     keywords: Optional[list[str]]
 
 
@@ -38,6 +38,7 @@ class ScoresetCreate(ScoresetModify):
     """View model for creating a new score set."""
 
     experiment_urn: str
+    license_id: int
     superseded_scoreset_urn: Optional[str]
     meta_analysis_source_scoreset_urns: Optional[list[str]]
     target_gene: TargetGeneCreate
@@ -65,6 +66,7 @@ class ScoresetCreate(ScoresetModify):
 class ScoresetUpdate(ScoresetModify):
     """View model for updating a score set."""
 
+    license_id: Optional[int]
     doi_identifiers: list[DoiIdentifierCreate]
     pubmed_identifiers: list[PubmedIdentifierCreate]
     target_gene: TargetGeneCreate
@@ -72,7 +74,7 @@ class ScoresetUpdate(ScoresetModify):
 
 class ShortScoreset(BaseModel):
     """
-    Target gene view model containing a smaller set of properties to return in list contexts.
+    Score set view model containing a smaller set of properties to return in list contexts.
 
     Notice that this is not derived from ScoresetBase.
     """
@@ -84,6 +86,7 @@ class ShortScoreset(BaseModel):
     replaces_id: Optional[int]
     num_variants: int
     experiment: Experiment
+    license: ShortLicense
     creation_date: date
     modification_date: date
     target_gene: ShortTargetGene
@@ -100,6 +103,7 @@ class SavedScoreset(ScoresetBase):
     urn: str
     num_variants: int
     experiment: SavedExperiment
+    license: SavedLicense
     superseded_scoreset: Optional[ShortScoreset]
     superseding_scoreset: Optional[SavedScoreset]
     meta_analysis_source_scoresets: list[ShortScoreset]
@@ -123,6 +127,7 @@ class Scoreset(SavedScoreset):
     """Score set view model containing most properties visible to non-admin users, but no variant data."""
 
     experiment: Experiment
+    license: License
     superseded_scoreset: Optional[ShortScoreset]
     superseding_scoreset: Optional[Scoreset]
     meta_analysis_source_scoresets: list[ShortScoreset]
