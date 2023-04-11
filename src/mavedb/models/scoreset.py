@@ -14,44 +14,32 @@ from mavedb.lib.temp_urns import generate_temp_urn
 # TODO Reformat code without removing dependencies whose use is not detected.
 
 scoresets_doi_identifiers_association_table = Table(
-    # 'dataset_scoreset_doi_ids',
     "scoreset_doi_identifiers",
     Base.metadata,
-    # Column('scoreset_id', ForeignKey('dataset_scoreset.id'), primary_key=True),
-    # Column('doiidentifier_id', ForeignKey('metadata_doiidentifier.id'), primary_key=True)
     Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
     Column("doi_identifier_id", ForeignKey("doi_identifiers.id"), primary_key=True),
 )
 
 
 scoresets_keywords_association_table = Table(
-    # 'dataset_scoreset_keywords',
     "scoreset_keywords",
     Base.metadata,
-    # Column('scoreset_id', ForeignKey('dataset_scoreset.id'), primary_key=True),
-    # Column('keyword_id', ForeignKey('metadata_keyword.id'), primary_key=True)
     Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
     Column("keyword_id", ForeignKey("keywords.id"), primary_key=True),
 )
 
 
 scoresets_meta_analysis_scoresets_association_table = Table(
-    # 'dataset_scoreset_meta_analysis_for',
     "scoreset_meta_analysis_sources",
     Base.metadata,
-    # Column('from_scoreset_id', ForeignKey('dataset_scoreset.id'), primary_key=True),
-    # Column('to_scoreset_id', ForeignKey('dataset_scoreset.id'), primary_key=True)
     Column("source_scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
     Column("meta_analysis_scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
 )
 
 
 scoresets_pubmed_identifiers_association_table = Table(
-    # 'dataset_scoreset_pubmed_ids',
     "scoreset_pubmed_identifiers",
     Base.metadata,
-    # Column('scoreset_id', ForeignKey('dataset_scoreset.id'), primary_key=True),
-    # Column('pubmedidentifier_id', ForeignKey('metadata_pubmedidentifier.id'), primary_key=True)
     Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
     Column("pubmed_identifier_id", ForeignKey("pubmed_identifiers.id"), primary_key=True),
 )
@@ -59,18 +47,14 @@ scoresets_pubmed_identifiers_association_table = Table(
 
 # scoresets_sra_identifiers_association_table = Table(
 scoresets_raw_read_identifiers_association_table = Table(
-    # 'dataset_scoreset_sra_ids',
     "scoreset_sra_identifiers",
     Base.metadata,
-    # Column('scoreset_id', ForeignKey('dataset_scoreset.id'), primary_key=True),
-    # Column('sraidentifier_id', ForeignKey('metadata_sraidentifier.id'), primary_key=True)
     Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
     Column("sra_identifier_id", ForeignKey("sra_identifiers.id"), primary_key=True),
 )
 
 
 class Scoreset(Base):
-    # __tablename__ = 'dataset_scoreset'
     __tablename__ = "scoresets"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -86,7 +70,6 @@ class Scoreset(Base):
     normalised = Column(Boolean, nullable=False, default=False)
     private = Column(Boolean, nullable=False, default=True)
     approved = Column(Boolean, nullable=False, default=False)
-    # published_date = Column('publish_date', Date, nullable=True)
     published_date = Column(Date, nullable=True)
     processing_state = Column(
         Enum(ProcessingState, create_constraint=True, length=32, native_enum=False, validate_strings=True),
@@ -95,13 +78,11 @@ class Scoreset(Base):
     data_usage_policy = Column(String, nullable=True)
 
     # TODO Refactor the way we track the number of variants?
-    # num_variants = Column('last_child_value', Integer, nullable=False, default=0)
     num_variants = Column(Integer, nullable=False, default=0)
 
-    # experiment_id = Column(Integer, ForeignKey('dataset_experiment.id'), nullable=False)
     experiment_id = Column(Integer, ForeignKey("experiments.id"), nullable=False)
-    # experiment = relationship('Experiment', back_populates='scoresets')
     experiment = relationship("Experiment", backref=backref("scoresets", cascade="all,delete-orphan"))
+    # TODO Standardize on US or GB spelling for licenc/se.
     licence_id = Column(Integer, ForeignKey("licenses.id"), nullable=False)
     license = relationship("License")
     superseded_scoreset_id = Column("replaces_id", Integer, ForeignKey("scoresets.id"), nullable=True)  # TODO
@@ -109,10 +90,8 @@ class Scoreset(Base):
         "Scoreset", uselist=False, remote_side=[id], backref=backref("superseding_scoreset", uselist=False)
     )
 
-    # created_by_id = Column(Integer, ForeignKey('auth_user.id'), nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_by = relationship("User", foreign_keys="Scoreset.created_by_id")
-    # modified_by_id = Column(Integer, ForeignKey('auth_user.id'), nullable=True)
     modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     modified_by = relationship("User", foreign_keys="Scoreset.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)

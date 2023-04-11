@@ -1,14 +1,13 @@
 from datetime import date
 
 from sqlalchemy import Column, Date, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship, backref
+from sqlalchemy.orm import relationship
 
 from mavedb.db.base import Base
 from .genome_identifier import GenomeIdentifier
 
 
 class ReferenceGenome(Base):
-    # __tablename__ = 'genome_referencegenome'
     __tablename__ = "reference_genomes"
 
     id = Column(Integer, primary_key=True, index=True)
