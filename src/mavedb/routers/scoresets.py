@@ -28,6 +28,7 @@ from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_pair
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
+from mavedb.models.license import License
 from mavedb.models.reference_map import ReferenceMap
 from mavedb.models.scoreset import Scoreset
 from mavedb.models.target_gene import TargetGene
@@ -180,9 +181,14 @@ async def create_scoreset(
 
     if item_create is None:
         return None
+
     experiment = db.query(Experiment).filter(Experiment.urn == item_create.experiment_urn).one_or_none()
     if not experiment:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
+
+    license_ = db.query(License).filter(License.id == item_create.license_id).one_or_none()
+    if not license_:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
 
     if item_create.superseded_scoreset_urn is not None:
         superseded_scoreset = await fetch_scoreset_by_urn(db, item_create.superseded_scoreset_urn)
@@ -224,6 +230,7 @@ async def create_scoreset(
                 "doi_identifiers",
                 "experiment_urn",
                 "keywords",
+                "license_id",
                 "meta_analysis_source_scoreset_urns",
                 "pubmed_identifiers",
                 "superseded_scoreset_urn",
@@ -231,6 +238,7 @@ async def create_scoreset(
             ],
         ),
         experiment=experiment,
+        license=license_,
         superseded_scoreset=superseded_scoreset,
         meta_analysis_source_scoresets=meta_analysis_source_scoresets,
         target_gene=target_gene,
@@ -383,6 +391,7 @@ async def update_scoreset(
     """
     Update a scoreset .
     """
+
     if not item_update:
         raise HTTPException(status_code=400, detail="The request contained no updated item.")
 
@@ -394,8 +403,16 @@ async def update_scoreset(
 
     # Editing unpublished scoreset
     if item.private is True:
+
+        license_ = None
+        if item_update.license_id is not None:
+            license_ = db.query(License).filter(License.id == item_update.license_id).one_or_none()
+            if not license_:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
+            item.license = license_
+
         for var, value in vars(item_update).items():
-            if var not in ["keywords", "doi_identifiers", "experiment_urn", "pubmed_identifiers", "target_gene"]:
+            if var not in ["keywords", "doi_identifiers", "experiment_urn", "license_id", "pubmed_identifiers", "target_gene"]:
                 setattr(item, var, value) if value else None
         item.doi_identifiers = [
             await find_or_create_doi_identifier(db, identifier.identifier)
