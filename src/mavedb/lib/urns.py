@@ -71,7 +71,7 @@ def generate_experiment_urn(db: Session, experiment_set: ExperimentSet, experime
         )
         max_suffix = None
         for experiment in published_experiments_query:
-            suffix = re.search(f"^{re.escape(experiment.urn)}-([a-z]+)$").group(1)
+            suffix = re.search(f"^{re.escape(experiment.urn)}-([a-z]+)$", experiment.urn).group(1)
             if suffix and (max_suffix is None or len(max_suffix) < len(experiment.urn) or max_suffix < suffix):
                 max_suffix = suffix
         if max_suffix is None:
