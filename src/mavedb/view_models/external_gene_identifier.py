@@ -10,13 +10,12 @@ class ExternalGeneIdentifierBase(BaseModel):
 
 
 class ExternalGeneIdentifierCreate(ExternalGeneIdentifierBase):
-
-    @validator('db_name')
+    @validator("db_name")
     def validate_db_name(cls, value):
         identifier_validator.validate_db_name(value)
         return value
 
-    @validator('identifier')
+    @validator("identifier")
     def validate_identifier(cls, field_value, values, field, config):
         # if db_name is none, values["db_name"] will raise an error.
         if "db_name" in values.keys():
@@ -24,6 +23,7 @@ class ExternalGeneIdentifierCreate(ExternalGeneIdentifierBase):
             # field_value is identifier
             identifier_validator.validate_identifier(db_name, field_value)
         return field_value
+
 
 # Properties shared by models stored in DB
 class SavedExternalGeneIdentifier(ExternalGeneIdentifierBase):

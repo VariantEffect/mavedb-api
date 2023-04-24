@@ -13,7 +13,7 @@ from mavedb.lib.mave.constants import (
     HGVS_PRO_COLUMN,
     HGVS_SPLICE_COLUMN,
     VARIANT_COUNT_DATA,
-    VARIANT_SCORE_DATA
+    VARIANT_SCORE_DATA,
 )
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.models.experiment import Experiment
@@ -29,8 +29,8 @@ VariantData = dict[str, Optional[dict[str, dict]]]
 
 
 def search_scoresets(db: Session, owner: Optional[User], search: ScoresetsSearch) -> list[Scoreset]:
-    scoresets_query = db.query(Scoreset)#\
-        #.filter(Scoreset.private.is_(False))
+    scoresets_query = db.query(Scoreset)  # \
+    # .filter(Scoreset.private.is_(False))
 
     if owner is not None:
         scoresets_query = scoresets_query.filter(Scoreset.created_by_id == owner.id)
@@ -43,37 +43,37 @@ def search_scoresets(db: Session, owner: Optional[User], search: ScoresetsSearch
 
     if search.text:
         lower_search_text = search.text.lower()
-        scoresets_query = scoresets_query.filter(or_(
-            Scoreset.urn.contains(lower_search_text),
-            Scoreset.title.contains(lower_search_text),
-            Scoreset.short_description.contains(lower_search_text),
-            Scoreset.abstract_text.contains(lower_search_text),
-            Scoreset.target_gene.has(func.lower(TargetGene.name).contains(lower_search_text)),
-            Scoreset.target_gene.has(func.lower(TargetGene.category).contains(lower_search_text)),
-            Scoreset.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text))
-            # TODO Add: ORGANISM_NAME UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
-        ))
+        scoresets_query = scoresets_query.filter(
+            or_(
+                Scoreset.urn.contains(lower_search_text),
+                Scoreset.title.contains(lower_search_text),
+                Scoreset.short_description.contains(lower_search_text),
+                Scoreset.abstract_text.contains(lower_search_text),
+                Scoreset.target_gene.has(func.lower(TargetGene.name).contains(lower_search_text)),
+                Scoreset.target_gene.has(func.lower(TargetGene.category).contains(lower_search_text)),
+                Scoreset.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text))
+                # TODO Add: ORGANISM_NAME UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
+            )
+        )
 
     if search.targets:
-        scoresets_query = scoresets_query.filter(
-            Scoreset.target_gene.has(TargetGene.name.in_(search.targets))
-        )
+        scoresets_query = scoresets_query.filter(Scoreset.target_gene.has(TargetGene.name.in_(search.targets)))
 
     if search.target_organism_names:
         scoresets_query = scoresets_query.filter(
-            Scoreset.target_gene.has(TargetGene.reference_maps.any(ReferenceMap.genome.has(ReferenceGenome.organism_name.in_(search.target_organism_names))))
+            Scoreset.target_gene.has(
+                TargetGene.reference_maps.any(
+                    ReferenceMap.genome.has(ReferenceGenome.organism_name.in_(search.target_organism_names))
+                )
+            )
         )
 
     if search.target_types:
-        scoresets_query = scoresets_query.filter(
-            Scoreset.target_gene.has(TargetGene.category.in_(search.target_types))
-        )
+        scoresets_query = scoresets_query.filter(Scoreset.target_gene.has(TargetGene.category.in_(search.target_types)))
 
-    scoresets: list[Scoreset] = scoresets_query\
-        .join(Scoreset.experiment)\
-        .join(Scoreset.target_gene)\
-        .order_by(Experiment.title)\
-        .all()
+    scoresets: list[Scoreset] = (
+        scoresets_query.join(Scoreset.experiment).join(Scoreset.target_gene).order_by(Experiment.title).all()
+    )
     if not scoresets:
         scoresets = []
     return scoresets  # filter_visible_scoresets(scoresets)
@@ -117,8 +117,8 @@ def validate_datasets_define_same_variants(scores, counts):
             )
     except AssertionError:
         raise ValidationError(
-            'Your score and counts files do not define the same variants. '
-            'Check that the hgvs columns in both files match.'
+            "Your score and counts files do not define the same variants. "
+            "Check that the hgvs columns in both files match."
         )
 
 
@@ -153,9 +153,9 @@ def create_variants_data(scores, counts=None, index_col=None) -> list[VariantDat
     """
 
     if isinstance(scores, str):
-        scores = pd.read_json(scores, orient='records')
+        scores = pd.read_json(scores, orient="records")
     if isinstance(counts, str):
-        counts = pd.read_json(counts, orient='records')
+        counts = pd.read_json(counts, orient="records")
 
     has_count_data = counts is not None and len(counts) > 0
     has_score_data = scores is not None and len(scores) > 0
@@ -169,18 +169,14 @@ def create_variants_data(scores, counts=None, index_col=None) -> list[VariantDat
         return []
 
     if has_count_data:
-        assert_index_equal(
-            scores.index.sort_values(), counts.index.sort_values()
-        )
+        assert_index_equal(scores.index.sort_values(), counts.index.sort_values())
         validate_datasets_define_same_variants(scores, counts)
 
     variants = []
     for (primary_hgvs, group) in scores.groupby(by=scores.index, sort=False):
-        score_records = group.to_dict(orient='records')
+        score_records = group.to_dict(orient="records")
         if has_count_data:
-            count_records = counts[counts.index == primary_hgvs].to_dict(
-                orient='records'
-            )
+            count_records = counts[counts.index == primary_hgvs].to_dict(orient="records")
             assert len(score_records) == len(count_records)
         else:
             # Make duplicates to zip with self when no count data.
@@ -191,15 +187,11 @@ def create_variants_data(scores, counts=None, index_col=None) -> list[VariantDat
             hgvs_splice = sr.pop(HGVS_SPLICE_COLUMN)
             hgvs_pro = sr.pop(HGVS_PRO_COLUMN)
 
-            if is_csv_null(hgvs_nt) or hgvs_nt is np.NaN or hgvs_nt == 'nan':
+            if is_csv_null(hgvs_nt) or hgvs_nt is np.NaN or hgvs_nt == "nan":
                 hgvs_nt = None
-            if (
-                    is_csv_null(hgvs_splice)
-                    or hgvs_splice is np.NaN
-                    or hgvs_splice == 'nan'
-            ):
+            if is_csv_null(hgvs_splice) or hgvs_splice is np.NaN or hgvs_splice == "nan":
                 hgvs_splice = None
-            if is_csv_null(hgvs_pro) or hgvs_pro is np.NaN or hgvs_pro == 'nan':
+            if is_csv_null(hgvs_pro) or hgvs_pro is np.NaN or hgvs_pro == "nan":
                 hgvs_pro = None
 
             cr.pop(HGVS_NT_COLUMN)
@@ -215,15 +207,12 @@ def create_variants_data(scores, counts=None, index_col=None) -> list[VariantDat
                     if is_csv_null(value) or value is np.NaN:
                         cr[key] = None
 
-            data = {
-                VARIANT_SCORE_DATA: sr,
-                VARIANT_COUNT_DATA: {} if cr == sr else cr
-            }
+            data = {VARIANT_SCORE_DATA: sr, VARIANT_COUNT_DATA: {} if cr == sr else cr}
             variant = {
                 HGVS_NT_COLUMN: hgvs_nt,
                 HGVS_SPLICE_COLUMN: hgvs_splice,
                 HGVS_PRO_COLUMN: hgvs_pro,
-                'data': data
+                "data": data,
             }
             variants.append(variant)
 

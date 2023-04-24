@@ -1,6 +1,12 @@
 import uuid
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.lib.validation.constants.urn import *
+from mavedb.lib.validation.constants.urn import (
+    MAVEDB_ANY_URN_RE,
+    MAVEDB_EXPERIMENT_URN_RE,
+    MAVEDB_EXPERIMENTSET_URN_RE,
+    MAVEDB_SCORESET_URN_RE,
+    MAVEDB_VARIANT_URN_RE,
+)
 
 
 def validate_mavedb_urn(urn: str):
@@ -21,9 +27,7 @@ def validate_mavedb_urn(urn: str):
         try:
             uuid.UUID(urn[4:])
         except ValueError:
-            raise ValidationError(
-                "{}'s is not a valid urn.".format(urn)
-            )
+            raise ValidationError("{}'s is not a valid urn.".format(urn))
     else:
         if not MAVEDB_ANY_URN_RE.match(urn):
             raise ValidationError("{}'s is not a valid urn.".format(urn))
@@ -47,14 +51,10 @@ def validate_mavedb_urn_experimentset(urn: str):
         try:
             uuid.UUID(urn[4:])
         except ValueError:
-            raise ValidationError(
-                "{}'s is not a valid Experiment Set urn.".format(urn)
-            )
+            raise ValidationError("{}'s is not a valid Experiment Set urn.".format(urn))
     else:
         if not MAVEDB_EXPERIMENTSET_URN_RE.match(urn):
-            raise ValidationError(
-                "{}'s is not a valid Experiment Set urn.".format(urn)
-            )
+            raise ValidationError("{}'s is not a valid Experiment Set urn.".format(urn))
 
 
 def validate_mavedb_urn_experiment(urn: str):
@@ -75,14 +75,10 @@ def validate_mavedb_urn_experiment(urn: str):
         try:
             uuid.UUID(urn[4:])
         except ValueError:
-            raise ValidationError(
-                "{}'s is not a valid Experiment Set urn.".format(urn)
-            )
+            raise ValidationError("{}'s is not a valid Experiment Set urn.".format(urn))
     else:
         if not MAVEDB_EXPERIMENT_URN_RE.match(urn):
-            raise ValidationError(
-                "{}'s is not a valid Experiment urn.".format(urn)
-            )
+            raise ValidationError("{}'s is not a valid Experiment urn.".format(urn))
 
 
 def validate_mavedb_urn_scoreset(urn: str):
@@ -103,9 +99,7 @@ def validate_mavedb_urn_scoreset(urn: str):
         try:
             uuid.UUID(urn[4:])
         except ValueError:
-            raise ValidationError(
-                "{}'s is not a valid score set urn.".format(urn)
-            )
+            raise ValidationError("{}'s is not a valid score set urn.".format(urn))
     else:
         if not MAVEDB_SCORESET_URN_RE.match(urn):
             raise ValidationError("{}'s is not a valid score set urn.".format(urn))
@@ -129,9 +123,7 @@ def validate_mavedb_urn_variant(urn: str):
         try:
             uuid.UUID(urn[4:])
         except ValueError:
-            raise ValidationError(
-                "{}'s is not a valid Experiment Set urn.".format(urn)
-            )
+            raise ValidationError("{}'s is not a valid Experiment Set urn.".format(urn))
     else:
         if not MAVEDB_VARIANT_URN_RE.match(urn):
             raise ValidationError("{}'s is not a valid Variant urn.".format(urn))

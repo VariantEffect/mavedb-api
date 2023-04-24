@@ -12,53 +12,40 @@ from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.keyword import Keyword
 
 experiments_doi_identifiers_association_table = Table(
-    # 'dataset_experiment_doi_ids',
-    'experiment_doi_identifiers',
+    "experiment_doi_identifiers",
     Base.metadata,
-    # Column('experiment_id', ForeignKey('dataset_experiment.id'), primary_key=True),
-    # Column('doiidentifier_id', ForeignKey('metadata_doiidentifier.id'), primary_key=True)
-    Column('experiment_id', ForeignKey('experiments.id'), primary_key=True),
-    Column('doi_identifier_id', ForeignKey('doi_identifiers.id'), primary_key=True)
+    Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
+    Column("doi_identifier_id", ForeignKey("doi_identifiers.id"), primary_key=True),
 )
 
 
 experiments_keywords_association_table = Table(
-    # 'dataset_experiment_keywords',
-    'experiment_keywords',
+    "experiment_keywords",
     Base.metadata,
-    # Column('experiment_id', ForeignKey('dataset_experiment.id'), primary_key=True),
-    # Column('keyword_id', ForeignKey('metadata_keywords.id'), primary_key=True)
-    Column('experiment_id', ForeignKey('experiments.id'), primary_key=True),
-    Column('keyword_id', ForeignKey('keywords.id'), primary_key=True)
+    Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
+    Column("keyword_id", ForeignKey("keywords.id"), primary_key=True),
 )
 
 
 experiments_pubmed_identifiers_association_table = Table(
-    # 'dataset_experiment_pubmed_ids',
-    'experiment_pubmed_identifiers',
+    "experiment_pubmed_identifiers",
     Base.metadata,
-    # Column('experiment_id', ForeignKey('dataset_experiment.id'), primary_key=True),
-    # Column('pubmedidentifier_id', ForeignKey('metadata_pubmedidentifier.id'), primary_key=True)
-    Column('experiment_id', ForeignKey('experiments.id'), primary_key=True),
-    Column('pubmed_identifier_id', ForeignKey('pubmed_identifiers.id'), primary_key=True)
+    Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
+    Column("pubmed_identifier_id", ForeignKey("pubmed_identifiers.id"), primary_key=True),
 )
 
 
-#experiments_sra_identifiers_association_table = Table(
+# experiments_sra_identifiers_association_table = Table(
 experiments_raw_read_identifiers_association_table = Table(
-    # 'dataset_experiment_sra_ids',
-    'experiment_sra_identifiers',
+    "experiment_sra_identifiers",
     Base.metadata,
-    # Column('experiment_id', ForeignKey('dataset_experiment.id'), primary_key=True),
-    # Column('sraidentifier_id', ForeignKey('metadata_sraidentifier.id'), primary_key=True)
-    Column('experiment_id', ForeignKey('experiments.id'), primary_key=True),
-    Column('sra_identifier_id', ForeignKey('sra_identifiers.id'), primary_key=True)
+    Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
+    Column("sra_identifier_id", ForeignKey("sra_identifiers.id"), primary_key=True),
 )
 
 
 class Experiment(Base):
-    # __tablename__ = 'dataset_experiment'
-    __tablename__ = 'experiments'
+    __tablename__ = "experiments"
 
     id = Column(Integer, primary_key=True, index=True)
 
@@ -71,34 +58,33 @@ class Experiment(Base):
 
     private = Column(Boolean, nullable=False, default=True)
     approved = Column(Boolean, nullable=False, default=False)
-    # published_date = Column('publish_date', Date, nullable=True)
     published_date = Column(Date, nullable=True)
     processing_state = Column(String, nullable=True)
 
     # TODO Refactor the way we track the number of scoresets?
-    # num_scoresets = Column('last_child_value', Integer, nullable=False, default=0)
     num_scoresets = Column(Integer, nullable=False, default=0)
 
-    # experiment_set_id = Column('experimentset_id', Integer, ForeignKey('dataset_experimentset.id'), nullable=True)
-    experiment_set_id = Column(Integer, ForeignKey('experiment_sets.id'), nullable=True)
-    #experiment_set = relationship('ExperimentSet', backref='experiments')
-    experiment_set = relationship('ExperimentSet', backref=backref('experiments', cascade='all,delete-orphan'))
+    experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), nullable=True)
+    experiment_set = relationship("ExperimentSet", backref=backref("experiments", cascade="all,delete-orphan"))
 
-    # created_by_id = Column(Integer, ForeignKey('auth_user.id'), nullable=True)
-    created_by_id = Column(Integer, ForeignKey('users.id'), nullable=True)
-    created_by = relationship('User', foreign_keys='Experiment.created_by_id')
-    # modified_by_id = Column(Integer, ForeignKey('auth_user.id'), nullable=True)
-    modified_by_id = Column(Integer, ForeignKey('users.id'), nullable=True)
-    modified_by = relationship('User', foreign_keys='Experiment.modified_by_id')
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = relationship("User", foreign_keys="Experiment.created_by_id")
+    modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    modified_by = relationship("User", foreign_keys="Experiment.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    #scoresets = relationship('Scoreset', back_populates='experiment')
-    keyword_objs = relationship('Keyword', secondary=experiments_keywords_association_table, backref='experiments')
-    doi_identifiers = relationship('DoiIdentifier', secondary=experiments_doi_identifiers_association_table, backref='experiments')
-    pubmed_identifiers = relationship('PubmedIdentifier', secondary=experiments_pubmed_identifiers_association_table, backref='experiments')
-    #sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
-    raw_read_identifiers = relationship('RawReadIdentifier', secondary=experiments_raw_read_identifiers_association_table,backref='experiments')
+    keyword_objs = relationship("Keyword", secondary=experiments_keywords_association_table, backref="experiments")
+    doi_identifiers = relationship(
+        "DoiIdentifier", secondary=experiments_doi_identifiers_association_table, backref="experiments"
+    )
+    pubmed_identifiers = relationship(
+        "PubmedIdentifier", secondary=experiments_pubmed_identifiers_association_table, backref="experiments"
+    )
+    # sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
+    raw_read_identifiers = relationship(
+        "RawReadIdentifier", secondary=experiments_raw_read_identifiers_association_table, backref="experiments"
+    )
 
     # Unfortunately, we can't use association_proxy here, because in spite of what the documentation seems to imply, it
     # doesn't check for a pre-existing keyword with the same text.
@@ -131,7 +117,7 @@ class Experiment(Base):
         return keyword_obj
 
 
-@listens_for(Experiment, 'before_insert')
+@listens_for(Experiment, "before_insert")
 def create_parent_object(mapper, connect, target):
     if target.experiment_set_id is None:
         target.experiment_set = ExperimentSet(
@@ -142,5 +128,5 @@ def create_parent_object(mapper, connect, target):
             extra_metadata={},
             num_experiments=1,
             created_by=target.created_by,
-            modified_by=target.modified_by
+            modified_by=target.modified_by,
         )

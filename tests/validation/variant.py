@@ -97,4 +97,3 @@ class TestHGVSValidator(TestCase):
     def test_return_none_for_null(self):
         for c in null_values_list:
             self.assertIsNone(validate_hgvs_string(c, column="nt"))
-

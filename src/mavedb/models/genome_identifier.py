@@ -6,7 +6,7 @@ from mavedb.db.base import Base
 
 
 class GenomeIdentifier(Base):
-    __tablename__ = 'genome_identifiers'
+    __tablename__ = "genome_identifiers"
 
     id = Column(Integer, primary_key=True, index=True)
     identifier = Column(String, nullable=False)

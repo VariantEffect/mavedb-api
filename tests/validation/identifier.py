@@ -4,7 +4,6 @@ from mavedb.lib.validation.identifier import (
     validate_sra_identifier,
     validate_sra_list,
     validate_uniprot_identifier,
-    validate_uniprot_list,
     validate_refseq_identifier,
     validate_refseq_list,
     validate_genome_identifier,
@@ -95,4 +94,3 @@ class TestUniprotValidators(TestCase):
 
     def test_passes_valid_uniprot_id(self):
         validate_uniprot_identifier("P01133")
-

@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from mavedb.lib.validation.target import *
+from mavedb.lib.validation.target import validate_sequence_category, validate_target_category, validate_target_sequence
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.constants.target import valid_categories, valid_sequence_types
 
@@ -30,26 +30,24 @@ class TestValidateSequenceCategory(TestCase):
 
     def test_invalid_case(self):
         with self.assertRaises(ValidationError):
-            validate_sequence_category("dna")
+            validate_sequence_category("DNA")
 
 
 class TestValidateTargetSequence(TestCase):
-    def setUp(self):
-        self.target_seq = "ATGACCAAACAT"
-
     def test_valid(self):
-        validate_target_sequence(self.target_seq)
+        validate_target_sequence("ATGACCAAACAT", "dna")
+        validate_target_sequence("STARTREK", "protein")
+
+    def test_infer(self):
+        validate_target_sequence("ATGACCAAACAT", "infer")
+        validate_target_sequence("STARTREK", "infer")
+
+    def test_type_mismatch(self):
+        with self.assertRaises(ValidationError):
+            validate_target_sequence("STARTREK", "dna")
 
     def test_invalid_characters(self):
-        self.target_seq = "AUGACCAAACAU"
         with self.assertRaises(ValidationError):
-            validate_target_sequence(self.target_seq)
-
-    def test_invalid_case(self):
+            validate_target_sequence("AUGACCAAACAU", "dna")
         with self.assertRaises(ValidationError):
-            validate_target_sequence(self.target_seq.lower())
-
-    def test_invalid_length(self):
-        self.target_seq = self.target_seq + "A"
-        with self.assertRaises(ValidationError):
-            validate_target_sequence(self.target_seq)
+            validate_target_sequence("AUGACCAAACAU", "infer")

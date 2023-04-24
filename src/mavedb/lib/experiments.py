@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSearch) -> list[Scoreset]:
     query = db.query(Experiment)
-        #.filter(Scoreset.private.is_(False))
+    # .filter(Scoreset.private.is_(False))
 
     if owner is not None:
         query = query.filter(Experiment.created_by_id == owner.id)
@@ -27,16 +27,16 @@ def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSe
 
     if search.text:
         lower_search_text = search.text.lower()
-        query = query.filter(or_(
-            Experiment.urn.contains(lower_search_text),
-            Experiment.title.contains(lower_search_text),
-            Experiment.short_description.contains(lower_search_text),
-            Experiment.abstract_text.contains(lower_search_text)
-        ))
+        query = query.filter(
+            or_(
+                Experiment.urn.contains(lower_search_text),
+                Experiment.title.contains(lower_search_text),
+                Experiment.short_description.contains(lower_search_text),
+                Experiment.abstract_text.contains(lower_search_text),
+            )
+        )
 
-    items: list[Experiment] = query\
-        .order_by(Experiment.title)\
-        .all()
+    items: list[Experiment] = query.order_by(Experiment.title).all()
     if not items:
         items = []
     return items

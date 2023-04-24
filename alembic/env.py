@@ -6,6 +6,11 @@ from sqlalchemy import pool
 
 from alembic import context
 
+# Import model metadata for autogenerate support.
+# Linters will flag mavedb.models.* as unused, but we must import it.
+from mavedb.db.base import Base
+from mavedb.models import *  # noqa: F401,F403
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
@@ -20,21 +25,15 @@ fileConfig(config.config_file_name)
 # ... etc.
 
 # Override the sqlalchemy.url value from alembic.ini
-DB_HOST = os.getenv('DB_HOST') or 'localhost'
-DB_PORT = os.getenv('DB_PORT') or 5433
-DB_DATABASE_NAME = os.getenv('DB_DATABASE_NAME') or 'mavedb'
-DB_USERNAME = os.getenv('DB_USERNAME') or 'mave_admin'
-DB_PASSWORD = os.getenv('DB_PASSWORD') or 'abc123'
-config.set_section_option('alembic', 'sqlalchemy.url', f'postgresql://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_DATABASE_NAME}')
+DB_HOST = os.getenv("DB_HOST") or "localhost"
+DB_PORT = os.getenv("DB_PORT") or 5432
+DB_DATABASE_NAME = os.getenv("DB_DATABASE_NAME")
+DB_USERNAME = os.getenv("DB_USERNAME")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+config.set_section_option(
+    "alembic", "sqlalchemy.url", f"postgresql://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_DATABASE_NAME}"
+)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-# target_metadata = None
-from mavedb.db.base import Base
-# from mavedb.models.doi_identifier import DoiIdentifier
-from mavedb.models import *
 target_metadata = Base.metadata
 
 
@@ -76,9 +75,7 @@ def run_migrations_online():
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

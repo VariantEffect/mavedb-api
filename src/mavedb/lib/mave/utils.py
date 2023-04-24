@@ -1,29 +1,15 @@
 import re
 
-NA_VALUE = 'NA'
+NA_VALUE = "NA"
 
-NULL_VALUES = (
-    '',
-    'na',
-    'nan',
-    'nil',
-    'none',
-    'null',
-    'n/a',
-    'undefined',
-    NA_VALUE
-)
+NULL_VALUES = ("", "na", "nan", "nil", "none", "null", "n/a", "undefined", NA_VALUE)
 
 
-NULL_VALUES_RE = re.compile('|'.join(NULL_VALUES), flags=re.IGNORECASE)
+NULL_VALUES_RE = re.compile("|".join(NULL_VALUES), flags=re.IGNORECASE)
 # NULL_VALUES_RE = re.compile(fr'|none|nan|na|undefined|n/a|null|nil|{NA_VALUE}', flags=re.IGNORECASE)
 
 
-READABLE_NULL_VALUES = [
-    f'\'{v}\''.format(v)
-    for v in set([v.lower() for v in NULL_VALUES])
-    if v.strip()
-] + ['whitespace']
+READABLE_NULL_VALUES = [f"'{v}'".format(v) for v in set([v.lower() for v in NULL_VALUES]) if v.strip()] + ["whitespace"]
 
 
 # html_null_values = [

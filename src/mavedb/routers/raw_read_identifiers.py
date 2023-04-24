@@ -10,21 +10,12 @@ from mavedb.view_models import raw_read_identifier
 from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
-    prefix="/api/v1/rawReadIdentifiers",
-    tags=["Raw read identifiers"],
-    responses={404: {"description": "Not found"}}
+    prefix="/api/v1/rawReadIdentifiers", tags=["Raw read identifiers"], responses={404: {"description": "Not found"}}
 )
 
 
-@router.post(
-    '/search',
-    status_code=200,
-    response_model=List[raw_read_identifier.RawReadIdentifier]
-)
-def search_raw_read_identifiers(
-        search: TextSearch,
-        db: Session = Depends(deps.get_db)
-) -> Any:
+@router.post("/search", status_code=200, response_model=List[raw_read_identifier.RawReadIdentifier])
+def search_raw_read_identifiers(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
     Search Raw Read identifiers.
     """
@@ -35,11 +26,9 @@ def search_raw_read_identifiers(
         lower_search_text = search.text.strip().lower()
         query = query.filter(func.lower(RawReadIdentifier.identifier).contains(lower_search_text))
     else:
-        raise HTTPException(status_code=500, detail='Search text is required')
+        raise HTTPException(status_code=500, detail="Search text is required")
 
-    items = query.order_by(RawReadIdentifier.identifier) \
-        .limit(50) \
-        .all()
+    items = query.order_by(RawReadIdentifier.identifier).limit(50).all()
     if not items:
         items = []
     return items

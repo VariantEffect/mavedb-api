@@ -61,23 +61,16 @@ def validate_hgvs_string(
         value = value.decode()
     if not isinstance(value, str):
         raise ValidationError(
-            "Variant HGVS values input must be strings. "
-            "'{}' has the type '{}'.".format(value, type(value).__name__)
+            "Variant HGVS values input must be strings. " "'{}' has the type '{}'.".format(value, type(value).__name__)
         )
 
     if value.lower() == "_sy":
-        raise ValidationError(
-            "_sy is no longer supported and should be replaced by p.(=)"
-        )
+        raise ValidationError("_sy is no longer supported and should be replaced by p.(=)")
     elif value.lower() == "_wt":
-        raise ValidationError(
-            "_wt is no longer supported and should be replaced by (cgnp).="
-        )
+        raise ValidationError("_wt is no longer supported and should be replaced by (cgnp).=")
 
     try:
-        variant = Variant(
-            s=value, targetseq=targetseq, relaxed_ordering=relaxed_ordering
-        )
+        variant = Variant(s=value, targetseq=targetseq, relaxed_ordering=relaxed_ordering)
     except MaveHgvsParseError as error:
         raise ValidationError(f"{value}: {str(error)}")
 
@@ -99,14 +92,12 @@ def validate_hgvs_string(
     elif column in ("splice", hgvs_splice_column):
         if prefix not in "cn":
             raise ValidationError(
-                f"'{value}' is not a transcript variant. The accepted "
-                f"transcript variant prefixes are 'c.', 'n.'."
+                f"'{value}' is not a transcript variant. The accepted " f"transcript variant prefixes are 'c.', 'n.'."
             )
     elif column in ("p", hgvs_pro_column):
         if prefix not in "p":
             raise ValidationError(
-                f"'{value}' is not a protein variant. The accepted "
-                f"protein variant prefix is 'p.'."
+                f"'{value}' is not a protein variant. The accepted " f"protein variant prefix is 'p.'."
             )
     else:
         raise ValueError("Unknown column '{}'. Expected nt, splice or p".format(column))
@@ -114,6 +105,6 @@ def validate_hgvs_string(
     return str(variant)
 
 
-#validate_nt_variant = partial(validate_hgvs_string, **{"column": "nt"})
-#validate_splice_variant = partial(validate_hgvs_string, **{"column": "splice"})
-#validate_pro_variant = partial(validate_hgvs_string, **{"column": "p"})
+# validate_nt_variant = partial(validate_hgvs_string, **{"column": "nt"})
+# validate_splice_variant = partial(validate_hgvs_string, **{"column": "splice"})
+# validate_pro_variant = partial(validate_hgvs_string, **{"column": "p"})

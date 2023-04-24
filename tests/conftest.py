@@ -12,16 +12,14 @@ from mavedb.models.user import User
 
 
 # To store the test database temporarily on disk:
-SQLITE_DB_FILE = './test.db'
+SQLITE_DB_FILE = "./test.db"
 
 # To store the test database in memory:
 # SQLITE_DB_FILE = None
 
-SQLALCHEMY_DATABASE_URL = 'sqlite://' if SQLITE_DB_FILE is None else f'sqlite:///{SQLITE_DB_FILE}'
+SQLALCHEMY_DATABASE_URL = "sqlite://" if SQLITE_DB_FILE is None else f"sqlite:///{SQLITE_DB_FILE}"
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
+engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -35,10 +33,10 @@ def override_get_db():
 
 def override_current_user():
     yield User(
-        #id=1,
-        username='someuser',
-        first_name='First',
-        last_name='Last',
+        # id=1,
+        username="someuser",
+        first_name="First",
+        last_name="Last",
         is_active=True,
         is_staff=False,
         is_superuser=False,

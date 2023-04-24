@@ -11,7 +11,7 @@ from kombu.exceptions import (
     ContentDisallowed,
     SerializationError,
     DecodeError,
-    EncodeError
+    EncodeError,
 )
 import logging
 import pandas as pd
@@ -21,7 +21,7 @@ import traceback
 from mavedb.deps import get_db
 from mavedb.models.failed_task import FailedTask
 
-celery_app = Celery('tasks', broker='pyamqp://guest@rabbit//')
+celery_app = Celery("tasks", broker="pyamqp://guest@rabbit//")
 logger = logging.getLogger(__name__)
 
 
@@ -34,7 +34,7 @@ KOMBU_ERRORS = (
     KombuError,
     LimitExceeded,
     OperationalError,
-    SerializationError
+    SerializationError,
 )
 
 
@@ -45,30 +45,20 @@ def dump_df(df, orient="records"):
     return handle.read()
 
 
-def record_failed_task(
-    celery_task_id,
-    name,
-    exception,
-    args,
-    kwargs,
-    trace,
-    user_id=None
-):
+def record_failed_task(celery_task_id, name, exception, args, kwargs, trace, user_id=None):
     db = next(get_db())
     failed_task = FailedTask(
         celery_task_id=celery_task_id,
-        name=name.split('.')[-1],
+        name=name.split(".")[-1],
         full_name=name,
         exception_class=exception.__class__.__name__,
         exception_message=str(exception).strip(),
         kwargs=kwargs,
         trace=trace,
-        user_id=user_id
+        user_id=user_id,
     )
     if args:
-        args = [
-            dump_df(i) if isinstance(i, pd.DataFrame) else i for i in args
-        ]
+        args = [dump_df(i) if isinstance(i, pd.DataFrame) else i for i in args]
         failed_task.args = json.dumps(list(args))
     if kwargs:
         for key, item in kwargs.items():
@@ -83,9 +73,8 @@ def record_failed_task(
 
 
 def find_existing_failed_task(db, celery_task_id):
-    if celery_task_id and celery_task_id != '-1':
-        query = db.query(FailedTask) \
-            .filter(FailedTask.celery_task_id == celery_task_id)
+    if celery_task_id and celery_task_id != "-1":
+        query = db.query(FailedTask).filter(FailedTask.celery_task_id == celery_task_id)
         return query.first()
     else:
         return None
@@ -95,21 +84,14 @@ class Task(CeleryTask):
     """
     Base task that will save the task to the database and log the error.
     """
+
     def run(self, *args, **kwargs):
         raise NotImplementedError()
 
     def apply_async(
-        self,
-        args=None,
-        kwargs=None,
-        task_id=None,
-        producer=None,
-        link=None,
-        link_error=None,
-        shadow=None,
-        **options
+        self, args=None, kwargs=None, task_id=None, producer=None, link=None, link_error=None, shadow=None, **options
     ):
-        logger.info(f'Applying async celery function \'{self}\'')
+        logger.info(f"Applying async celery function '{self}'")
         return super().apply_async(
             args=args,
             kwargs=kwargs,
@@ -133,27 +115,27 @@ class Task(CeleryTask):
         Returns:
             celery.result.AsyncResult: Future promise.
         """
-        logger.info(f'Applying delayed celery function \'{self}\'')
+        logger.info(f"Applying delayed celery function '{self}'")
         return self.apply_async(args, kwargs)
 
     @staticmethod
     def get_user(user):
-        #if isinstance(user, User):
+        # if isinstance(user, User):
         #    pass
-        #elif isinstance(user, int):
+        # elif isinstance(user, int):
         #    if User.objects.filter(pk=user).count():
         #        user = User.objects.get(pk=user)
         #    else:
         #        user = None
-        #elif isinstance(user, str):
+        # elif isinstance(user, str):
         #    if User.objects.filter(username=user).count():
         #        user = User.objects.get(username=user)
         #    else:
         #        user = None
-        #else:
+        # else:
         #    user = None
         #
-        #return user
+        # return user
         return None
 
     def on_failure(self, exc, task_id, args, kwargs, einfo, user=None):
@@ -190,20 +172,18 @@ class Task(CeleryTask):
         kwargs_str = kwargs.copy()
 
         # TODO Revisit this.
-        variants = str(kwargs_str.get('variants', {}))[0:250]
+        variants = str(kwargs_str.get("variants", {}))[0:250]
         if variants in kwargs_str:
-            kwargs_str['variants'] = variants
+            kwargs_str["variants"] = variants
 
         logger.exception(
-            f'{self.name} with id {task_id} called with args={2}, kwargs={kwargs_str}'
-            f' raised:\n\'{exc}\' with traceback:\n{einfo}'
+            f"{self.name} with id {task_id} called with args={2}, kwargs={kwargs_str}"
+            f" raised:\n'{exc}' with traceback:\n{einfo}"
         )
         self.save_failed_task(exc, task_id, args, kwargs, einfo, user)
         super(BaseTask, self).on_failure(exc, task_id, args, kwargs, einfo)
 
-    def save_failed_task(
-        self, exc, task_id, args, kwargs, trace, user=None
-    ):
+    def save_failed_task(self, exc, task_id, args, kwargs, trace, user=None):
         """
         Save a failed task. If it exists, update the modification_date and failure counter.
         """
@@ -215,18 +195,11 @@ class Task(CeleryTask):
             args=args,
             kwargs=kwargs,
             traceback=str(trace).strip(),  # einfo
-            user=user
+            user=user,
         )
         return task
 
-    def submit_task(
-        self,
-        args=None,
-        kwargs=None,
-        async_options=None,
-        request=None,
-        countdown=10
-    ):
+    def submit_task(self, args=None, kwargs=None, async_options=None, request=None, countdown=10):
         """
         Calls `task.apply_async` and handles any connection errors by
         logging the error to the `django` default log and saving the
@@ -255,31 +228,22 @@ class Task(CeleryTask):
         if not async_options:
             async_options = {}
         try:
-            return (
-                True,
-                self.apply_async(
-                    args=args,
-                    kwargs=kwargs,
-                    countdown=countdown,
-                    **async_options
-                )
-            )
+            return (True, self.apply_async(args=args, kwargs=kwargs, countdown=countdown, **async_options))
         except KOMBU_ERRORS as ex:
             logger.exception(
-                f'Submitting task {self.name} raised a {ex.__class__.__name__} error. '
-                'Failed task has been saved.'
+                f"Submitting task {self.name} raised a {ex.__class__.__name__} error. " "Failed task has been saved."
             )
             # TODO If this is triggered by an API request, respond with a warning. Here is how this
             # used to be done in Django:
             # if request:
             #     messages.warning(request, network_message)
             failed_task = record_failed_task(
-                celery_task_id='-1',
+                celery_task_id="-1",
                 name=self.name,
                 exception=ex,
                 args=args,
                 kwargs=kwargs,
                 trace=traceback.format_exc(),
-                user_id=None  # None if not request else request.user TODO
+                user_id=None,  # None if not request else request.user TODO
             )
             return False, failed_task

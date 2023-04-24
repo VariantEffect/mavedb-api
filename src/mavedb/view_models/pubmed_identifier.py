@@ -1,7 +1,6 @@
 import idutils
 
 from mavedb.view_models.base.base import BaseModel, validator
-from mavedb.lib.validation.exceptions import ValidationError
 
 
 class PubmedIdentifierBase(BaseModel):
@@ -9,8 +8,7 @@ class PubmedIdentifierBase(BaseModel):
 
 
 class PubmedIdentifierCreate(PubmedIdentifierBase):
-
-    @validator('identifier')
+    @validator("identifier")
     def must_be_valid_pubmed(cls, v):
         if not idutils.is_pmid(v):
             # ValidationError shows weird error and test can't catch it.

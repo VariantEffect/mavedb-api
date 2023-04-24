@@ -5,16 +5,15 @@ from mavedb.db.base import Base
 from mavedb.models.role import Role
 
 users_roles_association_table = Table(
-    'users_roles',
+    "users_roles",
     Base.metadata,
-    Column('user_id', ForeignKey('users.id'), primary_key=True),
-    Column('role_id', ForeignKey('roles.id'), primary_key=True)
+    Column("user_id", ForeignKey("users.id"), primary_key=True),
+    Column("role_id", ForeignKey("roles.id"), primary_key=True),
 )
 
 
 class User(Base):
-    # __tablename__ = 'auth_user'
-    __tablename__ = 'users'
+    __tablename__ = "users"
 
     id = Column(Integer, primary_key=True)
     username = Column(String, index=True, nullable=False)
@@ -26,10 +25,8 @@ class User(Base):
     is_active = Column(Boolean, nullable=False)
     date_joined = Column(DateTime, nullable=True)
     email = Column(String, nullable=True)
-    role_objs = relationship('Role', secondary=users_roles_association_table, backref='users')
+    role_objs = relationship("Role", secondary=users_roles_association_table, backref="users")
     last_login = Column(DateTime, nullable=True)
-
-    # password = Column(String, default='abcd')  # TODO Remove when the database is rebuilt from scratch.
 
     @property
     def roles(self) -> list[str]:
@@ -37,15 +34,12 @@ class User(Base):
         return list(map(lambda role_obj: role_obj.name, role_objs))
 
     async def set_roles(self, db, roles: list[str]):
-        print(roles)
         self.role_objs = [await self._find_or_create_role(db, name) for name in roles]
 
     @staticmethod
     async def _find_or_create_role(db, role_name):
         role_obj = db.query(Role).filter(Role.name == role_name).one_or_none()
-        print(role_obj)
         if not role_obj:
             role_obj = Role(name=role_name)
-            print(role_obj)
             # object_session.add(role_obj)
         return role_obj

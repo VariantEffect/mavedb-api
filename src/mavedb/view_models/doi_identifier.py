@@ -9,8 +9,7 @@ class DoiIdentifierBase(BaseModel):
 
 
 class DoiIdentifierCreate(DoiIdentifierBase):
-
-    @validator('identifier')
+    @validator("identifier")
     def must_be_valid_doi(cls, v):
         if not idutils.is_doi(v):
             raise ValidationError("{} is not a valid DOI identifier.".format(v))

@@ -3,7 +3,7 @@ from pydantic import BaseModel as PydanticBaseModel, validator
 
 
 class BaseModel(PydanticBaseModel):
-    @validator('*', pre=True)
+    @validator("*", pre=True)
     def empty_str_to_none(cls, x):
         """
         Convert empty strings to None. This is applied to all string-valued attributes before other validators run.
@@ -11,7 +11,7 @@ class BaseModel(PydanticBaseModel):
         :param x: The attribute value
         :return: None if x was the empty string, otherwise x
         """
-        if x == '':
+        if x == "":
             return None
         return x
 

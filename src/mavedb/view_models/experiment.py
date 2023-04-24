@@ -18,23 +18,22 @@ class ExperimentBase(BaseModel):
     keywords: Optional[list[str]]
 
     @classmethod
-    def from_orm(cls, obj: Any) -> 'Order':
+    def from_orm(cls, obj: Any):
         try:
             obj.experiment_set_urn = obj.experiment_set.urn
         except AttributeError:
             obj.experiment_set_urn = None
         return super().from_orm(obj)
 
-    #@validator('urn')
-    #def name_must_contain_space(cls, v):
+    # @validator('urn')
+    # def name_must_contain_space(cls, v):
     #    if ' ' not in v:
     #        raise ValueError('must contain a space')
     #    return v.title()
 
 
 class ExperimentModify(ExperimentBase):
-
-    @validator('keywords')
+    @validator("keywords")
     def validate_keywords(cls, v):
         keywords.validate_keywords(v)
         return v
@@ -85,8 +84,10 @@ class Experiment(SavedExperiment):
     created_by: Optional[User]
     modified_by: Optional[User]
 
+
 class ShortExperiment(Experiment):
     pass
+
 
 # Properties to return to admin clients
 class AdminExperiment(Experiment):

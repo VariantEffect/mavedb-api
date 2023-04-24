@@ -6,30 +6,26 @@ services:
     build:
       context: .
     command: bash -c "uvicorn mavedb.server_main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=./ssl/server.key --ssl-certfile=./ssl/server.cert"
-    ports:
-      - "8444:8000"
     depends_on:
       - db
-#    env_file:
-#      - settings/.env
+    env_file:
+      - settings/.env.prod
     environment:
       DB_HOST: db
       DB_PORT: 5432
-      DB_DATABASE_NAME: mavedb_dev
-      DB_USERNAME: postgres
-      DB_PASSWORD: postgres
-      NCBI_API_KEY: abc
+    ports:
+      - "8444:8000"
+    restart: unless-stopped
 
   db:
     image: postgres:14
-    volumes:
-      - mavedb-data:/var/lib/postgresql/data
+    env_file:
+      - settings/.env.prod
+    restart: unless-stopped
     ports:
       - "5434:5432"
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: mavedb_dev
+    volumes:
+      - mavedb-data:/var/lib/postgresql/data
 
 #  rabbitmq:
 #    image: rabbitmq:3.8.3

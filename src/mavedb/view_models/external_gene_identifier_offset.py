@@ -1,6 +1,5 @@
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models import external_gene_identifier
-from mavedb.lib.validation import identifier
 
 
 class ExternalGeneIdentifierOffsetBase(BaseModel):
@@ -11,7 +10,7 @@ class ExternalGeneIdentifierOffsetBase(BaseModel):
 class ExternalGeneIdentifierOffsetCreate(ExternalGeneIdentifierOffsetBase):
     identifier: external_gene_identifier.ExternalGeneIdentifierCreate
 
-    @validator('offset')
+    @validator("offset")
     def validate_offset(cls, v):
         if v < 0:
             raise ValueError("Offset should not be a negative number")

@@ -6,13 +6,10 @@ from mavedb.db.base import Base
 
 
 class RawReadIdentifier(Base):
-    # __tablename__ = 'metadata_sraidentifier'
-    __tablename__ = 'sra_identifiers'
+    __tablename__ = "sra_identifiers"
 
     id = Column(Integer, primary_key=True, index=True)
     identifier = Column(String, nullable=False)
-    # db_name = Column('dbname', String(256), nullable=False)
-    # db_version = Column('dbversion', String(256), nullable=True)
     db_name = Column(String, nullable=False)
     db_version = Column(String, nullable=True)
     url = Column(String, nullable=True)

@@ -2,30 +2,31 @@ from mavedb.view_models.wild_type_sequence import WildTypeSequenceCreate
 
 import pytest
 
-def test_create_wild_type_sequence(test_empty_db):
-    sequence_type = "protein"
-    sequence = "ARCG"
+
+@pytest.mark.parametrize(
+    "sequence_type, sequence",
+    [
+        ("dna", "ATGAGTATTCAACATTTCCGTGTC"),
+        ("dna", "ATGAGTATtcaatcTTTCCGTGTC"),
+        ("protein", "STARTREK"),
+        ("Protein", "startrek"),
+    ],
+)
+def test_create_wild_type_sequence(test_empty_db, sequence_type, sequence):
     wildTypeSeq = WildTypeSequenceCreate(sequence_type=sequence_type, sequence=sequence)
-    assert wildTypeSeq.sequence_type == "protein"
-    assert wildTypeSeq.sequence == 'ARCG'
+    assert wildTypeSeq.sequence_type == sequence_type.lower()
+    assert wildTypeSeq.sequence == sequence.upper()
 
-def test_create_invalid_sequence_type(test_empty_db):
-    sequence_type = "dnaaa"
-    sequence = "ATGAGTATTCAACATTTCCGTGTC"
+
+@pytest.mark.parametrize("sequence_type, sequence", [("dnaaa", "ATGAGTATTCAACATTTCCGTGTC"), ("null", "STARTREK")])
+def test_create_invalid_sequence_type(test_empty_db, sequence_type, sequence):
     with pytest.raises(ValueError) as exc_info:
         WildTypeSequenceCreate(sequence_type=sequence_type, sequence=sequence)
-    assert "dnaaa is not a valid sequence type. Valid sequence types are infer, dna, and protein" in str(exc_info.value)
+    assert f"'{sequence_type}' is not a valid sequence type" in str(exc_info.value)
 
-def test_create_not_match_sequence_and_seq_type(test_empty_db):
-    sequence_type = "dna"
-    sequence = "ARCG"
+
+@pytest.mark.parametrize("sequence_type, sequence", [("dna", "ARCG"), ("protein", "AzCG")])
+def test_create_invalid_sequence(test_empty_db, sequence_type, sequence):
     with pytest.raises(ValueError) as exc_info:
         WildTypeSequenceCreate(sequence_type=sequence_type, sequence=sequence)
-    assert "sequence type does not match sequence_type. sequence type is protein, while sequence_type is dna." in str(exc_info.value)
-
-def test_create_not_match_sequence_and_seq_type(test_empty_db):
-    sequence_type = "protein"
-    sequence = "AzCG"
-    with pytest.raises(ValueError) as exc_info:
-        WildTypeSequenceCreate(sequence_type=sequence_type, sequence=sequence)
-    assert "sequence is invalid. It is not a correct target sequence." in str(exc_info.value)
+    assert f"invalid {sequence_type} sequence provided" in str(exc_info.value)

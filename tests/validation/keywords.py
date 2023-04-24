@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from mavedb.lib.validation.keywords import *
+from mavedb.lib.validation.keywords import validate_keyword, validate_keywords
 from mavedb.lib.validation.exceptions import ValidationError
 
 
