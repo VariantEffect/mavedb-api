@@ -24,6 +24,34 @@ def list_target_genes(
     return items
 
 
+@router.get("/names", status_code=200, response_model=List[str], responses={404: {}})
+def list_target_gene_names(
+    *,
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """
+    List distinct target gene names, in alphabetical order.
+    """
+
+    items = db.query(TargetGene).all()
+    names = map(lambda item: item.name, items)
+    return sorted(list(set(names)))
+
+
+@router.get("/categories", status_code=200, response_model=List[str], responses={404: {}})
+def list_target_gene_categories(
+    *,
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """
+    List distinct target genes categories, in alphabetical order.
+    """
+
+    items = db.query(TargetGene).all()
+    categories = map(lambda item: item.category, items)
+    return sorted(list(set(categories)))
+
+
 @router.get("/{item_id}", status_code=200, response_model=target_gene.TargetGene, responses={404: {}})
 def fetch_target_gene(
     *,

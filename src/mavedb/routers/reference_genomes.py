@@ -24,6 +24,20 @@ def list_reference_genomes(
     return items
 
 
+@router.get("/organismNames", status_code=200, response_model=List[str], responses={404: {}})
+def list_reference_genome_organism_names(
+    *,
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """
+    List distinct reference genome organism names, in alphabetical order.
+    """
+
+    items = db.query(ReferenceGenome).all()
+    organism_names = map(lambda item: item.organism_name, items)
+    return sorted(list(set(organism_names)))
+
+
 @router.get("/{item_id}", status_code=200, response_model=reference_genome.ReferenceGenome, responses={404: {}})
 def fetch_reference_genome(
     *,
