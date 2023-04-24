@@ -19,8 +19,8 @@ class ScoresetBase(BaseModel):
     """Base class for score set view models."""
 
     title: str
-    method_text: str
-    abstract_text: str
+    method_text: Optional[str]
+    abstract_text: Optional[str]
     short_description: str
     extra_metadata: Dict
     data_usage_policy: Optional[str]
