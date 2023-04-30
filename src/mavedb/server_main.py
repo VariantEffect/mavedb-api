@@ -32,11 +32,12 @@ from mavedb.routers import (
 )
 
 logging.basicConfig()
-# Un-comment this line to log all queries:
+# Un-comment this line to log all database queries:
 # logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
-# Scan all our model classes and create backref attributes. Otherwise these attributes only get added to classes once an
-# instance of the related class has been created.
+
+# Scan all our model classes and create backref attributes. Otherwise, these attributes only get added to classes once
+# an instance of the related class has been created.
 configure_mappers()
 
 app = FastAPI()
@@ -64,16 +65,12 @@ app.include_router(users.router)
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    print(exc.errors())
-    print(map(lambda error: customize_validation_error(error), exc.errors()))
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=jsonable_encoder({"detail": list(map(lambda error: customize_validation_error(error), exc.errors()))}),
     )
 
-
 def customize_validation_error(error):
-    print(error["type"])
     if error["type"] == "type_error.none.not_allowed":
         return {"loc": error["loc"], "msg": "Required", "type": error["type"]}
     return error
