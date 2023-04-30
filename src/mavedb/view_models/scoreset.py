@@ -103,7 +103,7 @@ class SavedScoreset(ScoresetBase):
     urn: str
     num_variants: int
     experiment: SavedExperiment
-    license: SavedLicense
+    license: ShortLicense
     superseded_scoreset: Optional[ShortScoreset]
     superseding_scoreset: Optional[SavedScoreset]
     meta_analysis_source_scoresets: list[ShortScoreset]
@@ -127,7 +127,7 @@ class Scoreset(SavedScoreset):
     """Score set view model containing most properties visible to non-admin users, but no variant data."""
 
     experiment: Experiment
-    license: License
+    license: ShortLicense
     superseded_scoreset: Optional[ShortScoreset]
     superseding_scoreset: Optional[Scoreset]
     meta_analysis_source_scoresets: list[ShortScoreset]
