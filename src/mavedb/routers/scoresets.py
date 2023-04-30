@@ -11,11 +11,12 @@ from fastapi import APIRouter, Depends, File, status, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import MultipleResultsFound
 
 from mavedb import deps
-from mavedb.lib.authorization import require_current_user
+from mavedb.lib.authorization import get_current_user, require_current_user
 from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
     find_or_create_doi_identifier,
@@ -43,10 +44,25 @@ logger = logging.getLogger(__name__)
 null_values_re = re.compile(r"\s+|none|nan|na|undefined|n/a|null|nil", flags=re.IGNORECASE)
 
 
-async def fetch_scoreset_by_urn(db, urn):
+async def fetch_scoreset_by_urn(db, urn: str, owner: Optional[User]) -> Optional[Scoreset]:
+    """
+    Fetch one score set by URN, ensuring that it is either published or owned by a specified user.
+
+    :param db: An active database session.
+    :param urn: The score set URN.
+    :param owner: A user whose private score sets may be included in the search. If None, then the score set will only
+        be returned if it is public.
+    :return: The score set, or None if the URL was not found or refers to a private score set not owned by the specified
+        user.
+    """
     try:
-        # item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
-        item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
+        permission_filter = Scoreset.private.is_(False)
+        if owner is not None:
+            permission_filter = or_(
+                permission_filter,
+                Scoreset.created_by_id == owner.id,
+            )
+        item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(permission_filter).one_or_none()
     except MultipleResultsFound:
         raise HTTPException(status_code=500, detail=f"Multiple scoresets with URN {urn} were found.")
     if not item:
@@ -84,12 +100,14 @@ def search_my_scoresets(
 
 
 @router.get("/scoresets/{urn}", status_code=200, response_model=scoreset.Scoreset, responses={404: {}, 500: {}})
-async def show_scoreset(*, urn: str, db: Session = Depends(deps.get_db)) -> Any:
+async def show_scoreset(
+    *, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(get_current_user)
+) -> Any:
     """
     Fetch a single scoreset by URN.
     """
 
-    return await fetch_scoreset_by_urn(db, urn)
+    return await fetch_scoreset_by_urn(db, urn, user)
 
 
 @router.get(
@@ -191,7 +209,9 @@ async def create_scoreset(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
 
     if item_create.superseded_scoreset_urn is not None:
-        superseded_scoreset = await fetch_scoreset_by_urn(db, item_create.superseded_scoreset_urn)
+        superseded_scoreset = await fetch_scoreset_by_urn(db, item_create.superseded_scoreset_urn, user)
+        if superseded_scoreset is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown superseded scoreset")
     else:
         superseded_scoreset = None
     meta_analysis_source_scoresets = [
@@ -410,7 +430,14 @@ async def update_scoreset(
             item.license = license_
 
         for var, value in vars(item_update).items():
-            if var not in ["keywords", "doi_identifiers", "experiment_urn", "license_id", "pubmed_identifiers", "target_gene"]:
+            if var not in [
+                "keywords",
+                "doi_identifiers",
+                "experiment_urn",
+                "license_id",
+                "pubmed_identifiers",
+                "target_gene",
+            ]:
                 setattr(item, var, value) if value else None
         item.doi_identifiers = [
             await find_or_create_doi_identifier(db, identifier.identifier)
