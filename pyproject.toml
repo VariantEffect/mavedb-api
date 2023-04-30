@@ -48,6 +48,7 @@ server = [
     "python-jose[cryptography]~=3.3.0",
     "python-multipart~=0.0.5",
     "requests~=2.28.1",
+    "slack-sdk~=3.21.3",
     "starlette~=0.17.1",
     "uvicorn[standard]",
 ]

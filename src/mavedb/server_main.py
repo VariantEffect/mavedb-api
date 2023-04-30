@@ -1,4 +1,6 @@
+import json
 import logging
+import os
 
 import uvicorn
 from fastapi import FastAPI
@@ -7,10 +9,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from requests import Request
+from slack_sdk.webhook import WebhookClient
+from sqlalchemy.orm import configure_mappers
 from starlette import status
 from starlette.responses import JSONResponse, Response
-
-from sqlalchemy.orm import configure_mappers
 
 from mavedb.models import *
 
@@ -34,6 +36,7 @@ from mavedb.routers import (
 logging.basicConfig()
 # Un-comment this line to log all database queries:
 # logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 # Scan all our model classes and create backref attributes. Otherwise, these attributes only get added to classes once
@@ -74,6 +77,34 @@ def customize_validation_error(error):
     if error["type"] == "type_error.none.not_allowed":
         return {"loc": error["loc"], "msg": "Required", "type": error["type"]}
     return error
+
+
+def exception_as_dict(ex):
+    return dict(
+        type=ex.__class__.__name__,
+        exception=str(ex),
+    )
+
+
+@app.exception_handler(Exception)
+async def exception_handler(request, err):
+    logger.error("Uncaught exception", exc_info=err)
+    slack_webhook_url = os.getenv("SLACK_WEBHOOK_URL")
+    if slack_webhook_url is not None and len(slack_webhook_url) > 0:
+        client = WebhookClient(url=slack_webhook_url)
+        response = client.send(
+            text=json.dumps(exception_as_dict(err)),
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": json.dumps(exception_as_dict(err)),
+                    }
+                }
+            ]
+        )
+    return JSONResponse(status_code=500, content={"message": "Internal server error"})
 
 
 def customize_openapi_schema():
