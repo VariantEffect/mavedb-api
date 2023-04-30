@@ -84,27 +84,27 @@ def fetch_experiment(*, urn: str, db: Session = Depends(deps.get_db)) -> Experim
 
 
 @router.get(
-    "/experiments/{urn}/associated_scoresets",
+    "/experiments/{urn}/scoresets",
     status_code=200,
     response_model=list[scoreset.Scoreset],
     responses={404: {}},
 )
-def get_experiment_all_scoresets(*, urn: str, db: Session = Depends(deps.get_db)) -> Any:
+def get_experiment_scoresets(*, urn: str, db: Session = Depends(deps.get_db)) -> Any:
     """
-    Get all of scoresets for an experiment
+    Get all score sets belonging to an experiment.
     """
     experiment = db.query(Experiment).filter(Experiment.urn == urn).first()
     if not experiment:
         raise HTTPException(status_code=404, detail=f"Experiment with URN {urn} not found")
-    # Only get published scoreset. Unpublished scoreset won't be shown on experiment page.
-    scoreset_list = (
+    # Only get published score sets. Unpublished score sets won't be shown on experiment page.
+    scoresets = (
         db.query(Scoreset).filter(Scoreset.experiment_id == experiment.id).filter(Scoreset.urn.contains("urn")).all()
     )
-    if not scoreset_list:
+    if not scoresets:
         raise HTTPException(status_code=404, detail="No associated score set")
     else:
-        scoreset_list.sort(key=attrgetter("urn"))
-    return scoreset_list
+        scoresets.sort(key=attrgetter("urn"))
+    return scoresets
 
 
 @router.post("/experiments/", response_model=experiment.Experiment, responses={422: {}})
