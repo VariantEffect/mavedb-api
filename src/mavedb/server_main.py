@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from requests import Request
 from starlette import status
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 from sqlalchemy.orm import configure_mappers
 
@@ -17,6 +17,7 @@ from mavedb.models import *
 from mavedb import __version__
 from mavedb.routers import (
     access_keys,
+    api_information,
     doi_identifiers,
     experiment_sets,
     experiments,
@@ -47,6 +48,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(access_keys.router)
+app.include_router(api_information.router)
 app.include_router(doi_identifiers.router)
 app.include_router(experiment_sets.router)
 app.include_router(experiments.router)
