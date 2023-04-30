@@ -21,7 +21,7 @@ async def list_users(*, db: Session = Depends(deps.get_db), user: User = Depends
     return items
 
 
-@router.get("/users/me", status_code=200, response_model=user.User, responses={404: {}, 500: {}})
+@router.get("/users/me", status_code=200, response_model=user.CurrentUser, responses={404: {}, 500: {}})
 async def show_me(*, user: User = Depends(require_current_user)) -> Any:
     """
     Return the current user.
@@ -45,9 +45,9 @@ async def show_user(
     return item
 
 
-@router.put("/users/me", status_code=200, response_model=user.User, responses={404: {}, 500: {}})
+@router.put("/users/me", status_code=200, response_model=user.CurrentUser, responses={404: {}, 500: {}})
 async def update_me(
-    *, user_update: user.UserUpdate, db: Session = Depends(deps.get_db), user: User = Depends(require_current_user)
+    *, user_update: user.CurrentUserUpdate, db: Session = Depends(deps.get_db), user: User = Depends(require_current_user)
 ) -> Any:
     """
     Update the current user.
