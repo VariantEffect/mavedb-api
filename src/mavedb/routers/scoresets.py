@@ -27,6 +27,7 @@ from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn
 from mavedb.lib.validation import exceptions
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_pair
+from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
@@ -268,7 +269,11 @@ async def create_scoreset(
         created_by=user,
         modified_by=user,
     )
-    await item.set_keywords(db, item_create.keywords)
+    keywords = {key: [ControlledKeyword(key, keyword.value, keyword.vocabulary) for keyword in keywords] for key, keywords in item_create.keywords}
+    try:
+        await item.set_keywords(db, keywords)
+    except Exception:
+        raise HTTPException(status_code=500, detail='Invalid keywords')
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -449,7 +454,12 @@ async def update_scoreset(
             for identifier in item_update.pubmed_identifiers or []
         ]
 
-        await item.set_keywords(db, item_update.keywords)
+        keywords = {key: [ControlledKeyword(key, keyword.value, keyword.vocabulary) for keyword in keywords] for
+                    key, keywords in item_update.keywords}
+        try:
+            await item.set_keywords(db, keywords)
+        except Exception:
+            raise HTTPException(status_code=500, detail='Invalid keywords')
 
         # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the scoreset's
         # target_gene to None, because we have set cascade='all,delete-orphan' on Scoreset.target_gene. (Since the

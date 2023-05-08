@@ -6,7 +6,7 @@ from sqlalchemy.schema import Table
 from mavedb.db.base import Base
 from mavedb.deps import JSONB
 from mavedb.models.enums.processing_state import ProcessingState
-from .keyword import Keyword
+from mavedb.models.legacy_keyword import LegacyKeyword
 
 # from .raw_read_identifier import SraIdentifier
 from mavedb.lib.temp_urns import generate_temp_urn
@@ -138,8 +138,8 @@ class Scoreset(Base):
     #     self._keyword_objs = [await self._find_or_create_keyword(text) for text in keywords]
 
     async def _find_or_create_keyword(self, db, keyword_text):
-        keyword_obj = db.query(Keyword).filter(Keyword.text == keyword_text).one_or_none()
+        keyword_obj = db.query(LegacyKeyword).filter(LegacyKeyword.text == keyword_text).one_or_none()
         if not keyword_obj:
-            keyword_obj = Keyword(text=keyword_text)
+            keyword_obj = LegacyKeyword(text=keyword_text)
             # object_session.add(keyword_obj)
         return keyword_obj

@@ -1,5 +1,5 @@
 from celery import Celery
-from celery.app.task import Task as CeleryTask
+from celery.app.task import Task as CeleryTask, BaseTask
 import io
 import json
 from kombu.exceptions import (

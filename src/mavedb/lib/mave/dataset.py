@@ -7,6 +7,7 @@ from typing import Union, Optional, Tuple, List, TextIO, BinaryIO, Set, Dict
 
 import pandas as pd
 import numpy as np
+from mavecore.validation.constants.general import null_values_re
 from mavehgvs import MaveHgvsParseError, Variant
 from fqfa.util.translate import translate_dna
 from fqfa.util.infer import infer_sequence_type
@@ -15,6 +16,7 @@ from . import constants
 from .utils import is_csv_null, NULL_VALUES, READABLE_NULL_VALUES
 from ..validation.constants.general import null_values_re
 
+import mavecore.validation.dataframe
 
 class MaveDataset:
     class DatasetType:
