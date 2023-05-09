@@ -19,7 +19,7 @@ experiments_doi_identifiers_association_table = Table(
 )
 
 
-experiments_keywords_association_table = Table(
+experiments_legacy_keywords_association_table = Table(
     "experiment_keywords",
     Base.metadata,
     Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
@@ -74,7 +74,7 @@ class Experiment(Base):
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    keyword_objs = relationship("Keyword", secondary=experiments_keywords_association_table, backref="experiments")
+    legacy_keyword_objs = relationship("LegacyKeyword", secondary=experiments_legacy_keywords_association_table, backref="experiments")
     doi_identifiers = relationship(
         "DoiIdentifier", secondary=experiments_doi_identifiers_association_table, backref="experiments"
     )
@@ -94,11 +94,11 @@ class Experiment(Base):
     # _updated_doi_identifiers: list[str] = None
 
     @property
-    def keywords(self) -> list[str]:
+    def legacy_keywords(self) -> list[str]:
         # if self._updated_keywords:
         #     return self._updated_keywords
         # else:
-        keyword_objs = self.keyword_objs or []  # getattr(self, 'keyword_objs', [])
+        keyword_objs = self.legacy_keyword_objs or []  # getattr(self, 'keyword_objs', [])
         return list(map(lambda keyword_obj: keyword_obj.text, keyword_objs))
 
     async def set_keywords(self, db, keywords: list[str]):

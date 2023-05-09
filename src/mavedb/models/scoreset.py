@@ -1,17 +1,27 @@
+from collections import defaultdict
 from datetime import date
 from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.schema import Table
+from typing import Dict, Optional
 
 from mavedb.db.base import Base
 from mavedb.deps import JSONB
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.legacy_keyword import LegacyKeyword
+from mavedb.models.controlled_keyword import ControlledKeyword
 
 # from .raw_read_identifier import SraIdentifier
 from mavedb.lib.temp_urns import generate_temp_urn
 
 # TODO Reformat code without removing dependencies whose use is not detected.
+
+scoresets_controlled_keywords_association_table = Table(
+    'scoreset_controlled_keywords',
+    Base.metadata,
+    Column('scoreset_id', ForeignKey('scoresets.id'), primary_key=True),
+    Column('controlled_keyword_id', ForeignKey('controlled_keywords.id'), primary_key=True)
+)
 
 scoresets_doi_identifiers_association_table = Table(
     "scoreset_doi_identifiers",
@@ -21,7 +31,7 @@ scoresets_doi_identifiers_association_table = Table(
 )
 
 
-scoresets_keywords_association_table = Table(
+scoresets_legacy_keywords_association_table = Table(
     "scoreset_keywords",
     Base.metadata,
     Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
@@ -85,7 +95,7 @@ class Scoreset(Base):
     # TODO Standardize on US or GB spelling for licenc/se.
     licence_id = Column(Integer, ForeignKey("licenses.id"), nullable=False)
     license = relationship("License")
-    superseded_scoreset_id = Column("replaces_id", Integer, ForeignKey("scoresets.id"), nullable=True)  # TODO
+    superseded_scoreset_id = Column("replaces_id", Integer, ForeignKey("scoresets.id"), nullable=True)
     superseded_scoreset = relationship(
         "Scoreset", uselist=False, remote_side=[id], backref=backref("superseding_scoreset", uselist=False)
     )
@@ -97,7 +107,8 @@ class Scoreset(Base):
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    keyword_objs = relationship("Keyword", secondary=scoresets_keywords_association_table, backref="scoresets")
+    keyword_objs = relationship("ControlledKeyword", secondary=scoresets_controlled_keywords_association_table, backref="scoresets")
+    legacy_keyword_objs = relationship('LegacyKeyword', secondary=scoresets_legacy_keywords_association_table, backref='scoresets')
     doi_identifiers = relationship(
         "DoiIdentifier", secondary=scoresets_doi_identifiers_association_table, backref="scoresets"
     )
@@ -114,6 +125,14 @@ class Scoreset(Base):
         backref="meta_analyses",
     )
 
+    @property
+    def keywords(self) -> Dict[str, ControlledKeyword]:
+        keyword_objs = self.keyword_objs or []  # getattr(self, 'keyword_objs', [])
+        keywords = defaultdict(keyword_objs)
+        for keyword in keyword_objs:
+            keywords[keyword.key].append(keyword)
+        return sorted(keywords.items)
+
     # Unfortunately, we can't use association_proxy here, because in spite of what the documentation seems to imply, it
     # doesn't check for a pre-existing keyword with the same text.
     # keywords = association_proxy('keyword_objs', 'text', creator=lambda text: Keyword(text=text))
@@ -122,24 +141,40 @@ class Scoreset(Base):
     # _updated_doi_identifiers: list[str] = None
 
     @property
-    def keywords(self) -> list[str]:
+    def legacy_keywords(self) -> list[str]:
         # if self._updated_keywords:
         #     return self._updated_keywords
         # else:
-        keyword_objs = self.keyword_objs or []  # getattr(self, 'keyword_objs', [])
-        return list(map(lambda keyword_obj: keyword_obj.text, keyword_objs))
+        legacy_keyword_objs = self.legacy_keyword_objs or []  # getattr(self, 'keyword_objs', [])
+        return list(map(lambda keyword_obj: keyword_obj.text, legacy_keyword_objs))
 
-    async def set_keywords(self, db, keywords: list[str]):
-        self.keyword_objs = [await self._find_or_create_keyword(db, text) for text in keywords]
+    async def set_legacy_keywords(self, db, keywords: list[str]):
+        self.keyword_objs = [await self._find_or_create_legacy_keyword(db, text) for text in keywords]
+
+    async def set_keywords(self, db, keywords: list[ControlledKeyword]):
+        self.keyword_objs = [await self._find_or_create_keyword(db, keyword.key, keyword.value, keyword.vocabulary) for keyword in keywords]
 
     # See https://gist.github.com/tachyondecay/e0fe90c074d6b6707d8f1b0b1dcc8e3a
     # @keywords.setter
     # async def set_keywords(self, db, keywords: list[str]):
     #     self._keyword_objs = [await self._find_or_create_keyword(text) for text in keywords]
 
-    async def _find_or_create_keyword(self, db, keyword_text):
+    async def _find_or_create_legacy_keyword(self, db, keyword_text):
         keyword_obj = db.query(LegacyKeyword).filter(LegacyKeyword.text == keyword_text).one_or_none()
         if not keyword_obj:
             keyword_obj = LegacyKeyword(text=keyword_text)
             # object_session.add(keyword_obj)
         return keyword_obj
+
+    async def _find_keyword(self, db, key: str, value: str, vocabulary: Optional[str]):
+        query = db.query(ControlledKeyword) \
+            .filter(ControlledKeyword.key == key) \
+            .filter(ControlledKeyword.value == value)
+        if vocabulary is not None:
+            query = query.filter(ControlledKeyword.vocabulary == vocabulary)
+        controlled_keyword_obj = query.one_or_none()
+        if controlled_keyword_obj is None:
+            raise ValueError(f'Unknown keyword {key}:{value}')
+            # Do not automatically create controlled keywords.
+            # controlled_keyword_obj = ControlledKeyword(key=key, value=value, vocabulary=vocabulary)
+        return controlled_keyword_obj
