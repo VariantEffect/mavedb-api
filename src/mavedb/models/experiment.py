@@ -27,11 +27,11 @@ experiments_keywords_association_table = Table(
 )
 
 
-experiments_pubmed_identifiers_association_table = Table(
-    "experiment_pubmed_identifiers",
+experiments_publication_identifiers_association_table = Table(
+    "experiment_publication_identifiers",
     Base.metadata,
     Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
-    Column("pubmed_identifier_id", ForeignKey("pubmed_identifiers.id"), primary_key=True),
+    Column("publication_identifier_id", ForeignKey("publication_identifiers.id"), primary_key=True),
 )
 
 
@@ -78,8 +78,8 @@ class Experiment(Base):
     doi_identifiers = relationship(
         "DoiIdentifier", secondary=experiments_doi_identifiers_association_table, backref="experiments"
     )
-    pubmed_identifiers = relationship(
-        "PubmedIdentifier", secondary=experiments_pubmed_identifiers_association_table, backref="experiments"
+    publication_identifiers = relationship(
+        "PublicationIdentifier", secondary=experiments_publication_identifiers_association_table, backref="experiments"
     )
     # sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
     raw_read_identifiers = relationship(

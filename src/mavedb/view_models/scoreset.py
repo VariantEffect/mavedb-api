@@ -7,7 +7,11 @@ from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.doi_identifier import DoiIdentifier, DoiIdentifierCreate, SavedDoiIdentifier
 from mavedb.view_models.experiment import Experiment, SavedExperiment
 from mavedb.view_models.license import License, SavedLicense, ShortLicense
-from mavedb.view_models.pubmed_identifier import PubmedIdentifier, PubmedIdentifierCreate, SavedPubmedIdentifier
+from mavedb.view_models.publication_identifier import (
+    PublicationIdentifier,
+    PublicationIdentifierCreate,
+    SavedPublicationIdentifier,
+)
 from mavedb.view_models.target_gene import SavedTargetGene, ShortTargetGene, TargetGene, TargetGeneCreate
 from mavedb.view_models.user import SavedUser, User
 from mavedb.view_models.variant import VariantInDbBase
@@ -43,7 +47,7 @@ class ScoresetCreate(ScoresetModify):
     meta_analysis_source_scoreset_urns: Optional[list[str]]
     target_gene: TargetGeneCreate
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
-    pubmed_identifiers: Optional[list[PubmedIdentifierCreate]]
+    publication_identifiers: Optional[list[PublicationIdentifierCreate]]
 
     @validator("superseded_scoreset_urn", "meta_analysis_source_scoreset_urns")
     def validate_scoreset_urn(cls, v):
@@ -68,7 +72,7 @@ class ScoresetUpdate(ScoresetModify):
 
     license_id: Optional[int]
     doi_identifiers: list[DoiIdentifierCreate]
-    pubmed_identifiers: list[PubmedIdentifierCreate]
+    publication_identifiers: list[PublicationIdentifierCreate]
     target_gene: TargetGeneCreate
 
 
@@ -109,7 +113,7 @@ class SavedScoreset(ScoresetBase):
     meta_analysis_source_scoresets: list[ShortScoreset]
     meta_analyses: list[ShortScoreset]
     doi_identifiers: list[SavedDoiIdentifier]
-    pubmed_identifiers: list[SavedPubmedIdentifier]
+    publication_identifiers: list[SavedPublicationIdentifier]
     published_date: Optional[date]
     creation_date: date
     modification_date: date
@@ -133,7 +137,7 @@ class Scoreset(SavedScoreset):
     meta_analysis_source_scoresets: list[ShortScoreset]
     meta_analyses: list[ShortScoreset]
     doi_identifiers: list[DoiIdentifier]
-    pubmed_identifiers: list[PubmedIdentifier]
+    publication_identifiers: list[PublicationIdentifier]
     created_by: Optional[User]
     modified_by: Optional[User]
     target_gene: TargetGene

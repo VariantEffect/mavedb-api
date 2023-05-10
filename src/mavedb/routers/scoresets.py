@@ -20,7 +20,7 @@ from mavedb.lib.authorization import get_current_user, require_current_user
 from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
     find_or_create_doi_identifier,
-    find_or_create_pubmed_identifier,
+    find_or_create_publication_identifier,
 )
 from mavedb.lib.scoresets import create_variants_data, search_scoresets as _search_scoresets, VariantData
 from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_scoreset_urn
@@ -100,9 +100,7 @@ def search_my_scoresets(
 
 
 @router.get("/scoresets/{urn}", status_code=200, response_model=scoreset.Scoreset, responses={404: {}, 500: {}})
-async def show_scoreset(
-    *, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(get_current_user)
-) -> Any:
+async def show_scoreset(*, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(get_current_user)) -> Any:
     """
     Fetch a single scoreset by URN.
     """
@@ -222,9 +220,9 @@ async def create_scoreset(
         await find_or_create_doi_identifier(db, identifier.identifier)
         for identifier in item_create.doi_identifiers or []
     ]
-    pubmed_identifiers = [
-        await find_or_create_pubmed_identifier(db, identifier.identifier)
-        for identifier in item_create.pubmed_identifiers or []
+    publication_identifiers = [
+        await find_or_create_publication_identifier(db, identifier.identifier)
+        for identifier in item_create.publication_identifiers or []
     ]
     wt_sequence = WildTypeSequence(**jsonable_encoder(item_create.target_gene.wt_sequence, by_alias=False))
     target_gene = TargetGene(
@@ -252,7 +250,7 @@ async def create_scoreset(
                 "keywords",
                 "license_id",
                 "meta_analysis_source_scoreset_urns",
-                "pubmed_identifiers",
+                "publication_identifiers",
                 "superseded_scoreset_urn",
                 "target_gene",
             ],
@@ -263,7 +261,7 @@ async def create_scoreset(
         meta_analysis_source_scoresets=meta_analysis_source_scoresets,
         target_gene=target_gene,
         doi_identifiers=doi_identifiers,
-        pubmed_identifiers=pubmed_identifiers,
+        publication_identifiers=publication_identifiers,
         processing_state=ProcessingState.incomplete,
         created_by=user,
         modified_by=user,
@@ -421,7 +419,6 @@ async def update_scoreset(
 
     # Editing unpublished scoreset
     if item.private is True:
-
         license_ = None
         if item_update.license_id is not None:
             license_ = db.query(License).filter(License.id == item_update.license_id).one_or_none()
@@ -435,7 +432,7 @@ async def update_scoreset(
                 "doi_identifiers",
                 "experiment_urn",
                 "license_id",
-                "pubmed_identifiers",
+                "publication_identifiers",
                 "target_gene",
             ]:
                 setattr(item, var, value) if value else None
@@ -444,9 +441,9 @@ async def update_scoreset(
             for identifier in item_update.doi_identifiers or []
         ]
 
-        item.pubmed_identifiers = [
-            await find_or_create_pubmed_identifier(db, identifier.identifier)
-            for identifier in item_update.pubmed_identifiers or []
+        item.publication_identifiers = [
+            await find_or_create_publication_identifier(db, identifier.identifier)
+            for identifier in item_update.publication_identifiers or []
         ]
 
         await item.set_keywords(db, item_update.keywords)
@@ -481,7 +478,7 @@ async def update_scoreset(
 
         reference_map = ReferenceMap(genome_id=item_update.target_gene.reference_maps[0].genome_id, target=target_gene)
         for var, value in vars(item_update).items():
-            if var not in ["keywords", "doi_identifiers", "experiment_urn", "pubmed_identifiers", "target_gene"]:
+            if var not in ["keywords", "doi_identifiers", "experiment_urn", "publication_identifiers", "target_gene"]:
                 setattr(item, var, value) if value else None
     # Editing published scoreset
     else:

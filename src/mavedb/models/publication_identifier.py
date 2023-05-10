@@ -5,8 +5,8 @@ from sqlalchemy import Column, Date, Integer, String
 from mavedb.db.base import Base
 
 
-class PubmedIdentifier(Base):
-    __tablename__ = "pubmed_identifiers"
+class PublicationIdentifier(Base):
+    __tablename__ = "publication_identifiers"
 
     id = Column(Integer, primary_key=True, index=True)
     identifier = Column(String, nullable=False)

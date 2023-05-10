@@ -37,11 +37,11 @@ scoresets_meta_analysis_scoresets_association_table = Table(
 )
 
 
-scoresets_pubmed_identifiers_association_table = Table(
-    "scoreset_pubmed_identifiers",
+scoresets_publication_identifiers_association_table = Table(
+    "scoreset_publication_identifiers",
     Base.metadata,
     Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
-    Column("pubmed_identifier_id", ForeignKey("pubmed_identifiers.id"), primary_key=True),
+    Column("publication_identifier_id", ForeignKey("publication_identifiers.id"), primary_key=True),
 )
 
 
@@ -101,8 +101,8 @@ class Scoreset(Base):
     doi_identifiers = relationship(
         "DoiIdentifier", secondary=scoresets_doi_identifiers_association_table, backref="scoresets"
     )
-    pubmed_identifiers = relationship(
-        "PubmedIdentifier", secondary=scoresets_pubmed_identifiers_association_table, backref="scoresets"
+    publication_identifiers = relationship(
+        "PublicationIdentifier", secondary=scoresets_publication_identifiers_association_table, backref="scoresets"
     )
     # sra_identifiers = relationship('SraIdentifier', secondary=scoresets_sra_identifiers_association_table, backref='scoresets')
     # raw_read_identifiers = relationship('RawReadIdentifier', secondary=scoresets_raw_read_identifiers_association_table,backref='scoresets')

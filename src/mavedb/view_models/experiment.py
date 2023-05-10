@@ -3,7 +3,11 @@ from typing import Any, Dict, Optional
 
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.doi_identifier import DoiIdentifierCreate, SavedDoiIdentifier, DoiIdentifier
-from mavedb.view_models.pubmed_identifier import PubmedIdentifierCreate, SavedPubmedIdentifier, PubmedIdentifier
+from mavedb.view_models.publication_identifier import (
+    PublicationIdentifierCreate,
+    SavedPublicationIdentifier,
+    PublicationIdentifier,
+)
 from mavedb.view_models.raw_read_identifier import RawReadIdentifierCreate, SavedRawReadIdentifier, RawReadIdentifier
 from mavedb.view_models.user import SavedUser, User
 from mavedb.lib.validation import keywords
@@ -45,7 +49,7 @@ class ExperimentCreate(ExperimentModify):
     abstract_text: str
     method_text: str
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
-    pubmed_identifiers: Optional[list[PubmedIdentifierCreate]]
+    publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     raw_read_identifiers: Optional[list[RawReadIdentifierCreate]]
 
 
@@ -54,7 +58,7 @@ class ExperimentUpdate(ExperimentModify):
     abstract_text: str
     method_text: str
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
-    pubmed_identifiers: Optional[list[PubmedIdentifierCreate]]
+    publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     raw_read_identifiers: Optional[list[RawReadIdentifierCreate]]
 
 
@@ -69,7 +73,7 @@ class SavedExperiment(ExperimentBase):
     published_date: Optional[date]
     experiment_set_urn: Optional[str]
     doi_identifiers: list[SavedDoiIdentifier]
-    pubmed_identifiers: list[SavedPubmedIdentifier]
+    publication_identifiers: list[SavedPublicationIdentifier]
     raw_read_identifiers: list[SavedRawReadIdentifier]
     processing_state: Optional[str]
 
@@ -80,7 +84,7 @@ class SavedExperiment(ExperimentBase):
 # Properties to return to non-admin clients
 class Experiment(SavedExperiment):
     doi_identifiers: list[DoiIdentifier]
-    pubmed_identifiers: list[PubmedIdentifier]
+    publication_identifiers: list[PublicationIdentifier]
     raw_read_identifiers: list[RawReadIdentifier]
     created_by: Optional[User]
     modified_by: Optional[User]
