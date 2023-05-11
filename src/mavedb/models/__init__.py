@@ -8,6 +8,7 @@ __all__ = [
     "genome_identifier",
     "keyword",
     "license",
+    "mapped_variant",
     "publication_identifier",
     "raw_read_identifier",
     "reference_genome",
