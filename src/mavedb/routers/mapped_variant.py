@@ -22,6 +22,8 @@ async def fetch_mapped_variant_by_variant_urn(db, urn: str) -> Optional[MappedVa
     """
     try:
         variant = db.query(Variant).filter(Variant.urn == urn).one_or_none()
+        if not variant:
+            raise HTTPException(status_code=404, detail=f"Mapped variant with URN {urn} not found")
         item = db.query(MappedVariant).filter(MappedVariant.variant_id == variant.id).one_or_none()
     except MultipleResultsFound:
         raise HTTPException(status_code=500, detail=f"Multiple variants with URN {urn} were found.")
