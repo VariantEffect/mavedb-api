@@ -10,7 +10,7 @@ from mavedb.view_models import publication_identifier
 from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
-    prefix="/api/v1/PublicationIdentifiers", tags=["PubMed identifiers"], responses={404: {"description": "Not found"}}
+    prefix="/api/v1/publicationIdentifiers", tags=["PubMed identifiers"], responses={404: {"description": "Not found"}}
 )
 
 
