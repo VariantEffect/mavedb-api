@@ -166,7 +166,7 @@ class Scoreset(Base):
             # object_session.add(keyword_obj)
         return keyword_obj
 
-    async def _find_keyword(self, db, key: str, value: str, vocabulary: Optional[str]):
+    async def _find_or_create_keyword(self, db, key: str, value: str, vocabulary: Optional[str]):
         query = db.query(ControlledKeyword) \
             .filter(ControlledKeyword.key == key) \
             .filter(ControlledKeyword.value == value)

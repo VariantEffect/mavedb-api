@@ -15,6 +15,7 @@ from mavedb.lib.identifiers import (
     find_or_create_pubmed_identifier,
     find_or_create_raw_read_identifier,
 )
+from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.experiment import Experiment
 from mavedb.models.scoreset import Scoreset
 from mavedb.models.user import User
@@ -143,7 +144,13 @@ async def create_experiment(
         created_by=user,
         modified_by=user,
     )
-    await item.set_keywords(db, item_create.keywords)
+    # await item.set_keywords(db, item_create.keywords)
+    keywords = {key: [ControlledKeyword(key, keyword.value, keyword.vocabulary) for keyword in keywords]
+                for key, keywords in item_create.keywords}
+    try:
+        await item.set_keywords(db, keywords)
+    except Exception:
+        raise HTTPException(status_code=500, detail='Invalid keywords')
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -192,7 +199,13 @@ async def update_experiment(
     item.pubmed_identifiers = pubmed_identifiers
     item.raw_read_identifiers = raw_read_identifiers
 
-    await item.set_keywords(db, item_update.keywords)
+    # await item.set_keywords(db, item_update.keywords)
+    keywords = {key: [ControlledKeyword(key, keyword.value, keyword.vocabulary) for keyword in keywords] for
+                key, keywords in item_update.keywords}
+    try:
+        await item.set_keywords(db, keywords)
+    except Exception:
+        raise HTTPException(status_code=500, detail='Invalid keywords')
     item.modified_by = user
 
     db.add(item)

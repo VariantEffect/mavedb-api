@@ -1,15 +1,25 @@
+from collections import defaultdict
 from datetime import date
 
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.event import listens_for
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.schema import Table
+from typing import Dict, Optional
 
 from mavedb.db.base import Base
 from mavedb.deps import JSONB
 from mavedb.lib.temp_urns import generate_temp_urn
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.legacy_keyword import LegacyKeyword
+from mavedb.models.controlled_keyword import ControlledKeyword
+
+experiments_controlled_keywords_association_table = Table(
+    'experiment_controlled_keywords',
+    Base.metadata,
+    Column('experiment_id', ForeignKey('experiments.id'), primary_key=True),
+    Column('controlled_keyword_id', ForeignKey('controlled_keywords.id'), primary_key=True)
+)
 
 experiments_doi_identifiers_association_table = Table(
     "experiment_doi_identifiers",
@@ -74,6 +84,7 @@ class Experiment(Base):
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
+    keyword_objs = relationship("ControlledKeyword", secondary=experiments_controlled_keywords_association_table, backref="experiments")
     legacy_keyword_objs = relationship("LegacyKeyword", secondary=experiments_legacy_keywords_association_table, backref="experiments")
     doi_identifiers = relationship(
         "DoiIdentifier", secondary=experiments_doi_identifiers_association_table, backref="experiments"
@@ -94,28 +105,51 @@ class Experiment(Base):
     # _updated_doi_identifiers: list[str] = None
 
     @property
+    def keywords(self) -> Dict[str, ControlledKeyword]:
+        keyword_objs = self.keyword_objs or []  # getattr(self, 'keyword_objs', [])
+        keywords = defaultdict(keyword_objs)
+        for keyword in keyword_objs:
+            keywords[keyword.key].append(keyword)
+        return sorted(keywords.items)
+
+    @property
     def legacy_keywords(self) -> list[str]:
         # if self._updated_keywords:
         #     return self._updated_keywords
         # else:
-        keyword_objs = self.legacy_keyword_objs or []  # getattr(self, 'keyword_objs', [])
-        return list(map(lambda keyword_obj: keyword_obj.text, keyword_objs))
+        legacy_keyword_objs = self.legacy_keyword_objs or []  # getattr(self, 'keyword_objs', [])
+        return list(map(lambda keyword_obj: keyword_obj.text, legacy_keyword_objs))
 
-    async def set_keywords(self, db, keywords: list[str]):
-        self.keyword_objs = [await self._find_or_create_keyword(db, text) for text in keywords]
+    async def set_legacy_keywords(self, db, keywords: list[str]):
+        self.keyword_objs = [await self._find_or_create_legacy_keyword(db, text) for text in keywords]
+
+    async def set_keywords(self, db, keywords: list[ControlledKeyword]):
+        self.keyword_objs = [await self._find_or_create_keyword(db, keyword.key, keyword.value, keyword.vocabulary) for keyword in keywords]
 
     # See https://gist.github.com/tachyondecay/e0fe90c074d6b6707d8f1b0b1dcc8e3a
     # @keywords.setter
     # async def set_keywords(self, db, keywords: list[str]):
     #     self._keyword_objs = [await self._find_or_create_keyword(text) for text in keywords]
 
-    async def _find_or_create_keyword(self, db, keyword_text):
+    async def _find_or_create_legacy_keyword(self, db, keyword_text):
         keyword_obj = db.query(LegacyKeyword).filter(LegacyKeyword.text == keyword_text).one_or_none()
         if not keyword_obj:
             keyword_obj = LegacyKeyword(text=keyword_text)
             # object_session.add(keyword_obj)
         return keyword_obj
 
+    async def _find_or_create_keyword(self, db, key: str, value: str, vocabulary: Optional[str]):
+        query = db.query(ControlledKeyword) \
+            .filter(ControlledKeyword.key == key) \
+            .filter(ControlledKeyword.value == value)
+        if vocabulary is not None:
+            query = query.filter(ControlledKeyword.vocabulary == vocabulary)
+        controlled_keyword_obj = query.one_or_none()
+        if controlled_keyword_obj is None:
+            raise ValueError(f'Unknown keyword {key}:{value}')
+            # Do not automatically create controlled keywords.
+            # controlled_keyword_obj = ControlledKeyword(key=key, value=value, vocabulary=vocabulary)
+        return controlled_keyword_obj
 
 @listens_for(Experiment, "before_insert")
 def create_parent_object(mapper, connect, target):
