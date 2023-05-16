@@ -1,10 +1,19 @@
 # See https://pydantic-docs.helpmanual.io/usage/postponed_annotations/#self-referencing-models
 from __future__ import annotations
-from datetime import date
-from typing import Dict, Optional
 
+from datetime import date
+from typing import Collection, Dict, Optional
+
+from pydantic import Field
+
+from mavedb.lib.validation import keywords, urn
+from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
-from mavedb.view_models.doi_identifier import DoiIdentifier, DoiIdentifierCreate, SavedDoiIdentifier
+from mavedb.view_models.doi_identifier import (
+    DoiIdentifier,
+    DoiIdentifierCreate,
+    SavedDoiIdentifier,
+)
 from mavedb.view_models.experiment import Experiment, SavedExperiment
 from mavedb.view_models.license import License, SavedLicense, ShortLicense
 from mavedb.view_models.publication_identifier import (
@@ -12,11 +21,14 @@ from mavedb.view_models.publication_identifier import (
     PublicationIdentifierCreate,
     SavedPublicationIdentifier,
 )
-from mavedb.view_models.target_gene import SavedTargetGene, ShortTargetGene, TargetGene, TargetGeneCreate
+from mavedb.view_models.target_gene import (
+    SavedTargetGene,
+    ShortTargetGene,
+    TargetGene,
+    TargetGeneCreate,
+)
 from mavedb.view_models.user import SavedUser, User
 from mavedb.view_models.variant import VariantInDbBase
-from mavedb.lib.validation import keywords
-from mavedb.lib.validation import urn
 
 
 class ScoresetBase(BaseModel):
@@ -47,6 +59,7 @@ class ScoresetCreate(ScoresetModify):
     meta_analysis_source_scoreset_urns: Optional[list[str]]
     target_gene: TargetGeneCreate
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
+    primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = Field(..., min_items=0, max_items=1)
     publication_identifiers: Optional[list[PublicationIdentifierCreate]]
 
     @validator("superseded_scoreset_urn", "meta_analysis_source_scoreset_urns")
@@ -72,6 +85,7 @@ class ScoresetUpdate(ScoresetModify):
 
     license_id: Optional[int]
     doi_identifiers: list[DoiIdentifierCreate]
+    primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = Field(..., min_items=0, max_items=1)
     publication_identifiers: list[PublicationIdentifierCreate]
     target_gene: TargetGeneCreate
 
@@ -113,6 +127,7 @@ class SavedScoreset(ScoresetBase):
     meta_analysis_source_scoresets: list[ShortScoreset]
     meta_analyses: list[ShortScoreset]
     doi_identifiers: list[SavedDoiIdentifier]
+    primary_publication_identifiers: list[SavedPublicationIdentifier]
     publication_identifiers: list[SavedPublicationIdentifier]
     published_date: Optional[date]
     creation_date: date
@@ -125,6 +140,14 @@ class SavedScoreset(ScoresetBase):
     class Config:
         orm_mode = True
         arbitrary_types_allowed = True
+        getter_dict = PublicationIdentifiersGetter
+
+    # Association proxy objects return an untyped _AssocitionList object.
+    # Recast it into something more generic.
+    @validator("publication_identifiers", "primary_publication_identifiers", pre=True)
+    def publication_identifiers_validator(cls, value) -> list[PublicationIdentifier]:
+        assert isinstance(value, Collection), "`publication_identifiers` must be a collection"
+        return list(value)  # Re-cast into proper list-like type
 
 
 class Scoreset(SavedScoreset):
@@ -137,6 +160,7 @@ class Scoreset(SavedScoreset):
     meta_analysis_source_scoresets: list[ShortScoreset]
     meta_analyses: list[ShortScoreset]
     doi_identifiers: list[DoiIdentifier]
+    primary_publication_identifiers: list[PublicationIdentifier]
     publication_identifiers: list[PublicationIdentifier]
     created_by: Optional[User]
     modified_by: Optional[User]

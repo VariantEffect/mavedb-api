@@ -220,10 +220,19 @@ async def create_scoreset(
         await find_or_create_doi_identifier(db, identifier.identifier)
         for identifier in item_create.doi_identifiers or []
     ]
+    primary_publication_identifiers = [
+        await find_or_create_publication_identifier(db, identifier.identifier)
+        for identifier in item_create.primary_publication_identifiers or []
+    ]
     publication_identifiers = [
         await find_or_create_publication_identifier(db, identifier.identifier)
         for identifier in item_create.publication_identifiers or []
     ]
+    # create a temporary `primary` attribute on each of our publications that indicates
+    # to our association proxy whether it is a primary publication or not
+    for publication in publication_identifiers:
+        setattr(publication, "primary", publication in primary_publication_identifiers)
+
     wt_sequence = WildTypeSequence(**jsonable_encoder(item_create.target_gene.wt_sequence, by_alias=False))
     target_gene = TargetGene(
         **jsonable_encoder(
@@ -250,6 +259,8 @@ async def create_scoreset(
                 "keywords",
                 "license_id",
                 "meta_analysis_source_scoreset_urns",
+                "primary_publication_identifiers",
+                "publication_identifier_associations",
                 "publication_identifiers",
                 "superseded_scoreset_urn",
                 "target_gene",
@@ -433,19 +444,29 @@ async def update_scoreset(
                 "experiment_urn",
                 "license_id",
                 "publication_identifiers",
+                "primary_publication_identifiers",
                 "target_gene",
             ]:
                 setattr(item, var, value) if value else None
+
         item.doi_identifiers = [
             await find_or_create_doi_identifier(db, identifier.identifier)
             for identifier in item_update.doi_identifiers or []
         ]
-
-        item.publication_identifiers = [
+        primary_publication_identifiers = [
+            await find_or_create_publication_identifier(db, identifier.identifier)
+            for identifier in item_update.primary_publication_identifiers or []
+        ]
+        publication_identifiers = [
             await find_or_create_publication_identifier(db, identifier.identifier)
             for identifier in item_update.publication_identifiers or []
         ]
+        # create a temporary `primary` attribute on each of our publications that indicates
+        # to our association proxy whether it is a primary publication or not
+        for publication in publication_identifiers:
+            setattr(publication, "primary", publication in primary_publication_identifiers)
 
+        item.publication_identifiers = publication_identifiers
         await item.set_keywords(db, item_update.keywords)
 
         # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the scoreset's
@@ -478,8 +499,16 @@ async def update_scoreset(
 
         reference_map = ReferenceMap(genome_id=item_update.target_gene.reference_maps[0].genome_id, target=target_gene)
         for var, value in vars(item_update).items():
-            if var not in ["keywords", "doi_identifiers", "experiment_urn", "publication_identifiers", "target_gene"]:
+            if var not in [
+                "keywords",
+                "doi_identifiers",
+                "experiment_urn",
+                "primary_publication_identifiers",
+                "publication_identifiers",
+                "target_gene",
+            ]:
                 setattr(item, var, value) if value else None
+
     # Editing published scoreset
     else:
         for var, value in vars(item_update).items():
