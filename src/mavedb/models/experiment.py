@@ -121,10 +121,6 @@ class Experiment(Base):
 def create_parent_object(mapper, connect, target):
     if target.experiment_set_id is None:
         target.experiment_set = ExperimentSet(
-            title=target.title,
-            method_text=target.method_text,
-            abstract_text=target.abstract_text,
-            short_description=target.short_description,
             extra_metadata={},
             num_experiments=1,
             created_by=target.created_by,

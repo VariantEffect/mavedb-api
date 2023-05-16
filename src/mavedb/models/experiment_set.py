@@ -44,10 +44,6 @@ class ExperimentSet(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     urn = Column(String(64), nullable=True, default=generate_temp_urn)  # index=True, nullable=True
-    title = Column(String, nullable=False)
-    method_text = Column(String, nullable=False)
-    abstract_text = Column(String, nullable=False)
-    short_description = Column(String, nullable=False)
     extra_metadata = Column(JSONB, nullable=False)
 
     private = Column(Boolean, nullable=False, default=True)
