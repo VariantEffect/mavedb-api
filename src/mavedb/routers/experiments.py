@@ -2,7 +2,7 @@ import logging
 from operator import attrgetter
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,7 @@ from mavedb.lib.identifiers import (
     find_or_create_raw_read_identifier,
 )
 from mavedb.models.experiment import Experiment
+from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.scoreset import Scoreset
 from mavedb.models.user import User
 from mavedb.view_models import experiment, scoreset
@@ -119,6 +120,13 @@ async def create_experiment(
     """
     if item_create is None:
         return None
+    experiment_set = None
+    if item_create.experiment_set_urn is not None:
+        experiment_set = (
+            db.query(ExperimentSet).filter(ExperimentSet.urn == item_create.experiment_set_urn).one_or_none()
+        )
+        if not experiment_set:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment set")
     doi_identifiers = [
         await find_or_create_doi_identifier(db, identifier.identifier)
         for identifier in item_create.doi_identifiers or []
@@ -135,8 +143,9 @@ async def create_experiment(
         **jsonable_encoder(
             item_create,
             by_alias=False,
-            exclude=["doi_identifiers", "keywords", "pubmed_identifiers", "raw_read_identifiers"],
+            exclude=["doi_identifiers", "experiment_set_urn", "keywords", "pubmed_identifiers", "raw_read_identifiers"],
         ),
+        experiment_set=experiment_set,
         doi_identifiers=doi_identifiers,
         pubmed_identifiers=pubmed_identifiers,
         raw_read_identifiers=raw_read_identifiers,

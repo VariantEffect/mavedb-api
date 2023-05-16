@@ -10,11 +10,6 @@ from mavedb.view_models.user import SavedUser, User
 
 class ExperimentSetBase(BaseModel):
     urn: str
-    title: Optional[str]
-    method_text: Optional[str]
-    abstract_text: Optional[str]
-    short_description: Optional[str]
-    extra_metadata: Optional[Dict]
     published_date: Optional[date]
 
 
