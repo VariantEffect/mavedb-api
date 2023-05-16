@@ -40,6 +40,7 @@ class ExperimentModify(ExperimentBase):
 
 
 class ExperimentCreate(ExperimentModify):
+    experiment_set_urn: Optional[str]
     short_description: str
     abstract_text: str
     method_text: str
