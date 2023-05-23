@@ -128,7 +128,7 @@ class SavedScoreset(ScoresetBase):
     meta_analyses: list[ShortScoreset]
     doi_identifiers: list[SavedDoiIdentifier]
     primary_publication_identifiers: list[SavedPublicationIdentifier]
-    publication_identifiers: list[SavedPublicationIdentifier]
+    secondary_publication_identifiers: list[SavedPublicationIdentifier]
     published_date: Optional[date]
     creation_date: date
     modification_date: date
@@ -144,7 +144,7 @@ class SavedScoreset(ScoresetBase):
 
     # Association proxy objects return an untyped _AssocitionList object.
     # Recast it into something more generic.
-    @validator("publication_identifiers", "primary_publication_identifiers", pre=True)
+    @validator("secondary_publication_identifiers", "primary_publication_identifiers", pre=True)
     def publication_identifiers_validator(cls, value) -> list[PublicationIdentifier]:
         assert isinstance(value, Collection), "`publication_identifiers` must be a collection"
         return list(value)  # Re-cast into proper list-like type
@@ -161,7 +161,7 @@ class Scoreset(SavedScoreset):
     meta_analyses: list[ShortScoreset]
     doi_identifiers: list[DoiIdentifier]
     primary_publication_identifiers: list[PublicationIdentifier]
-    publication_identifiers: list[PublicationIdentifier]
+    secondary_publication_identifiers: list[PublicationIdentifier]
     created_by: Optional[User]
     modified_by: Optional[User]
     target_gene: TargetGene

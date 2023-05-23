@@ -260,7 +260,6 @@ async def create_scoreset(
                 "license_id",
                 "meta_analysis_source_scoreset_urns",
                 "primary_publication_identifiers",
-                "publication_identifier_associations",
                 "publication_identifiers",
                 "superseded_scoreset_urn",
                 "target_gene",

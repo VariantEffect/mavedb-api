@@ -15,7 +15,7 @@ class PublicationIdentifiersGetter(GetterDict):
     """
 
     def get(self, key: str, default: Any) -> Any:
-        if key == "publication_identifiers":
+        if key == "secondary_publication_identifiers":
             pub_assc = getattr(self._obj, "publication_identifier_associations")
             return [assc.publication for assc in pub_assc if not assc.primary]
         elif key == "primary_publication_identifiers":

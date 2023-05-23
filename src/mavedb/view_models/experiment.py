@@ -87,7 +87,7 @@ class SavedExperiment(ExperimentBase):
     experiment_set_urn: Optional[str]
     doi_identifiers: list[SavedDoiIdentifier]
     primary_publication_identifiers: list[SavedPublicationIdentifier]
-    publication_identifiers: list[SavedPublicationIdentifier]
+    secondary_publication_identifiers: list[SavedPublicationIdentifier]
     raw_read_identifiers: list[SavedRawReadIdentifier]
     processing_state: Optional[str]
 
@@ -97,7 +97,7 @@ class SavedExperiment(ExperimentBase):
 
     # Association proxy objects return an untyped _AssocitionList object.
     # Recast it into something more generic.
-    @validator("publication_identifiers", "primary_publication_identifiers", pre=True)
+    @validator("secondary_publication_identifiers", "primary_publication_identifiers", pre=True)
     def publication_identifiers_validator(cls, value) -> list[PublicationIdentifier]:
         assert isinstance(value, Collection), "`publication_identifiers` must be a collection"
         return list(value)  # Re-cast into proper list-like type
@@ -107,7 +107,7 @@ class SavedExperiment(ExperimentBase):
 class Experiment(SavedExperiment):
     doi_identifiers: list[DoiIdentifier]
     primary_publication_identifiers: list[PublicationIdentifier]
-    publication_identifiers: list[PublicationIdentifier]
+    secondary_publication_identifiers: list[PublicationIdentifier]
     raw_read_identifiers: list[RawReadIdentifier]
     created_by: Optional[User]
     modified_by: Optional[User]
