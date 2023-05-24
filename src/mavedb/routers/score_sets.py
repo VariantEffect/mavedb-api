@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import logging
 import re
 from datetime import date
@@ -35,12 +36,14 @@ from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_p
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
+from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.reference_map import ReferenceMap
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.models.wild_type_sequence import WildTypeSequence
+from mavedb.view_models import mapped_variant
 from mavedb.view_models import score_set
 from mavedb.view_models.search import ScoreSetsSearch
 
@@ -178,6 +181,25 @@ async def get_score_set_counts_csv(
     writer.writerows(rows_data)
     return StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
 
+
+@router.get(
+    "/scoresets/{urn}/mappedVariants", status_code=200, response_model=list[mapped_variant.MappedVariant])
+def get_scoreset_mapped_variants(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """
+    Return mapped variants from a scoreset, identified by URN.
+    """
+    mapped_variants = (
+        db.query(MappedVariant).filter(Scoreset.urn == urn).filter(Scoreset.id == Variant.scoreset_id).filter(Variant.id == MappedVariant.variant_id).all()
+    )
+
+    if not mapped_variants:
+        raise HTTPException(status_code=404, detail=f"Mapped variants with URN {urn} not found")
+
+    return mapped_variants
 
 class HGVSColumns:
     NUCLEOTIDE: str = "hgvs_nt"  # dataset.constants.hgvs_nt_column
