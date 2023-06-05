@@ -1,11 +1,13 @@
 from datetime import date
 from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship, backref
+from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.schema import Table
 
 from mavedb.db.base import Base
 from mavedb.deps import JSONB
 from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.models.scoreset_publication_identifier import ScoresetPublicationIdentifierAssociation
 from .keyword import Keyword
 
 # from .raw_read_identifier import SraIdentifier
@@ -34,14 +36,6 @@ scoresets_meta_analysis_scoresets_association_table = Table(
     Base.metadata,
     Column("source_scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
     Column("meta_analysis_scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
-)
-
-
-scoresets_pubmed_identifiers_association_table = Table(
-    "scoreset_pubmed_identifiers",
-    Base.metadata,
-    Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
-    Column("pubmed_identifier_id", ForeignKey("pubmed_identifiers.id"), primary_key=True),
 )
 
 
@@ -101,8 +95,13 @@ class Scoreset(Base):
     doi_identifiers = relationship(
         "DoiIdentifier", secondary=scoresets_doi_identifiers_association_table, backref="scoresets"
     )
-    pubmed_identifiers = relationship(
-        "PubmedIdentifier", secondary=scoresets_pubmed_identifiers_association_table, backref="scoresets"
+    publication_identifier_associations = relationship(
+        "ScoresetPublicationIdentifierAssociation", back_populates="scoreset", cascade="all, delete-orphan"
+    )
+    publication_identifiers = association_proxy(
+        "publication_identifier_associations",
+        "publication",
+        creator=lambda p: ScoresetPublicationIdentifierAssociation(publication=p, primary=p.primary),
     )
     # sra_identifiers = relationship('SraIdentifier', secondary=scoresets_sra_identifiers_association_table, backref='scoresets')
     # raw_read_identifiers = relationship('RawReadIdentifier', secondary=scoresets_raw_read_identifiers_association_table,backref='scoresets')

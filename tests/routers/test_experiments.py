@@ -34,7 +34,7 @@ def test_create_experiment(test_empty_db):
         "modifiedBy": {"orcidId": "someuser", "firstName": "First", "lastName": "Last", "email": None, "roles": []},
         "processingState": None,
         "doiIdentifiers": [],
-        "pubmedIdentifiers": [],
+        "publicationIdentifiers": [],
         "rawReadIdentifiers": [],
     }
     expected_response = experiment_to_create | added_fields
@@ -49,7 +49,7 @@ def test_create_experiment_with_invalid_doi(test_empty_db):
         "shortDescription": "Test experiment",
         "extraMetadata": {"key": "value"},
         "doiIdentifiers": [{"identifier": "10.bf"}],
-        "pubmedIdentifiers": [],
+        "publicationIdentifiers": [],
         "keywords": [],
     }
     response = client.post("/api/v1/experiments/", json=experiment_to_create)
@@ -64,7 +64,7 @@ def test_create_experiment_with_invalid_pubmed(test_empty_db):
         "shortDescription": "Test experiment",
         "extraMetadata": {"key": "value"},
         "doiIdentifiers": [],
-        "pubmedIdentifiers": [{"identifier": "cccc"}],
+        "publicationIdentifiers": [{"identifier": "cccc"}],
         "keywords": [],
     }
     response = client.post("/api/v1/experiments/", json=experiment_to_create)
