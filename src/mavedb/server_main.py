@@ -13,6 +13,7 @@ from slack_sdk.webhook import WebhookClient
 from sqlalchemy.orm import configure_mappers
 from starlette import status
 from starlette.responses import JSONResponse, Response
+from metapub.exceptions import InvalidPMID
 
 from mavedb.models import *
 
@@ -33,6 +34,7 @@ from mavedb.routers import (
     target_genes,
     users,
 )
+from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError
 
 logging.basicConfig()
 # Un-comment this line to log all database queries:
@@ -73,6 +75,30 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=jsonable_encoder({"detail": list(map(lambda error: customize_validation_error(error), exc.errors()))}),
+    )
+
+
+@app.exception_handler(AmbiguousIdentifierError)
+async def ambiguous_identifier_error_exception_handler(request: Request, exc: AmbiguousIdentifierError):
+    return JSONResponse(
+        status_code=400,
+        content={"message": str(exc)},
+    )
+
+
+@app.exception_handler(NonexistentIdentifierError)
+async def nonexistent_identifier_error_exception_handler(request: Request, exc: NonexistentIdentifierError):
+    return JSONResponse(
+        status_code=404,
+        content={"message": str(exc)},
+    )
+
+
+@app.exception_handler(InvalidPMID)
+async def nonexistent_pmid_error_exception_handler(request: Request, exc: InvalidPMID):
+    return JSONResponse(
+        status_code=404,
+        content={"message": str(exc)},
     )
 
 

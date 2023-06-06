@@ -1,19 +1,24 @@
-from typing import Union
+from datetime import date
+from typing import Optional, Union
 
 import metapub
 from eutils import EutilsNCBIError
 from sqlalchemy.orm import Session
 
+from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError
+from mavedb.lib.rxiv import Rxiv, RxivContentDetail
+from mavedb.lib.validation.publication import identifier_valid_for, validate_db_name
+from mavedb.models.author import Author
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset
 from mavedb.models.publication_identifier import PublicationIdentifier
+from mavedb.models.raw_read_identifier import RawReadIdentifier
 from mavedb.models.refseq_identifier import RefseqIdentifier
 from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
-from mavedb.models.raw_read_identifier import RawReadIdentifier
 
 EXTERNAL_GENE_IDENTIFIER_CLASSES = {
     "Ensembl": EnsemblIdentifier,
@@ -30,6 +35,102 @@ EXTERNAL_GENE_IDENTIFIER_OFFSET_ATTRIBUTES = {
 }
 
 
+class ExternalPublication:
+    """
+    Class for a generic External Publication object, which may be a response
+    from the public APIs of any accepted publication db.
+    """
+
+    identifier: str
+    title: str
+    abstract: str
+    authors: tuple[str, ...]
+    publication_year: int
+    published_doi: Optional[str]
+    preprint_doi: Optional[str]
+    publication_journal: Optional[str]
+    preprint_date: Optional[date]
+    db_name: str
+    reference_html: str
+
+    def __init__(
+        self,
+        identifier: str,
+        db_name: str,
+        external_publication: Union[RxivContentDetail, metapub.PubMedArticle],
+    ) -> None:
+        """
+        NOTE: We assume here that the first author in each of these author lists is the primary author
+              of a publication. From what I have seen so far from the metapub and biorxiv APIs, this
+              is a fine assumption to make, but it doesn't come with future guarantees and this may
+              not be the case for certain publications.
+        """
+        validate_db_name(db_name)
+
+        # Shared fields
+        self.identifier = identifier
+        self.db_name = db_name
+        self.title = str(external_publication.title)
+        self.abstract = str(external_publication.abstract)
+        self.authors = self._generate_author_list(external_publication.author_list)
+
+        # Non-shared fields
+        if isinstance(external_publication, metapub.PubMedArticle):
+            self.publication_year = int(external_publication.year)
+            self.publication_journal = str(external_publication.journal)
+            self.published_doi = str(external_publication.doi)
+            self.preprint_doi = None
+            self.preprint_date = None
+        elif isinstance(external_publication, RxivContentDetail):
+            self.preprint_doi = external_publication.doi
+            self.preprint_date = external_publication.date
+            self.publication_journal = None
+
+        self.reference_html = str(external_publication.citation_html)
+
+    def _generate_author_list(self, authors: Union[list[str], list[metapub.PubMedAuthor]]) -> tuple[str, ...]:
+        """
+        Generates a tuple of author names associated with this publication.
+        """
+        if not authors:
+            return ()
+
+        if isinstance(authors[0], metapub.PubMedAuthor):
+            created_authors = [", ".join([str(authors[0].last_name), str(authors[0].fore_name)])]
+        else:
+            created_authors = [authors[0]]
+
+        for author in authors[1:]:
+            if isinstance(author, metapub.PubMedAuthor):
+                created_authors.append(", ".join([str(author.last_name), str(author.fore_name)]))
+            else:
+                created_authors.append(author)
+
+        return tuple(created_authors)
+
+    @property
+    def first_author(self) -> str:
+        return self.authors[0]
+
+    @property
+    def secondary_authors(self) -> tuple[str, ...]:
+        if len(self.authors) > 1:
+            return self.authors[1:]
+        else:
+            return ()
+
+    @property
+    def url(self) -> str:
+        if self.db_name == "PubMed":
+            return f"http://www.ncbi.nlm.nih.gov/pubmed/{self.identifier}"
+        elif self.db_name == "bioRxiv":
+            return f"https://www.biorxiv.org/content/10.1101/{self.identifier}"
+        elif self.db_name == "medRxiv":
+            return f"https://www.medrxiv.org/content/10.1101/{self.identifier}"
+        else:
+            return ""
+
+
 async def find_or_create_doi_identifier(db: Session, identifier: str):
     """
     Find an existing DOI identifier record with the specified identifier string, or create a new one.
@@ -44,35 +145,188 @@ async def find_or_create_doi_identifier(db: Session, identifier: str):
     return doi_identifier
 
 
-def fetch_pubmed_citation_html(identifier: str):
+async def fetch_pubmed_article(identifier: str) -> Optional[ExternalPublication]:
+    """
+    Fetch an existing PubMed article from NCBI
+    """
     fetch = metapub.PubMedFetcher()
     try:
-        article = fetch.article_by_pmid(identifier)
+        article = fetch.article_by_pmid(pmid=identifier)
+        if article:
+            article = ExternalPublication(identifier=identifier, db_name="PubMed", external_publication=article)
     except EutilsNCBIError:
-        return f"Unable to retrieve PubMed ID {identifier}"
+        return None
     else:
-        return article.citation_html
+        return article
 
 
-async def find_or_create_publication_identifier(db: Session, identifier: str):
+# TODO: Could search on article_detail -> content_detail to try and get the richer
+#       metadata that exists on already published articles. leaving for now since
+#       the main purpose of these changes is to support preprints, which we now do,
+#       and adding any additional API calls would slow this fetch process down.
+#       - capodb 2023.06.06
+#
+# NOTE: The most up to date version of a preprint will be the last element in the
+#       content detail list.
+async def fetch_biorxiv_article(identifier: str) -> Optional[ExternalPublication]:
     """
-    Find an existing PubMed identifier record with the specified identifier string, or create a new one.
+    Fetch an existing bioRxiv article from Rxiv
+    """
+    fetch = Rxiv("https://api.biorxiv.org", "biorxiv")
+    try:
+        article = fetch.content_detail(identifier=identifier)
+        article = ExternalPublication(identifier=identifier, db_name="bioRxiv", external_publication=article[-1])
+    except IndexError:
+        return None
+    else:
+        return article
+
+
+async def fetch_medrxiv_article(identifier: str) -> Optional[ExternalPublication]:
+    """
+    Fetch an existing medRxiv article from Rxiv
+    """
+    fetch = Rxiv("https://api.biorxiv.org", "medrxiv")
+    try:
+        article = fetch.content_detail(identifier=identifier)
+        article = ExternalPublication(identifier=identifier, db_name="medRxiv", external_publication=article[-1])
+    except IndexError:
+        return None
+    else:
+        return article
+
+
+async def find_generic_article(
+    db: Session, identifier: str
+) -> dict[str, Union[ExternalPublication, PublicationIdentifier]]:
+    """
+    Check if a provided publication identifier ambiguously identifies a publication,
+    ie the same identifier is identifies publications in multiple publication databases
+    that we accept.
 
     :param db: An active database session
-    :param identifier: A valid PubMed identifier
+    :param identifier: A valid publication identifier
+    :return: A list of databases where this identifier exists.
+    """
+    valid_databases = identifier_valid_for(identifier)
+    matching_articles = {}
+
+    if valid_databases["PubMed"]:
+        pubmed_pub = (
+            db.query(PublicationIdentifier)
+            .filter(PublicationIdentifier.identifier == identifier, PublicationIdentifier.db_name == "PubMed")
+            .one_or_none()
+        )
+        if not pubmed_pub:
+            pubmed_pub = await fetch_pubmed_article(identifier)
+
+        if pubmed_pub:
+            matching_articles["PubMed"] = pubmed_pub
+
+    if valid_databases["bioRxiv"]:
+        biorxiv_pub = (
+            db.query(PublicationIdentifier)
+            .filter(PublicationIdentifier.identifier == identifier, PublicationIdentifier.db_name == "bioRxiv")
+            .one_or_none()
+        )
+
+        if not biorxiv_pub:
+            biorxiv_pub = await fetch_biorxiv_article(identifier)
+
+        if biorxiv_pub:
+            matching_articles["bioRxiv"] = biorxiv_pub
+
+    if valid_databases["medRxiv"]:
+        medrxiv_pub = (
+            db.query(PublicationIdentifier)
+            .filter(PublicationIdentifier.identifier == identifier, PublicationIdentifier.db_name == "medRxiv")
+            .one_or_none()
+        )
+        if not medrxiv_pub:
+            medrxiv_pub = await fetch_medrxiv_article(identifier)
+
+        if medrxiv_pub:
+            matching_articles["medRxiv"] = medrxiv_pub
+
+    return matching_articles
+
+
+def create_generic_article(article: ExternalPublication) -> PublicationIdentifier:
+    """
+    Create a new publication identifier object based on the provided identifier, article metadata,
+    and publication database name.
+    """
+    authors = [Author(name=article.first_author, primary_author=True)] + [
+        Author(name=author, primary_author=False) for author in article.secondary_authors
+    ]
+    if article.db_name in ["bioRxiv", "medRxiv"]:
+        return PublicationIdentifier(
+            identifier=article.identifier,
+            db_name=article.db_name,
+            url=article.url,
+            title=article.title,
+            abstract=article.abstract,
+            authors=authors,
+            preprint_date=article.preprint_date,
+            preprint_doi=article.preprint_doi,
+            reference_html=article.reference_html,
+        )
+    else:
+        return PublicationIdentifier(
+            identifier=article.identifier,
+            db_name=article.db_name,
+            url=article.url,
+            title=article.title,
+            abstract=article.abstract,
+            authors=authors,
+            publication_doi=article.published_doi,
+            publication_year=article.publication_year,
+            publication_journal=article.publication_journal,
+            reference_html=article.reference_html,
+        )
+
+
+async def find_or_create_publication_identifier(
+    db: Session, identifier: str, db_name: Optional[str] = None
+) -> PublicationIdentifier:
+    """
+    Find an existing publication identifier record with the specified identifier string, or create a new one.
+
+    :param db: An active database session
+    :param identifier: A valid publication identifier
     :return: An existing PublicationIdentifier containing the specified identifier string, or a new, unsaved PublicationIdentifier
     """
-    publication_identifier = (
-        db.query(PublicationIdentifier).filter(PublicationIdentifier.identifier == identifier).one_or_none()
-    )
-    if not publication_identifier:
-        publication_identifier = PublicationIdentifier(
-            identifier=identifier,
-            db_name="PubMed",
-            url=f"http://www.ncbi.nlm.nih.gov/pubmed/{identifier}",
-            reference_html=fetch_pubmed_citation_html(identifier),
+    matching_articles = await find_generic_article(db, identifier)
+
+    if not matching_articles:
+        raise NonexistentIdentifierError(
+            f"No matching articles found for identifier {identifier} across all accepted publication databases."
         )
-    return publication_identifier
+
+    # If we aren't provided with a specific DB name, infer the desired article based on those that match
+    if not db_name:
+        if len(matching_articles.keys()) > 1:
+            raise AmbiguousIdentifierError(
+                f"Found multiple articles associated with identifier {identifier}. Specify a `db_name` along with this identifier to avoid ambiguity."
+            )
+
+        # Return the article directly if it is an existing publication in our db
+        db_name, article = list(matching_articles.items())[0]
+        if isinstance(article, PublicationIdentifier):
+            return article
+        else:
+            return create_generic_article(article)
+
+    article = matching_articles.get(db_name)
+    if article:
+        if isinstance(article, PublicationIdentifier):
+            return article
+        else:
+            return create_generic_article(article)
+    else:
+        raise NonexistentIdentifierError(
+            f"Could not find any articles matching identifier {identifier} in database {db_name}."
+        )
 
 
 async def find_or_create_raw_read_identifier(db: Session, identifier: str):
