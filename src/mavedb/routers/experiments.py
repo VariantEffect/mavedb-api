@@ -158,22 +158,29 @@ async def create_experiment(
         await find_or_create_doi_identifier(db, identifier.identifier)
         for identifier in item_create.doi_identifiers or []
     ]
-    primary_publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier)
-        for identifier in item_create.primary_publication_identifiers or []
-    ]
-    publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier)
-        for identifier in item_create.publication_identifiers or []
-    ]
     raw_read_identifiers = [
         await find_or_create_raw_read_identifier(db, identifier.identifier)
         for identifier in item_create.raw_read_identifiers or []
     ]
+
+    # Remove potential duplication across publication identifier lists
+    if item_create.primary_publication_identifiers and item_create.publication_identifiers:
+        for identifier in item_create.primary_publication_identifiers:
+            item_create.publication_identifiers.remove(identifier)
+    primary_publication_identifiers = [
+        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+        for identifier in item_create.primary_publication_identifiers or []
+    ]
+    publication_identifiers = [
+        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+        for identifier in item_create.publication_identifiers or []
+    ] + primary_publication_identifiers
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
+    primary_identifiers = [pub.identifier for pub in primary_publication_identifiers]
     for publication in publication_identifiers:
-        setattr(publication, "primary", publication in primary_publication_identifiers)
+        setattr(publication, "primary", publication.identifier in primary_identifiers)
+
     item = Experiment(
         **jsonable_encoder(
             item_create,
@@ -220,7 +227,7 @@ async def update_experiment(
     item = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
     if item is None:
         raise HTTPException(status_code=404, detail=f"experiment with URN {urn} not found")
-    permission = has_permission(user, experiment, Action.UPDATE)
+    permission = has_permission(user, item, Action.UPDATE)
     if not permission.permitted:
         raise HTTPException(status_code=permission.http_code, detail=permission.message)
 
@@ -244,17 +251,18 @@ async def update_experiment(
         for identifier in item_update.doi_identifiers or []
     ]
     primary_publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier)
+        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
         for identifier in item_update.primary_publication_identifiers or []
     ]
     publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier)
+        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
         for identifier in item_update.publication_identifiers or []
     ]
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
+    primary_identifiers = [pub.identifier for pub in primary_publication_identifiers]
     for publication in publication_identifiers:
-        setattr(publication, "primary", publication in primary_publication_identifiers)
+        setattr(publication, "primary", publication.identifier in primary_identifiers)
     raw_read_identifiers = [
         await find_or_create_raw_read_identifier(db, identifier.identifier)
         for identifier in item_update.raw_read_identifiers or []

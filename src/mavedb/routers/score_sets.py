@@ -330,17 +330,18 @@ async def create_score_set(
         for identifier in item_create.doi_identifiers or []
     ]
     primary_publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier)
+        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
         for identifier in item_create.primary_publication_identifiers or []
     ]
     publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier)
+        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
         for identifier in item_create.publication_identifiers or []
     ]
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
+    primary_identifiers = [pub.identifier for pub in primary_publication_identifiers]
     for publication in publication_identifiers:
-        setattr(publication, "primary", publication in primary_publication_identifiers)
+        setattr(publication, "primary", publication.identifier in primary_identifiers)
 
     wt_sequence = WildTypeSequence(**jsonable_encoder(item_create.target_gene.wt_sequence, by_alias=False))
     target_gene = TargetGene(
@@ -571,17 +572,18 @@ async def update_score_set(
             for identifier in item_update.doi_identifiers or []
         ]
         primary_publication_identifiers = [
-            await find_or_create_publication_identifier(db, identifier.identifier)
+            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             for identifier in item_update.primary_publication_identifiers or []
         ]
         publication_identifiers = [
-            await find_or_create_publication_identifier(db, identifier.identifier)
+            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             for identifier in item_update.publication_identifiers or []
         ]
         # create a temporary `primary` attribute on each of our publications that indicates
         # to our association proxy whether it is a primary publication or not
+        primary_identifiers = [pub.identifier for pub in primary_publication_identifiers]
         for publication in publication_identifiers:
-            setattr(publication, "primary", publication in primary_publication_identifiers)
+            setattr(publication, "primary", publication.identifier in primary_identifiers)
 
         item.publication_identifiers = publication_identifiers
         await item.set_keywords(db, item_update.keywords)
