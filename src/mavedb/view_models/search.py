@@ -5,6 +5,9 @@ from mavedb.view_models.base.base import BaseModel
 
 class ExperimentsSearch(BaseModel):
     published: Optional[bool]
+    authors: Optional[list[str]]
+    databases: Optional[list[str]]
+    journals: Optional[list[str]]
     text: Optional[str]
 
 
