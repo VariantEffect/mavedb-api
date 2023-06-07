@@ -2,12 +2,15 @@ import logging
 from operator import or_
 from typing import Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from mavedb.models.experiment import Experiment
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.view_models.search import ExperimentsSearch
+from mavedb.models.author import Author
+from mavedb.models.publication_identifier import PublicationIdentifier
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +36,39 @@ def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSe
                 Experiment.title.contains(lower_search_text),
                 Experiment.short_description.contains(lower_search_text),
                 Experiment.abstract_text.contains(lower_search_text),
+                Experiment.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.abstract).contains(lower_search_text)
+                ),
+                Experiment.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.title).contains(lower_search_text)
+                ),
+                Experiment.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.publication_journal).contains(lower_search_text)
+                ),
+                Experiment.publication_identifiers.any(
+                    PublicationIdentifier.authors.any(func.lower(Author.name).contains(lower_search_text))
+                ),
             )
+        )
+
+    if search.publication_identifiers:
+        query = query.filter(
+            ScoreSet.publication_identifiers.any(PublicationIdentifier.identifier.in_(search.publication_identifiers))
+        )
+
+    if search.authors:
+        query = query.filter(
+            Experiment.publication_identifiers.any(PublicationIdentifier.authors.any(Author.name.in_(search.authors)))
+        )
+
+    if search.databases:
+        query = query.filter(
+            Experiment.publication_identifiers.any(PublicationIdentifier.db_name.in_(search.databases))
+        )
+
+    if search.journals:
+        query = query.filter(
+            Experiment.publication_identifiers.any(PublicationIdentifier.publication_journal.in_(search.journals))
         )
 
     items: list[Experiment] = query.order_by(Experiment.title).all()
