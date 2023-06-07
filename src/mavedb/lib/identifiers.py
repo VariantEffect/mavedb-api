@@ -269,6 +269,7 @@ def create_generic_article(article: ExternalPublication) -> PublicationIdentifie
             authors=authors,
             preprint_date=article.preprint_date,
             preprint_doi=article.preprint_doi,
+            publication_journal="Preprint",  # blanket `Preprint` journal for preprint articles
             reference_html=article.reference_html,
         )
     else:
