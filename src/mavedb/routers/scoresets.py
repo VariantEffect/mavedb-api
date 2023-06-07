@@ -30,7 +30,6 @@ from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_p
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
-from mavedb.models.reference_map import ReferenceMap
 from mavedb.models.scoreset import Scoreset
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.user import User
@@ -231,7 +230,7 @@ async def create_scoreset(
         **jsonable_encoder(
             item_create.target_gene,
             by_alias=False,
-            exclude=["external_identifiers", "reference_maps", "wt_sequence"],
+            exclude=["external_identifiers", "wt_sequence"],
         ),
         wt_sequence=wt_sequence,
     )
@@ -241,7 +240,8 @@ async def create_scoreset(
         await create_external_gene_identifier_offset(
             db, target_gene, identifier_create.db_name, identifier_create.identifier, offset
         )
-    reference_map = ReferenceMap(genome_id=item_create.target_gene.reference_maps[0].genome_id, target=target_gene)
+    #reference_map = ReferenceMap(genome_id=item_create.target_gene.reference_maps[0].genome_id, target=target_gene)
+
     item = Scoreset(
         **jsonable_encoder(
             item_create,
@@ -451,7 +451,7 @@ async def update_scoreset(
 
         await item.set_keywords(db, item_update.keywords)
 
-        # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the scoreset's
+        # Delete the old target gene, and WT sequence. These will be deleted when we set the scoreset's
         # target_gene to None, because we have set cascade='all,delete-orphan' on Scoreset.target_gene. (Since the
         # relationship is defined with the target gene as owner, this is actually set up in the backref attribute of
         # TargetGene.scoreset.)
@@ -467,7 +467,7 @@ async def update_scoreset(
             **jsonable_encoder(
                 item_update.target_gene,
                 by_alias=False,
-                exclude=["external_identifiers", "reference_maps", "wt_sequence"],
+                exclude=["external_identifiers", "wt_sequence"],
             ),
             wt_sequence=wt_sequence,
         )
@@ -479,7 +479,7 @@ async def update_scoreset(
             )
         item.target_gene = target_gene
 
-        reference_map = ReferenceMap(genome_id=item_update.target_gene.reference_maps[0].genome_id, target=target_gene)
+        #reference_map = ReferenceMap(genome_id=item_update.target_gene.reference_maps[0].genome_id, target=target_gene)
         for var, value in vars(item_update).items():
             if var not in ["keywords", "doi_identifiers", "experiment_urn", "pubmed_identifiers", "target_gene"]:
                 setattr(item, var, value) if value else None

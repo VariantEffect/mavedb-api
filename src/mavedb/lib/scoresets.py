@@ -18,10 +18,9 @@ from mavedb.lib.mave.constants import (
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.models.experiment import Experiment
 from mavedb.models.keyword import Keyword
-from mavedb.models.reference_genome import ReferenceGenome
-from mavedb.models.reference_map import ReferenceMap
 from mavedb.models.scoreset import Scoreset
 from mavedb.models.target_gene import TargetGene
+from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
 from mavedb.view_models.search import ScoresetsSearch
 
@@ -62,9 +61,7 @@ def search_scoresets(db: Session, owner: Optional[User], search: ScoresetsSearch
     if search.target_organism_names:
         scoresets_query = scoresets_query.filter(
             Scoreset.target_gene.has(
-                TargetGene.reference_maps.any(
-                    ReferenceMap.genome.has(ReferenceGenome.organism_name.in_(search.target_organism_names))
-                )
+                TargetGene.taxonomy.has(Taxonomy.species_name.in_(search.target_organism_names))
             )
         )
 

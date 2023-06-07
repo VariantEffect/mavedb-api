@@ -3,7 +3,7 @@ from datetime import date
 import json
 import re
 
-from mavedb.models.reference_genome import ReferenceGenome
+from mavedb.models.taxonomy import Taxonomy
 from tests.conftest import client, TestingSessionLocal
 
 """
@@ -34,10 +34,10 @@ def create_an_experiment():
     return experiment
 
 
-def create_reference_genome():
-    reference_genome = ReferenceGenome(id=1, short_name="Name", organism_name="Organism")
+def create_taxonomy():
+    taxonomy = Taxonomy(id=1, tax_id=9606, species_name="Homo sapiens", common_name="human")
     db = TestingSessionLocal()
-    db.add(reference_genome)
+    db.add(taxonomy)
     db.commit()
 
 
@@ -65,7 +65,7 @@ def create_scoreset():
                 {"identifier": {"dbName": "RefSeq", "identifier": "NM_003345"}, "offset": 159},
                 {"identifier": {"dbName": "UniProt", "identifier": "P63279"}, "offset": 0},
             ],
-            "referenceMaps": [{"genomeId": 1}],
+            "taxonomy_id": 1,
             "wtSequence": {
                 "sequenceType": "dna",
                 "sequence": "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCTGAAGATCAGTTGGGTGCACGAGTGGGTTACATCGAACTGGATCTCAACAGCGGTAAGATCCTTGAGAGTTTTCGCCCCGAAGAACGTTTTCCAATGATGAGCACTTTTAAAGTTCTGCTATGTGGCGCGGTATTATCCCGTGTTGACGCCGGGCAAGAGCAACTCGGTCGCCGCATACACTATTCTCAGAATGACTTGGTTGAGTACTCACCAGTCACAGAAAAGCATCTTACGGATGGCATGACAGTAAGAGAATTATGCAGTGCTGCCATAACCATGAGTGATAACACTGCGGCCAACTTACTTCTGACAACGATCGGAGGACCGAAGGAGCTAACCGCTTTTTTGCACAACATGGGGGATCATGTAACTCGCCTTGATCGTTGGGAACCGGAGCTGAATGAAGCCATACCAAACGACGAGCGTGACACCACGATGCCTGCAGCAATGGCAACAACGTTGCGCAAACTATTAACTGGCGAACTACTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGTTTATTGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGACGGGGAGTCAGGCAACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA",
@@ -79,7 +79,7 @@ def create_scoreset():
 
 def test_create_scoreset_with_some_none_values(test_empty_db):
     experiment = create_an_experiment()
-    create_reference_genome()
+    create_taxonomy()
     scoreset_to_create = {
         "experimentUrn": experiment["urn"],
         "title": "Test Scoreset Title",
@@ -102,7 +102,7 @@ def test_create_scoreset_with_some_none_values(test_empty_db):
                 {"identifier": {"dbName": "RefSeq", "identifier": "NM_003345"}, "offset": 159},
                 {"identifier": {"dbName": "UniProt", "identifier": "P63279"}, "offset": 0},
             ],
-            "referenceMaps": [{"genomeId": 1}],
+            "taxonomy_id": 1,
             "wtSequence": {
                 "sequenceType": "dna",
                 "sequence": "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCTGAAGATCAGTTGGGTGCACGAGTGGGTTACATCGAACTGGATCTCAACAGCGGTAAGATCCTTGAGAGTTTTCGCCCCGAAGAACGTTTTCCAATGATGAGCACTTTTAAAGTTCTGCTATGTGGCGCGGTATTATCCCGTGTTGACGCCGGGCAAGAGCAACTCGGTCGCCGCATACACTATTCTCAGAATGACTTGGTTGAGTACTCACCAGTCACAGAAAAGCATCTTACGGATGGCATGACAGTAAGAGAATTATGCAGTGCTGCCATAACCATGAGTGATAACACTGCGGCCAACTTACTTCTGACAACGATCGGAGGACCGAAGGAGCTAACCGCTTTTTTGCACAACATGGGGGATCATGTAACTCGCCTTGATCGTTGGGAACCGGAGCTGAATGAAGCCATACCAAACGACGAGCGTGACACCACGATGCCTGCAGCAATGGCAACAACGTTGCGCAAACTATTAACTGGCGAACTACTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGTTTATTGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGACGGGGAGTCAGGCAACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA",
@@ -199,24 +199,7 @@ def test_create_scoreset_with_some_none_values(test_empty_db):
                     "offset": 0,
                 },
             ],
-            "referenceMaps": [
-                {
-                    "id": 1,
-                    "genomeId": 1,
-                    "targetId": 1,
-                    "isPrimary": False,
-                    "genome": {
-                        "shortName": "Name",
-                        "organismName": "Organism",
-                        "genomeId": None,
-                        "creationDate": date.today().isoformat(),
-                        "modificationDate": date.today().isoformat(),
-                        "id": 1,
-                    },
-                    "creationDate": date.today().isoformat(),
-                    "modificationDate": date.today().isoformat(),
-                }
-            ],
+            "taxonomy_id": 1,
             "wtSequence": {
                 "sequenceType": "dna",
                 "sequence": "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCTGAAGATCAGTTGGGTGCACGAGTGGGTTACATCGAACTGGATCTCAACAGCGGTAAGATCCTTGAGAGTTTTCGCCCCGAAGAACGTTTTCCAATGATGAGCACTTTTAAAGTTCTGCTATGTGGCGCGGTATTATCCCGTGTTGACGCCGGGCAAGAGCAACTCGGTCGCCGCATACACTATTCTCAGAATGACTTGGTTGAGTACTCACCAGTCACAGAAAAGCATCTTACGGATGGCATGACAGTAAGAGAATTATGCAGTGCTGCCATAACCATGAGTGATAACACTGCGGCCAACTTACTTCTGACAACGATCGGAGGACCGAAGGAGCTAACCGCTTTTTTGCACAACATGGGGGATCATGTAACTCGCCTTGATCGTTGGGAACCGGAGCTGAATGAAGCCATACCAAACGACGAGCGTGACACCACGATGCCTGCAGCAATGGCAACAACGTTGCGCAAACTATTAACTGGCGAACTACTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGTTTATTGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGACGGGGAGTCAGGCAACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA",
@@ -230,7 +213,7 @@ def test_create_scoreset_with_some_none_values(test_empty_db):
 
 def test_create_scoreset_with_valid_values(test_empty_db):
     experiment = create_an_experiment()
-    create_reference_genome()
+    create_taxonomy()
     superseded_scoreset = create_scoreset()
     meta_analysis_scoreset = create_scoreset()
     scoreset_to_create = {
@@ -255,7 +238,7 @@ def test_create_scoreset_with_valid_values(test_empty_db):
                 {"identifier": {"dbName": "RefSeq", "identifier": "NM_003345"}, "offset": 159},
                 {"identifier": {"dbName": "UniProt", "identifier": "P63279"}, "offset": 0},
             ],
-            "referenceMaps": [{"genomeId": 1}],
+            "taxonomy_id": 1,
             "wtSequence": {
                 "sequenceType": "dna",
                 "sequence": "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCTGAAGATCAGTTGGGTGCACGAGTGGGTTACATCGAACTGGATCTCAACAGCGGTAAGATCCTTGAGAGTTTTCGCCCCGAAGAACGTTTTCCAATGATGAGCACTTTTAAAGTTCTGCTATGTGGCGCGGTATTATCCCGTGTTGACGCCGGGCAAGAGCAACTCGGTCGCCGCATACACTATTCTCAGAATGACTTGGTTGAGTACTCACCAGTCACAGAAAAGCATCTTACGGATGGCATGACAGTAAGAGAATTATGCAGTGCTGCCATAACCATGAGTGATAACACTGCGGCCAACTTACTTCTGACAACGATCGGAGGACCGAAGGAGCTAACCGCTTTTTTGCACAACATGGGGGATCATGTAACTCGCCTTGATCGTTGGGAACCGGAGCTGAATGAAGCCATACCAAACGACGAGCGTGACACCACGATGCCTGCAGCAATGGCAACAACGTTGCGCAAACTATTAACTGGCGAACTACTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGTTTATTGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGACGGGGAGTCAGGCAACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA",
@@ -378,24 +361,7 @@ def test_create_scoreset_with_valid_values(test_empty_db):
                         "offset": 0,
                     },
                 ],
-                "referenceMaps": [
-                    {
-                        "id": 1,
-                        "genomeId": 1,
-                        "targetId": 1,
-                        "isPrimary": False,
-                        "genome": {
-                            "shortName": "Name",
-                            "organismName": "Organism",
-                            "genomeId": None,
-                            "creationDate": date.today().isoformat(),
-                            "modificationDate": date.today().isoformat(),
-                            "id": 1,
-                        },
-                        "creationDate": date.today().isoformat(),
-                        "modificationDate": date.today().isoformat(),
-                    }
-                ],
+                "taxonomy_id": 1,
             },
             "private": True,
         },
@@ -477,24 +443,7 @@ def test_create_scoreset_with_valid_values(test_empty_db):
                             "offset": 0,
                         },
                     ],
-                    "referenceMaps": [
-                        {
-                            "id": 2,
-                            "genomeId": 1,
-                            "targetId": 2,
-                            "isPrimary": False,
-                            "genome": {
-                                "shortName": "Name",
-                                "organismName": "Organism",
-                                "genomeId": None,
-                                "creationDate": date.today().isoformat(),
-                                "modificationDate": date.today().isoformat(),
-                                "id": 1,
-                            },
-                            "creationDate": date.today().isoformat(),
-                            "modificationDate": date.today().isoformat(),
-                        }
-                    ],
+                    "taxonomy_id": 1,
                 },
                 "private": True,
             }
@@ -558,24 +507,7 @@ def test_create_scoreset_with_valid_values(test_empty_db):
                     "offset": 0,
                 },
             ],
-            "referenceMaps": [
-                {
-                    "id": 3,
-                    "genomeId": 1,
-                    "targetId": 3,
-                    "isPrimary": False,
-                    "genome": {
-                        "shortName": "Name",
-                        "organismName": "Organism",
-                        "genomeId": None,
-                        "creationDate": date.today().isoformat(),
-                        "modificationDate": date.today().isoformat(),
-                        "id": 1,
-                    },
-                    "creationDate": date.today().isoformat(),
-                    "modificationDate": date.today().isoformat(),
-                }
-            ],
+            "taxonomy_id": 1,
             "wtSequence": {
                 "sequenceType": "dna",
                 "sequence": "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCTGAAGATCAGTTGGGTGCACGAGTGGGTTACATCGAACTGGATCTCAACAGCGGTAAGATCCTTGAGAGTTTTCGCCCCGAAGAACGTTTTCCAATGATGAGCACTTTTAAAGTTCTGCTATGTGGCGCGGTATTATCCCGTGTTGACGCCGGGCAAGAGCAACTCGGTCGCCGCATACACTATTCTCAGAATGACTTGGTTGAGTACTCACCAGTCACAGAAAAGCATCTTACGGATGGCATGACAGTAAGAGAATTATGCAGTGCTGCCATAACCATGAGTGATAACACTGCGGCCAACTTACTTCTGACAACGATCGGAGGACCGAAGGAGCTAACCGCTTTTTTGCACAACATGGGGGATCATGTAACTCGCCTTGATCGTTGGGAACCGGAGCTGAATGAAGCCATACCAAACGACGAGCGTGACACCACGATGCCTGCAGCAATGGCAACAACGTTGCGCAAACTATTAACTGGCGAACTACTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGTTTATTGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGACGGGGAGTCAGGCAACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA",
@@ -589,7 +521,7 @@ def test_create_scoreset_with_valid_values(test_empty_db):
 
 def test_create_scoreset_with_invalid_doi(test_empty_db):
     experiment = create_an_experiment()
-    create_reference_genome()
+    create_taxonomy()
     scoreset_to_create = {
         "experimentUrn": experiment["urn"],
         "title": "Test Scoreset Title",
@@ -612,7 +544,7 @@ def test_create_scoreset_with_invalid_doi(test_empty_db):
                 {"identifier": {"dbName": "RefSeq", "identifier": "NM_003345"}, "offset": 159},
                 {"identifier": {"dbName": "UniProt", "identifier": "P63279"}, "offset": 0},
             ],
-            "referenceMaps": [{"genomeId": 1}],
+            "taxonomy_id": 1,
             "wtSequence": {
                 "sequenceType": "dna",
                 "sequence": "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCTGAAGATCAGTTGGGTGCACGAGTGGGTTACATCGAACTGGATCTCAACAGCGGTAAGATCCTTGAGAGTTTTCGCCCCGAAGAACGTTTTCCAATGATGAGCACTTTTAAAGTTCTGCTATGTGGCGCGGTATTATCCCGTGTTGACGCCGGGCAAGAGCAACTCGGTCGCCGCATACACTATTCTCAGAATGACTTGGTTGAGTACTCACCAGTCACAGAAAAGCATCTTACGGATGGCATGACAGTAAGAGAATTATGCAGTGCTGCCATAACCATGAGTGATAACACTGCGGCCAACTTACTTCTGACAACGATCGGAGGACCGAAGGAGCTAACCGCTTTTTTGCACAACATGGGGGATCATGTAACTCGCCTTGATCGTTGGGAACCGGAGCTGAATGAAGCCATACCAAACGACGAGCGTGACACCACGATGCCTGCAGCAATGGCAACAACGTTGCGCAAACTATTAACTGGCGAACTACTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGTTTATTGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGACGGGGAGTCAGGCAACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA",
@@ -625,7 +557,7 @@ def test_create_scoreset_with_invalid_doi(test_empty_db):
 
 def test_create_scoreset_with_invalid_pubmed(test_empty_db):
     experiment = create_an_experiment()
-    create_reference_genome()
+    create_taxonomy()
     scoreset_to_create = {
         "experimentUrn": experiment["urn"],
         "title": "Test Scoreset Title",
@@ -648,7 +580,7 @@ def test_create_scoreset_with_invalid_pubmed(test_empty_db):
                 {"identifier": {"dbName": "RefSeq", "identifier": "NM_003345"}, "offset": 159},
                 {"identifier": {"dbName": "UniProt", "identifier": "P63279"}, "offset": 0},
             ],
-            "referenceMaps": [{"genomeId": 1}],
+            "taxonomy_id": 1,
             "wtSequence": {
                 "sequenceType": "dna",
                 "sequence": "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCTGAAGATCAGTTGGGTGCACGAGTGGGTTACATCGAACTGGATCTCAACAGCGGTAAGATCCTTGAGAGTTTTCGCCCCGAAGAACGTTTTCCAATGATGAGCACTTTTAAAGTTCTGCTATGTGGCGCGGTATTATCCCGTGTTGACGCCGGGCAAGAGCAACTCGGTCGCCGCATACACTATTCTCAGAATGACTTGGTTGAGTACTCACCAGTCACAGAAAAGCATCTTACGGATGGCATGACAGTAAGAGAATTATGCAGTGCTGCCATAACCATGAGTGATAACACTGCGGCCAACTTACTTCTGACAACGATCGGAGGACCGAAGGAGCTAACCGCTTTTTTGCACAACATGGGGGATCATGTAACTCGCCTTGATCGTTGGGAACCGGAGCTGAATGAAGCCATACCAAACGACGAGCGTGACACCACGATGCCTGCAGCAATGGCAACAACGTTGCGCAAACTATTAACTGGCGAACTACTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGTTTATTGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGACGGGGAGTCAGGCAACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA",
@@ -660,7 +592,7 @@ def test_create_scoreset_with_invalid_pubmed(test_empty_db):
 
 
 def test_create_scoreset_with_invalid_experiment(test_empty_db):
-    create_reference_genome()
+    create_taxonomy()
     scoreset_to_create = {
         "experimentUrn": "invalid_urn",
         "title": "Test Scoreset Title",
@@ -683,7 +615,7 @@ def test_create_scoreset_with_invalid_experiment(test_empty_db):
                 {"identifier": {"dbName": "RefSeq", "identifier": "NM_003345"}, "offset": 159},
                 {"identifier": {"dbName": "UniProt", "identifier": "P63279"}, "offset": 0},
             ],
-            "referenceMaps": [{"genomeId": 1}],
+            "taxonomy_id": 1,
             "wtSequence": {
                 "sequenceType": "dna",
                 "sequence": "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCTGAAGATCAGTTGGGTGCACGAGTGGGTTACATCGAACTGGATCTCAACAGCGGTAAGATCCTTGAGAGTTTTCGCCCCGAAGAACGTTTTCCAATGATGAGCACTTTTAAAGTTCTGCTATGTGGCGCGGTATTATCCCGTGTTGACGCCGGGCAAGAGCAACTCGGTCGCCGCATACACTATTCTCAGAATGACTTGGTTGAGTACTCACCAGTCACAGAAAAGCATCTTACGGATGGCATGACAGTAAGAGAATTATGCAGTGCTGCCATAACCATGAGTGATAACACTGCGGCCAACTTACTTCTGACAACGATCGGAGGACCGAAGGAGCTAACCGCTTTTTTGCACAACATGGGGGATCATGTAACTCGCCTTGATCGTTGGGAACCGGAGCTGAATGAAGCCATACCAAACGACGAGCGTGACACCACGATGCCTGCAGCAATGGCAACAACGTTGCGCAAACTATTAACTGGCGAACTACTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGTTTATTGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGACGGGGAGTCAGGCAACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA",
@@ -695,7 +627,7 @@ def test_create_scoreset_with_invalid_experiment(test_empty_db):
 
 
 def test_show_scoreset(test_empty_db):
-    create_reference_genome()
+    create_taxonomy()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
     response = client.get(f"/api/v1/scoresets/{urn}")
@@ -704,7 +636,7 @@ def test_show_scoreset(test_empty_db):
 
 # Can't pass
 def test_valid_score_file(test_empty_db):
-    create_reference_genome()
+    create_taxonomy()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
     current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -724,7 +656,7 @@ def test_valid_score_file(test_empty_db):
 """
 # This one can't work cause duplicate column names will be processed automatically
 def test_score_file_with_duplicate_columns(test_empty_db):
-    create_reference_genome()
+    create_taxonomy()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
     current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -743,7 +675,7 @@ def test_score_file_with_duplicate_columns(test_empty_db):
 
 # Is it a ccorect way?
 def test_score_file_without_score_column(test_empty_db):
-    create_reference_genome()
+    create_taxonomy()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
     current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -759,7 +691,7 @@ def test_score_file_without_score_column(test_empty_db):
 
 # Show other problem. Can't pass.
 def test_scores_and_counts_define_different_variants(test_empty_db):
-    create_reference_genome()
+    create_taxonomy()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
     current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -780,7 +712,7 @@ def test_scores_and_counts_define_different_variants(test_empty_db):
 
 
 def test_score_file_with_letter(test_empty_db):
-    create_reference_genome()
+    create_taxonomy()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
     current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -795,7 +727,7 @@ def test_score_file_with_letter(test_empty_db):
 
 # can't catch error
 def test_score_file_without_hgvs_columns(test_empty_db):
-    create_reference_genome()
+    create_taxonomy()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
     current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -813,7 +745,7 @@ def test_score_file_without_hgvs_columns(test_empty_db):
 
 
 def test_score_file_hgvs_pro_has_same_values(test_empty_db):
-    create_reference_genome()
+    create_taxonomy()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
     current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -828,7 +760,7 @@ def test_score_file_hgvs_pro_has_same_values(test_empty_db):
 
 
 def test_score_and_count_files_have_hgvs_nt_and_pro(test_empty_db):
-    create_reference_genome()
+    create_taxonomy()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
     current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -847,7 +779,7 @@ def test_score_and_count_files_have_hgvs_nt_and_pro(test_empty_db):
 
 # Can't catch error.
 def test_score_file_has_not_match_hgvs_nt_and_pro(test_empty_db):
-    create_reference_genome()
+    create_taxonomy()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
     current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -862,7 +794,7 @@ def test_score_file_has_not_match_hgvs_nt_and_pro(test_empty_db):
 
 
 def test_score_file_has_invalid_hgvs_pro_prefix(test_empty_db):
-    create_reference_genome()
+    create_taxonomy()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
     current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -876,7 +808,7 @@ def test_score_file_has_invalid_hgvs_pro_prefix(test_empty_db):
 
 
 def test_score_file_has_invalid_hgvs_nt_prefix(test_empty_db):
-    create_reference_genome()
+    create_taxonomy()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
     current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -890,7 +822,7 @@ def test_score_file_has_invalid_hgvs_nt_prefix(test_empty_db):
 
 
 def test_count_file_has_score_column(test_empty_db):
-    create_reference_genome()
+    create_taxonomy()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
     current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -909,7 +841,7 @@ def test_count_file_has_score_column(test_empty_db):
 
 
 def test_score_file_column_name_has_nan(test_empty_db):
-    create_reference_genome()
+    create_taxonomy()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
     current_directory = os.path.dirname(os.path.abspath(__file__))

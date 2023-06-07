@@ -5,24 +5,25 @@ from pydantic.types import Optional
 from .base.base import BaseModel
 
 
-class ReferenceGenomeBase(BaseModel):
-    short_name: str
-    organism_name: str
+class TaxonomyBase(BaseModel):
+    tax_id: int
+    species_name: str
+    common_name: str
     genome_id: Optional[int]
     creation_date: date
     modification_date: date
 
 
-class ReferenceGenomeCreate(ReferenceGenomeBase):
+class TaxonomyCreate(TaxonomyBase):
     pass
 
 
-class ReferenceGenomeUpdate(ReferenceGenomeBase):
+class TaxonomyUpdate(TaxonomyBase):
     pass
 
 
 # Properties shared by models stored in DB
-class ReferenceGenomeInDbBase(ReferenceGenomeBase):
+class TaxonomyInDbBase(TaxonomyBase):
     id: int
 
     class Config:
@@ -30,10 +31,10 @@ class ReferenceGenomeInDbBase(ReferenceGenomeBase):
 
 
 # Properties to return to client
-class ReferenceGenome(ReferenceGenomeInDbBase):
+class Taxonomy(TaxonomyInDbBase):
     pass
 
 
 # Properties stored in DB
-class ReferenceGenomeInDb(ReferenceGenomeInDbBase):
+class TaxonomyInDbBase(TaxonomyInDbBase):
     pass

@@ -6,7 +6,7 @@ from pydantic.utils import GetterDict
 
 from mavedb.view_models import external_gene_identifier_offset
 from mavedb.view_models.base.base import BaseModel, validator
-from mavedb.view_models.reference_map import ReferenceMap, ReferenceMapCreate
+from mavedb.view_models.taxonomy import Taxonomy
 from mavedb.view_models.wild_type_sequence import WildTypeSequence, WildTypeSequenceCreate
 from mavedb.lib.validation import target
 
@@ -52,7 +52,7 @@ class TargetGeneModify(TargetGeneBase):
 class TargetGeneCreate(TargetGeneModify):
     """View model for creating a new target gene."""
 
-    reference_maps: conlist(ReferenceMapCreate, min_items=1)
+    #reference_maps: conlist(ReferenceMapCreate, min_items=1)
     wt_sequence: WildTypeSequenceCreate
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffsetCreate]
 
@@ -76,7 +76,8 @@ class SavedTargetGene(TargetGeneBase):
 class TargetGene(SavedTargetGene):
     """Target gene view model containing a complete set of properties visible to non-admin users."""
 
-    reference_maps: List[ReferenceMap]
+    #reference_maps: List[ReferenceMap]
+    taxonomy: Taxonomy
     wt_sequence: WildTypeSequence
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
 
@@ -87,7 +88,8 @@ class TargetGene(SavedTargetGene):
 class ShortTargetGene(SavedTargetGene):
     """Target gene view model containing a smaller set of properties to return in list contexts."""
 
-    reference_maps: List[ReferenceMap]
+    #reference_maps: List[ReferenceMap]
+    taxonomy: Taxonomy
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
 
     class Config:
@@ -99,7 +101,8 @@ class AdminTargetGene(SavedTargetGene):
 
     creation_date: date
     modification_date: date
-    reference_maps: List[ReferenceMap]
+    #reference_maps: List[ReferenceMap]
+    taxonomy: Taxonomy
     wt_sequence: WildTypeSequence
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
 
