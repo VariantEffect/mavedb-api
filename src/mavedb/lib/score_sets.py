@@ -16,9 +16,11 @@ from mavedb.lib.mave.constants import (
     VARIANT_SCORE_DATA,
 )
 from mavedb.lib.mave.utils import is_csv_null
+from mavedb.models.author import Author
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.keyword import Keyword
+from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.reference_genome import ReferenceGenome
 from mavedb.models.reference_map import ReferenceMap
 from mavedb.models.score_set import ScoreSet
@@ -52,7 +54,19 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ScoreSet.abstract_text.contains(lower_search_text),
                 ScoreSet.target_gene.has(func.lower(TargetGene.name).contains(lower_search_text)),
                 ScoreSet.target_gene.has(func.lower(TargetGene.category).contains(lower_search_text)),
-                ScoreSet.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text))
+                ScoreSet.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text)),
+                ScoreSet.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.abstract).contains(lower_search_text)
+                ),
+                ScoreSet.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.title).contains(lower_search_text)
+                ),
+                ScoreSet.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.publication_journal).contains(lower_search_text)
+                ),
+                ScoreSet.publication_identifiers.any(
+                    PublicationIdentifier.authors.any(func.lower(Author.name).contains(lower_search_text))
+                ),
                 # TODO Add: ORGANISM_NAME UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
             )
         )
@@ -71,6 +85,22 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
 
     if search.target_types:
         query = query.filter(ScoreSet.target_gene.has(TargetGene.category.in_(search.target_types)))
+
+    # TODO
+    # if search.authors:
+    #     query = query.filter(
+    #         Experiment.publication_identifiers.any(PublicationIdentifier.authors.any(Author.name.in_(search.authors)))
+    #     )
+
+    if search.databases:
+        query = query.filter(
+            ScoreSet.publication_identifiers.any(PublicationIdentifier.db_name.in_(search.databases))
+        )
+
+    if search.journals:
+        query = query.filter(
+            ScoreSet.publication_identifiers.any(PublicationIdentifier.publication_journal.in_(search.journals))
+        )
 
     score_sets: list[ScoreSet] = (
         query.join(ScoreSet.experiment).join(ScoreSet.target_gene).order_by(Experiment.title).all()
