@@ -196,7 +196,7 @@ def get_scoreset_mapped_variants(
     )
 
     if not mapped_variants:
-        raise HTTPException(status_code=404, detail=f"Mapped variants with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"No mapped variant associated with scoreset URN {urn} was found")
 
     return mapped_variants
 

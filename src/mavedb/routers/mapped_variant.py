@@ -13,6 +13,7 @@ from mavedb.view_models import mapped_variant
 
 async def fetch_mapped_variant_by_variant_urn(db, urn: str) -> Optional[MappedVariant]:
     """
+    We may combine this function back to show_mapped_variant if none of any new function call it.
     Fetch one mapped variant by variant URN.
 
     :param db: An active database session.
@@ -21,10 +22,7 @@ async def fetch_mapped_variant_by_variant_urn(db, urn: str) -> Optional[MappedVa
         user.
     """
     try:
-        variant = db.query(Variant).filter(Variant.urn == urn).one_or_none()
-        if not variant:
-            raise HTTPException(status_code=404, detail=f"Mapped variant with URN {urn} not found")
-        item = db.query(MappedVariant).filter(MappedVariant.variant_id == variant.id).one_or_none()
+        item = db.query(MappedVariant).filter(Variant.urn == urn).filter(MappedVariant.variant_id == Variant.id).one_or_none()
     except MultipleResultsFound:
         raise HTTPException(status_code=500, detail=f"Multiple variants with URN {urn} were found.")
     if not item:
