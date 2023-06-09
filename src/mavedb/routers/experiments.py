@@ -12,7 +12,7 @@ from mavedb.lib.authorization import require_current_user
 from mavedb.lib.experiments import search_experiments as _search_experiments
 from mavedb.lib.identifiers import (
     find_or_create_doi_identifier,
-    find_or_create_pubmed_identifier,
+    find_or_create_publication_identifier,
     find_or_create_raw_read_identifier,
 )
 from mavedb.models.experiment import Experiment
@@ -131,23 +131,38 @@ async def create_experiment(
         await find_or_create_doi_identifier(db, identifier.identifier)
         for identifier in item_create.doi_identifiers or []
     ]
-    pubmed_identifiers = [
-        await find_or_create_pubmed_identifier(db, identifier.identifier)
-        for identifier in item_create.pubmed_identifiers or []
+    primary_publication_identifiers = [
+        await find_or_create_publication_identifier(db, identifier.identifier)
+        for identifier in item_create.primary_publication_identifiers or []
+    ]
+    publication_identifiers = [
+        await find_or_create_publication_identifier(db, identifier.identifier)
+        for identifier in item_create.publication_identifiers or []
     ]
     raw_read_identifiers = [
         await find_or_create_raw_read_identifier(db, identifier.identifier)
         for identifier in item_create.raw_read_identifiers or []
     ]
+    # create a temporary `primary` attribute on each of our publications that indicates
+    # to our association proxy whether it is a primary publication or not
+    for publication in publication_identifiers:
+        setattr(publication, "primary", publication in primary_publication_identifiers)
     item = Experiment(
         **jsonable_encoder(
             item_create,
             by_alias=False,
-            exclude=["doi_identifiers", "experiment_set_urn", "keywords", "pubmed_identifiers", "raw_read_identifiers"],
+            exclude=[
+                "doi_identifiers",
+                "experiment_set_urn",
+                "keywords",
+                "primary_publication_identifiers",
+                "publication_identifiers",
+                "raw_read_identifiers",
+            ],
         ),
         experiment_set=experiment_set,
         doi_identifiers=doi_identifiers,
-        pubmed_identifiers=pubmed_identifiers,
+        publication_identifiers=publication_identifiers,  # an internal association proxy representation
         raw_read_identifiers=raw_read_identifiers,
         created_by=user,
         modified_by=user,
@@ -180,7 +195,14 @@ async def update_experiment(
     pairs = {
         k: v
         for k, v in vars(item_update).items()
-        if k not in ["doi_identifiers", "keywords", "pubmed_identifiers", "raw_read_identifiers"]
+        if k
+        not in [
+            "doi_identifiers",
+            "keywords",
+            "publication_identifiers",
+            "primary_publication_identifiers",
+            "raw_read_identifiers",
+        ]
     }
     for var, value in pairs.items():  # vars(item_update).items():
         setattr(item, var, value) if value else None
@@ -189,16 +211,25 @@ async def update_experiment(
         await find_or_create_doi_identifier(db, identifier.identifier)
         for identifier in item_update.doi_identifiers or []
     ]
-    pubmed_identifiers = [
-        await find_or_create_pubmed_identifier(db, identifier.identifier)
-        for identifier in item_update.pubmed_identifiers or []
+    primary_publication_identifiers = [
+        await find_or_create_publication_identifier(db, identifier.identifier)
+        for identifier in item_update.primary_publication_identifiers or []
     ]
+    publication_identifiers = [
+        await find_or_create_publication_identifier(db, identifier.identifier)
+        for identifier in item_update.publication_identifiers or []
+    ]
+    # create a temporary `primary` attribute on each of our publications that indicates
+    # to our association proxy whether it is a primary publication or not
+    for publication in publication_identifiers:
+        setattr(publication, "primary", publication in primary_publication_identifiers)
     raw_read_identifiers = [
         await find_or_create_raw_read_identifier(db, identifier.identifier)
         for identifier in item_update.raw_read_identifiers or []
     ]
+
     item.doi_identifiers = doi_identifiers
-    item.pubmed_identifiers = pubmed_identifiers
+    item.publication_identifiers = publication_identifiers
     item.raw_read_identifiers = raw_read_identifiers
 
     await item.set_keywords(db, item_update.keywords)

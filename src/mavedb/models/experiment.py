@@ -1,8 +1,10 @@
 from datetime import date
 
+from typing import List, Iterable
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.event import listens_for
 from sqlalchemy.orm import relationship, backref
+from sqlalchemy.ext.associationproxy import association_proxy, AssociationProxy
 from sqlalchemy.schema import Table
 
 from mavedb.db.base import Base
@@ -10,6 +12,7 @@ from mavedb.deps import JSONB
 from mavedb.lib.temp_urns import generate_temp_urn
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.keyword import Keyword
+from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 
 experiments_doi_identifiers_association_table = Table(
     "experiment_doi_identifiers",
@@ -24,14 +27,6 @@ experiments_keywords_association_table = Table(
     Base.metadata,
     Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
     Column("keyword_id", ForeignKey("keywords.id"), primary_key=True),
-)
-
-
-experiments_pubmed_identifiers_association_table = Table(
-    "experiment_pubmed_identifiers",
-    Base.metadata,
-    Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
-    Column("pubmed_identifier_id", ForeignKey("pubmed_identifiers.id"), primary_key=True),
 )
 
 
@@ -78,9 +73,15 @@ class Experiment(Base):
     doi_identifiers = relationship(
         "DoiIdentifier", secondary=experiments_doi_identifiers_association_table, backref="experiments"
     )
-    pubmed_identifiers = relationship(
-        "PubmedIdentifier", secondary=experiments_pubmed_identifiers_association_table, backref="experiments"
+    publication_identifier_associations = relationship(
+        "ExperimentPublicationIdentifierAssociation", back_populates="experiment", cascade="all, delete-orphan"
     )
+    publication_identifiers = association_proxy(
+        "publication_identifier_associations",
+        "publication",
+        creator=lambda p: ExperimentPublicationIdentifierAssociation(publication=p, primary=p.primary),
+    )
+
     # sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
     raw_read_identifiers = relationship(
         "RawReadIdentifier", secondary=experiments_raw_read_identifiers_association_table, backref="experiments"

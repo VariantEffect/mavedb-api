@@ -3,11 +3,11 @@ import idutils
 from mavedb.view_models.base.base import BaseModel, validator
 
 
-class PubmedIdentifierBase(BaseModel):
+class PublicationIdentifierBase(BaseModel):
     identifier: str
 
 
-class PubmedIdentifierCreate(PubmedIdentifierBase):
+class PublicationIdentifierCreate(PublicationIdentifierBase):
     @validator("identifier")
     def must_be_valid_pubmed(cls, v):
         if not idutils.is_pmid(v):
@@ -17,7 +17,7 @@ class PubmedIdentifierCreate(PubmedIdentifierBase):
 
 
 # Properties shared by models stored in DB
-class SavedPubmedIdentifier(PubmedIdentifierBase):
+class SavedPublicationIdentifier(PublicationIdentifierBase):
     id: int
     url: str
     reference_html: str
@@ -27,5 +27,5 @@ class SavedPubmedIdentifier(PubmedIdentifierBase):
 
 
 # Properties to return to non-admin clients
-class PubmedIdentifier(SavedPubmedIdentifier):
+class PublicationIdentifier(SavedPublicationIdentifier):
     pass

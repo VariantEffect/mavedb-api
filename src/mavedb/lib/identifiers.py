@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset
-from mavedb.models.pubmed_identifier import PubmedIdentifier
+from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.refseq_identifier import RefseqIdentifier
 from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.target_gene import TargetGene
@@ -54,23 +54,25 @@ def fetch_pubmed_citation_html(identifier: str):
         return article.citation_html
 
 
-async def find_or_create_pubmed_identifier(db: Session, identifier: str):
+async def find_or_create_publication_identifier(db: Session, identifier: str):
     """
     Find an existing PubMed identifier record with the specified identifier string, or create a new one.
 
     :param db: An active database session
     :param identifier: A valid PubMed identifier
-    :return: An existing PubmedIdentifier containing the specified identifier string, or a new, unsaved PubmedIdentifier
+    :return: An existing PublicationIdentifier containing the specified identifier string, or a new, unsaved PublicationIdentifier
     """
-    pubmed_identifier = db.query(PubmedIdentifier).filter(PubmedIdentifier.identifier == identifier).one_or_none()
-    if not pubmed_identifier:
-        pubmed_identifier = PubmedIdentifier(
+    publication_identifier = (
+        db.query(PublicationIdentifier).filter(PublicationIdentifier.identifier == identifier).one_or_none()
+    )
+    if not publication_identifier:
+        publication_identifier = PublicationIdentifier(
             identifier=identifier,
             db_name="PubMed",
             url=f"http://www.ncbi.nlm.nih.gov/pubmed/{identifier}",
             reference_html=fetch_pubmed_citation_html(identifier),
         )
-    return pubmed_identifier
+    return publication_identifier
 
 
 async def find_or_create_raw_read_identifier(db: Session, identifier: str):
