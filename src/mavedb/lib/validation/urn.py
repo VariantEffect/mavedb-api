@@ -81,7 +81,7 @@ def validate_mavedb_urn_experiment(urn: str):
             raise ValidationError("{}'s is not a valid Experiment urn.".format(urn))
 
 
-def validate_mavedb_urn_scoreset(urn: str):
+def validate_mavedb_urn_score_set(urn: str):
     """
     This function validates a Scoreset urn and raises an error if it is not valid.
 

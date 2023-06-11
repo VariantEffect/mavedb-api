@@ -55,23 +55,23 @@ class ScoresetCreate(ScoresetModify):
 
     experiment_urn: str
     license_id: int
-    superseded_scoreset_urn: Optional[str]
-    meta_analysis_source_scoreset_urns: Optional[list[str]]
+    superseded_score_set_urn: Optional[str]
+    meta_analysis_source_score_set_urns: Optional[list[str]]
     target_gene: TargetGeneCreate
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = Field(..., min_items=0, max_items=1)
     publication_identifiers: Optional[list[PublicationIdentifierCreate]]
 
-    @validator("superseded_scoreset_urn", "meta_analysis_source_scoreset_urns")
-    def validate_scoreset_urn(cls, v):
+    @validator("superseded_score_set_urn", "meta_analysis_source_score_set_urns")
+    def validate_score_set_urn(cls, v):
         if v is None:
             pass
-        # For superseded_scoreset_urn
+        # For superseded_score_set_urn
         elif type(v) == str:
-            urn.validate_mavedb_urn_scoreset(v)
-        # For meta_analysis_source_scoreset_urns
+            urn.validate_mavedb_urn_score_set(v)
+        # For meta_analysis_source_score_set_urns
         else:
-            [urn.validate_mavedb_urn_scoreset(s) for s in v]
+            [urn.validate_mavedb_urn_score_set(s) for s in v]
         return v
 
     @validator("experiment_urn")
@@ -79,8 +79,8 @@ class ScoresetCreate(ScoresetModify):
         urn.validate_mavedb_urn_experiment(v)
         return v
 
-
-class ScoresetUpdate(ScoresetModify):
+class ScoresetUp
+date(ScoresetModify):
     """View model for updating a score set."""
 
     license_id: Optional[int]
@@ -122,9 +122,9 @@ class SavedScoreset(ScoresetBase):
     num_variants: int
     experiment: SavedExperiment
     license: ShortLicense
-    superseded_scoreset: Optional[ShortScoreset]
-    superseding_scoreset: Optional[SavedScoreset]
-    meta_analysis_source_scoresets: list[ShortScoreset]
+    superseded_score_set: Optional[ShortScoreset]
+    superseding_score_set: Optional[SavedScoreset]
+    meta_analysis_source_score_sets: list[ShortScoreset]
     meta_analyses: list[ShortScoreset]
     doi_identifiers: list[SavedDoiIdentifier]
     primary_publication_identifiers: list[SavedPublicationIdentifier]
@@ -155,9 +155,9 @@ class Scoreset(SavedScoreset):
 
     experiment: Experiment
     license: ShortLicense
-    superseded_scoreset: Optional[ShortScoreset]
-    superseding_scoreset: Optional[Scoreset]
-    meta_analysis_source_scoresets: list[ShortScoreset]
+    superseded_score_set: Optional[ShortScoreset]
+    superseding_score_set: Optional[Scoreset]
+    meta_analysis_source_score_sets: list[ShortScoreset]
     meta_analyses: list[ShortScoreset]
     doi_identifiers: list[DoiIdentifier]
     primary_publication_identifiers: list[PublicationIdentifier]
