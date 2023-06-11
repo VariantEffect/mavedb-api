@@ -91,7 +91,7 @@ def generate_experiment_urn(db: Session, experiment_set: ExperimentSet, experime
     return f"{experiment_set_urn}-{next_suffix}"
 
 
-def generate_scoreset_urn(db: Session, experiment: Experiment):
+def generate_score_set_urn(db: Session, experiment: Experiment):
     """
     Generate a new URN for a score set.
 

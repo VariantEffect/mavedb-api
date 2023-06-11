@@ -72,7 +72,7 @@ def create_scoreset():
             },
         },
     }
-    response = client.post("/api/v1/scoresets/", json=scoreset_to_create)
+    response = client.post("/api/v1/score-sets/", json=scoreset_to_create)
     scoreset = response.json()
     return scoreset
 
@@ -262,7 +262,7 @@ def test_create_scoreset_with_valid_values(test_empty_db):
             },
         },
     }
-    response = client.post("/api/v1/scoresets/", json=scoreset_to_create)
+    response = client.post("/api/v1/score-sets/", json=scoreset_to_create)
     assert response.status_code == 200
     response_data = response.json()
     scoreset_urn = response_data["urn"]
@@ -619,7 +619,7 @@ def test_create_scoreset_with_invalid_doi(test_empty_db):
             },
         },
     }
-    response = client.post("/api/v1/scoresets/", json=scoreset_to_create)
+    response = client.post("/api/v1/score-sets/", json=scoreset_to_create)
     assert response.status_code == 422
 
 
@@ -655,7 +655,7 @@ def test_create_scoreset_with_invalid_pubmed(test_empty_db):
             },
         },
     }
-    response = client.post("/api/v1/scoresets/", json=scoreset_to_create)
+    response = client.post("/api/v1/score-sets/", json=scoreset_to_create)
     assert response.status_code == 422
 
 
@@ -690,7 +690,7 @@ def test_create_scoreset_with_invalid_experiment(test_empty_db):
             },
         },
     }
-    response = client.post("/api/v1/scoresets/", json=scoreset_to_create)
+    response = client.post("/api/v1/score-sets/", json=scoreset_to_create)
     assert response.status_code == 422
 
 
@@ -698,7 +698,7 @@ def test_show_scoreset(test_empty_db):
     create_reference_genome()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
-    response = client.get(f"/api/v1/scoresets/{urn}")
+    response = client.get(f"/api/v1/score-sets/{urn}")
     assert response.status_code == 200
 
 
@@ -713,7 +713,7 @@ def test_valid_score_file(test_empty_db):
     # csv_path = os.path.join("/Users/da.e/Desktop/Estelle Computer/Programming Work/mavedb-api/app/tests/", "scores.csv")
     with open(score_csv_path, "rb") as f1, open(count_csv_path, "rb") as f2:
         response = client.post(
-            f"/api/v1/scoresets/{urn}/variants/data",
+            f"/api/v1/score-sets/{urn}/variants/data",
             files={"scores_file": ("scores.csv", f1, "text/csv"), "counts_file": ("counts.csv", f2, "text/csv")},
         )
     # check the response status code and data
@@ -732,7 +732,7 @@ def test_score_file_with_duplicate_columns(test_empty_db):
     count_csv_path = os.path.join(current_directory, "counts.csv")
     # csv_path = os.path.join("/Users/da.e/Desktop/Estelle Computer/Programming Work/mavedb-api/app/tests/", "scores.csv")
     with open(score_csv_path, "rb") as f1, open(count_csv_path, "rb") as f2:
-        response = client.post(f"/api/v1/scoresets/{urn}/variants/data", files={'scores_file': ('scores.csv', f1, "text/csv"),
+        response = client.post(f"/api/v1/score-sets/{urn}/variants/data", files={'scores_file': ('scores.csv', f1, "text/csv"),
                                                                                 'counts_file': ('counts.csv', f2, "text/csv")})
     # check the response status code and data
     print(response.json())
@@ -750,7 +750,7 @@ def test_score_file_without_score_column(test_empty_db):
     score_csv_path = os.path.join(current_directory, "scores_without_score_column.csv")
     with open(score_csv_path, "rb") as f:
         response = client.post(
-            f"/api/v1/scoresets/{urn}/variants/data",
+            f"/api/v1/score-sets/{urn}/variants/data",
             files={"scores_file": ("scores_without_score_column.csv", f, "text/csv")},
         )
     assert response.status_code == 400
@@ -767,7 +767,7 @@ def test_scores_and_counts_define_different_variants(test_empty_db):
     count_csv_path = os.path.join(current_directory, "counts_with_different_variants.csv")
     with open(score_csv_path, "rb") as f1, open(count_csv_path, "rb") as f2:
         response = client.post(
-            f"/api/v1/scoresets/{urn}/variants/data",
+            f"/api/v1/score-sets/{urn}/variants/data",
             files={
                 "scores_file": ("scores.csv", f1, "text/csv"),
                 "counts_file": ("counts_with_different_variants.csv", f2, "text/csv"),
@@ -787,7 +787,7 @@ def test_score_file_with_letter(test_empty_db):
     score_csv_path = os.path.join(current_directory, "scores_with_string.csv")
     with open(score_csv_path, "rb") as f:
         response = client.post(
-            f"/api/v1/scoresets/{urn}/variants/data", files={"scores_file": ("scores_with_string.csv", f, "text/csv")}
+            f"/api/v1/score-sets/{urn}/variants/data", files={"scores_file": ("scores_with_string.csv", f, "text/csv")}
         )
     assert response.status_code == 400
     assert response.json() == {"detail": "data column 'score' has mixed string and numeric types"}
@@ -802,7 +802,7 @@ def test_score_file_without_hgvs_columns(test_empty_db):
     score_csv_path = os.path.join(current_directory, "scores_without_hgvs_column.csv")
     with open(score_csv_path, "rb") as f:
         response = client.post(
-            f"/api/v1/scoresets/{urn}/variants/data",
+            f"/api/v1/score-sets/{urn}/variants/data",
             files={"scores_file": ("scores_without_hgvs_column.csv", f, "text/csv")},
         )
     assert response.status_code == 400
@@ -820,7 +820,7 @@ def test_score_file_hgvs_pro_has_same_values(test_empty_db):
     score_csv_path = os.path.join(current_directory, "scores_hgvs_pro_has_same_values.csv")
     with open(score_csv_path, "rb") as f:
         response = client.post(
-            f"/api/v1/scoresets/{urn}/variants/data",
+            f"/api/v1/score-sets/{urn}/variants/data",
             files={"scores_file": ("scores_hgvs_pro_has_same_values.csv", f, "text/csv")},
         )
     assert response.status_code == 400
@@ -836,7 +836,7 @@ def test_score_and_count_files_have_hgvs_nt_and_pro(test_empty_db):
     count_csv_path = os.path.join(current_directory, "counts_with_hgvs_nt_and_pro.csv")
     with open(score_csv_path, "rb") as f1, open(count_csv_path, "rb") as f2:
         response = client.post(
-            f"/api/v1/scoresets/{urn}/variants/data",
+            f"/api/v1/score-sets/{urn}/variants/data",
             files={
                 "scores_file": ("scores_with_hgvs_nt_and_pro.csv", f1, "text/csv"),
                 "counts_file": ("counts_with_hgvs_nt_and_pro.csv", f2, "text/csv"),
@@ -854,7 +854,7 @@ def test_score_file_has_not_match_hgvs_nt_and_pro(test_empty_db):
     score_csv_path = os.path.join(current_directory, "scores_hgvs_nt_not_match_pro.csv")
     with open(score_csv_path, "rb") as f:
         response = client.post(
-            f"/api/v1/scoresets/{urn}/variants/data",
+            f"/api/v1/score-sets/{urn}/variants/data",
             files={"scores_file": ("scores_hgvs_nt_not_match_pro.csv", f, "text/csv")},
         )
     assert response.status_code == 400
@@ -869,7 +869,7 @@ def test_score_file_has_invalid_hgvs_pro_prefix(test_empty_db):
     score_csv_path = os.path.join(current_directory, "scores_with_invalid_hgvs_pro_prefix.csv")
     with open(score_csv_path, "rb") as f:
         response = client.post(
-            f"/api/v1/scoresets/{urn}/variants/data",
+            f"/api/v1/score-sets/{urn}/variants/data",
             files={"scores_file": ("scores_with_invalid_hgvs_pro_prefix.csv", f, "text/csv")},
         )
     assert response.status_code == 400
@@ -883,7 +883,7 @@ def test_score_file_has_invalid_hgvs_nt_prefix(test_empty_db):
     score_csv_path = os.path.join(current_directory, "scores_with_invalid_hgvs_nt_prefix.csv")
     with open(score_csv_path, "rb") as f:
         response = client.post(
-            f"/api/v1/scoresets/{urn}/variants/data",
+            f"/api/v1/score-sets/{urn}/variants/data",
             files={"scores_file": ("scores_with_invalid_hgvs_nt_prefix.csv", f, "text/csv")},
         )
     assert response.status_code == 400
@@ -898,7 +898,7 @@ def test_count_file_has_score_column(test_empty_db):
     count_csv_path = os.path.join(current_directory, "counts_with_score.csv")
     with open(score_csv_path, "rb") as f1, open(count_csv_path, "rb") as f2:
         response = client.post(
-            f"/api/v1/scoresets/{urn}/variants/data",
+            f"/api/v1/score-sets/{urn}/variants/data",
             files={
                 "scores_file": ("scores.csv", f1, "text/csv"),
                 "counts_file": ("counts_with_score.csv", f2, "text/csv"),
@@ -916,7 +916,7 @@ def test_score_file_column_name_has_nan(test_empty_db):
     score_csv_path = os.path.join(current_directory, "scores_with_nan_column_name.csv")
     with open(score_csv_path, "rb") as f:
         response = client.post(
-            f"/api/v1/scoresets/{urn}/variants/data",
+            f"/api/v1/score-sets/{urn}/variants/data",
             files={"scores_file": ("scores_with_nan_column_name.csv", f, "text/csv")},
         )
     assert response.status_code == 400

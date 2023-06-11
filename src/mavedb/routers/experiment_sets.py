@@ -9,7 +9,7 @@ from mavedb.models.experiment_set import ExperimentSet
 from mavedb.view_models import experiment_set
 
 router = APIRouter(
-    prefix="/api/v1/experimentSets", tags=["experiment-sets"], responses={404: {"description": "Not found"}}
+    prefix="/api/v1/experiment-sets", tags=["experiment-sets"], responses={404: {"description": "Not found"}}
 )
 
 

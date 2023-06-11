@@ -23,7 +23,7 @@ from mavedb.lib.identifiers import (
     find_or_create_publication_identifier,
 )
 from mavedb.lib.scoresets import create_variants_data, search_scoresets as _search_scoresets, VariantData
-from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_scoreset_urn
+from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_score_set_urn
 from mavedb.lib.validation import exceptions
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_pair
@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 null_values_re = re.compile(r"\s+|none|nan|na|undefined|n/a|null|nil", flags=re.IGNORECASE)
 
 
-async def fetch_scoreset_by_urn(db, urn: str, owner: Optional[User]) -> Optional[Scoreset]:
+async def fetch_score_set_by_urn(db, urn: str, owner: Optional[User]) -> Optional[Scoreset]:
     """
     Fetch one score set by URN, ensuring that it is either published or owned by a specified user.
 
@@ -79,37 +79,37 @@ def is_null(value):
 router = APIRouter(prefix="/api/v1", tags=["scoresets"], responses={404: {"description": "Not found"}})
 
 
-@router.post("/scoresets/search", status_code=200, response_model=list[scoreset.ShortScoreset])
+@router.post("/score-sets/search", status_code=200, response_model=list[scoreset.ShortScoreset])
 def search_scoresets(search: ScoresetsSearch, db: Session = Depends(deps.get_db)) -> Any:  # = Body(..., embed=True),
     """
-    Search scoresets.
+    Search score sets.
     """
     return _search_scoresets(db, None, search)
 
 
-@router.post("/me/scoresets/search", status_code=200, response_model=list[scoreset.ShortScoreset])
+@router.post("/me/score-sets/search", status_code=200, response_model=list[scoreset.ShortScoreset])
 def search_my_scoresets(
     search: ScoresetsSearch,  # = Body(..., embed=True),
     db: Session = Depends(deps.get_db),
     user: User = Depends(require_current_user),
 ) -> Any:
     """
-    Search scoresets created by the current user..
+    Search score sets created by the current user..
     """
     return _search_scoresets(db, user, search)
 
 
-@router.get("/scoresets/{urn}", status_code=200, response_model=scoreset.Scoreset, responses={404: {}, 500: {}})
-async def show_scoreset(*, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(get_current_user)) -> Any:
+@router.get("/score-sets/{urn}", status_code=200, response_model=scoreset.Scoreset, responses={404: {}, 500: {}})
+async def show_score_set(*, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(get_current_user)) -> Any:
     """
-    Fetch a single scoreset by URN.
+    Fetch a single score set by URN.
     """
 
-    return await fetch_scoreset_by_urn(db, urn, user)
+    return await fetch_score_set_by_urn(db, urn, user)
 
 
 @router.get(
-    "/scoresets/{urn}/scores",
+    "/score-sets/{urn}/scores",
     status_code=200,
     responses={
         200: {
@@ -119,13 +119,13 @@ async def show_scoreset(*, urn: str, db: Session = Depends(deps.get_db), user: U
         }
     },
 )
-def get_scoreset_scores_csv(
+def get_score_set_scores_csv(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """
-    Return scores from a scoreset, identified by URN, in CSV format.
+    Return scores from a score set, identified by URN, in CSV format.
     """
     scoreset = db.query(Scoreset).filter(Scoreset.urn == urn).first()
     if not scoreset:
@@ -141,7 +141,7 @@ def get_scoreset_scores_csv(
 
 
 @router.get(
-    "/scoresets/{urn}/counts",
+    "/score-sets/{urn}/counts",
     status_code=200,
     responses={
         200: {
@@ -151,13 +151,13 @@ def get_scoreset_scores_csv(
         }
     },
 )
-async def get_scoreset_counts_csv(
+async def get_score_set_counts_csv(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """
-    Return counts from a scoreset, identified by URN, in CSV format.
+    Return counts from a score set, identified by URN, in CSV format.
     """
     scoreset = db.query(Scoreset).filter(Scoreset.urn == urn).first()
     if not scoreset:
@@ -182,15 +182,15 @@ class HGVSColumns:
         return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
-@router.post("/scoresets/", response_model=scoreset.Scoreset, responses={422: {}})
-async def create_scoreset(
+@router.post("/score-sets/", response_model=scoreset.Scoreset, responses={422: {}})
+async def create_score_set(
     *,
     item_create: scoreset.ScoresetCreate,
     db: Session = Depends(deps.get_db),
     user: User = Depends(require_current_user),
 ) -> Any:
     """
-    Create a scoreset.
+    Create a score set.
     """
 
     # TODO Confirm that the experiment is editable by this user.
@@ -207,13 +207,13 @@ async def create_scoreset(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
 
     if item_create.superseded_scoreset_urn is not None:
-        superseded_scoreset = await fetch_scoreset_by_urn(db, item_create.superseded_scoreset_urn, user)
+        superseded_scoreset = await fetch_score_set_by_urn(db, item_create.superseded_scoreset_urn, user)
         if superseded_scoreset is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown superseded scoreset")
     else:
         superseded_scoreset = None
     meta_analysis_source_scoresets = [
-        await fetch_scoreset_by_urn(db, urn) for urn in item_create.meta_analysis_source_scoreset_urns or []
+        await fetch_score_set_by_urn(db, urn) for urn in item_create.meta_analysis_source_scoreset_urns or []
     ]
 
     doi_identifiers = [
@@ -283,8 +283,8 @@ async def create_scoreset(
     return item
 
 
-@router.post("/scoresets/{urn}/variants/data", response_model=scoreset.Scoreset, responses={422: {}})
-async def upload_scoreset_variant_data(
+@router.post("/score-sets/{urn}/variants/data", response_model=scoreset.Scoreset, responses={422: {}})
+async def upload_score_set_variant_data(
     *,
     urn: str,
     counts_file: Optional[UploadFile] = File(None),
@@ -293,7 +293,7 @@ async def upload_scoreset_variant_data(
     user: User = Depends(require_current_user),
 ) -> Any:
     """
-    Upload scores and variant count files for a scoreset, and initiate processing these files to
+    Upload scores and variant count files for a score set, and initiate processing these files to
     create variants.
     """
 
@@ -406,8 +406,8 @@ def bulk_create_urns(n, scoreset, reset_counter=False) -> List[str]:
     return child_urns
 
 
-@router.put("/scoresets/{urn}", response_model=scoreset.Scoreset, responses={422: {}})
-async def update_scoreset(
+@router.put("/score-sets/{urn}", response_model=scoreset.Scoreset, responses={422: {}})
+async def update_score_set(
     *,
     urn: str,
     item_update: scoreset.ScoresetUpdate,
@@ -415,7 +415,7 @@ async def update_scoreset(
     user: User = Depends(require_current_user),
 ) -> Any:
     """
-    Update a scoreset .
+    Update a score set.
     """
 
     if not item_update:
@@ -520,12 +520,12 @@ async def update_scoreset(
     return item
 
 
-@router.delete("/scoresets/{urn}", responses={422: {}})
-async def delete_scoreset(
+@router.delete("/score-sets/{urn}", responses={422: {}})
+async def delete_score_set(
     *, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(require_current_user)
 ) -> Any:
     """
-    Delete a scoreset .
+    Delete a score set.
 
     Raises
 
@@ -545,12 +545,12 @@ async def delete_scoreset(
     db.commit()
 
 
-@router.post("/scoresets/{urn}/publish", status_code=200, response_model=scoreset.Scoreset)
+@router.post("/score-sets/{urn}/publish", status_code=200, response_model=scoreset.Scoreset)
 def publish_scoreset(
     *, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(require_current_user)
 ) -> Any:
     """
-    Publish a scoreset.
+    Publish a score set.
     """
     item: Scoreset = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
     if not item:
@@ -558,12 +558,12 @@ def publish_scoreset(
     # TODO Ensure that the current user has edit rights for this scoreset.
     if not item.experiment:
         raise HTTPException(
-            status_code=500, detail="This scoreset does not belong to an experiment and cannot be published."
+            status_code=500, detail="This score set does not belong to an experiment and cannot be published."
         )
     if not item.experiment.experiment_set:
         raise HTTPException(
             status_code=500,
-            detail="This scoreset's experiment does not belong to an experiment set and cannot be published.",
+            detail="This score set's experiment does not belong to an experiment set and cannot be published.",
         )
 
     published_date = date.today()
@@ -581,7 +581,7 @@ def publish_scoreset(
         item.experiment.published_date = published_date
         db.add(item.experiment)
 
-    item.urn = generate_scoreset_urn(db, item.experiment)
+    item.urn = generate_score_set_urn(db, item.experiment)
     item.private = False
     item.published_date = published_date
     db.add(item)
