@@ -57,7 +57,7 @@ class Experiment(Base):
     processing_state = Column(String, nullable=True)
 
     # TODO Refactor the way we track the number of scoresets?
-    num_scoresets = Column(Integer, nullable=False, default=0)
+    num_score_sets = Column("num_scoresets", Integer, nullable=False, default=0)
 
     experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), nullable=True)
     experiment_set = relationship("ExperimentSet", backref=backref("experiments", cascade="all,delete-orphan"))

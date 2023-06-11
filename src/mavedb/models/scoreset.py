@@ -75,7 +75,7 @@ class Scoreset(Base):
     num_variants = Column(Integer, nullable=False, default=0)
 
     experiment_id = Column(Integer, ForeignKey("experiments.id"), nullable=False)
-    experiment = relationship("Experiment", backref=backref("scoresets", cascade="all,delete-orphan"))
+    experiment = relationship("Experiment", backref=backref("score_sets", cascade="all,delete-orphan"))
     # TODO Standardize on US or GB spelling for licenc/se.
     licence_id = Column(Integer, ForeignKey("licenses.id"), nullable=False)
     license = relationship("License")
