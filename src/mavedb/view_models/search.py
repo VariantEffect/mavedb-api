@@ -8,7 +8,7 @@ class ExperimentsSearch(BaseModel):
     text: Optional[str]
 
 
-class ScoresetsSearch(BaseModel):
+class ScoreSetsSearch(BaseModel):
     published: Optional[bool]
     targets: Optional[list[str]]
     target_organism_names: Optional[list[str]]

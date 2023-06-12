@@ -18,7 +18,6 @@ def fetch_experiment_set(*, urn: str, db: Session = Depends(deps.get_db)) -> Any
     """
     Fetch a single experiment set by URN.
     """
-    # result = crud.scoreset.get(db=db, id=id)
     # item = db.query(ExperimentSet).filter(ExperimentSet.urn == urn).filter(ExperimentSet.private.is_(False)).first()
     item = db.query(ExperimentSet).filter(ExperimentSet.urn == urn).first()
     if not item:

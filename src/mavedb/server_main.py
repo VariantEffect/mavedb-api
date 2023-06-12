@@ -28,7 +28,7 @@ from mavedb.routers import (
     target_gene_identifiers,
     raw_read_identifiers,
     reference_genomes,
-    scoresets,
+    score_sets,
     target_genes,
     users,
 )
@@ -60,7 +60,7 @@ app.include_router(licenses.router)
 app.include_router(publication_identifiers.router)
 app.include_router(raw_read_identifiers.router)
 app.include_router(reference_genomes.router)
-app.include_router(scoresets.router)
+app.include_router(score_sets.router)
 app.include_router(target_gene_identifiers.router)
 app.include_router(target_genes.router)
 app.include_router(users.router)

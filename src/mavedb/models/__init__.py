@@ -15,7 +15,7 @@ __all__ = [
     "refseq_identifier",
     "refseq_offset",
     "role",
-    "scoreset",
+    "score_set",
     "target_gene",
     "uniprot_identifier",
     "uniprot_offset",

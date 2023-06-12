@@ -17,9 +17,9 @@ from mavedb.lib.identifiers import (
 )
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
-from mavedb.models.scoreset import Scoreset
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
-from mavedb.view_models import experiment, scoreset
+from mavedb.view_models import experiment, score_set
 from mavedb.view_models.search import ExperimentsSearch
 
 logger = logging.getLogger(__name__)
@@ -85,12 +85,12 @@ def fetch_experiment(*, urn: str, db: Session = Depends(deps.get_db)) -> Experim
 
 
 @router.get(
-    "/experiments/{urn}/scoresets",
+    "/experiments/{urn}/score-sets",
     status_code=200,
-    response_model=list[scoreset.Scoreset],
+    response_model=list[score_set.ScoreSet],
     responses={404: {}},
 )
-def get_experiment_scoresets(*, urn: str, db: Session = Depends(deps.get_db)) -> Any:
+def get_experiment_score_sets(*, urn: str, db: Session = Depends(deps.get_db)) -> Any:
     """
     Get all score sets belonging to an experiment.
     """
@@ -98,14 +98,14 @@ def get_experiment_scoresets(*, urn: str, db: Session = Depends(deps.get_db)) ->
     if not experiment:
         raise HTTPException(status_code=404, detail=f"Experiment with URN {urn} not found")
     # Only get published score sets. Unpublished score sets won't be shown on experiment page.
-    scoresets = (
-        db.query(Scoreset).filter(Scoreset.experiment_id == experiment.id).filter(Scoreset.urn.contains("urn")).all()
+    score_sets = (
+        db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(ScoreSet.urn.contains("urn")).all()
     )
-    if not scoresets:
+    if not score_sets:
         raise HTTPException(status_code=404, detail="No associated score set")
     else:
-        scoresets.sort(key=attrgetter("urn"))
-    return scoresets
+        score_sets.sort(key=attrgetter("urn"))
+    return score_sets
 
 
 @router.post("/experiments/", response_model=experiment.Experiment, responses={422: {}})

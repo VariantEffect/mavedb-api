@@ -56,7 +56,7 @@ class Experiment(Base):
     published_date = Column(Date, nullable=True)
     processing_state = Column(String, nullable=True)
 
-    # TODO Refactor the way we track the number of scoresets?
+    # TODO Refactor the way we track the number of score sets?
     num_score_sets = Column("num_scoresets", Integer, nullable=False, default=0)
 
     experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), nullable=True)

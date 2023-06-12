@@ -4,7 +4,7 @@ from mavedb.lib.validation.constants.urn import (
     MAVEDB_ANY_URN_RE,
     MAVEDB_EXPERIMENT_URN_RE,
     MAVEDB_EXPERIMENTSET_URN_RE,
-    MAVEDB_SCORESET_URN_RE,
+    MAVEDB_SCORE_SET_URN_RE,
     MAVEDB_VARIANT_URN_RE,
 )
 
@@ -83,17 +83,17 @@ def validate_mavedb_urn_experiment(urn: str):
 
 def validate_mavedb_urn_score_set(urn: str):
     """
-    This function validates a Scoreset urn and raises an error if it is not valid.
+    This function validates a Score set urn and raises an error if it is not valid.
 
     Parameters
     __________
     urn : str
-        The Scoreset urn to be validated
+        The Score set urn to be validated
 
     Raises
     ______
     ValidationError
-        If the Scoreset urn is not valid.
+        If the Score set urn is not valid.
     """
     if urn.startswith("tmp:"):
         try:
@@ -101,7 +101,7 @@ def validate_mavedb_urn_score_set(urn: str):
         except ValueError:
             raise ValidationError("{}'s is not a valid score set urn.".format(urn))
     else:
-        if not MAVEDB_SCORESET_URN_RE.match(urn):
+        if not MAVEDB_SCORE_SET_URN_RE.match(urn):
             raise ValidationError("{}'s is not a valid score set urn.".format(urn))
 
 

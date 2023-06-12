@@ -26,7 +26,7 @@ def test_create_experiment(test_empty_db):
     added_fields = {
         "urn": experiment_urn,
         "experimentSetUrn": experiment_set_urn,
-        "numScoresets": 0,
+        "numScoreSets": 0,
         "creationDate": date.today().isoformat(),
         "modificationDate": date.today().isoformat(),
         "publishedDate": None,

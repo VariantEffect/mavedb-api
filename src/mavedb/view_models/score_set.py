@@ -31,7 +31,7 @@ from mavedb.view_models.user import SavedUser, User
 from mavedb.view_models.variant import VariantInDbBase
 
 
-class ScoresetBase(BaseModel):
+class ScoreSetBase(BaseModel):
     """Base class for score set view models."""
 
     title: str
@@ -43,14 +43,14 @@ class ScoresetBase(BaseModel):
     keywords: Optional[list[str]]
 
 
-class ScoresetModify(ScoresetBase):
+class ScoreSetModify(ScoreSetBase):
     @validator("keywords")
     def validate_keywords(cls, v):
         keywords.validate_keywords(v)
         return v
 
 
-class ScoresetCreate(ScoresetModify):
+class ScoreSetCreate(ScoreSetModify):
     """View model for creating a new score set."""
 
     experiment_urn: str
@@ -79,8 +79,7 @@ class ScoresetCreate(ScoresetModify):
         urn.validate_mavedb_urn_experiment(v)
         return v
 
-class ScoresetUp
-date(ScoresetModify):
+class ScoreSetUpdate(ScoreSetModify):
     """View model for updating a score set."""
 
     license_id: Optional[int]
@@ -90,11 +89,11 @@ date(ScoresetModify):
     target_gene: TargetGeneCreate
 
 
-class ShortScoreset(BaseModel):
+class ShortScoreSet(BaseModel):
     """
     Score set view model containing a smaller set of properties to return in list contexts.
 
-    Notice that this is not derived from ScoresetBase.
+    Notice that this is not derived from ScoreSetBase.
     """
 
     urn: str
@@ -115,17 +114,17 @@ class ShortScoreset(BaseModel):
         arbitrary_types_allowed = True
 
 
-class SavedScoreset(ScoresetBase):
+class SavedScoreSet(ScoreSetBase):
     """Base class for score set view models representing saved records."""
 
     urn: str
     num_variants: int
     experiment: SavedExperiment
     license: ShortLicense
-    superseded_score_set: Optional[ShortScoreset]
-    superseding_score_set: Optional[SavedScoreset]
-    meta_analysis_source_score_sets: list[ShortScoreset]
-    meta_analyses: list[ShortScoreset]
+    superseded_score_set: Optional[ShortScoreSet]
+    superseding_score_set: Optional[SavedScoreSet]
+    meta_analysis_source_score_sets: list[ShortScoreSet]
+    meta_analyses: list[ShortScoreSet]
     doi_identifiers: list[SavedDoiIdentifier]
     primary_publication_identifiers: list[SavedPublicationIdentifier]
     secondary_publication_identifiers: list[SavedPublicationIdentifier]
@@ -150,15 +149,15 @@ class SavedScoreset(ScoresetBase):
         return list(value)  # Re-cast into proper list-like type
 
 
-class Scoreset(SavedScoreset):
+class ScoreSet(SavedScoreSet):
     """Score set view model containing most properties visible to non-admin users, but no variant data."""
 
     experiment: Experiment
     license: ShortLicense
-    superseded_score_set: Optional[ShortScoreset]
-    superseding_score_set: Optional[Scoreset]
-    meta_analysis_source_score_sets: list[ShortScoreset]
-    meta_analyses: list[ShortScoreset]
+    superseded_score_set: Optional[ShortScoreSet]
+    superseding_score_set: Optional[ScoreSet]
+    meta_analysis_source_score_sets: list[ShortScoreSet]
+    meta_analyses: list[ShortScoreSet]
     doi_identifiers: list[DoiIdentifier]
     primary_publication_identifiers: list[PublicationIdentifier]
     secondary_publication_identifiers: list[PublicationIdentifier]
@@ -170,7 +169,7 @@ class Scoreset(SavedScoreset):
     # processing_state: Optional[str]
 
 
-class ScoresetWithVariants(Scoreset):
+class ScoreSetWithVariants(ScoreSet):
     """
     Score set view model containing a complete set of properties visible to non-admin users, for contexts where variants
     are requested.
@@ -179,7 +178,7 @@ class ScoresetWithVariants(Scoreset):
     variants: list[VariantInDbBase]
 
 
-class AdminScoreset(Scoreset):
+class AdminScoreSet(ScoreSet):
     """Score set view model containing properties to return to admin clients."""
 
     normalised: bool
