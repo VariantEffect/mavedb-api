@@ -9,7 +9,7 @@ from mavedb.models.experiment_set import ExperimentSet
 from mavedb.view_models import experiment_set
 
 router = APIRouter(
-    prefix="/api/v1/experimentSets", tags=["experiment-sets"], responses={404: {"description": "Not found"}}
+    prefix="/api/v1/experiment-sets", tags=["experiment-sets"], responses={404: {"description": "Not found"}}
 )
 
 
@@ -18,7 +18,6 @@ def fetch_experiment_set(*, urn: str, db: Session = Depends(deps.get_db)) -> Any
     """
     Fetch a single experiment set by URN.
     """
-    # result = crud.scoreset.get(db=db, id=id)
     # item = db.query(ExperimentSet).filter(ExperimentSet.urn == urn).filter(ExperimentSet.private.is_(False)).first()
     item = db.query(ExperimentSet).filter(ExperimentSet.urn == urn).first()
     if not item:

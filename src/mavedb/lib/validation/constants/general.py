@@ -46,8 +46,8 @@ required_score_column = "score"
 valid_dataset_columns = [score_columns, count_columns]
 valid_variant_columns = [variant_score_data, variant_count_data]
 
-variant_to_scoreset_column = {
+variant_to_score_set_column = {
     variant_score_data: score_columns,
     variant_count_data: count_columns,
 }
-scoreset_to_variant_column = {v: k for k, v in variant_to_scoreset_column.items()}
+score_set_to_variant_column = {v: k for k, v in variant_to_score_set_column.items()}

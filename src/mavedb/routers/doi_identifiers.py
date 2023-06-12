@@ -10,7 +10,7 @@ from mavedb.view_models import doi_identifier
 from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
-    prefix="/api/v1/doiIdentifiers", tags=["DOI identifiers"], responses={404: {"description": "Not found"}}
+    prefix="/api/v1/doi-identifiers", tags=["DOI identifiers"], responses={404: {"description": "Not found"}}
 )
 
 
