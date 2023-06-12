@@ -24,8 +24,10 @@ from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.reference_genome import ReferenceGenome
 from mavedb.models.reference_map import ReferenceMap
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.user import User
+from mavedb.view_models.search import ScoreSetsSearch
 from mavedb.view_models.search import ScoreSetsSearch
 
 VariantData = dict[str, Optional[dict[str, dict]]]
@@ -34,8 +36,12 @@ VariantData = dict[str, Optional[dict[str, dict]]]
 def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
     query = db.query(ScoreSet)  # \
     # .filter(ScoreSet.private.is_(False))
+def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
+    query = db.query(ScoreSet)  # \
+    # .filter(ScoreSet.private.is_(False))
 
     if owner is not None:
+        query = query.filter(ScoreSet.created_by_id == owner.id)
         query = query.filter(ScoreSet.created_by_id == owner.id)
 
     if search.published is not None:
@@ -55,6 +61,7 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ScoreSet.target_gene.has(func.lower(TargetGene.name).contains(lower_search_text)),
                 ScoreSet.target_gene.has(func.lower(TargetGene.category).contains(lower_search_text)),
                 ScoreSet.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text)),
+                # TODO Add: ORGANISM_NAME UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
                 ScoreSet.publication_identifiers.any(
                     func.lower(PublicationIdentifier.abstract).contains(lower_search_text)
                 ),
@@ -67,7 +74,6 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ScoreSet.publication_identifiers.any(
                     PublicationIdentifier.authors.any(func.lower(Author.name).contains(lower_search_text))
                 ),
-                # TODO Add: ORGANISM_NAME UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
             )
         )
 
