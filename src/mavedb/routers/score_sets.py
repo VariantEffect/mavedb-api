@@ -213,7 +213,7 @@ async def create_score_set(
     else:
         superseded_score_set = None
     meta_analysis_source_score_sets = [
-        await fetch_score_set_by_urn(db, urn) for urn in item_create.meta_analysis_source_score_set_urns or []
+        await fetch_score_set_by_urn(db, urn, None) for urn in item_create.meta_analysis_source_score_set_urns or []
     ]
 
     doi_identifiers = [
