@@ -22,7 +22,9 @@ def test_score_set_creation(test_with_empty_db):
     db.add(new_reference_genome)
     db.commit()
 
-    new_license = License(id=1, short_name="Short", long_name="Long", text="Don't be evil.", link="localhost", version="1.0")
+    new_license = License(
+        id=1, short_name="Short", long_name="Long", text="Don't be evil.", link="localhost", version="1.0"
+    )
     db = TestingSessionLocal()
     db.add(new_license)
     db.commit()
@@ -251,8 +253,8 @@ def test_create_score_set_with_valid_values(test_score_set_creation):
         "dataUsagePolicy": "data usage",
         "licenseId": 1,
         "datasetColumns": {},
-#        "supersededScoreSetUrn": superseded_score_set["urn"],
-#        "metaAnalysisSourceScoreSetUrns": [meta_analysis_score_set["urn"]],
+        #        "supersededScoreSetUrn": superseded_score_set["urn"],
+        #        "metaAnalysisSourceScoreSetUrns": [meta_analysis_score_set["urn"]],
         "targetGene": {
             "name": "UBE2I",
             "category": "Protein coding",
@@ -596,7 +598,7 @@ def test_create_score_set_with_valid_values(test_score_set_creation):
         "private": True,
     }
     assert response_data == expected_response
-    #assert json.dumps(response_data, sort_keys=True) == json.dumps(expected_response, sort_keys=True)
+    # assert json.dumps(response_data, sort_keys=True) == json.dumps(expected_response, sort_keys=True)
 
 
 def test_create_simple_score_set(test_score_set_creation):
@@ -753,7 +755,7 @@ def test_create_simple_score_set(test_score_set_creation):
         "private": True,
     }
     assert response_data == expected_response
-    #assert json.dumps(response_data, sort_keys=True) == json.dumps(expected_response, sort_keys=True)
+    # assert json.dumps(response_data, sort_keys=True) == json.dumps(expected_response, sort_keys=True)
 
 
 def test_create_score_set_with_invalid_doi(test_with_empty_db):

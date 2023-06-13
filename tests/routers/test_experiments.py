@@ -7,31 +7,37 @@ from tests.conftest import client, TEST_USER
 
 
 TEST_EXPERIMENT_POST_PAYLOAD = {
-        "title": "Test Experiment Title",
-        "methodText": "Methods",
-        "abstractText": "Abstract",
-        "shortDescription": "Test experiment",
-        "extraMetadata": {},
-        "keywords": [],
-        "primaryPublicationIdentifiers": [],
-    }
+    "title": "Test Experiment Title",
+    "methodText": "Methods",
+    "abstractText": "Abstract",
+    "shortDescription": "Test experiment",
+    "extraMetadata": {},
+    "keywords": [],
+    "primaryPublicationIdentifiers": [],
+}
 
 TEST_EXPERIMENT_RESPONSE_PAYLOAD = {
-        "title": "Test Experiment Title",
-        "methodText": "Methods",
-        "abstractText": "Abstract",
-        "shortDescription": "Test experiment",
-        "extraMetadata": {},
-        "keywords": [],
-        "primaryPublicationIdentifiers": [],
+    "title": "Test Experiment Title",
+    "methodText": "Methods",
+    "abstractText": "Abstract",
+    "shortDescription": "Test experiment",
+    "extraMetadata": {},
+    "keywords": [],
+    "primaryPublicationIdentifiers": [],
     "numScoreSets": 0,
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
     "publishedDate": None,
-    "createdBy": {"firstName": TEST_USER["first_name"], "lastName": TEST_USER["last_name"],
-                  "orcidId": TEST_USER["username"]},
-    "modifiedBy": {"firstName": TEST_USER["first_name"], "lastName": TEST_USER["last_name"],
-                   "orcidId": TEST_USER["username"]},
+    "createdBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "modifiedBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
     "processingState": None,
     "doiIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
@@ -80,8 +86,9 @@ def test_create_experiment_with_invalid_doi(test_with_empty_db):
     experiment_post_payload["doiIdentifiers"] = [{"identifier": "20711194"}]
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
     assert response.status_code == 422
-    assert f"'{experiment_post_payload['doiIdentifiers'][0]['identifier']}' is not a valid DOI identifier" in str(response.text)
-
+    assert f"'{experiment_post_payload['doiIdentifiers'][0]['identifier']}' is not a valid DOI identifier" in str(
+        response.text
+    )
 
 
 def test_create_experiment_with_invalid_primary_publication(test_with_empty_db):
@@ -89,4 +96,7 @@ def test_create_experiment_with_invalid_primary_publication(test_with_empty_db):
     experiment_post_payload["primaryPublicationIdentifiers"] = [{"identifier": "abcdefg"}]
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
     assert response.status_code == 422
-    assert f"'{experiment_post_payload['primaryPublicationIdentifiers'][0]['identifier']}' is not a valid PubMed identifier" in str(response.text)
+    assert (
+        f"'{experiment_post_payload['primaryPublicationIdentifiers'][0]['identifier']}' is not a valid PubMed identifier"
+        in str(response.text)
+    )
