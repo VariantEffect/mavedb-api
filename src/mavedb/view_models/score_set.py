@@ -6,7 +6,8 @@ from typing import Collection, Dict, Optional
 
 from pydantic import Field
 
-from mavedb.lib.validation import keywords, urn
+from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.lib.validation import keywords, urn_re
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.doi_identifier import (
@@ -62,16 +63,26 @@ class ScoreSetCreate(ScoreSetModify):
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = Field(..., min_items=0, max_items=1)
     publication_identifiers: Optional[list[PublicationIdentifierCreate]]
 
-    @validator("superseded_score_set_urn", "meta_analysis_source_score_set_urns")
+    @validator("superseded_score_set_urn")
+    def validate_superseded_score_set_urn(cls, v):
+        if v is None:
+            pass
+        else:
+            if urn_re.MAVEDB_SCORE_SET_URN_RE.fullmatch(v) is None:
+                if urn_re.MAVEDB_TMP_URN_RE.fullmatch(v) is None:
+                    raise ValueError(f"'{v}' is not a valid score set URN")
+                else:
+                    raise ValueError("cannot supersede a private score set - please edit it instead")
+        return v
+
+    @validator("meta_analysis_source_score_set_urns")
     def validate_score_set_urn(cls, v):
         if v is None:
             pass
-        # For superseded_score_set_urn
-        elif type(v) == str:
-            urn.validate_mavedb_urn_score_set(v)
-        # For meta_analysis_source_score_set_urns
         else:
-            [urn.validate_mavedb_urn_score_set(s) for s in v]
+            for s in v:
+                if urn_re.MAVEDB_SCORE_SET_URN_RE.fullmatch(s) is None and urn_re.MAVEDB_TMP_URN_RE.fullmatch(s) is None:
+                    raise ValueError(f"'{s}' is not a valid score set URN")
         return v
 
     @validator("experiment_urn")
