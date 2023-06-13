@@ -3,7 +3,7 @@ from mavedb.view_models.target_gene import TargetGeneCreate
 import pytest
 
 
-def test_create_target_gene(test_empty_db):
+def test_create_target_gene(test_with_empty_db):
     name = "UBE2I"
     category = "Regulatory"
     external_identifiers = [{"identifier": {"dbName": "Ensembl", "identifier": "ENSG00000103275"}, "offset": 1}]
@@ -31,7 +31,7 @@ def test_create_target_gene(test_empty_db):
     assert externalIdentifier.category == "Regulatory"
 
 
-def test_create_invalid_category(test_empty_db):
+def test_create_invalid_category(test_with_empty_db):
     name = "UBE2I"
     invalid_category = "invalid name"
     external_identifiers = [{"identifier": {"dbName": "Ensembl", "identifier": "ENSG00000103275"}, "offset": 0}]
@@ -63,7 +63,7 @@ def test_create_invalid_category(test_empty_db):
     )
 
 
-def test_create_invalid_sequence_type(test_empty_db):
+def test_create_invalid_sequence_type(test_with_empty_db):
     name = "UBE2I"
     category = "Regulatory"
     external_identifiers = [{"identifier": {"dbName": "Ensembl", "identifier": "ENSG00000103275"}, "offset": 0}]
@@ -91,7 +91,7 @@ def test_create_invalid_sequence_type(test_empty_db):
     assert f"'{wt_sequence['sequenceType']}' is not a valid sequence type" in str(exc_info.value)
 
 
-def test_create_not_match_sequence_and_type(test_empty_db):
+def test_create_not_match_sequence_and_type(test_with_empty_db):
     name = "UBE2I"
     category = "Regulatory"
     external_identifiers = [{"identifier": {"dbName": "Ensembl", "identifier": "ENSG00000103275"}, "offset": 0}]
@@ -108,7 +108,7 @@ def test_create_not_match_sequence_and_type(test_empty_db):
     assert f"invalid {wt_sequence['sequenceType']} sequence provided" in str(exc_info.value)
 
 
-def test_create_invalid_sequence(test_empty_db):
+def test_create_invalid_sequence(test_with_empty_db):
     name = "UBE2I"
     category = "Regulatory"
     external_identifiers = [{"identifier": {"dbName": "Ensembl", "identifier": "ENSG00000103275"}, "offset": 0}]

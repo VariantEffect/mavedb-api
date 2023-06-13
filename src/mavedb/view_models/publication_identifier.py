@@ -12,7 +12,7 @@ class PublicationIdentifierCreate(PublicationIdentifierBase):
     def must_be_valid_pubmed(cls, v):
         if not idutils.is_pmid(v):
             # ValidationError shows weird error and test can't catch it.
-            raise ValueError("{} is not a valid PubMed identifier.".format(v))
+            raise ValueError("'{}' is not a valid PubMed identifier.".format(v))
         return v
 
 
