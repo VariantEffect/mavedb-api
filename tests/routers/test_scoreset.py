@@ -3,57 +3,62 @@ from datetime import date
 import json
 import re
 
+import pytest
+
 from mavedb.models.reference_genome import ReferenceGenome
+from mavedb.models.license import License
 from tests.conftest import client, TestingSessionLocal
 
-"""
-#Test one. Can ignore it.
-def test_get_score_set(test_empty_db):
-    response = client.get("/api/v1/score-sets/")
-    assert response.status_code == 200
-    response_data = response.json()
-    score_set_urn = response_data['urn']
-    assert score_set_urn is not None
-    assert re.match(r'tmp:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', score_set_urn)
-"""
+
+@pytest.fixture
+def test_score_set_creation(test_with_empty_db):
+    """Set up the empty database with information needed to create a score set.
+
+    This fixture creates ReferenceGenome and License, each with id 1.
+    It also creates a new test experiment and yields it as a JSON object.
+    """
+    new_reference_genome = ReferenceGenome(id=1, short_name="Name", organism_name="Organism")
+    db = TestingSessionLocal()
+    db.add(new_reference_genome)
+    db.commit()
+
+    new_license = License(id=1, short_name="Short", long_name="Long", text="Don't be evil.", link="localhost", version="1.0")
+    db = TestingSessionLocal()
+    db.add(new_license)
+    db.commit()
+
+    experiment = create_minimal_experiment()
+    yield experiment
 
 
-def create_an_experiment():
+def create_minimal_experiment(title="Test Experiment Title"):
     experiment_to_create = {
-        "title": "Test Experiment Title",
+        "title": title,
         "methodText": "Methods",
         "abstractText": "Abstract",
         "shortDescription": "Test experiment",
         "extraMetadata": {"key": "value"},
         "keywords": [],
+        "primaryPublicationIdentifiers": [],
     }
     response = client.post("/api/v1/experiments/", json=experiment_to_create)
     experiment = response.json()
-    # experiment_urn = response_data['urn']
-    # experiment_set_urn = response_data['experimentSetUrn']
     return experiment
 
 
-def create_reference_genome():
-    reference_genome = ReferenceGenome(id=1, short_name="Name", organism_name="Organism")
-    db = TestingSessionLocal()
-    db.add(reference_genome)
-    db.commit()
-
-
-def create_score_set():
-    experiment = create_an_experiment()
+def create_score_set(experiment_urn, title="Test Score Set Title"):
     score_set_to_create = {
-        "experimentUrn": experiment["urn"],
-        "title": "Test Score Set Title",
+        "experimentUrn": experiment_urn,
+        "title": title,
         "methodText": "Methods",
         "abstractText": "Abstract",
         "shortDescription": "Test score set",
-        "extraMetadata": {"key": "value"},
+        "extraMetadata": {},
         "keywords": [],
         "doiIdentifiers": [],
-        "publicationIdentifiers": [],
+        "primaryPublicationIdentifiers": [],
         "dataUsagePolicy": None,
+        "licenseId": 1,
         "datasetColumns": {},
         "supersededScoreSetUrn": None,
         "metaAnalysisSourceScoreSetUrns": [],
@@ -77,7 +82,7 @@ def create_score_set():
     return score_set
 
 
-def test_create_score_set_with_some_none_values(test_empty_db):
+def test_create_score_set_with_some_none_values(test_with_empty_db):
     experiment = create_an_experiment()
     create_reference_genome()
     score_set_to_create = {
@@ -228,11 +233,10 @@ def test_create_score_set_with_some_none_values(test_empty_db):
     assert json.dumps(response_data, sort_keys=True) == json.dumps(expected_response, sort_keys=True)
 
 
-def test_create_score_set_with_valid_values(test_empty_db):
-    experiment = create_an_experiment()
-    create_reference_genome()
-    superseded_score_set = create_score_set()
-    meta_analysis_score_set = create_score_set()
+def test_create_score_set_with_valid_values(test_score_set_creation):
+    experiment = test_score_set_creation
+    superseded_score_set = create_score_set(experiment["urn"])
+    meta_analysis_score_set = create_score_set(experiment["urn"])
     score_set_to_create = {
         "experimentUrn": experiment["urn"],
         "title": "Test Score Set Title",
@@ -242,11 +246,13 @@ def test_create_score_set_with_valid_values(test_empty_db):
         "extraMetadata": {"key": "value"},
         "keywords": [],
         "doiIdentifiers": [{"identifier": "10.1016/j.cels.2018.01.015"}, {"identifier": "10.1016/j.cels.2018.01.011"}],
-        "publicationIdentifiers": [{"identifier": "20711194"}, {"identifier": "19502423"}],
+        "primaryPublicationIdentifiers": [{"identifier": "20711194"}],
+        "secondaryPublicationIdentifiers": [{"identifier": "19502423"}],
         "dataUsagePolicy": "data usage",
+        "licenseId": 1,
         "datasetColumns": {},
-        "supersededScoreSetUrn": superseded_score_set["urn"],
-        "metaAnalysisSourceScoreSetUrns": [meta_analysis_score_set["urn"]],
+#        "supersededScoreSetUrn": superseded_score_set["urn"],
+#        "metaAnalysisSourceScoreSetUrns": [meta_analysis_score_set["urn"]],
         "targetGene": {
             "name": "UBE2I",
             "category": "Protein coding",
@@ -278,7 +284,13 @@ def test_create_score_set_with_valid_values(test_empty_db):
         "shortDescription": "Test score set",
         "extraMetadata": {"key": "value"},
         "dataUsagePolicy": "data usage",
-        "licenceId": None,
+        "license": {
+            "id": 1,
+            "link": "localhost",
+            "longName": "Long",
+            "shortName": "Short",
+            "version": "1.0",
+        },
         "keywords": [],
         "urn": score_set_urn,
         "numVariants": 0,
@@ -291,220 +303,219 @@ def test_create_score_set_with_valid_values(test_empty_db):
             "keywords": [],
             "urn": experiment_urn,
             "numScoreSets": 0,
-            "createdBy": {"orcidId": "someuser", "firstName": "First", "lastName": "Last", "email": None, "roles": []},
-            "modifiedBy": {"orcidId": "someuser", "firstName": "First", "lastName": "Last", "email": None, "roles": []},
+            "createdBy": {"orcidId": "someuser", "firstName": "First", "lastName": "Last"},
+            "modifiedBy": {"orcidId": "someuser", "firstName": "First", "lastName": "Last"},
             "creationDate": date.today().isoformat(),
             "modificationDate": date.today().isoformat(),
             "publishedDate": None,
             "experimentSetUrn": experiment["experimentSetUrn"],
             "doiIdentifiers": [],
-            "publicationIdentifiers": [],
             "rawReadIdentifiers": [],
             "processingState": None,
         },
-        "supersededScoreSet": {
-            "urn": superseded_score_set["urn"],
-            "title": "Test Score Set Title",
-            "shortDescription": "Test score set",
-            "publishedDate": None,
-            "replacesId": None,
-            "numVariants": 0,
-            "experiment": {
-                "title": "Test Experiment Title",
-                "shortDescription": "Test experiment",
-                "abstractText": "Abstract",
-                "methodText": "Methods",
-                "extraMetadata": {"key": "value"},
-                "keywords": [],
-                "urn": superseded_score_set["experiment"]["urn"],
-                "numScoreSets": 0,
-                "createdBy": {
-                    "orcidId": "someuser",
-                    "firstName": "First",
-                    "lastName": "Last",
-                    "email": None,
-                    "roles": [],
-                },
-                "modifiedBy": {
-                    "orcidId": "someuser",
-                    "firstName": "First",
-                    "lastName": "Last",
-                    "email": None,
-                    "roles": [],
-                },
-                "creationDate": date.today().isoformat(),
-                "modificationDate": date.today().isoformat(),
-                "publishedDate": None,
-                "experimentSetUrn": superseded_score_set["experiment"]["experimentSetUrn"],
-                "doiIdentifiers": [],
-                "publicationIdentifiers": [],
-                "rawReadIdentifiers": [],
-                "processingState": None,
-            },
-            "creationDate": date.today().isoformat(),
-            "modificationDate": date.today().isoformat(),
-            "targetGene": {
-                "name": "UBE2I",
-                "category": "Protein coding",
-                "externalIdentifiers": [
-                    {
-                        "identifier": {
-                            "dbName": "Ensembl",
-                            "identifier": "ENSG00000103275",
-                            "dbVersion": None,
-                            "url": None,
-                            "referenceHtml": None,
-                        },
-                        "offset": 0,
-                    },
-                    {
-                        "identifier": {
-                            "dbName": "RefSeq",
-                            "identifier": "NM_003345",
-                            "dbVersion": None,
-                            "url": None,
-                            "referenceHtml": None,
-                        },
-                        "offset": 159,
-                    },
-                    {
-                        "identifier": {
-                            "dbName": "UniProt",
-                            "identifier": "P63279",
-                            "dbVersion": None,
-                            "url": None,
-                            "referenceHtml": None,
-                        },
-                        "offset": 0,
-                    },
-                ],
-                "referenceMaps": [
-                    {
-                        "id": 1,
-                        "genomeId": 1,
-                        "targetId": 1,
-                        "isPrimary": False,
-                        "genome": {
-                            "shortName": "Name",
-                            "organismName": "Organism",
-                            "genomeId": None,
-                            "creationDate": date.today().isoformat(),
-                            "modificationDate": date.today().isoformat(),
-                            "id": 1,
-                        },
-                        "creationDate": date.today().isoformat(),
-                        "modificationDate": date.today().isoformat(),
-                    }
-                ],
-            },
-            "private": True,
-        },
-        "supersedingScoreSet": None,
-        "metaAnalysisSourceScoreSets": [
-            {
-                "urn": meta_analysis_score_set["urn"],
-                "title": "Test Score Set Title",
-                "shortDescription": "Test score set",
-                "publishedDate": None,
-                "replacesId": None,
-                "numVariants": 0,
-                "experiment": {
-                    "title": "Test Experiment Title",
-                    "shortDescription": "Test experiment",
-                    "abstractText": "Abstract",
-                    "methodText": "Methods",
-                    "extraMetadata": {"key": "value"},
-                    "keywords": [],
-                    "urn": meta_analysis_score_set["experiment"]["urn"],
-                    "numScoreSets": 0,
-                    "createdBy": {
-                        "orcidId": "someuser",
-                        "firstName": "First",
-                        "lastName": "Last",
-                        "email": None,
-                        "roles": [],
-                    },
-                    "modifiedBy": {
-                        "orcidId": "someuser",
-                        "firstName": "First",
-                        "lastName": "Last",
-                        "email": None,
-                        "roles": [],
-                    },
-                    "creationDate": date.today().isoformat(),
-                    "modificationDate": date.today().isoformat(),
-                    "publishedDate": None,
-                    "experimentSetUrn": meta_analysis_score_set["experiment"]["experimentSetUrn"],
-                    "doiIdentifiers": [],
-                    "publicationIdentifiers": [],
-                    "rawReadIdentifiers": [],
-                    "processingState": None,
-                },
-                "creationDate": date.today().isoformat(),
-                "modificationDate": date.today().isoformat(),
-                "targetGene": {
-                    "name": "UBE2I",
-                    "category": "Protein coding",
-                    "externalIdentifiers": [
-                        {
-                            "identifier": {
-                                "dbName": "Ensembl",
-                                "identifier": "ENSG00000103275",
-                                "dbVersion": None,
-                                "url": None,
-                                "referenceHtml": None,
-                            },
-                            "offset": 0,
-                        },
-                        {
-                            "identifier": {
-                                "dbName": "RefSeq",
-                                "identifier": "NM_003345",
-                                "dbVersion": None,
-                                "url": None,
-                                "referenceHtml": None,
-                            },
-                            "offset": 159,
-                        },
-                        {
-                            "identifier": {
-                                "dbName": "UniProt",
-                                "identifier": "P63279",
-                                "dbVersion": None,
-                                "url": None,
-                                "referenceHtml": None,
-                            },
-                            "offset": 0,
-                        },
-                    ],
-                    "referenceMaps": [
-                        {
-                            "id": 2,
-                            "genomeId": 1,
-                            "targetId": 2,
-                            "isPrimary": False,
-                            "genome": {
-                                "shortName": "Name",
-                                "organismName": "Organism",
-                                "genomeId": None,
-                                "creationDate": date.today().isoformat(),
-                                "modificationDate": date.today().isoformat(),
-                                "id": 1,
-                            },
-                            "creationDate": date.today().isoformat(),
-                            "modificationDate": date.today().isoformat(),
-                        }
-                    ],
-                },
-                "private": True,
-            }
-        ],
-        "metaAnalyses": [],
+        # "supersededScoreSet": {
+        #     "urn": superseded_score_set["urn"],
+        #     "title": "Test Score Set Title",
+        #     "shortDescription": "Test score set",
+        #     "publishedDate": None,
+        #     "replacesId": None,
+        #     "numVariants": 0,
+        #     "experiment": {
+        #         "title": "Test Experiment Title",
+        #         "shortDescription": "Test experiment",
+        #         "abstractText": "Abstract",
+        #         "methodText": "Methods",
+        #         "extraMetadata": {"key": "value"},
+        #         "keywords": [],
+        #         "urn": superseded_score_set["experiment"]["urn"],
+        #         "numScoreSets": 0,
+        #         "createdBy": {
+        #             "orcidId": "someuser",
+        #             "firstName": "First",
+        #             "lastName": "Last",
+        #             "email": None,
+        #             "roles": [],
+        #         },
+        #         "modifiedBy": {
+        #             "orcidId": "someuser",
+        #             "firstName": "First",
+        #             "lastName": "Last",
+        #             "email": None,
+        #             "roles": [],
+        #         },
+        #         "creationDate": date.today().isoformat(),
+        #         "modificationDate": date.today().isoformat(),
+        #         "publishedDate": None,
+        #         "experimentSetUrn": superseded_score_set["experiment"]["experimentSetUrn"],
+        #         "doiIdentifiers": [],
+        #         "publicationIdentifiers": [],
+        #         "rawReadIdentifiers": [],
+        #         "processingState": None,
+        #     },
+        #     "creationDate": date.today().isoformat(),
+        #     "modificationDate": date.today().isoformat(),
+        #     "targetGene": {
+        #         "name": "UBE2I",
+        #         "category": "Protein coding",
+        #         "externalIdentifiers": [
+        #             {
+        #                 "identifier": {
+        #                     "dbName": "Ensembl",
+        #                     "identifier": "ENSG00000103275",
+        #                     "dbVersion": None,
+        #                     "url": None,
+        #                     "referenceHtml": None,
+        #                 },
+        #                 "offset": 0,
+        #             },
+        #             {
+        #                 "identifier": {
+        #                     "dbName": "RefSeq",
+        #                     "identifier": "NM_003345",
+        #                     "dbVersion": None,
+        #                     "url": None,
+        #                     "referenceHtml": None,
+        #                 },
+        #                 "offset": 159,
+        #             },
+        #             {
+        #                 "identifier": {
+        #                     "dbName": "UniProt",
+        #                     "identifier": "P63279",
+        #                     "dbVersion": None,
+        #                     "url": None,
+        #                     "referenceHtml": None,
+        #                 },
+        #                 "offset": 0,
+        #             },
+        #         ],
+        #         "referenceMaps": [
+        #             {
+        #                 "id": 1,
+        #                 "genomeId": 1,
+        #                 "targetId": 1,
+        #                 "isPrimary": False,
+        #                 "genome": {
+        #                     "shortName": "Name",
+        #                     "organismName": "Organism",
+        #                     "genomeId": None,
+        #                     "creationDate": date.today().isoformat(),
+        #                     "modificationDate": date.today().isoformat(),
+        #                     "id": 1,
+        #                 },
+        #                 "creationDate": date.today().isoformat(),
+        #                 "modificationDate": date.today().isoformat(),
+        #             }
+        #         ],
+        #     },
+        #     "private": True,
+        # },
+        # "supersedingScoreSet": None,
+        # "metaAnalysisSourceScoreSets": [
+        #     {
+        #         "urn": meta_analysis_score_set["urn"],
+        #         "title": "Test Score Set Title",
+        #         "shortDescription": "Test score set",
+        #         "publishedDate": None,
+        #         "replacesId": None,
+        #         "numVariants": 0,
+        #         "experiment": {
+        #             "title": "Test Experiment Title",
+        #             "shortDescription": "Test experiment",
+        #             "abstractText": "Abstract",
+        #             "methodText": "Methods",
+        #             "extraMetadata": {"key": "value"},
+        #             "keywords": [],
+        #             "urn": meta_analysis_score_set["experiment"]["urn"],
+        #             "numScoreSets": 0,
+        #             "createdBy": {
+        #                 "orcidId": "someuser",
+        #                 "firstName": "First",
+        #                 "lastName": "Last",
+        #                 "email": None,
+        #                 "roles": [],
+        #             },
+        #             "modifiedBy": {
+        #                 "orcidId": "someuser",
+        #                 "firstName": "First",
+        #                 "lastName": "Last",
+        #                 "email": None,
+        #                 "roles": [],
+        #             },
+        #             "creationDate": date.today().isoformat(),
+        #             "modificationDate": date.today().isoformat(),
+        #             "publishedDate": None,
+        #             "experimentSetUrn": meta_analysis_score_set["experiment"]["experimentSetUrn"],
+        #             "doiIdentifiers": [],
+        #             "publicationIdentifiers": [],
+        #             "rawReadIdentifiers": [],
+        #             "processingState": None,
+        #         },
+        #         "creationDate": date.today().isoformat(),
+        #         "modificationDate": date.today().isoformat(),
+        #         "targetGene": {
+        #             "name": "UBE2I",
+        #             "category": "Protein coding",
+        #             "externalIdentifiers": [
+        #                 {
+        #                     "identifier": {
+        #                         "dbName": "Ensembl",
+        #                         "identifier": "ENSG00000103275",
+        #                         "dbVersion": None,
+        #                         "url": None,
+        #                         "referenceHtml": None,
+        #                     },
+        #                     "offset": 0,
+        #                 },
+        #                 {
+        #                     "identifier": {
+        #                         "dbName": "RefSeq",
+        #                         "identifier": "NM_003345",
+        #                         "dbVersion": None,
+        #                         "url": None,
+        #                         "referenceHtml": None,
+        #                     },
+        #                     "offset": 159,
+        #                 },
+        #                 {
+        #                     "identifier": {
+        #                         "dbName": "UniProt",
+        #                         "identifier": "P63279",
+        #                         "dbVersion": None,
+        #                         "url": None,
+        #                         "referenceHtml": None,
+        #                     },
+        #                     "offset": 0,
+        #                 },
+        #             ],
+        #             "referenceMaps": [
+        #                 {
+        #                     "id": 2,
+        #                     "genomeId": 1,
+        #                     "targetId": 2,
+        #                     "isPrimary": False,
+        #                     "genome": {
+        #                         "shortName": "Name",
+        #                         "organismName": "Organism",
+        #                         "genomeId": None,
+        #                         "creationDate": date.today().isoformat(),
+        #                         "modificationDate": date.today().isoformat(),
+        #                         "id": 1,
+        #                     },
+        #                     "creationDate": date.today().isoformat(),
+        #                     "modificationDate": date.today().isoformat(),
+        #                 }
+        #             ],
+        #         },
+        #         "private": True,
+        #     }
+        # ],
+        # "metaAnalyses": [],
         "doiIdentifiers": [
             {"identifier": "10.1016/j.cels.2018.01.015", "id": 1, "url": "https://doi.org/10.1016/j.cels.2018.01.015"},
             {"identifier": "10.1016/j.cels.2018.01.011", "id": 2, "url": "https://doi.org/10.1016/j.cels.2018.01.011"},
         ],
-        "publicationIdentifiers": [
+        "primaryPublicationIdentifiers": [
             {
                 "identifier": "20711194",
                 "id": 1,
@@ -521,8 +532,8 @@ def test_create_score_set_with_valid_values(test_empty_db):
         "publishedDate": None,
         "creationDate": date.today().isoformat(),
         "modificationDate": date.today().isoformat(),
-        "createdBy": {"orcidId": "someuser", "firstName": "First", "lastName": "Last", "email": None, "roles": []},
-        "modifiedBy": {"orcidId": "someuser", "firstName": "First", "lastName": "Last", "email": None, "roles": []},
+        "createdBy": {"orcidId": "someuser", "firstName": "First", "lastName": "Last"},
+        "modifiedBy": {"orcidId": "someuser", "firstName": "First", "lastName": "Last"},
         "targetGene": {
             "name": "UBE2I",
             "category": "Protein coding",
@@ -584,10 +595,168 @@ def test_create_score_set_with_valid_values(test_empty_db):
         "datasetColumns": {},
         "private": True,
     }
-    assert json.dumps(response_data, sort_keys=True) == json.dumps(expected_response, sort_keys=True)
+    assert response_data == expected_response
+    #assert json.dumps(response_data, sort_keys=True) == json.dumps(expected_response, sort_keys=True)
 
 
-def test_create_score_set_with_invalid_doi(test_empty_db):
+def test_create_simple_score_set(test_score_set_creation):
+    experiment = test_score_set_creation
+    score_set_to_create = {
+        "experimentUrn": experiment["urn"],
+        "title": "Test Score Set Title",
+        "methodText": "Methods",
+        "abstractText": "Abstract",
+        "shortDescription": "Test score set",
+        "extraMetadata": {"key": "value"},
+        "keywords": [],
+        "doiIdentifiers": [{"identifier": "10.1016/j.cels.2018.01.015"}],
+        "primaryPublicationIdentifiers": [{"identifier": "20711194"}],
+        "secondaryPublicationIdentifiers": [{"identifier": "19502423"}],
+        "dataUsagePolicy": "data usage",
+        "licenseId": 1,
+        "datasetColumns": {},
+        "targetGene": {
+            "name": "UBE2I",
+            "category": "Protein coding",
+            "externalIdentifiers": [
+                {"identifier": {"dbName": "Ensembl", "identifier": "ENSG00000103275"}, "offset": 0},
+                {"identifier": {"dbName": "RefSeq", "identifier": "NM_003345"}, "offset": 159},
+                {"identifier": {"dbName": "UniProt", "identifier": "P63279"}, "offset": 0},
+            ],
+            "referenceMaps": [{"genomeId": 1}],
+            "wtSequence": {
+                "sequenceType": "dna",
+                "sequence": "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCTGAAGATCAGTTGGGTGCACGAGTGGGTTACATCGAACTGGATCTCAACAGCGGTAAGATCCTTGAGAGTTTTCGCCCCGAAGAACGTTTTCCAATGATGAGCACTTTTAAAGTTCTGCTATGTGGCGCGGTATTATCCCGTGTTGACGCCGGGCAAGAGCAACTCGGTCGCCGCATACACTATTCTCAGAATGACTTGGTTGAGTACTCACCAGTCACAGAAAAGCATCTTACGGATGGCATGACAGTAAGAGAATTATGCAGTGCTGCCATAACCATGAGTGATAACACTGCGGCCAACTTACTTCTGACAACGATCGGAGGACCGAAGGAGCTAACCGCTTTTTTGCACAACATGGGGGATCATGTAACTCGCCTTGATCGTTGGGAACCGGAGCTGAATGAAGCCATACCAAACGACGAGCGTGACACCACGATGCCTGCAGCAATGGCAACAACGTTGCGCAAACTATTAACTGGCGAACTACTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGTTTATTGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGACGGGGAGTCAGGCAACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA",
+            },
+        },
+    }
+    response = client.post("/api/v1/score-sets/", json=score_set_to_create)
+    assert response.status_code == 200
+    response_data = response.json()
+    score_set_urn = response_data["urn"]
+    experiment_urn = experiment["urn"]
+    assert score_set_urn is not None
+    assert experiment_urn is not None
+    assert re.match(r"tmp:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", score_set_urn)
+    assert re.match(r"tmp:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", experiment_urn)
+    expected_response = {
+        "title": "Test Score Set Title",
+        "methodText": "Methods",
+        "abstractText": "Abstract",
+        "shortDescription": "Test score set",
+        "extraMetadata": {"key": "value"},
+        "dataUsagePolicy": "data usage",
+        "license": {
+            "id": 1,
+            "link": "localhost",
+            "longName": "Long",
+            "shortName": "Short",
+            "version": "1.0",
+        },
+        "keywords": [],
+        "urn": score_set_urn,
+        "numVariants": 0,
+        "experiment": {
+            "title": "Test Experiment Title",
+            "shortDescription": "Test experiment",
+            "abstractText": "Abstract",
+            "methodText": "Methods",
+            "extraMetadata": {"key": "value"},
+            "keywords": [],
+            "urn": experiment_urn,
+            "numScoreSets": 0,
+            "createdBy": {"orcidId": "someuser", "firstName": "First", "lastName": "Last"},
+            "modifiedBy": {"orcidId": "someuser", "firstName": "First", "lastName": "Last"},
+            "creationDate": date.today().isoformat(),
+            "modificationDate": date.today().isoformat(),
+            "publishedDate": None,
+            "experimentSetUrn": experiment["experimentSetUrn"],
+            "doiIdentifiers": [],
+            "rawReadIdentifiers": [],
+            "processingState": None,
+            "primaryPublicationIdentifiers": [],
+            "secondaryPublicationIdentifiers": [],
+        },
+        "metaAnalysisSourceScoreSets": [],
+        "metaAnalyses": [],
+        "doiIdentifiers": [
+            {"identifier": "10.1016/j.cels.2018.01.015", "id": 1, "url": "https://doi.org/10.1016/j.cels.2018.01.015"},
+        ],
+        "primaryPublicationIdentifiers": [],
+        "secondaryPublicationIdentifiers": [],
+        "supersededScoreSet": None,
+        "supersedingScoreSet": None,
+        "publishedDate": None,
+        "creationDate": date.today().isoformat(),
+        "modificationDate": date.today().isoformat(),
+        "createdBy": {"orcidId": "someuser", "firstName": "First", "lastName": "Last"},
+        "modifiedBy": {"orcidId": "someuser", "firstName": "First", "lastName": "Last"},
+        "targetGene": {
+            "name": "UBE2I",
+            "category": "Protein coding",
+            "externalIdentifiers": [
+                {
+                    "identifier": {
+                        "dbName": "Ensembl",
+                        "identifier": "ENSG00000103275",
+                        "dbVersion": None,
+                        "url": None,
+                        "referenceHtml": None,
+                    },
+                    "offset": 0,
+                },
+                {
+                    "identifier": {
+                        "dbName": "RefSeq",
+                        "identifier": "NM_003345",
+                        "dbVersion": None,
+                        "url": None,
+                        "referenceHtml": None,
+                    },
+                    "offset": 159,
+                },
+                {
+                    "identifier": {
+                        "dbName": "UniProt",
+                        "identifier": "P63279",
+                        "dbVersion": None,
+                        "url": None,
+                        "referenceHtml": None,
+                    },
+                    "offset": 0,
+                },
+            ],
+            "referenceMaps": [
+                {
+                    "id": 1,
+                    "genomeId": 1,
+                    "targetId": 1,
+                    "isPrimary": False,
+                    "genome": {
+                        "shortName": "Name",
+                        "organismName": "Organism",
+                        "genomeId": None,
+                        "creationDate": date.today().isoformat(),
+                        "modificationDate": date.today().isoformat(),
+                        "id": 1,
+                    },
+                    "creationDate": date.today().isoformat(),
+                    "modificationDate": date.today().isoformat(),
+                }
+            ],
+            "wtSequence": {
+                "sequenceType": "dna",
+                "sequence": "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCTGAAGATCAGTTGGGTGCACGAGTGGGTTACATCGAACTGGATCTCAACAGCGGTAAGATCCTTGAGAGTTTTCGCCCCGAAGAACGTTTTCCAATGATGAGCACTTTTAAAGTTCTGCTATGTGGCGCGGTATTATCCCGTGTTGACGCCGGGCAAGAGCAACTCGGTCGCCGCATACACTATTCTCAGAATGACTTGGTTGAGTACTCACCAGTCACAGAAAAGCATCTTACGGATGGCATGACAGTAAGAGAATTATGCAGTGCTGCCATAACCATGAGTGATAACACTGCGGCCAACTTACTTCTGACAACGATCGGAGGACCGAAGGAGCTAACCGCTTTTTTGCACAACATGGGGGATCATGTAACTCGCCTTGATCGTTGGGAACCGGAGCTGAATGAAGCCATACCAAACGACGAGCGTGACACCACGATGCCTGCAGCAATGGCAACAACGTTGCGCAAACTATTAACTGGCGAACTACTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGTTTATTGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGACGGGGAGTCAGGCAACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA",
+            },
+        },
+        "datasetColumns": {},
+        "private": True,
+    }
+    assert response_data == expected_response
+    #assert json.dumps(response_data, sort_keys=True) == json.dumps(expected_response, sort_keys=True)
+
+
+def test_create_score_set_with_invalid_doi(test_with_empty_db):
     experiment = create_an_experiment()
     create_reference_genome()
     score_set_to_create = {
@@ -623,7 +792,7 @@ def test_create_score_set_with_invalid_doi(test_empty_db):
     assert response.status_code == 422
 
 
-def test_create_score_set_with_invalid_pubmed(test_empty_db):
+def test_create_score_set_with_invalid_pubmed(test_with_empty_db):
     experiment = create_an_experiment()
     create_reference_genome()
     score_set_to_create = {
@@ -659,7 +828,7 @@ def test_create_score_set_with_invalid_pubmed(test_empty_db):
     assert response.status_code == 422
 
 
-def test_create_score_set_with_invalid_experiment(test_empty_db):
+def test_create_score_set_with_invalid_experiment(test_with_empty_db):
     create_reference_genome()
     score_set_to_create = {
         "experimentUrn": "invalid_urn",
@@ -694,7 +863,7 @@ def test_create_score_set_with_invalid_experiment(test_empty_db):
     assert response.status_code == 422
 
 
-def test_show_score_set(test_empty_db):
+def test_show_score_set(test_with_empty_db):
     create_reference_genome()
     score_set = create_score_set()
     urn = score_set["urn"]
@@ -703,7 +872,7 @@ def test_show_score_set(test_empty_db):
 
 
 # Can't pass
-def test_valid_score_file(test_empty_db):
+def test_valid_score_file(test_with_empty_db):
     create_reference_genome()
     score_set = create_score_set()
     urn = score_set["urn"]
@@ -723,7 +892,7 @@ def test_valid_score_file(test_empty_db):
 
 """
 # This one can't work cause duplicate column names will be processed automatically
-def test_score_file_with_duplicate_columns(test_empty_db):
+def test_score_file_with_duplicate_columns(test_with_empty_db):
     create_reference_genome()
     score_set = create_score_set()
     urn = score_set["urn"]
@@ -742,7 +911,7 @@ def test_score_file_with_duplicate_columns(test_empty_db):
 
 
 # Is it a ccorect way?
-def test_score_file_without_score_column(test_empty_db):
+def test_score_file_without_score_column(test_with_empty_db):
     create_reference_genome()
     score_set = create_score_set()
     urn = score_set["urn"]
@@ -758,7 +927,7 @@ def test_score_file_without_score_column(test_empty_db):
 
 
 # Show other problem. Can't pass.
-def test_scores_and_counts_define_different_variants(test_empty_db):
+def test_scores_and_counts_define_different_variants(test_with_empty_db):
     create_reference_genome()
     score_set = create_score_set()
     urn = score_set["urn"]
@@ -779,7 +948,7 @@ def test_scores_and_counts_define_different_variants(test_empty_db):
     }
 
 
-def test_score_file_with_letter(test_empty_db):
+def test_score_file_with_letter(test_with_empty_db):
     create_reference_genome()
     score_set = create_score_set()
     urn = score_set["urn"]
@@ -794,7 +963,7 @@ def test_score_file_with_letter(test_empty_db):
 
 
 # can't catch error
-def test_score_file_without_hgvs_columns(test_empty_db):
+def test_score_file_without_hgvs_columns(test_with_empty_db):
     create_reference_genome()
     score_set = create_score_set()
     urn = score_set["urn"]
@@ -812,7 +981,7 @@ def test_score_file_without_hgvs_columns(test_empty_db):
     assert response.json() == {"detail": "failed to find valid HGVS variant column"}
 
 
-def test_score_file_hgvs_pro_has_same_values(test_empty_db):
+def test_score_file_hgvs_pro_has_same_values(test_with_empty_db):
     create_reference_genome()
     score_set = create_score_set()
     urn = score_set["urn"]
@@ -827,7 +996,7 @@ def test_score_file_hgvs_pro_has_same_values(test_empty_db):
     assert response.json() == {"detail": "primary variant column 'hgvs_pro' must contain unique values"}
 
 
-def test_score_and_count_files_have_hgvs_nt_and_pro(test_empty_db):
+def test_score_and_count_files_have_hgvs_nt_and_pro(test_with_empty_db):
     create_reference_genome()
     score_set = create_score_set()
     urn = score_set["urn"]
@@ -846,7 +1015,7 @@ def test_score_and_count_files_have_hgvs_nt_and_pro(test_empty_db):
 
 
 # Can't catch error.
-def test_score_file_has_not_match_hgvs_nt_and_pro(test_empty_db):
+def test_score_file_has_not_match_hgvs_nt_and_pro(test_with_empty_db):
     create_reference_genome()
     score_set = create_score_set()
     urn = score_set["urn"]
@@ -861,7 +1030,7 @@ def test_score_file_has_not_match_hgvs_nt_and_pro(test_empty_db):
     # assert response.json() == {"detail": "Each value in hgvs_pro column must be unique."}
 
 
-def test_score_file_has_invalid_hgvs_pro_prefix(test_empty_db):
+def test_score_file_has_invalid_hgvs_pro_prefix(test_with_empty_db):
     create_reference_genome()
     score_set = create_score_set()
     urn = score_set["urn"]
@@ -875,7 +1044,7 @@ def test_score_file_has_invalid_hgvs_pro_prefix(test_empty_db):
     assert response.status_code == 400
 
 
-def test_score_file_has_invalid_hgvs_nt_prefix(test_empty_db):
+def test_score_file_has_invalid_hgvs_nt_prefix(test_with_empty_db):
     create_reference_genome()
     score_set = create_score_set()
     urn = score_set["urn"]
@@ -889,7 +1058,7 @@ def test_score_file_has_invalid_hgvs_nt_prefix(test_empty_db):
     assert response.status_code == 400
 
 
-def test_count_file_has_score_column(test_empty_db):
+def test_count_file_has_score_column(test_with_empty_db):
     create_reference_genome()
     score_set = create_score_set()
     urn = score_set["urn"]
@@ -908,7 +1077,7 @@ def test_count_file_has_score_column(test_empty_db):
     assert response.json() == {"detail": "counts dataframe must not have a 'score' column"}
 
 
-def test_score_file_column_name_has_nan(test_empty_db):
+def test_score_file_column_name_has_nan(test_with_empty_db):
     create_reference_genome()
     score_set = create_score_set()
     urn = score_set["urn"]
