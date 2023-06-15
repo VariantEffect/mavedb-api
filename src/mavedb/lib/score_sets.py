@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from mavedb.lib.array_comparison import assert_array_equal
 from mavedb.lib.exceptions import ValidationError
@@ -77,6 +77,36 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
     if not score_sets:
         score_sets = []
     return score_sets  # filter_visible_score_sets(score_sets)
+
+
+def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[ScoreSet]:
+    """
+    Find all score sets that are meta-analyses for a specified collection of other score sets.
+
+    :param db: An active database session.
+    :param urns: A list of score set URNS.
+    :return: A score set that is a meta-analysis for exactly the collection of score sets specified by urns; or None if
+      there is no such meta-analysis.
+    """
+    # Ensure that URNs are not repeated in the list.
+    urns = list(set(urns))
+
+    # Find all score sets that are meta-analyses for a superset of the specified URNs and are meta-analysises for
+    # exactly len(urns) score sets.
+    score_set_aliases = [aliased(ScoreSet) for urn in urns]
+    analyzed_score_set = aliased(ScoreSet)
+    urn_filters = [
+        ScoreSet.meta_analysis_source_score_sets.of_type(score_set_aliases[i]).any(score_set_aliases[i].urn == urn)
+        for i, urn in enumerate(urns)
+    ]
+    return (
+        db.query(ScoreSet)
+        .join(ScoreSet.meta_analysis_source_score_sets.of_type(analyzed_score_set))
+        .filter(*urn_filters)
+        .group_by(ScoreSet)
+        .having(func.count(analyzed_score_set.id) == len(urns))
+        .all()
+    )
 
 
 def filter_visible_score_sets(items: list[ScoreSet]):
