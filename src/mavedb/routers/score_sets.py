@@ -22,7 +22,12 @@ from mavedb.lib.identifiers import (
     find_or_create_doi_identifier,
     find_or_create_publication_identifier,
 )
-from mavedb.lib.score_sets import create_variants_data, search_score_sets as _search_score_sets, VariantData
+from mavedb.lib.score_sets import (
+    create_variants_data,
+    search_score_sets as _search_score_sets,
+    VariantData,
+    find_meta_analyses_for_score_sets,
+)
 from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_score_set_urn
 from mavedb.lib.validation import exceptions
 from mavedb.lib.validation.constants.general import null_values_list
@@ -100,7 +105,9 @@ def search_my_score_sets(
 
 
 @router.get("/score-sets/{urn}", status_code=200, response_model=score_set.ScoreSet, responses={404: {}, 500: {}})
-async def show_score_set(*, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(get_current_user)) -> Any:
+async def show_score_set(
+    *, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(get_current_user)
+) -> Any:
     """
     Fetch a single score set by URN.
     """
@@ -198,9 +205,30 @@ async def create_score_set(
     if item_create is None:
         return None
 
-    experiment = db.query(Experiment).filter(Experiment.urn == item_create.experiment_urn).one_or_none()
-    if not experiment:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
+    experiment: Experiment = None
+    if item_create.experiment_urn is not None:
+        experiment = db.query(Experiment).filter(Experiment.urn == item_create.experiment_urn).one_or_none()
+        if not experiment:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
+    if (
+        item_create.meta_analysis_source_score_set_urns is not None
+        and len(item_create.meta_analysis_source_score_set_urns) > 0
+    ):
+        # If any existing score set is a meta-analysis for the same set of score sets, use its experiment as the parent
+        # of our new meta-analysis. Otherwise, create a new experiment.
+        existing_meta_analyses = find_meta_analyses_for_score_sets(db, item_create.meta_analysis_source_score_set_urns)
+        if len(existing_meta_analyses) > 0:
+            experiment = existing_meta_analyses[0].experiment
+        else:
+            experiment = Experiment(
+                title=item_create.title,
+                short_description=item_create.short_description,
+                abstract_text=item_create.abstract_text,
+                method_text=item_create.method_text,
+                extra_metadata={},
+                created_by=user,
+                modified_by=user,
+            )
 
     license_ = db.query(License).filter(License.id == item_create.license_id).one_or_none()
     if not license_:
@@ -390,7 +418,9 @@ async def upload_score_set_variant_data(
 def create_variants(db, score_set: ScoreSet, variants_data: list[VariantData], batch_size=None) -> int:
     num_variants = len(variants_data)
     variant_urns = bulk_create_urns(num_variants, score_set, True)
-    variants = (Variant(urn=urn, score_set_id=score_set.id, **kwargs) for urn, kwargs in zip(variant_urns, variants_data))
+    variants = (
+        Variant(urn=urn, score_set_id=score_set.id, **kwargs) for urn, kwargs in zip(variant_urns, variants_data)
+    )
     db.bulk_save_objects(variants)
     db.add(score_set)
     return len(score_set.variants)

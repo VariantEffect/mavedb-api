@@ -4,10 +4,10 @@ from __future__ import annotations
 from datetime import date
 from typing import Collection, Dict, Optional
 
-from pydantic import Field
+from pydantic import Field, root_validator
 
-from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation import keywords, urn_re
+from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.doi_identifier import (
@@ -54,7 +54,7 @@ class ScoreSetModify(ScoreSetBase):
 class ScoreSetCreate(ScoreSetModify):
     """View model for creating a new score set."""
 
-    experiment_urn: str
+    experiment_urn: Optional[str]
     license_id: int
     superseded_score_set_urn: Optional[str]
     meta_analysis_source_score_set_urns: Optional[list[str]]
@@ -87,8 +87,21 @@ class ScoreSetCreate(ScoreSetModify):
 
     @validator("experiment_urn")
     def validate_experiment_urn(cls, v):
-        urn.validate_mavedb_urn_experiment(v)
+        if urn_re.MAVEDB_EXPERIMENT_URN_RE.fullmatch(v) is None and urn_re.MAVEDB_TMP_URN_RE.fullmatch(v) is None:
+            raise ValueError(f"'{v}' is not a valid experiment URN")
         return v
+
+    @root_validator
+    def validate_experiment_urn_required_except_for_meta_analyses(cls, values):
+        experiment_urn = values["experiment_urn"]
+        meta_analysis_source_score_set_urns = values["meta_analysis_source_score_set_urns"]
+        is_meta_analysis = meta_analysis_source_score_set_urns is None or len(meta_analysis_source_score_set_urns) == 0
+        if experiment_urn is None and is_meta_analysis:
+            raise ValidationError("An experiment URN is required, unless your score set is a meta-analysis.")
+        if experiment_urn is not None and not is_meta_analysis:
+            raise ValidationError("An experiment URN should not be supplied when your score set is a meta-analysis.")
+        return values
+
 
 class ScoreSetUpdate(ScoreSetModify):
     """View model for updating a score set."""
