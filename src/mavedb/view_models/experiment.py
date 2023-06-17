@@ -4,6 +4,7 @@ from typing import Any, Collection, Dict, Optional
 from pydantic import Field
 
 from mavedb.lib.validation import keywords
+from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.doi_identifier import (
@@ -48,6 +49,14 @@ class ExperimentBase(BaseModel):
 
 
 class ExperimentModify(ExperimentBase):
+    short_description: str
+    abstract_text: str
+    method_text: str
+    doi_identifiers: Optional[list[DoiIdentifierCreate]]
+    primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = Field(..., min_items=0, max_items=1)
+    publication_identifiers: Optional[list[PublicationIdentifierCreate]]
+    raw_read_identifiers: Optional[list[RawReadIdentifierCreate]]
+
     @validator("keywords")
     def validate_keywords(cls, v):
         keywords.validate_keywords(v)
@@ -56,23 +65,10 @@ class ExperimentModify(ExperimentBase):
 
 class ExperimentCreate(ExperimentModify):
     experiment_set_urn: Optional[str]
-    short_description: str
-    abstract_text: str
-    method_text: str
-    doi_identifiers: Optional[list[DoiIdentifierCreate]]
-    primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = Field(..., min_items=0, max_items=1)
-    publication_identifiers: Optional[list[PublicationIdentifierCreate]]
-    raw_read_identifiers: Optional[list[RawReadIdentifierCreate]]
 
 
 class ExperimentUpdate(ExperimentModify):
-    short_description: str
-    abstract_text: str
-    method_text: str
-    doi_identifiers: Optional[list[DoiIdentifierCreate]]
-    primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = Field(..., min_items=0, max_items=1)
-    publication_identifiers: Optional[list[PublicationIdentifierCreate]]
-    raw_read_identifiers: Optional[list[RawReadIdentifierCreate]]
+    pass
 
 
 # Properties shared by models stored in DB
