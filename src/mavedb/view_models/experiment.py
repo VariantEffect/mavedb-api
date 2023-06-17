@@ -53,9 +53,16 @@ class ExperimentModify(ExperimentBase):
     abstract_text: str
     method_text: str
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
-    primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = Field(..., min_items=0, max_items=1)
+    primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     raw_read_identifiers: Optional[list[RawReadIdentifierCreate]]
+
+    @validator("primary_publication_identifiers")
+    def max_one_primary_publication_identifier(cls, v):
+        if isinstance(v, list):
+            if len(v) > 1:
+                raise ValidationError("multiple primary publication identifiers are not allowed")
+        return v
 
     @validator("keywords")
     def validate_keywords(cls, v):
