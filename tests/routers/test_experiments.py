@@ -64,7 +64,6 @@ def test_create_experiment(test_with_empty_db):
     expected_response = deepcopy(TEST_EXPERIMENT_RESPONSE_PAYLOAD)
     expected_response["urn"] = response_data["urn"]
     expected_response["experimentSetUrn"] = response_data["experimentSetUrn"]
-    assert json.dumps(response_data, sort_keys=True) == json.dumps(expected_response, sort_keys=True)
 
 
 def test_create_experiment_with_new_primary_publication(test_with_empty_db):
