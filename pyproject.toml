@@ -36,6 +36,7 @@ dev = [
     "flake8",
     "pre-commit",
     "pytest~=7.0.1",
+    "jsonschema",
 ]
 server = [
     "alembic~=1.7.6",

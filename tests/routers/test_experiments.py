@@ -1,10 +1,11 @@
 from datetime import date
 from copy import deepcopy
 import json
+import jsonschema
 import re
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from tests.conftest import client, TEST_USER
-
+from mavedb.view_models.experiment import Experiment, ExperimentCreate
 
 TEST_EXPERIMENT_POST_PAYLOAD = {
     "title": "Test Experiment Title",
@@ -48,11 +49,16 @@ TEST_EXPERIMENT_RESPONSE_PAYLOAD = {
 }
 
 
+def test_test_experiment_post_payload_is_valid():
+    jsonschema.validate(instance=TEST_EXPERIMENT_POST_PAYLOAD, schema=ExperimentCreate.schema())
+
+
 def test_create_experiment(test_with_empty_db):
     experiment_post_payload = deepcopy(TEST_EXPERIMENT_POST_PAYLOAD)
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
     assert response.status_code == 200
     response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_EXPERIMENT_RESPONSE_PAYLOAD)
