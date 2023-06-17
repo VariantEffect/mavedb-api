@@ -30,7 +30,7 @@ class ExperimentBase(BaseModel):
     short_description: Optional[str]
     abstract_text: Optional[str]
     method_text: Optional[str]
-    extra_metadata: Dict
+    extra_metadata: Optional[dict]
     keywords: Optional[list[str]]
 
     @classmethod

@@ -12,9 +12,6 @@ TEST_EXPERIMENT_POST_PAYLOAD = {
     "methodText": "Methods",
     "abstractText": "Abstract",
     "shortDescription": "Test experiment",
-    "extraMetadata": {},
-    "keywords": [],
-    "primaryPublicationIdentifiers": [],
 }
 
 TEST_EXPERIMENT_RESPONSE_PAYLOAD = {

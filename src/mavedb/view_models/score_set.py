@@ -39,7 +39,7 @@ class ScoreSetBase(BaseModel):
     method_text: Optional[str]
     abstract_text: Optional[str]
     short_description: str
-    extra_metadata: Dict
+    extra_metadata: Optional[dict]
     data_usage_policy: Optional[str]
     keywords: Optional[list[str]]
 
