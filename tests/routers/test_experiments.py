@@ -6,26 +6,23 @@ import re
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from tests.conftest import client, TEST_USER
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
+import pytest
 
 TEST_EXPERIMENT_POST_PAYLOAD = {
     "title": "Test Experiment Title",
-    "methodText": "Methods",
-    "abstractText": "Abstract",
     "shortDescription": "Test experiment",
+    "abstractText": "Abstract",
+    "methodText": "Methods",
 }
 
 TEST_EXPERIMENT_RESPONSE_PAYLOAD = {
     "title": "Test Experiment Title",
-    "methodText": "Methods",
-    "abstractText": "Abstract",
     "shortDescription": "Test experiment",
-    "extraMetadata": {},
-    "keywords": [],
-    "primaryPublicationIdentifiers": [],
+    "abstractText": "Abstract",
+    "methodText": "Methods",
     "numScoreSets": 0,
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
-    "publishedDate": None,
     "createdBy": {
         "firstName": TEST_USER["first_name"],
         "lastName": TEST_USER["last_name"],
@@ -36,10 +33,6 @@ TEST_EXPERIMENT_RESPONSE_PAYLOAD = {
         "lastName": TEST_USER["last_name"],
         "orcidId": TEST_USER["username"],
     },
-    "processingState": None,
-    "doiIdentifiers": [],
-    "secondaryPublicationIdentifiers": [],
-    "rawReadIdentifiers": [],
     # keys to be set after receiving response
     "urn": None,
     "experimentSetUrn": None,
@@ -61,6 +54,17 @@ def test_create_experiment(test_with_empty_db):
     expected_response = deepcopy(TEST_EXPERIMENT_RESPONSE_PAYLOAD)
     expected_response["urn"] = response_data["urn"]
     expected_response["experimentSetUrn"] = response_data["experimentSetUrn"]
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+
+
+@pytest.mark.parametrize("test_field", ["title", "shortDescription", "abstractText", "methodText"])
+def test_required_fields(test_with_empty_db, test_field):
+    experiment_post_payload = deepcopy(TEST_EXPERIMENT_POST_PAYLOAD)
+    del experiment_post_payload[test_field]
+    response = client.post("/api/v1/experiments/", json=experiment_post_payload)
+    response_data = response.json()
+    assert response.status_code == 422
+    assert "field required" in response_data["detail"][0]["msg"]
 
 
 def test_create_experiment_with_new_primary_publication(test_with_empty_db):
