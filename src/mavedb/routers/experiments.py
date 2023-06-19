@@ -108,7 +108,9 @@ def get_experiment_score_sets(*, urn: str, db: Session = Depends(deps.get_db)) -
     return score_sets
 
 
-@router.post("/experiments/", response_model=experiment.Experiment, responses={422: {}}, response_model_exclude_none=True)
+@router.post(
+    "/experiments/", response_model=experiment.Experiment, responses={422: {}}, response_model_exclude_none=True
+)
 async def create_experiment(
     *,
     item_create: experiment.ExperimentCreate,

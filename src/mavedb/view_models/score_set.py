@@ -81,7 +81,10 @@ class ScoreSetCreate(ScoreSetModify):
             pass
         else:
             for s in v:
-                if urn_re.MAVEDB_SCORE_SET_URN_RE.fullmatch(s) is None and urn_re.MAVEDB_TMP_URN_RE.fullmatch(s) is None:
+                if (
+                    urn_re.MAVEDB_SCORE_SET_URN_RE.fullmatch(s) is None
+                    and urn_re.MAVEDB_TMP_URN_RE.fullmatch(s) is None
+                ):
                     raise ValueError(f"'{s}' is not a valid score set URN")
         return v
 
