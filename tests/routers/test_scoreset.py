@@ -35,7 +35,7 @@ def create_an_experiment():
 
 
 def create_taxonomy():
-    taxonomy = Taxonomy(id=1, tax_id=9606, species_name="Homo sapiens", common_name="human")
+    taxonomy = Taxonomy(id=1, tax_id=9606, organism_names="Homo sapiens", common_name="human")
     db = TestingSessionLocal()
     db.add(taxonomy)
     db.commit()

@@ -7,7 +7,7 @@ from .base.base import BaseModel
 
 class TaxonomyBase(BaseModel):
     tax_id: int
-    species_name: str
+    organism_name: str
     common_name: str
     genome_id: Optional[int]
     creation_date: date

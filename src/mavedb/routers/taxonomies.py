@@ -33,8 +33,8 @@ def list_taxonomy_species_names(
     """
 
     items = db.query(Taxonomy).all()
-    species_names = map(lambda item: item.species_name, items)
-    return sorted(list(set(species_names)))
+    organism_names = map(lambda item: item.species_name, items)
+    return sorted(list(set(organism_names)))
 
 @router.get("/commonNames", status_code=200, response_model=List[str], responses={404: {}})
 def list_taxonomy_common_names(
