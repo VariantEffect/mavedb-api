@@ -74,10 +74,36 @@ def test_create_minimal_experiment(test_with_empty_db):
         ("publishedDate", date(2020, 4, 1).isoformat()),
     ],
 )
-def test_cannot_post_special_fields(test_with_empty_db, test_field, test_value):
+def test_cannot_create_special_fields(test_with_empty_db, test_field, test_value):
     experiment_post_payload = deepcopy(TEST_EXPERIMENT_POST_PAYLOAD)
     experiment_post_payload[test_field] = test_value
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
+    assert response.status_code == 200
+    response_data = response.json()
+    if test_field in response_data:
+        assert response_data[test_field] != test_value
+
+
+@pytest.mark.parametrize(
+    "test_field,test_value",
+    [
+        ("urn", "tmp:33df10c9-78b3-4e04-bafb-2446078573d7"),
+        ("experimentSetUrn", "tmp:33df10c9-78b3-4e04-bafb-2446078573d7"),
+        ("numScoreSets", 2),
+        ("createdBy", {"firstName": "Sneaky", "lastName": "User", "orcidId": "0000-9999-9999-0000"}),
+        ("modifiedBy", {"firstName": "Sneaky", "lastName": "User", "orcidId": "0000-9999-9999-0000"}),
+        ("creationDate", date(2020, 4, 1).isoformat()),
+        ("modificationDate", date(2020, 4, 1).isoformat()),
+        ("publishedDate", date(2020, 4, 1).isoformat()),
+    ],
+)
+def test_cannot_edit_special_fields(test_with_empty_db, test_field, test_value):
+    response = client.post("/api/v1/experiments/", json=TEST_EXPERIMENT_POST_PAYLOAD)
+    response_data = response.json()
+    urn = response_data["urn"]
+    edited_post_payload = deepcopy(TEST_EXPERIMENT_POST_PAYLOAD)
+    edited_post_payload[test_field] = test_value
+    response = client.put(f"/api/v1/experiments/{urn}", json=edited_post_payload)
     assert response.status_code == 200
     response_data = response.json()
     if test_field in response_data:
