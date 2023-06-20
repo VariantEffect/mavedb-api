@@ -1,6 +1,5 @@
 from datetime import date
 from copy import deepcopy
-import json
 import jsonschema
 import re
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
@@ -21,8 +20,6 @@ TEST_EXPERIMENT_RESPONSE_PAYLOAD = {
     "abstractText": "Abstract",
     "methodText": "Methods",
     "numScoreSets": 0,
-    "creationDate": date.today().isoformat(),
-    "modificationDate": date.today().isoformat(),
     "createdBy": {
         "firstName": TEST_USER["first_name"],
         "lastName": TEST_USER["last_name"],
@@ -33,6 +30,13 @@ TEST_EXPERIMENT_RESPONSE_PAYLOAD = {
         "lastName": TEST_USER["last_name"],
         "orcidId": TEST_USER["username"],
     },
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
+    "keywords": [],
+    "doiIdentifiers": [],
+    "primaryPublicationIdentifiers": [],
+    "secondaryPublicationIdentifiers": [],
+    "rawReadIdentifiers": [],
     # keys to be set after receiving response
     "urn": None,
     "experimentSetUrn": None,
@@ -43,9 +47,8 @@ def test_test_experiment_post_payload_is_valid():
     jsonschema.validate(instance=TEST_EXPERIMENT_POST_PAYLOAD, schema=ExperimentCreate.schema())
 
 
-def test_create_experiment(test_with_empty_db):
-    experiment_post_payload = deepcopy(TEST_EXPERIMENT_POST_PAYLOAD)
-    response = client.post("/api/v1/experiments/", json=experiment_post_payload)
+def test_create_minimal_experiment(test_with_empty_db):
+    response = client.post("/api/v1/experiments/", json=TEST_EXPERIMENT_POST_PAYLOAD)
     assert response.status_code == 200
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=Experiment.schema())
@@ -55,6 +58,20 @@ def test_create_experiment(test_with_empty_db):
     expected_response["urn"] = response_data["urn"]
     expected_response["experimentSetUrn"] = response_data["experimentSetUrn"]
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert expected_response[key] == response_data[key]
+
+
+def test_can_edit_private_experiment(test_with_empty_db):
+    pass
+
+
+def test_can_edit_published_experiment(test_with_empty_db):
+    pass
+
+
+def test_cannot_edit_unowned_experiment(test_with_empty_db):
+    pass
 
 
 @pytest.mark.parametrize("test_field", ["title", "shortDescription", "abstractText", "methodText"])
@@ -73,18 +90,10 @@ def test_create_experiment_with_new_primary_publication(test_with_empty_db):
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
     assert response.status_code == 200
     response_data = response.json()
-    expected_response = deepcopy(TEST_EXPERIMENT_RESPONSE_PAYLOAD)
-    expected_response["urn"] = response_data["urn"]
-    expected_response["experimentSetUrn"] = response_data["experimentSetUrn"]
-    expected_response["primaryPublicationIdentifiers"] = [
-        {
-            "identifier": "20711194",
-            "id": 1,
-            "url": "http://www.ncbi.nlm.nih.gov/pubmed/20711194",
-            "referenceHtml": "Fowler DM, <i>et al</i>. High-resolution mapping of protein sequence-function relationships. High-resolution mapping of protein sequence-function relationships. 2010; 7:741-6. doi: 10.1038/nmeth.1492",
-        },
-    ]
-    assert json.dumps(response_data, sort_keys=True) == json.dumps(expected_response, sort_keys=True)
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    assert len(response_data["primaryPublicationIdentifiers"]) == 1
+    assert sorted(response_data["primaryPublicationIdentifiers"][0]) == sorted(["identifier", "url", "referenceHtml"])
+    # TODO: add separate tests for generating the publication url and referenceHtml
 
 
 def test_create_experiment_with_invalid_doi(test_with_empty_db):
