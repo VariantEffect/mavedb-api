@@ -1,7 +1,5 @@
 from datetime import date
-from typing import Any, Collection, Dict, Optional
-
-from pydantic import Field
+from typing import Any, Collection, Optional
 
 from mavedb.lib.validation import keywords
 from mavedb.lib.validation.exceptions import ValidationError
@@ -27,11 +25,9 @@ from mavedb.view_models.user import SavedUser, User
 
 class ExperimentBase(BaseModel):
     title: str
-    short_description: Optional[str]
-    abstract_text: Optional[str]
-    method_text: Optional[str]
-    extra_metadata: Optional[dict]
-    keywords: Optional[list[str]]
+    short_description: str
+    abstract_text: str
+    method_text: str
 
     @classmethod
     def from_orm(cls, obj: Any):
@@ -41,17 +37,10 @@ class ExperimentBase(BaseModel):
             obj.experiment_set_urn = None
         return super().from_orm(obj)
 
-    # @validator('urn')
-    # def name_must_contain_space(cls, v):
-    #    if ' ' not in v:
-    #        raise ValueError('must contain a space')
-    #    return v.title()
-
 
 class ExperimentModify(ExperimentBase):
-    short_description: str
-    abstract_text: str
-    method_text: str
+    extra_metadata: Optional[dict]
+    keywords: Optional[list[str]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     publication_identifiers: Optional[list[PublicationIdentifierCreate]]
@@ -82,17 +71,19 @@ class ExperimentUpdate(ExperimentModify):
 class SavedExperiment(ExperimentBase):
     urn: str
     num_score_sets: int
-    created_by: Optional[SavedUser]
-    modified_by: Optional[SavedUser]
+    created_by: SavedUser
+    modified_by: SavedUser
     creation_date: date
     modification_date: date
     published_date: Optional[date]
-    experiment_set_urn: Optional[str]
+    experiment_set_urn: str
     doi_identifiers: list[SavedDoiIdentifier]
     primary_publication_identifiers: list[SavedPublicationIdentifier]
     secondary_publication_identifiers: list[SavedPublicationIdentifier]
     raw_read_identifiers: list[SavedRawReadIdentifier]
     processing_state: Optional[str]
+    extra_metadata: Optional[dict]
+    keywords: list[str]
 
     class Config:
         orm_mode = True
@@ -112,14 +103,14 @@ class Experiment(SavedExperiment):
     primary_publication_identifiers: list[PublicationIdentifier]
     secondary_publication_identifiers: list[PublicationIdentifier]
     raw_read_identifiers: list[RawReadIdentifier]
-    created_by: Optional[User]
-    modified_by: Optional[User]
+    created_by: User
+    modified_by: User
 
 
-class ShortExperiment(Experiment):
+class ShortExperiment(SavedExperiment):
     pass
 
 
 # Properties to return to admin clients
-class AdminExperiment(Experiment):
+class AdminExperiment(SavedExperiment):
     approved: bool
