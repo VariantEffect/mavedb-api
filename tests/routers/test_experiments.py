@@ -62,8 +62,32 @@ def test_create_minimal_experiment(test_with_empty_db):
         assert expected_response[key] == response_data[key]
 
 
-def test_can_edit_private_experiment(test_with_empty_db):
+def test_edit_preserves_optional_metadata(test_with_empty_db):
     pass
+
+
+@pytest.mark.parametrize(
+    "test_field,test_value",
+    [
+        ("title", "Edited Title"),
+        ("shortDescription", "Edited Short Description"),
+        ("abstractText", "Edited Abstract"),
+        ("methodText", "Edited Methods"),
+    ],
+)
+def test_can_edit_private_experiment(test_with_empty_db, test_field, test_value):
+    response = client.post("/api/v1/experiments/", json=TEST_EXPERIMENT_POST_PAYLOAD)
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    urn = response_data["urn"]
+    edited_post_payload = deepcopy(TEST_EXPERIMENT_POST_PAYLOAD)
+    edited_post_payload[test_field] = test_value
+    response = client.put(f"/api/v1/experiments/{urn}", json=edited_post_payload)
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    assert response_data[test_field] == test_value
 
 
 def test_can_edit_published_experiment(test_with_empty_db):

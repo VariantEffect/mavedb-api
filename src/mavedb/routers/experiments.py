@@ -176,7 +176,9 @@ async def create_experiment(
     return item
 
 
-@router.put("/experiments/{urn}", response_model=experiment.Experiment, responses={422: {}})
+@router.put(
+    "/experiments/{urn}", response_model=experiment.Experiment, responses={422: {}}, response_model_exclude_none=True
+)
 async def update_experiment(
     *,
     item_update: experiment.ExperimentUpdate,
