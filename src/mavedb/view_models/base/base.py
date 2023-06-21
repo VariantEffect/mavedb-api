@@ -1,4 +1,4 @@
-from humps.camel import case
+from humps import camelize
 from pydantic import BaseModel as PydanticBaseModel, validator
 
 
@@ -16,5 +16,5 @@ class BaseModel(PydanticBaseModel):
         return x
 
     class Config:
-        alias_generator = case
+        alias_generator = camelize
         allow_population_by_field_name = True
