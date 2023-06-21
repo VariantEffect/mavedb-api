@@ -36,7 +36,7 @@ def override_current_user():
 
 
 @pytest.fixture()
-def test_with_empty_db():
+def test_empty_db():
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)

@@ -4,7 +4,7 @@ from mavedb.view_models.external_gene_identifier_offset import ExternalGeneIdent
 import pytest
 
 
-def test_create_ensemble_identifier(test_with_empty_db):
+def test_create_ensemble_identifier(test_empty_db):
     # Test valid identifier
     db_name = "Ensembl"
     identifier = "ENSG00000103275"
@@ -13,7 +13,7 @@ def test_create_ensemble_identifier(test_with_empty_db):
     assert externalIdentifier.identifier == "ENSG00000103275"
 
 
-def test_create_invalid_ensemble_identifier(test_with_empty_db):
+def test_create_invalid_ensemble_identifier(test_empty_db):
     # Test valid identifier
     db_name = "Ensembl"
     invalid_identifier = "not_an_identifier"
@@ -22,7 +22,7 @@ def test_create_invalid_ensemble_identifier(test_with_empty_db):
     assert "'not_an_identifier' is not a valid Ensembl accession." in str(exc_info.value)
 
 
-def test_create_uniprot_identifier(test_with_empty_db):
+def test_create_uniprot_identifier(test_empty_db):
     db_name = "UniProt"
     identifier = "P63279"
     externalIdentifier = ExternalGeneIdentifierCreate(db_name=db_name, identifier=identifier)
@@ -30,7 +30,7 @@ def test_create_uniprot_identifier(test_with_empty_db):
     assert externalIdentifier.identifier == "P63279"
 
 
-def test_create_invalid_uniprot_identifier(test_with_empty_db):
+def test_create_invalid_uniprot_identifier(test_empty_db):
     db_name = "UniProt"
     invalid_identifier = "not_an_identifier"
     with pytest.raises(ValueError) as exc_info:
@@ -38,7 +38,7 @@ def test_create_invalid_uniprot_identifier(test_with_empty_db):
     assert "'not_an_identifier' is not a valid UniProt accession." in str(exc_info.value)
 
 
-def test_create_refseq_identifier(test_with_empty_db):
+def test_create_refseq_identifier(test_empty_db):
     db_name = "RefSeq"
     identifier = "NM_003345"
     externalIdentifier = ExternalGeneIdentifierCreate(db_name=db_name, identifier=identifier)
@@ -46,7 +46,7 @@ def test_create_refseq_identifier(test_with_empty_db):
     assert externalIdentifier.identifier == "NM_003345"
 
 
-def test_create_invalid_refseq_identifier(test_with_empty_db):
+def test_create_invalid_refseq_identifier(test_empty_db):
     db_name = "RefSeq"
     invalid_identifier = "not_an_identifier"
     with pytest.raises(ValueError) as exc_info:
@@ -54,7 +54,7 @@ def test_create_invalid_refseq_identifier(test_with_empty_db):
     assert "'not_an_identifier' is not a valid RefSeq accession." in str(exc_info.value)
 
 
-def test_empty_db_name(test_with_empty_db):
+def test_empty_db_name(test_empty_db):
     db_name = ""
     identifier = "ENSG00000103275"
     with pytest.raises(ValueError) as exc_info:
@@ -62,7 +62,7 @@ def test_empty_db_name(test_with_empty_db):
     assert "none is not an allowed value" in str(exc_info.value)
 
 
-def test_space_db_name(test_with_empty_db):
+def test_space_db_name(test_empty_db):
     db_name = "   "
     identifier = "ENSG00000103275"
     with pytest.raises(ValueError) as exc_info:
@@ -70,7 +70,7 @@ def test_space_db_name(test_with_empty_db):
     assert "db_name should not be empty" in str(exc_info.value)
 
 
-def test_none_db_name(test_with_empty_db):
+def test_none_db_name(test_empty_db):
     db_name = None
     identifier = "ENSG00000103275"
     with pytest.raises(ValueError) as exc_info:
@@ -78,7 +78,7 @@ def test_none_db_name(test_with_empty_db):
     assert "none is not an allowed value" in str(exc_info.value)
 
 
-def test_invalid_db_name(test_with_empty_db):
+def test_invalid_db_name(test_empty_db):
     db_name = "Invalid"
     identifier = "ENSG00000103275"
     with pytest.raises(ValueError) as exc_info:
@@ -89,13 +89,13 @@ def test_invalid_db_name(test_with_empty_db):
     )
 
 
-def test_create_identifier_with_offset(test_with_empty_db):
+def test_create_identifier_with_offset(test_empty_db):
     identifier = {"db_name": "RefSeq", "identifier": "NM_003345"}
     externalIdentifier = ExternalGeneIdentifierOffsetCreate(identifier=identifier, offset=1)
     assert externalIdentifier.offset == 1
 
 
-def test_create_identifier_with_string_offset(test_with_empty_db):
+def test_create_identifier_with_string_offset(test_empty_db):
     identifier = {"db_name": "RefSeq", "identifier": "NM_003345"}
     offset = "invalid"
     with pytest.raises(ValueError) as exc_info:
@@ -103,7 +103,7 @@ def test_create_identifier_with_string_offset(test_with_empty_db):
     assert "value is not a valid integer" in str(exc_info.value)
 
 
-def test_create_identifier_with_negative_offset(test_with_empty_db):
+def test_create_identifier_with_negative_offset(test_empty_db):
     identifier = {"db_name": "RefSeq", "identifier": "NM_003345"}
     with pytest.raises(ValueError) as exc_info:
         ExternalGeneIdentifierOffsetCreate(identifier=identifier, offset=-10)
