@@ -129,7 +129,10 @@ class ScoreSet(Base):
         return list(map(lambda keyword_obj: keyword_obj.text, keyword_objs))
 
     async def set_keywords(self, db, keywords: list[str]):
-        self.keyword_objs = [await self._find_or_create_keyword(db, text) for text in keywords]
+        if keywords is None:
+            self.keyword_objs = []
+        else:
+            self.keyword_objs = [await self._find_or_create_keyword(db, text) for text in keywords]
 
     # See https://gist.github.com/tachyondecay/e0fe90c074d6b6707d8f1b0b1dcc8e3a
     # @keywords.setter
