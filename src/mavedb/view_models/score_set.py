@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Collection, Dict, Optional
 
-from pydantic import Field, root_validator
+from pydantic import root_validator
 
 from mavedb.lib.validation import keywords, urn_re
 from mavedb.lib.validation.exceptions import ValidationError
@@ -36,15 +36,27 @@ class ScoreSetBase(BaseModel):
     """Base class for score set view models."""
 
     title: str
-    method_text: Optional[str]
-    abstract_text: Optional[str]
+    method_text: str
+    abstract_text: str
     short_description: str
     extra_metadata: Optional[dict]
     data_usage_policy: Optional[str]
-    keywords: Optional[list[str]]
 
 
 class ScoreSetModify(ScoreSetBase):
+    keywords: Optional[list[str]]
+    primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
+    publication_identifiers: Optional[list[PublicationIdentifierCreate]]
+    doi_identifiers: Optional[list[DoiIdentifierCreate]]
+    target_gene: TargetGeneCreate
+
+    @validator("primary_publication_identifiers")
+    def max_one_primary_publication_identifier(cls, v):
+        if isinstance(v, list):
+            if len(v) > 1:
+                raise ValidationError("multiple primary publication identifiers are not allowed")
+        return v
+
     @validator("keywords")
     def validate_keywords(cls, v):
         keywords.validate_keywords(v)
@@ -58,10 +70,6 @@ class ScoreSetCreate(ScoreSetModify):
     license_id: int
     superseded_score_set_urn: Optional[str]
     meta_analysis_source_score_set_urns: Optional[list[str]]
-    target_gene: TargetGeneCreate
-    doi_identifiers: Optional[list[DoiIdentifierCreate]]
-    primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = Field(..., min_items=0, max_items=1)
-    publication_identifiers: Optional[list[PublicationIdentifierCreate]]
 
     @validator("superseded_score_set_urn")
     def validate_superseded_score_set_urn(cls, v):
@@ -77,9 +85,7 @@ class ScoreSetCreate(ScoreSetModify):
 
     @validator("meta_analysis_source_score_set_urns")
     def validate_score_set_urn(cls, v):
-        if v is None:
-            pass
-        else:
+        if v is not None:
             for s in v:
                 if (
                     urn_re.MAVEDB_SCORE_SET_URN_RE.fullmatch(s) is None
@@ -110,10 +116,6 @@ class ScoreSetUpdate(ScoreSetModify):
     """View model for updating a score set."""
 
     license_id: Optional[int]
-    doi_identifiers: list[DoiIdentifierCreate]
-    primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = Field(..., min_items=0, max_items=1)
-    publication_identifiers: list[PublicationIdentifierCreate]
-    target_gene: TargetGeneCreate
 
 
 class ShortScoreSet(BaseModel):
@@ -162,6 +164,7 @@ class SavedScoreSet(ScoreSetBase):
     modified_by: Optional[SavedUser]
     target_gene: SavedTargetGene
     dataset_columns: Dict
+    keywords: list[str]
 
     class Config:
         orm_mode = True

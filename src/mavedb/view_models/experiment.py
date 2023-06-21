@@ -28,6 +28,7 @@ class ExperimentBase(BaseModel):
     short_description: str
     abstract_text: str
     method_text: str
+    extra_metadata: Optional[dict]
 
     @classmethod
     def from_orm(cls, obj: Any):
@@ -39,7 +40,6 @@ class ExperimentBase(BaseModel):
 
 
 class ExperimentModify(ExperimentBase):
-    extra_metadata: Optional[dict]
     keywords: Optional[list[str]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
@@ -82,7 +82,6 @@ class SavedExperiment(ExperimentBase):
     secondary_publication_identifiers: list[SavedPublicationIdentifier]
     raw_read_identifiers: list[SavedRawReadIdentifier]
     processing_state: Optional[str]
-    extra_metadata: Optional[dict]
     keywords: list[str]
 
     class Config:
