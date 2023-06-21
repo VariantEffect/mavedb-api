@@ -182,21 +182,21 @@ async def get_score_set_counts_csv(
 
 
 @router.get(
-    "/scoresets/{urn}/mappedVariants", status_code=200, response_model=list[mapped_variant.MappedVariant])
-def get_scoreset_mapped_variants(
+    "/score-sets/{urn}/mapped-variants", status_code=200, response_model=list[mapped_variant.MappedVariant])
+def get_score_set_mapped_variants(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """
-    Return mapped variants from a scoreset, identified by URN.
+    Return mapped variants from a score set, identified by URN.
     """
     mapped_variants = (
-        db.query(MappedVariant).filter(Scoreset.urn == urn).filter(Scoreset.id == Variant.scoreset_id).filter(Variant.id == MappedVariant.variant_id).all()
+        db.query(MappedVariant).filter(ScoreSet.urn == urn).filter(ScoreSet.id == Variant.score_set_id).filter(Variant.id == MappedVariant.variant_id).all()
     )
 
     if not mapped_variants:
-        raise HTTPException(status_code=404, detail=f"No mapped variant associated with scoreset URN {urn} was found")
+        raise HTTPException(status_code=404, detail=f"No mapped variant associated with score set URN {urn} was found")
 
     return mapped_variants
 

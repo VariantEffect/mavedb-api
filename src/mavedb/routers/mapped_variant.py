@@ -29,7 +29,7 @@ async def fetch_mapped_variant_by_variant_urn(db, urn: str) -> Optional[MappedVa
         raise HTTPException(status_code=404, detail=f"Mapped variant with URN {urn} not found")
     return item
 
-router = APIRouter(prefix="/api/v1/mappedVariants", tags=["mapped variants"], responses={404: {"description": "Not found"}})
+router = APIRouter(prefix="/api/v1/mapped-variants", tags=["mapped variants"], responses={404: {"description": "Not found"}})
 
 @router.get("/{urn}", status_code=200, response_model=mapped_variant.MappedVariant, responses={404: {}, 500: {}})
 async def show_mapped_variant(
