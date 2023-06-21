@@ -189,7 +189,7 @@ class HGVSColumns:
         return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
-@router.post("/score-sets/", response_model=score_set.ScoreSet, responses={422: {}})
+@router.post("/score-sets/", response_model=score_set.ScoreSet, responses={422: {}}, response_model_exclude_none=True)
 async def create_score_set(
     *,
     item_create: score_set.ScoreSetCreate,
