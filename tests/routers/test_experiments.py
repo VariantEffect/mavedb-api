@@ -171,8 +171,10 @@ def test_create_experiment_with_invalid_doi(test_with_empty_db):
     experiment_post_payload["doiIdentifiers"] = [{"identifier": "20711194"}]
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
     assert response.status_code == 422
-    assert f"'{experiment_post_payload['doiIdentifiers'][0]['identifier']}' is not a valid DOI identifier" in str(
-        response.text
+    response_data = response.json()
+    assert (
+        f"'{experiment_post_payload['doiIdentifiers'][0]['identifier']}' is not a valid DOI identifier"
+        in response_data["detail"][0]["msg"]
     )
 
 
@@ -181,7 +183,8 @@ def test_create_experiment_with_invalid_primary_publication(test_with_empty_db):
     experiment_post_payload["primaryPublicationIdentifiers"] = [{"identifier": "abcdefg"}]
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
     assert response.status_code == 422
+    response_data = response.json()
     assert (
         f"'{experiment_post_payload['primaryPublicationIdentifiers'][0]['identifier']}' is not a valid PubMed identifier"
-        in str(response.text)
+        in response_data["detail"][0]["msg"]
     )
