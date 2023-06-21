@@ -5,75 +5,9 @@ import jsonschema
 import re
 from copy import deepcopy
 
-import pytest
-
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
-from tests.conftest import client, TEST_USER, TEST_LICENSE, TEST_MINIMAL_SCORE_SET, TEST_MINIMAL_SCORE_SET_RESPONSE
+from tests.conftest import client, TEST_MINIMAL_SCORE_SET, TEST_MINIMAL_SCORE_SET_RESPONSE
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
-
-
-expected_response = {
-    "targetGene": {
-        "name": "UBE2I",
-        "category": "Protein coding",
-        "externalIdentifiers": [
-            {
-                "identifier": {
-                    "dbName": "Ensembl",
-                    "identifier": "ENSG00000103275",
-                    "dbVersion": None,
-                    "url": None,
-                    "referenceHtml": None,
-                },
-                "offset": 0,
-            },
-            {
-                "identifier": {
-                    "dbName": "RefSeq",
-                    "identifier": "NM_003345",
-                    "dbVersion": None,
-                    "url": None,
-                    "referenceHtml": None,
-                },
-                "offset": 159,
-            },
-            {
-                "identifier": {
-                    "dbName": "UniProt",
-                    "identifier": "P63279",
-                    "dbVersion": None,
-                    "url": None,
-                    "referenceHtml": None,
-                },
-                "offset": 0,
-            },
-        ],
-        "referenceMaps": [
-            {
-                "id": 1,
-                "genomeId": 1,
-                "targetId": 1,
-                "isPrimary": False,
-                "genome": {
-                    "shortName": "Name",
-                    "organismName": "Organism",
-                    "genomeId": None,
-                    "creationDate": date.today().isoformat(),
-                    "modificationDate": date.today().isoformat(),
-                    "id": 1,
-                },
-                "creationDate": date.today().isoformat(),
-                "modificationDate": date.today().isoformat(),
-            }
-        ],
-        "wtSequence": {
-            "sequenceType": "dna",
-            "sequence": "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCTGAAGATCAGTTGGGTGCACGAGTGGGTTACATCGAACTGGATCTCAACAGCGGTAAGATCCTTGAGAGTTTTCGCCCCGAAGAACGTTTTCCAATGATGAGCACTTTTAAAGTTCTGCTATGTGGCGCGGTATTATCCCGTGTTGACGCCGGGCAAGAGCAACTCGGTCGCCGCATACACTATTCTCAGAATGACTTGGTTGAGTACTCACCAGTCACAGAAAAGCATCTTACGGATGGCATGACAGTAAGAGAATTATGCAGTGCTGCCATAACCATGAGTGATAACACTGCGGCCAACTTACTTCTGACAACGATCGGAGGACCGAAGGAGCTAACCGCTTTTTTGCACAACATGGGGGATCATGTAACTCGCCTTGATCGTTGGGAACCGGAGCTGAATGAAGCCATACCAAACGACGAGCGTGACACCACGATGCCTGCAGCAATGGCAACAACGTTGCGCAAACTATTAACTGGCGAACTACTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGTTTATTGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGACGGGGAGTCAGGCAACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA",
-        },
-    },
-    "datasetColumns": {},
-    "private": True,
-}
 
 
 def test_test_minimal_score_set_is_valid():
