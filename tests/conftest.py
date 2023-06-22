@@ -198,19 +198,27 @@ def test_score_set_db(test_empty_db):
     It also creates a new test experiment and yields it as a JSON object.
     """
     db = TestingSessionLocal()
-
-    new_reference_genome = ReferenceGenome(**TEST_REFERENCE_GENOME)
-    db.add(new_reference_genome)
+    db.add(ReferenceGenome(**TEST_REFERENCE_GENOME))
+    db.add(License(**TEST_LICENSE))
     db.commit()
-
-    new_license = License(**TEST_LICENSE)
-    db.add(new_license)
-    db.commit()
-
     db.close()
 
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     yield response.json()
+
+
+def change_ownership(urn, model):
+    """Change the ownership of the record with given urn and model to the extra user."""
+    db = TestingSessionLocal()
+    item = db.query(model).filter(model.urn == urn).one_or_none()
+    assert item is not None
+    extra_user = db.query(User).filter(User.username == EXTRA_USER["username"]).one_or_none()
+    assert extra_user is not None
+    item.created_by_id = extra_user.id
+    item.modified_by_id = extra_user.id
+    db.add(item)
+    db.commit()
+    db.close()
 
 
 # create the test database

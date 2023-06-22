@@ -9,13 +9,11 @@ from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from tests.conftest import (
     client,
+    change_ownership,
     TEST_MINIMAL_SCORE_SET,
     TEST_MINIMAL_SCORE_SET_RESPONSE,
-    EXTRA_USER,
-    TestingSessionLocal,
 )
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
-from mavedb.models.user import User as UserDbModel
 
 
 def test_test_minimal_score_set_is_valid():
@@ -68,15 +66,7 @@ def test_get_other_user_private_score_set(test_score_set_db):
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     response_data = response.json()
     score_set_urn = response_data["urn"]
-    db = TestingSessionLocal()
-    item = db.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set_urn).one_or_none()
-    assert item is not None
-    extra_user = db.query(UserDbModel).filter(UserDbModel.username == EXTRA_USER["username"]).one_or_none()
-    assert extra_user is not None
-    item.created_by_id = extra_user.id
-    item.modified_by_id = extra_user.id
-    db.add(item)
-    db.commit()
+    change_ownership(score_set_urn, ScoreSetDbModel)
     response = client.get(f"/api/v1/score-sets/{score_set_urn}")
     assert response.status_code == 404
 
