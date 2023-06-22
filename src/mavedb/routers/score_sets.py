@@ -104,7 +104,13 @@ def search_my_score_sets(
     return _search_score_sets(db, user, search)
 
 
-@router.get("/score-sets/{urn}", status_code=200, response_model=score_set.ScoreSet, responses={404: {}, 500: {}})
+@router.get(
+    "/score-sets/{urn}",
+    status_code=200,
+    response_model=score_set.ScoreSet,
+    responses={404: {}, 500: {}},
+    response_model_exclude_none=True,
+)
 async def show_score_set(
     *, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(get_current_user)
 ) -> Any:
