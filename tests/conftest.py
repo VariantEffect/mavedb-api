@@ -162,26 +162,30 @@ TEST_MINIMAL_SCORE_SET_RESPONSE = {
 
 def override_get_db():
     try:
-        # db = TestingSessionLocal()
+        db = TestingSessionLocal()
         yield db
     finally:
         db.close()
 
 
 def override_current_user():
-    # db = TestingSessionLocal()
+    db = TestingSessionLocal()
     default_user = db.query(User).filter(User.username == TEST_USER["username"]).one_or_none()
-    db.expire(default_user)
+    db.close()
     yield default_user
 
 
 @pytest.fixture()
 def test_empty_db():
     Base.metadata.create_all(bind=engine)
-    # db = TestingSessionLocal()
+
+    # add the test user
+    db = TestingSessionLocal()
     default_user = User(**TEST_USER)
     db.add(default_user)
     db.commit()
+    db.close()
+
     yield
     Base.metadata.drop_all(bind=engine)
 
@@ -193,7 +197,7 @@ def test_score_set_db(test_empty_db):
     This fixture creates ReferenceGenome and License, each with id 1.
     It also creates a new test experiment and yields it as a JSON object.
     """
-    # db = TestingSessionLocal()
+    db = TestingSessionLocal()
 
     new_reference_genome = ReferenceGenome(**TEST_REFERENCE_GENOME)
     db.add(new_reference_genome)
@@ -207,6 +211,8 @@ def test_score_set_db(test_empty_db):
     db.add(extra_user)
     db.commit()
 
+    db.close()
+
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     yield response.json()
 
@@ -215,7 +221,6 @@ def test_score_set_db(test_empty_db):
 db_directory = TemporaryDirectory()
 engine = create_engine(f"sqlite:///{Path(db_directory.name, 'test.db')}", connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-db = TestingSessionLocal()
 
 # set up the test environment by overriding the db and user behavior
 app.dependency_overrides[get_db] = override_get_db
