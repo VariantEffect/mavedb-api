@@ -69,9 +69,9 @@ async def fetch_score_set_by_urn(db, urn: str, owner: Optional[User]) -> Optiona
             )
         item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(permission_filter).one_or_none()
     except MultipleResultsFound:
-        raise HTTPException(status_code=500, detail=f"Multiple score sets with URN {urn} were found.")
+        raise HTTPException(status_code=500, detail=f"multiple score sets with URN '{urn}' were found")
     if not item:
-        raise HTTPException(status_code=404, detail=f"Score set with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
     return item
 
 
@@ -81,7 +81,7 @@ def is_null(value):
     return null_values_re.fullmatch(value) or not value
 
 
-router = APIRouter(prefix="/api/v1", tags=["score sets"], responses={404: {"description": "Not found"}})
+router = APIRouter(prefix="/api/v1", tags=["score sets"], responses={404: {"description": "not found"}})
 
 
 @router.post("/score-sets/search", status_code=200, response_model=list[score_set.ShortScoreSet])
@@ -142,7 +142,7 @@ def get_score_set_scores_csv(
     """
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
-        raise HTTPException(status_code=404, detail=f"Score set with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
     columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_set.dataset_columns["score_columns"]
     type_column = "score_data"
     rows_data = get_csv_rows_data(score_set.variants, columns=columns, dtype=type_column)
@@ -174,7 +174,7 @@ async def get_score_set_counts_csv(
     """
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
-        raise HTTPException(status_code=404, detail=f"Recipe with ID {id} not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
     columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_set.dataset_columns["count_columns"]
     type_column = "count_data"
     rows_data = get_csv_rows_data(score_set.variants, columns=columns, dtype=type_column)
@@ -460,7 +460,7 @@ async def update_score_set(
     # item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(ScoreSet.private.is_(False)).one_or_none()
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
-        raise HTTPException(status_code=404, detail=f"Score set with URN {urn} not found.")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
     # TODO Ensure that the current user has edit rights for this score set.
 
     # Editing unpublished score set
@@ -575,13 +575,15 @@ async def delete_score_set(
     """
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
-        raise HTTPException(status_code=404, detail=f"Score set with URN {urn} not found.")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
     # TODO Ensure that the current user has edit rights for this score set.
     db.delete(item)
     db.commit()
 
 
-@router.post("/score-sets/{urn}/publish", status_code=200, response_model=score_set.ScoreSet)
+@router.post(
+    "/score-sets/{urn}/publish", status_code=200, response_model=score_set.ScoreSet, response_model_exclude_none=True
+)
 def publish_score_set(
     *, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(require_current_user)
 ) -> Any:
@@ -590,7 +592,7 @@ def publish_score_set(
     """
     item: ScoreSet = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
-        raise HTTPException(status_code=404, detail=f"Score set with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
     # TODO Ensure that the current user has edit rights for this score set.
     if not item.experiment:
         raise HTTPException(
