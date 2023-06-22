@@ -2,9 +2,19 @@ from datetime import date
 from copy import deepcopy
 import jsonschema
 import re
+
+import mavedb.view_models.experiment
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
-from tests.conftest import client, TEST_USER, TEST_MINIMAL_EXPERIMENT, TEST_MINIMAL_EXPERIMENT_RESPONSE
+from tests.conftest import (
+    client,
+    TEST_USER,
+    TEST_MINIMAL_EXPERIMENT,
+    TEST_MINIMAL_EXPERIMENT_RESPONSE,
+    change_ownership,
+)
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
+from mavedb.models.experiment import Experiment as ExperimentDbModel
+from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 import pytest
 
 
@@ -153,3 +163,31 @@ def test_create_experiment_with_invalid_primary_publication(test_empty_db):
         f"'{experiment_post_payload['primaryPublicationIdentifiers'][0]['identifier']}' is not a valid PubMed identifier"
         in response_data["detail"][0]["msg"]
     )
+
+
+def test_get_own_private_experiment(test_empty_db):
+    response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
+    response_data = response.json()
+    expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
+    expected_response["urn"] = response_data["urn"]
+    expected_response["experimentSetUrn"] = response_data["experimentSetUrn"]
+    response = client.get(f"/api/v1/experiments/{response_data['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert expected_response[key] == response_data[key]
+
+
+def test_cannot_get_other_user_private_experiment(test_empty_db):
+    response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
+    response_data = response.json()
+    experiment_urn = response_data["urn"]
+    experiment_set_urn = response_data["experimentSetUrn"]
+    change_ownership(experiment_urn, ExperimentDbModel)
+    change_ownership(experiment_set_urn, ExperimentSetDbModel)
+    response = client.get(f"/api/v1/experiments/{experiment_urn}")
+    assert response.status_code == 404
+    response_data = response.json()
+    assert f"experiment with URN '{experiment_urn}' not found" in response_data["detail"]

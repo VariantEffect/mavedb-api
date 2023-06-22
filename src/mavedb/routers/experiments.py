@@ -27,7 +27,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["experiments"], responses={404: {"description": "Not found"}})
 
 
-@router.get("/experiments/", status_code=200, response_model=list[experiment.Experiment])
+@router.get(
+    "/experiments/", status_code=200, response_model=list[experiment.Experiment], response_model_exclude_none=True
+)
 def list_experiments(
     *,
     editable: Optional[bool] = None,
@@ -71,7 +73,13 @@ def search_my_experiments(
     return _search_experiments(db, user, search)
 
 
-@router.get("/experiments/{urn}", status_code=200, response_model=experiment.Experiment, responses={404: {}})
+@router.get(
+    "/experiments/{urn}",
+    status_code=200,
+    response_model=experiment.Experiment,
+    responses={404: {}},
+    response_model_exclude_none=True,
+)
 def fetch_experiment(*, urn: str, db: Session = Depends(deps.get_db)) -> Experiment:
     """
     Fetch a single experiment by URN.
@@ -88,6 +96,7 @@ def fetch_experiment(*, urn: str, db: Session = Depends(deps.get_db)) -> Experim
     status_code=200,
     response_model=list[score_set.ScoreSet],
     responses={404: {}},
+    response_model_exclude_none=True,
 )
 def get_experiment_score_sets(*, urn: str, db: Session = Depends(deps.get_db)) -> Any:
     """
@@ -244,7 +253,9 @@ async def update_experiment(
     return item
 
 
-@router.delete("/experiments/{urn}", response_model=experiment.Experiment, responses={422: {}})
+@router.delete(
+    "/experiments/{urn}", response_model=experiment.Experiment, responses={422: {}}, response_model_exclude_none=True
+)
 async def delete_experiment(
     *, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(require_current_user)
 ) -> Any:
