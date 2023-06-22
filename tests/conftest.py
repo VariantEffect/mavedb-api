@@ -179,10 +179,10 @@ def override_current_user():
 def test_empty_db():
     Base.metadata.create_all(bind=engine)
 
-    # add the test user
+    # add the test users
     db = TestingSessionLocal()
-    default_user = User(**TEST_USER)
-    db.add(default_user)
+    db.add(User(**TEST_USER))
+    db.add(User(**EXTRA_USER))
     db.commit()
     db.close()
 
@@ -205,10 +205,6 @@ def test_score_set_db(test_empty_db):
 
     new_license = License(**TEST_LICENSE)
     db.add(new_license)
-    db.commit()
-
-    extra_user = User(**EXTRA_USER)
-    db.add(extra_user)
     db.commit()
 
     db.close()
