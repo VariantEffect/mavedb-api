@@ -6,8 +6,16 @@ import re
 from copy import deepcopy
 
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
-from tests.conftest import client, TEST_MINIMAL_SCORE_SET, TEST_MINIMAL_SCORE_SET_RESPONSE
+from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from tests.conftest import (
+    client,
+    TEST_MINIMAL_SCORE_SET,
+    TEST_MINIMAL_SCORE_SET_RESPONSE,
+    EXTRA_USER,
+    TestingSessionLocal,
+)
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
+from mavedb.models.user import User as UserDbModel
 
 
 def test_test_minimal_score_set_is_valid():
@@ -30,6 +38,47 @@ def test_create_minimal_score_set(test_score_set_db):
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert expected_response[key] == response_data[key]
+    response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
+    assert response.status_code == 200
+    print(json.dumps(response.json(), indent=2))
+
+
+def test_get_own_private_score_set(test_score_set_db):
+    experiment = test_score_set_db
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SCORE_SET)
+    score_set_post_payload["experimentUrn"] = experiment["urn"]
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    response_data = response.json()
+    expected_response = deepcopy(TEST_MINIMAL_SCORE_SET_RESPONSE)
+    expected_response["urn"] = response_data["urn"]
+    expected_response["experiment"]["urn"] = experiment["urn"]
+    expected_response["experiment"]["experimentSetUrn"] = experiment["experimentSetUrn"]
+    response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert expected_response[key] == response_data[key]
+
+
+def test_get_other_user_private_score_set(test_score_set_db):
+    experiment = test_score_set_db
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SCORE_SET)
+    score_set_post_payload["experimentUrn"] = experiment["urn"]
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    response_data = response.json()
+    score_set_urn = response_data["urn"]
+    db = TestingSessionLocal()
+    item = db.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set_urn).one_or_none()
+    assert item is not None
+    extra_user = db.query(UserDbModel).filter(UserDbModel.username == EXTRA_USER["username"]).one_or_none()
+    assert extra_user is not None
+    item.created_by_id = extra_user.id
+    item.modified_by_id = extra_user.id
+    db.add(item)
+    db.commit()
+    response = client.get(f"/api/v1/score-sets/{score_set_urn}")
+    assert response.status_code == 404
 
 
 def test_create_score_set_with_some_none_values(test_empty_db):
