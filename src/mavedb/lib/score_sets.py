@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from mavedb.lib.array_comparison import assert_array_equal
 from mavedb.lib.exceptions import ValidationError
@@ -18,64 +18,94 @@ from mavedb.lib.mave.constants import (
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.models.experiment import Experiment
 from mavedb.models.keyword import Keyword
-from mavedb.models.scoreset import Scoreset
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
-from mavedb.view_models.search import ScoresetsSearch
+from mavedb.view_models.search import ScoreSetsSearch
 
 VariantData = dict[str, Optional[dict[str, dict]]]
 
 
-def search_scoresets(db: Session, owner: Optional[User], search: ScoresetsSearch) -> list[Scoreset]:
-    scoresets_query = db.query(Scoreset)  # \
-    # .filter(Scoreset.private.is_(False))
+def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
+    query = db.query(ScoreSet)  # \
+    # .filter(ScoreSet.private.is_(False))
 
     if owner is not None:
-        scoresets_query = scoresets_query.filter(Scoreset.created_by_id == owner.id)
+        query = query.filter(ScoreSet.created_by_id == owner.id)
 
     if search.published is not None:
         if search.published:
-            scoresets_query = scoresets_query.filter(Scoreset.published_date is not None)
+            query = query.filter(ScoreSet.published_date is not None)
         else:
-            scoresets_query = scoresets_query.filter(Scoreset.published_date is None)
+            query = query.filter(ScoreSet.published_date is None)
 
     if search.text:
         lower_search_text = search.text.lower()
-        scoresets_query = scoresets_query.filter(
+        query = query.filter(
             or_(
-                Scoreset.urn.contains(lower_search_text),
-                Scoreset.title.contains(lower_search_text),
-                Scoreset.short_description.contains(lower_search_text),
-                Scoreset.abstract_text.contains(lower_search_text),
-                Scoreset.target_gene.has(func.lower(TargetGene.name).contains(lower_search_text)),
-                Scoreset.target_gene.has(func.lower(TargetGene.category).contains(lower_search_text)),
-                Scoreset.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text))
+                ScoreSet.urn.contains(lower_search_text),
+                ScoreSet.title.contains(lower_search_text),
+                ScoreSet.short_description.contains(lower_search_text),
+                ScoreSet.abstract_text.contains(lower_search_text),
+                ScoreSet.target_gene.has(func.lower(TargetGene.name).contains(lower_search_text)),
+                ScoreSet.target_gene.has(func.lower(TargetGene.category).contains(lower_search_text)),
+                ScoreSet.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text))
                 # TODO Add: ORGANISM_NAME UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
             )
         )
 
     if search.targets:
-        scoresets_query = scoresets_query.filter(Scoreset.target_gene.has(TargetGene.name.in_(search.targets)))
+        query = query.filter(ScoreSet.target_gene.has(TargetGene.name.in_(search.targets)))
 
     if search.target_organism_names:
-        scoresets_query = scoresets_query.filter(
-            Scoreset.target_gene.has(
+        query = query.filter(
+            ScoreSet.target_gene.has(
                 TargetGene.taxonomy.has(Taxonomy.organism_name.in_(search.target_organism_names))
             )
         )
     if search.target_types:
-        scoresets_query = scoresets_query.filter(Scoreset.target_gene.has(TargetGene.category.in_(search.target_types)))
+        query = query.filter(ScoreSet.target_gene.has(TargetGene.category.in_(search.target_types)))
 
-    scoresets: list[Scoreset] = (
-        scoresets_query.join(Scoreset.experiment).join(Scoreset.target_gene).order_by(Experiment.title).all()
+    score_sets: list[ScoreSet] = (
+        query.join(ScoreSet.experiment).join(ScoreSet.target_gene).order_by(Experiment.title).all()
     )
-    if not scoresets:
-        scoresets = []
-    return scoresets  # filter_visible_scoresets(scoresets)
+    if not score_sets:
+        score_sets = []
+    return score_sets  # filter_visible_score_sets(score_sets)
 
 
-def filter_visible_scoresets(items: list[Scoreset]):
+def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[ScoreSet]:
+    """
+    Find all score sets that are meta-analyses for a specified collection of other score sets.
+
+    :param db: An active database session.
+    :param urns: A list of score set URNS.
+    :return: A score set that is a meta-analysis for exactly the collection of score sets specified by urns; or None if
+      there is no such meta-analysis.
+    """
+    # Ensure that URNs are not repeated in the list.
+    urns = list(set(urns))
+
+    # Find all score sets that are meta-analyses for a superset of the specified URNs and are meta-analysises for
+    # exactly len(urns) score sets.
+    score_set_aliases = [aliased(ScoreSet) for urn in urns]
+    analyzed_score_set = aliased(ScoreSet)
+    urn_filters = [
+        ScoreSet.meta_analysis_source_score_sets.of_type(score_set_aliases[i]).any(score_set_aliases[i].urn == urn)
+        for i, urn in enumerate(urns)
+    ]
+    return (
+        db.query(ScoreSet)
+        .join(ScoreSet.meta_analysis_source_score_sets.of_type(analyzed_score_set))
+        .filter(*urn_filters)
+        .group_by(ScoreSet)
+        .having(func.count(analyzed_score_set.id) == len(urns))
+        .all()
+    )
+
+
+def filter_visible_score_sets(items: list[ScoreSet]):
     # TODO Take the user into account.
     return filter(lambda item: not item.private, items or [])
 
@@ -93,8 +123,6 @@ def validate_datasets_define_same_variants(scores, counts):
         Scores dataframe parsed from an uploaded counts file.
     """
     # TODO First, confirm that the two dataframes have the same HGVS columns.
-    print(scores.columns)
-    print(counts.columns)
     try:
         if HGVS_NT_COLUMN in scores:
             assert_array_equal(

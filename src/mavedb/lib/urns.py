@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
-from mavedb.models.scoreset import Scoreset
+from mavedb.models.score_set import ScoreSet
 
 
 def generate_experiment_set_urn(db: Session):
@@ -91,7 +91,7 @@ def generate_experiment_urn(db: Session, experiment_set: ExperimentSet, experime
     return f"{experiment_set_urn}-{next_suffix}"
 
 
-def generate_scoreset_urn(db: Session, experiment: Experiment):
+def generate_score_set_urn(db: Session, experiment: Experiment):
     """
     Generate a new URN for a score set.
 
@@ -112,9 +112,9 @@ def generate_scoreset_urn(db: Session, experiment: Experiment):
     # PostgreSQL-specific operator: ~
     # TODO Provide an alternative for use with SQLite in unit tests.
     published_scoresets_query = (
-        db.query(Scoreset)
-        .filter(Scoreset.experiment_id == experiment.id)
-        .filter(Scoreset.urn.op("~")(f"^{re.escape(experiment_urn)}-[0-9]+$"))
+        db.query(ScoreSet)
+        .filter(ScoreSet.experiment_id == experiment.id)
+        .filter(ScoreSet.urn.op("~")(f"^{re.escape(experiment_urn)}-[0-9]+$"))
     )
     max_suffix_number = 0
     for scoreset in published_scoresets_query:

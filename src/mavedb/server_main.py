@@ -24,11 +24,12 @@ from mavedb.routers import (
     experiment_sets,
     experiments,
     licenses,
+    mapped_variant,
     publication_identifiers,
     target_gene_identifiers,
     taxonomies,
     raw_read_identifiers,
-    scoresets,
+    score_sets,
     target_genes,
     users,
 )
@@ -57,9 +58,10 @@ app.include_router(doi_identifiers.router)
 app.include_router(experiment_sets.router)
 app.include_router(experiments.router)
 app.include_router(licenses.router)
+app.include_router(mapped_variant.router)
 app.include_router(publication_identifiers.router)
 app.include_router(raw_read_identifiers.router)
-app.include_router(scoresets.router)
+app.include_router(score_sets.router)
 app.include_router(target_gene_identifiers.router)
 app.include_router(target_genes.router)
 app.include_router(taxonomies.router)

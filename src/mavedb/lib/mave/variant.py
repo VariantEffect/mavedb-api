@@ -10,24 +10,24 @@ from mavedb.lib.mave.constants import (
 
 
 # Only compare the columns name
-def validate_columns_match(variant, scoreset) -> None:
+def validate_columns_match(variant, score_set) -> None:
     """
     Validate that a child matches parents defined columns to keep
     data in sync.
     """
     try:
-        if variant.score_columns != scoreset.score_columns:
-            if Counter(variant.score_columns) != Counter(scoreset.score_columns):
+        if variant.score_columns != score_set.score_columns:
+            if Counter(variant.score_columns) != Counter(score_set.score_columns):
                 raise ValidationError(
                     f"Variant defines score columns '{variant.score_columns}' "
-                    f"but parent defines columns '{scoreset.score_columns}. "
+                    f"but parent defines columns '{score_set.score_columns}. "
                 )
-        if variant.count_columns != scoreset.count_columns:
+        if variant.count_columns != score_set.count_columns:
             # Ignore the column order but comparing the contents. If they have same contents, pass.
-            if Counter(variant.count_columns) != Counter(scoreset.count_columns):
+            if Counter(variant.count_columns) != Counter(score_set.count_columns):
                 raise ValidationError(
                     f"Variant defines count columns '{variant.count_columns}' "
-                    f"but parent defines columns '{scoreset.count_columns}. "
+                    f"but parent defines columns '{score_set.count_columns}. "
                 )
     except KeyError as error:
         raise ValidationError(f"Missing key {str(error)}")

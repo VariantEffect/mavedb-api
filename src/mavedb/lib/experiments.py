@@ -5,16 +5,16 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from mavedb.models.experiment import Experiment
-from mavedb.models.scoreset import Scoreset
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.view_models.search import ExperimentsSearch
 
 logger = logging.getLogger(__name__)
 
 
-def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSearch) -> list[Scoreset]:
+def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSearch) -> list[ScoreSet]:
     query = db.query(Experiment)
-    # .filter(Scoreset.private.is_(False))
+    # .filter(ScoreSet.private.is_(False))
 
     if owner is not None:
         query = query.filter(Experiment.created_by_id == owner.id)

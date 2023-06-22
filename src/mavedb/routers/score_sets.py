@@ -22,28 +22,35 @@ from mavedb.lib.identifiers import (
     find_or_create_doi_identifier,
     find_or_create_publication_identifier,
 )
-from mavedb.lib.scoresets import create_variants_data, search_scoresets as _search_scoresets, VariantData
-from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_scoreset_urn
+from mavedb.lib.score_sets import (
+    create_variants_data,
+    search_score_sets as _search_score_sets,
+    VariantData,
+    find_meta_analyses_for_score_sets,
+)
+from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_score_set_urn
 from mavedb.lib.validation import exceptions
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_pair
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
-from mavedb.models.scoreset import Scoreset
+from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.models.wild_type_sequence import WildTypeSequence
-from mavedb.view_models import scoreset
-from mavedb.view_models.search import ScoresetsSearch
+from mavedb.view_models import mapped_variant
+from mavedb.view_models import score_set
+from mavedb.view_models.search import ScoreSetsSearch
 
 logger = logging.getLogger(__name__)
 
 null_values_re = re.compile(r"\s+|none|nan|na|undefined|n/a|null|nil", flags=re.IGNORECASE)
 
 
-async def fetch_scoreset_by_urn(db, urn: str, owner: Optional[User]) -> Optional[Scoreset]:
+async def fetch_score_set_by_urn(db, urn: str, owner: Optional[User]) -> Optional[ScoreSet]:
     """
     Fetch one score set by URN, ensuring that it is either published or owned by a specified user.
 
@@ -55,17 +62,17 @@ async def fetch_scoreset_by_urn(db, urn: str, owner: Optional[User]) -> Optional
         user.
     """
     try:
-        permission_filter = Scoreset.private.is_(False)
+        permission_filter = ScoreSet.private.is_(False)
         if owner is not None:
             permission_filter = or_(
                 permission_filter,
-                Scoreset.created_by_id == owner.id,
+                ScoreSet.created_by_id == owner.id,
             )
-        item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(permission_filter).one_or_none()
+        item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(permission_filter).one_or_none()
     except MultipleResultsFound:
-        raise HTTPException(status_code=500, detail=f"Multiple scoresets with URN {urn} were found.")
+        raise HTTPException(status_code=500, detail=f"Multiple score sets with URN {urn} were found.")
     if not item:
-        raise HTTPException(status_code=404, detail=f"Scoreset with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"Score set with URN {urn} not found")
     return item
 
 
@@ -75,63 +82,65 @@ def is_null(value):
     return null_values_re.fullmatch(value) or not value
 
 
-router = APIRouter(prefix="/api/v1", tags=["scoresets"], responses={404: {"description": "Not found"}})
+router = APIRouter(prefix="/api/v1", tags=["score sets"], responses={404: {"description": "Not found"}})
 
 
-@router.post("/scoresets/search", status_code=200, response_model=list[scoreset.ShortScoreset])
-def search_scoresets(search: ScoresetsSearch, db: Session = Depends(deps.get_db)) -> Any:  # = Body(..., embed=True),
+@router.post("/score-sets/search", status_code=200, response_model=list[score_set.ShortScoreSet])
+def search_score_sets(search: ScoreSetsSearch, db: Session = Depends(deps.get_db)) -> Any:  # = Body(..., embed=True),
     """
-    Search scoresets.
+    Search score sets.
     """
-    return _search_scoresets(db, None, search)
+    return _search_score_sets(db, None, search)
 
 
-@router.post("/me/scoresets/search", status_code=200, response_model=list[scoreset.ShortScoreset])
-def search_my_scoresets(
-    search: ScoresetsSearch,  # = Body(..., embed=True),
+@router.post("/me/score-sets/search", status_code=200, response_model=list[score_set.ShortScoreSet])
+def search_my_score_sets(
+    search: ScoreSetsSearch,  # = Body(..., embed=True),
     db: Session = Depends(deps.get_db),
     user: User = Depends(require_current_user),
 ) -> Any:
     """
-    Search scoresets created by the current user..
+    Search score sets created by the current user..
     """
-    return _search_scoresets(db, user, search)
+    return _search_score_sets(db, user, search)
 
 
-@router.get("/scoresets/{urn}", status_code=200, response_model=scoreset.Scoreset, responses={404: {}, 500: {}})
-async def show_scoreset(*, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(get_current_user)) -> Any:
+@router.get("/score-sets/{urn}", status_code=200, response_model=score_set.ScoreSet, responses={404: {}, 500: {}})
+async def show_score_set(
+    *, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(get_current_user)
+) -> Any:
     """
-    Fetch a single scoreset by URN.
+    Fetch a single score set by URN.
     """
 
-    return await fetch_scoreset_by_urn(db, urn, user)
+    return await fetch_score_set_by_urn(db, urn, user)
 
 
 @router.get(
-    "/scoresets/{urn}/scores",
+    "/score-sets/{urn}/scores",
     status_code=200,
     responses={
         200: {
             "content": {"text/csv": {}},
             "description": """Variant scores in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
-            """ and hgvs_splice), plus score columns defined by the scoreset.""",
+            """ and hgvs_splice), plus score columns defined by the score set.""",
         }
     },
 )
-def get_scoreset_scores_csv(
+def get_score_set_scores_csv(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """
-    Return scores from a scoreset, identified by URN, in CSV format.
+    Return scores from a score set, identified by URN, in CSV format.
     """
-    scoreset = db.query(Scoreset).filter(Scoreset.urn == urn).first()
-    if not scoreset:
-        raise HTTPException(status_code=404, detail=f"Scoreset with URN {urn} not found")
-    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + scoreset.dataset_columns["score_columns"]
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
+    if not score_set:
+        raise HTTPException(status_code=404, detail=f"Score set with URN {urn} not found")
+    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_set.dataset_columns["score_columns"]
     type_column = "score_data"
-    rows_data = get_csv_rows_data(scoreset.variants, columns=columns, dtype=type_column)
+    rows_data = get_csv_rows_data(score_set.variants, columns=columns, dtype=type_column)
     stream = io.StringIO()
     writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
     writer.writeheader()
@@ -140,36 +149,55 @@ def get_scoreset_scores_csv(
 
 
 @router.get(
-    "/scoresets/{urn}/counts",
+    "/score-sets/{urn}/counts",
     status_code=200,
     responses={
         200: {
             "content": {"text/csv": {}},
             "description": """Variant counts in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
-            """ and hgvs_splice), plus score columns defined by the scoreset.""",
+            """ and hgvs_splice), plus score columns defined by the score set.""",
         }
     },
 )
-async def get_scoreset_counts_csv(
+async def get_score_set_counts_csv(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """
-    Return counts from a scoreset, identified by URN, in CSV format.
+    Return counts from a score set, identified by URN, in CSV format.
     """
-    scoreset = db.query(Scoreset).filter(Scoreset.urn == urn).first()
-    if not scoreset:
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
+    if not score_set:
         raise HTTPException(status_code=404, detail=f"Recipe with ID {id} not found")
-    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + scoreset.dataset_columns["count_columns"]
+    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_set.dataset_columns["count_columns"]
     type_column = "count_data"
-    rows_data = get_csv_rows_data(scoreset.variants, columns=columns, dtype=type_column)
+    rows_data = get_csv_rows_data(score_set.variants, columns=columns, dtype=type_column)
     stream = io.StringIO()
     writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
     writer.writeheader()
     writer.writerows(rows_data)
     return StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
 
+
+@router.get(
+    "/score-sets/{urn}/mapped-variants", status_code=200, response_model=list[mapped_variant.MappedVariant])
+def get_score_set_mapped_variants(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """
+    Return mapped variants from a score set, identified by URN.
+    """
+    mapped_variants = (
+        db.query(MappedVariant).filter(ScoreSet.urn == urn).filter(ScoreSet.id == Variant.score_set_id).filter(Variant.id == MappedVariant.variant_id).all()
+    )
+
+    if not mapped_variants:
+        raise HTTPException(status_code=404, detail=f"No mapped variant associated with score set URN {urn} was found")
+
+    return mapped_variants
 
 class HGVSColumns:
     NUCLEOTIDE: str = "hgvs_nt"  # dataset.constants.hgvs_nt_column
@@ -181,15 +209,15 @@ class HGVSColumns:
         return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
-@router.post("/scoresets/", response_model=scoreset.Scoreset, responses={422: {}})
-async def create_scoreset(
+@router.post("/score-sets/", response_model=score_set.ScoreSet, responses={422: {}})
+async def create_score_set(
     *,
-    item_create: scoreset.ScoresetCreate,
+    item_create: score_set.ScoreSetCreate,
     db: Session = Depends(deps.get_db),
     user: User = Depends(require_current_user),
 ) -> Any:
     """
-    Create a scoreset.
+    Create a score set.
     """
 
     # TODO Confirm that the experiment is editable by this user.
@@ -197,22 +225,43 @@ async def create_scoreset(
     if item_create is None:
         return None
 
-    experiment = db.query(Experiment).filter(Experiment.urn == item_create.experiment_urn).one_or_none()
-    if not experiment:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
+    experiment: Experiment = None
+    if item_create.experiment_urn is not None:
+        experiment = db.query(Experiment).filter(Experiment.urn == item_create.experiment_urn).one_or_none()
+        if not experiment:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
+    if (
+        item_create.meta_analysis_source_score_set_urns is not None
+        and len(item_create.meta_analysis_source_score_set_urns) > 0
+    ):
+        # If any existing score set is a meta-analysis for the same set of score sets, use its experiment as the parent
+        # of our new meta-analysis. Otherwise, create a new experiment.
+        existing_meta_analyses = find_meta_analyses_for_score_sets(db, item_create.meta_analysis_source_score_set_urns)
+        if len(existing_meta_analyses) > 0:
+            experiment = existing_meta_analyses[0].experiment
+        else:
+            experiment = Experiment(
+                title=item_create.title,
+                short_description=item_create.short_description,
+                abstract_text=item_create.abstract_text,
+                method_text=item_create.method_text,
+                extra_metadata={},
+                created_by=user,
+                modified_by=user,
+            )
 
     license_ = db.query(License).filter(License.id == item_create.license_id).one_or_none()
     if not license_:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
 
-    if item_create.superseded_scoreset_urn is not None:
-        superseded_scoreset = await fetch_scoreset_by_urn(db, item_create.superseded_scoreset_urn, user)
-        if superseded_scoreset is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown superseded scoreset")
+    if item_create.superseded_score_set_urn is not None:
+        superseded_score_set = await fetch_score_set_by_urn(db, item_create.superseded_score_set_urn, user)
+        if superseded_score_set is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown superseded score set")
     else:
-        superseded_scoreset = None
-    meta_analysis_source_scoresets = [
-        await fetch_scoreset_by_urn(db, urn) for urn in item_create.meta_analysis_source_scoreset_urns or []
+        superseded_score_set = None
+    meta_analysis_source_score_sets = [
+        await fetch_score_set_by_urn(db, urn, None) for urn in item_create.meta_analysis_source_score_set_urns or []
     ]
 
     doi_identifiers = [
@@ -248,8 +297,7 @@ async def create_scoreset(
             db, target_gene, identifier_create.db_name, identifier_create.identifier, offset
         )
     #reference_map = ReferenceMap(genome_id=item_create.target_gene.reference_maps[0].genome_id, target=target_gene)
-
-    item = Scoreset(
+    item = ScoreSet(
         **jsonable_encoder(
             item_create,
             by_alias=False,
@@ -258,17 +306,17 @@ async def create_scoreset(
                 "experiment_urn",
                 "keywords",
                 "license_id",
-                "meta_analysis_source_scoreset_urns",
+                "meta_analysis_source_score_set_urns",
                 "primary_publication_identifiers",
                 "publication_identifiers",
-                "superseded_scoreset_urn",
+                "superseded_score_set_urn",
                 "target_gene",
             ],
         ),
         experiment=experiment,
         license=license_,
-        superseded_scoreset=superseded_scoreset,
-        meta_analysis_source_scoresets=meta_analysis_source_scoresets,
+        superseded_score_set=superseded_score_set,
+        meta_analysis_source_score_sets=meta_analysis_source_score_sets,
         target_gene=target_gene,
         doi_identifiers=doi_identifiers,
         publication_identifiers=publication_identifiers,
@@ -283,8 +331,8 @@ async def create_scoreset(
     return item
 
 
-@router.post("/scoresets/{urn}/variants/data", response_model=scoreset.Scoreset, responses={422: {}})
-async def upload_scoreset_variant_data(
+@router.post("/score-sets/{urn}/variants/data", response_model=score_set.ScoreSet, responses={422: {}})
+async def upload_score_set_variant_data(
     *,
     urn: str,
     counts_file: Optional[UploadFile] = File(None),
@@ -293,19 +341,19 @@ async def upload_scoreset_variant_data(
     user: User = Depends(require_current_user),
 ) -> Any:
     """
-    Upload scores and variant count files for a scoreset, and initiate processing these files to
+    Upload scores and variant count files for a score set, and initiate processing these files to
     create variants.
     """
 
     # TODO Confirm access.
 
-    # item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
-    item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
+    # item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(ScoreSet.private.is_(False)).one_or_none()
+    item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item.urn or not scores_file:
         return None
 
     # Delete the old variants so that uploading new scores and counts won't accumulate the old ones.
-    db.query(Variant).filter(Variant.scoreset_id == item.id).delete()
+    db.query(Variant).filter(Variant.score_set_id == item.id).delete()
 
     extra_na_values = set(
         list(null_values_list)
@@ -373,7 +421,7 @@ async def upload_scoreset_variant_data(
 
     # create_variants_task.submit_task(kwargs={
     #    'user_id': None,
-    #    'scoreset_urn': item.urn,
+    #    'score_set_urn': item.urn,
     #    'scores': None
     #    # 'counts',
     #    # 'index_col',
@@ -387,47 +435,49 @@ async def upload_scoreset_variant_data(
 
 # @classmethod
 # @transaction.atomic
-def create_variants(db, scoreset: Scoreset, variants_data: list[VariantData], batch_size=None) -> int:
+def create_variants(db, score_set: ScoreSet, variants_data: list[VariantData], batch_size=None) -> int:
     num_variants = len(variants_data)
-    variant_urns = bulk_create_urns(num_variants, scoreset, True)
-    variants = (Variant(urn=urn, scoreset_id=scoreset.id, **kwargs) for urn, kwargs in zip(variant_urns, variants_data))
+    variant_urns = bulk_create_urns(num_variants, score_set, True)
+    variants = (
+        Variant(urn=urn, score_set_id=score_set.id, **kwargs) for urn, kwargs in zip(variant_urns, variants_data)
+    )
     db.bulk_save_objects(variants)
-    db.add(scoreset)
-    return len(scoreset.variants)
+    db.add(score_set)
+    return len(score_set.variants)
 
 
 # @staticmethod
-def bulk_create_urns(n, scoreset, reset_counter=False) -> List[str]:
-    start_value = 0 if reset_counter else scoreset.num_variants
-    parent_urn = scoreset.urn
+def bulk_create_urns(n, score_set, reset_counter=False) -> List[str]:
+    start_value = 0 if reset_counter else score_set.num_variants
+    parent_urn = score_set.urn
     child_urns = ["{}#{}".format(parent_urn, start_value + (i + 1)) for i in range(n)]
     current_value = start_value + n
-    scoreset.num_variants = current_value
+    score_set.num_variants = current_value
     return child_urns
 
 
-@router.put("/scoresets/{urn}", response_model=scoreset.Scoreset, responses={422: {}})
-async def update_scoreset(
+@router.put("/score-sets/{urn}", response_model=score_set.ScoreSet, responses={422: {}})
+async def update_score_set(
     *,
     urn: str,
-    item_update: scoreset.ScoresetUpdate,
+    item_update: score_set.ScoreSetUpdate,
     db: Session = Depends(deps.get_db),
     user: User = Depends(require_current_user),
 ) -> Any:
     """
-    Update a scoreset .
+    Update a score set.
     """
 
     if not item_update:
         raise HTTPException(status_code=400, detail="The request contained no updated item.")
 
-    # item = db.query(Scoreset).filter(Scoreset.urn == urn).filter(Scoreset.private.is_(False)).one_or_none()
-    item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
+    # item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(ScoreSet.private.is_(False)).one_or_none()
+    item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
-        raise HTTPException(status_code=404, detail=f"Scoreset with URN {urn} not found.")
-    # TODO Ensure that the current user has edit rights for this scoreset.
+        raise HTTPException(status_code=404, detail=f"Score set with URN {urn} not found.")
+    # TODO Ensure that the current user has edit rights for this score set.
 
-    # Editing unpublished scoreset
+    # Editing unpublished score set
     if item.private is True:
         license_ = None
         if item_update.license_id is not None:
@@ -468,13 +518,13 @@ async def update_scoreset(
         item.publication_identifiers = publication_identifiers
         await item.set_keywords(db, item_update.keywords)
 
-        # Delete the old target gene, and WT sequence. These will be deleted when we set the scoreset's
-        # target_gene to None, because we have set cascade='all,delete-orphan' on Scoreset.target_gene. (Since the
+        # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the score set's
+        # target_gene to None, because we have set cascade='all,delete-orphan' on ScoreSet.target_gene. (Since the
         # relationship is defined with the target gene as owner, this is actually set up in the backref attribute of
-        # TargetGene.scoreset.)
+        # TargetGene.score_set.)
         #
         # We must flush our database queries now so that the old target gene will be deleted before inserting a new one
-        # with the same scoreset_id.
+        # with the same score_set_id.
         item.target_gene = None
         db.flush()
 
@@ -508,7 +558,7 @@ async def update_scoreset(
             ]:
                 setattr(item, var, value) if value else None
 
-    # Editing published scoreset
+    # Editing published score set
     else:
         for var, value in vars(item_update).items():
             if var in ["title", "method_text", "abstract_text", "short_description"]:
@@ -520,12 +570,12 @@ async def update_scoreset(
     return item
 
 
-@router.delete("/scoresets/{urn}", responses={422: {}})
-async def delete_scoreset(
+@router.delete("/score-sets/{urn}", responses={422: {}})
+async def delete_score_set(
     *, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(require_current_user)
 ) -> Any:
     """
-    Delete a scoreset .
+    Delete a score set.
 
     Raises
 
@@ -537,33 +587,33 @@ async def delete_scoreset(
     communitcate to client whether the operation succeeded
     204 if successful but not returning content - likely going with this
     """
-    item = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
+    item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
-        raise HTTPException(status_code=404, detail=f"Scoreset with URN {urn} not found.")
-    # TODO Ensure that the current user has edit rights for this scoreset.
+        raise HTTPException(status_code=404, detail=f"Score set with URN {urn} not found.")
+    # TODO Ensure that the current user has edit rights for this score set.
     db.delete(item)
     db.commit()
 
 
-@router.post("/scoresets/{urn}/publish", status_code=200, response_model=scoreset.Scoreset)
-def publish_scoreset(
+@router.post("/score-sets/{urn}/publish", status_code=200, response_model=score_set.ScoreSet)
+def publish_score_set(
     *, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(require_current_user)
 ) -> Any:
     """
-    Publish a scoreset.
+    Publish a score set.
     """
-    item: Scoreset = db.query(Scoreset).filter(Scoreset.urn == urn).one_or_none()
+    item: ScoreSet = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
-        raise HTTPException(status_code=404, detail=f"Scoreset with URN {urn} not found")
-    # TODO Ensure that the current user has edit rights for this scoreset.
+        raise HTTPException(status_code=404, detail=f"Score set with URN {urn} not found")
+    # TODO Ensure that the current user has edit rights for this score set.
     if not item.experiment:
         raise HTTPException(
-            status_code=500, detail="This scoreset does not belong to an experiment and cannot be published."
+            status_code=500, detail="This score set does not belong to an experiment and cannot be published."
         )
     if not item.experiment.experiment_set:
         raise HTTPException(
             status_code=500,
-            detail="This scoreset's experiment does not belong to an experiment set and cannot be published.",
+            detail="This score set's experiment does not belong to an experiment set and cannot be published.",
         )
 
     published_date = date.today()
@@ -581,7 +631,7 @@ def publish_scoreset(
         item.experiment.published_date = published_date
         db.add(item.experiment)
 
-    item.urn = generate_scoreset_urn(db, item.experiment)
+    item.urn = generate_score_set_urn(db, item.experiment)
     item.private = False
     item.published_date = published_date
     db.add(item)

@@ -9,7 +9,7 @@ from .base.base import BaseModel
 class VariantBase(BaseModel):
     urn: Optional[str]
     data: Any
-    scoreset_id: int
+    score_set_id: int
     hgvs_nt: Optional[str]
     hgvs_pro: Optional[str]
     hgvs_splice: Optional[str]
