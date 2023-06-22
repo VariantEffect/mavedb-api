@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Any, List
+from typing import Any, List, Optional
 
 from pydantic import conlist
 from pydantic.utils import GetterDict
@@ -77,7 +77,7 @@ class TargetGene(SavedTargetGene):
     """Target gene view model containing a complete set of properties visible to non-admin users."""
 
     #reference_maps: List[ReferenceMap]
-    taxonomy: Taxonomy
+    taxonomy: Optional[Taxonomy]
     wt_sequence: WildTypeSequence
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
 
@@ -89,7 +89,7 @@ class ShortTargetGene(SavedTargetGene):
     """Target gene view model containing a smaller set of properties to return in list contexts."""
 
     #reference_maps: List[ReferenceMap]
-    taxonomy: Taxonomy
+    taxonomy: Optional[Taxonomy]
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
 
     class Config:
@@ -102,7 +102,7 @@ class AdminTargetGene(SavedTargetGene):
     creation_date: date
     modification_date: date
     #reference_maps: List[ReferenceMap]
-    taxonomy: Taxonomy
+    taxonomy: Optional[Taxonomy]
     wt_sequence: WildTypeSequence
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
 

@@ -64,3 +64,19 @@ def fetch_taxonomy(
             status_code=404, detail=f'Taxonomy with ID {item_id} not found'
         )
     return item
+
+@router.get('/tax-id={item_id}', status_code=200, response_model=taxonomy.Taxonomy, responses={404: {}})
+def fetch_taxonomy_by_tax_id(
+        *,
+        item_id: int,
+        db: Session = Depends(deps.get_db),
+) -> Any:
+    """
+    Fetch a single taxonomy by tax_id.
+    """
+    item = db.query(Taxonomy).filter(Taxonomy.tax_id == item_id).first()
+    if not item:
+        raise HTTPException(
+            status_code=404, detail=f'Taxonomy with tax_ID {item_id} not found'
+        )
+    return item

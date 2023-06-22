@@ -61,10 +61,9 @@ def search_scoresets(db: Session, owner: Optional[User], search: ScoresetsSearch
     if search.target_organism_names:
         scoresets_query = scoresets_query.filter(
             Scoreset.target_gene.has(
-                TargetGene.taxonomy.has(Taxonomy.species_name.in_(search.target_organism_names))
+                TargetGene.taxonomy.has(Taxonomy.organism_name.in_(search.target_organism_names))
             )
         )
-
     if search.target_types:
         scoresets_query = scoresets_query.filter(Scoreset.target_gene.has(TargetGene.category.in_(search.target_types)))
 
