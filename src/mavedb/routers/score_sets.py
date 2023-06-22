@@ -395,11 +395,9 @@ async def upload_score_set_variant_data(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     variants_data = create_variants_data(scores_df, counts_df, None)  # , index_col)
-    if variants_data:
-        logger.error(f"{item.urn}:{variants_data[-1]}")
 
     item.num_variants = create_variants(db, item, variants_data)
-    logger.error(f"Saving {item.urn}")
+    logger.info(f"saving variants for {item.urn}")
 
     item.dataset_columns = {"count_columns": list(count_columns), "score_columns": list(score_columns)}
     item.modified_by = user
