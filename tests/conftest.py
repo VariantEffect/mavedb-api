@@ -96,7 +96,7 @@ TEST_MINIMAL_SCORE_SET = {
         "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
         "wtSequence": {
             "sequenceType": "dna",
-            "sequence": "ACGT",
+            "sequence": "ACGTTT",
         },
     },
     # keys to be set after setting up
@@ -143,7 +143,7 @@ TEST_MINIMAL_SCORE_SET_RESPONSE = {
         ],
         "wtSequence": {
             "sequenceType": "dna",
-            "sequence": "ACGT",
+            "sequence": "ACGTTT",
         },
     },
     "metaAnalysisSourceScoreSets": [],
