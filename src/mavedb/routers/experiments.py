@@ -50,7 +50,6 @@ def list_experiments(
         # else:
         #     query = query.filter(Experiment.created_by_id == user.id).filter(Experiment.published_date is None)
     items = query.order_by(Experiment.urn).all()
-    logger.error(len(items))
     return items
 
 
