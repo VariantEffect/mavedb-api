@@ -317,7 +317,12 @@ async def create_score_set(
     return item
 
 
-@router.post("/score-sets/{urn}/variants/data", response_model=score_set.ScoreSet, responses={422: {}})
+@router.post(
+    "/score-sets/{urn}/variants/data",
+    response_model=score_set.ScoreSet,
+    responses={422: {}},
+    response_model_exclude_none=True,
+)
 async def upload_score_set_variant_data(
     *,
     urn: str,
