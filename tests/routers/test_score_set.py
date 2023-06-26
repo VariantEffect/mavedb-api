@@ -18,8 +18,8 @@ def test_test_minimal_score_set_is_valid():
     jsonschema.validate(instance=TEST_MINIMAL_SCORE_SET, schema=ScoreSetCreate.schema())
 
 
-def test_create_minimal_score_set(test_score_set_db):
-    experiment = test_score_set_db
+def test_create_minimal_score_set(test_router_db):
+    experiment = test_router_db
     score_set_post_payload = deepcopy(TEST_MINIMAL_SCORE_SET)
     score_set_post_payload["experimentUrn"] = experiment["urn"]
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
@@ -39,8 +39,8 @@ def test_create_minimal_score_set(test_score_set_db):
     assert response.status_code == 200
 
 
-def test_get_own_private_score_set(test_score_set_db):
-    experiment = test_score_set_db
+def test_get_own_private_score_set(test_router_db):
+    experiment = test_router_db
     score_set_post_payload = deepcopy(TEST_MINIMAL_SCORE_SET)
     score_set_post_payload["experimentUrn"] = experiment["urn"]
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
@@ -58,8 +58,8 @@ def test_get_own_private_score_set(test_score_set_db):
         assert expected_response[key] == response_data[key]
 
 
-def test_cannot_get_other_user_private_score_set(test_score_set_db):
-    experiment = test_score_set_db
+def test_cannot_get_other_user_private_score_set(test_router_db):
+    experiment = test_router_db
     score_set_post_payload = deepcopy(TEST_MINIMAL_SCORE_SET)
     score_set_post_payload["experimentUrn"] = experiment["urn"]
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
@@ -72,8 +72,8 @@ def test_cannot_get_other_user_private_score_set(test_score_set_db):
     assert f"score set with URN '{score_set_urn}' not found" in response_data["detail"]
 
 
-def test_add_score_set_variants_scores_only(test_score_set_db):
-    experiment = test_score_set_db
+def test_add_score_set_variants_scores_only(test_router_db):
+    experiment = test_router_db
     score_set_post_payload = deepcopy(TEST_MINIMAL_SCORE_SET)
     score_set_post_payload["experimentUrn"] = experiment["urn"]
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
@@ -93,8 +93,8 @@ def test_add_score_set_variants_scores_only(test_score_set_db):
     assert response_data["datasetColumns"] == {"countColumns": [], "scoreColumns": ["score"]}
 
 
-def test_add_score_set_variants_scores_and_counts(test_score_set_db):
-    experiment = test_score_set_db
+def test_add_score_set_variants_scores_and_counts(test_router_db):
+    experiment = test_router_db
     score_set_post_payload = deepcopy(TEST_MINIMAL_SCORE_SET)
     score_set_post_payload["experimentUrn"] = experiment["urn"]
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
@@ -118,8 +118,8 @@ def test_add_score_set_variants_scores_and_counts(test_score_set_db):
     assert response_data["datasetColumns"] == {"countColumns": ["c_0", "c_1"], "scoreColumns": ["score"]}
 
 
-def test_cannot_add_scores_to_other_user_score_set(test_score_set_db):
-    experiment = test_score_set_db
+def test_cannot_add_scores_to_other_user_score_set(test_router_db):
+    experiment = test_router_db
     score_set_post_payload = deepcopy(TEST_MINIMAL_SCORE_SET)
     score_set_post_payload["experimentUrn"] = experiment["urn"]
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
@@ -138,8 +138,8 @@ def test_cannot_add_scores_to_other_user_score_set(test_score_set_db):
     assert f"score set with URN '{score_set_urn}' not found" in response_data["detail"]
 
 
-def test_cannot_publish_score_set_without_variants(test_score_set_db):
-    experiment = test_score_set_db
+def test_cannot_publish_score_set_without_variants(test_router_db):
+    experiment = test_router_db
     score_set_post_payload = deepcopy(TEST_MINIMAL_SCORE_SET)
     score_set_post_payload["experimentUrn"] = experiment["urn"]
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
@@ -148,3 +148,15 @@ def test_cannot_publish_score_set_without_variants(test_score_set_db):
     response = client.post(f"/api/v1/score-sets/{score_set_urn}/publish", json=score_set_post_payload)
     assert response.status_code == 422
     assert f"cannot publish score set without variant scores" in response_data["detail"]
+
+
+def test_single_published_score_set_meta_analysis(test_with_empty_db):
+    pass
+
+
+def test_multiple_published_score_set_meta_analysis_single_experiment(test_with_empty_db):
+    pass
+
+
+def test_multiple_published_score_set_meta_analysis_multiple_experiment(test_with_empty_db):
+    pass

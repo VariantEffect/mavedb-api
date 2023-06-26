@@ -22,7 +22,7 @@ def test_test_minimal_experiment_is_valid():
     jsonschema.validate(instance=TEST_MINIMAL_EXPERIMENT, schema=ExperimentCreate.schema())
 
 
-def test_create_minimal_experiment(test_empty_db):
+def test_create_minimal_experiment(test_router_db):
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     assert response.status_code == 200
     response_data = response.json()
@@ -49,7 +49,7 @@ def test_create_minimal_experiment(test_empty_db):
         ("publishedDate", date(2020, 4, 1).isoformat()),
     ],
 )
-def test_cannot_create_special_fields(test_empty_db, test_field, test_value):
+def test_cannot_create_special_fields(test_router_db, test_field, test_value):
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload[test_field] = test_value
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
@@ -72,7 +72,7 @@ def test_cannot_create_special_fields(test_empty_db, test_field, test_value):
         ("publishedDate", date(2020, 4, 1).isoformat()),
     ],
 )
-def test_cannot_edit_special_fields(test_empty_db, test_field, test_value):
+def test_cannot_edit_special_fields(test_router_db, test_field, test_value):
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     response_data = response.json()
     urn = response_data["urn"]
@@ -85,7 +85,7 @@ def test_cannot_edit_special_fields(test_empty_db, test_field, test_value):
         assert response_data[test_field] != test_value
 
 
-def test_edit_preserves_optional_metadata(test_empty_db):
+def test_edit_preserves_optional_metadata(test_router_db):
     pass
 
 
@@ -98,7 +98,7 @@ def test_edit_preserves_optional_metadata(test_empty_db):
         ("methodText", "Edited Methods"),
     ],
 )
-def test_can_edit_private_experiment(test_empty_db, test_field, test_value):
+def test_can_edit_private_experiment(test_router_db, test_field, test_value):
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     response_data = response.json()
     urn = response_data["urn"]
@@ -111,16 +111,16 @@ def test_can_edit_private_experiment(test_empty_db, test_field, test_value):
     assert response_data[test_field] == test_value
 
 
-def test_can_edit_published_experiment(test_empty_db):
+def test_can_edit_published_experiment(test_router_db):
     pass
 
 
-def test_cannot_edit_unowned_experiment(test_empty_db):
+def test_cannot_edit_unowned_experiment(test_router_db):
     pass
 
 
 @pytest.mark.parametrize("test_field", ["title", "shortDescription", "abstractText", "methodText"])
-def test_required_fields(test_empty_db, test_field):
+def test_required_fields(test_router_db, test_field):
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     del experiment_post_payload[test_field]
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
@@ -129,7 +129,7 @@ def test_required_fields(test_empty_db, test_field):
     assert "field required" in response_data["detail"][0]["msg"]
 
 
-def test_create_experiment_with_new_primary_publication(test_empty_db):
+def test_create_experiment_with_new_primary_publication(test_router_db):
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload["primaryPublicationIdentifiers"] = [{"identifier": "20711194"}]
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
@@ -141,7 +141,7 @@ def test_create_experiment_with_new_primary_publication(test_empty_db):
     # TODO: add separate tests for generating the publication url and referenceHtml
 
 
-def test_create_experiment_with_invalid_doi(test_empty_db):
+def test_create_experiment_with_invalid_doi(test_router_db):
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload["doiIdentifiers"] = [{"identifier": "20711194"}]
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
@@ -153,7 +153,7 @@ def test_create_experiment_with_invalid_doi(test_empty_db):
     )
 
 
-def test_create_experiment_with_invalid_primary_publication(test_empty_db):
+def test_create_experiment_with_invalid_primary_publication(test_router_db):
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload["primaryPublicationIdentifiers"] = [{"identifier": "abcdefg"}]
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
@@ -165,7 +165,7 @@ def test_create_experiment_with_invalid_primary_publication(test_empty_db):
     )
 
 
-def test_get_own_private_experiment(test_empty_db):
+def test_get_own_private_experiment(test_router_db):
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     response_data = response.json()
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
@@ -180,7 +180,7 @@ def test_get_own_private_experiment(test_empty_db):
         assert expected_response[key] == response_data[key]
 
 
-def test_cannot_get_other_user_private_experiment(test_empty_db):
+def test_cannot_get_other_user_private_experiment(test_router_db):
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     response_data = response.json()
     experiment_urn = response_data["urn"]

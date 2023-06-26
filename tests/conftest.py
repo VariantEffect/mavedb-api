@@ -100,7 +100,7 @@ TEST_MINIMAL_SCORE_SET = {
         },
     },
     # keys to be set after setting up
-    "experimentUrn": None,
+    "experimentUrn": "",
 }
 
 TEST_MINIMAL_SCORE_SET_RESPONSE = {
@@ -177,27 +177,22 @@ def override_current_user():
 
 @pytest.fixture()
 def test_empty_db():
+    """Set up an empty database for testing."""
     Base.metadata.create_all(bind=engine)
-
-    # add the test users
-    db = TestingSessionLocal()
-    db.add(User(**TEST_USER))
-    db.add(User(**EXTRA_USER))
-    db.commit()
-    db.close()
-
     yield
     Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture
-def test_score_set_db(test_empty_db):
-    """Set up the empty database with information needed to create a score set.
+def test_router_db(test_empty_db):
+    """Set up the database with information needed to create a score set.
 
     This fixture creates ReferenceGenome and License, each with id 1.
     It also creates a new test experiment and yields it as a JSON object.
     """
     db = TestingSessionLocal()
+    db.add(User(**TEST_USER))
+    db.add(User(**EXTRA_USER))
     db.add(ReferenceGenome(**TEST_REFERENCE_GENOME))
     db.add(License(**TEST_LICENSE))
     db.commit()
