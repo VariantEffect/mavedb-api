@@ -82,3 +82,4 @@ packages = ["src/mavedb"]
 addopts = [
     "--import-mode=importlib",
 ]
+norecursedirs = "tests/helpers"

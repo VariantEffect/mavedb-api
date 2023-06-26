@@ -5,12 +5,8 @@ from copy import deepcopy
 
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
-from tests.conftest import (
-    client,
-    change_ownership,
-    TEST_MINIMAL_SCORE_SET,
-    TEST_MINIMAL_SCORE_SET_RESPONSE,
-)
+from tests.helpers.constants import TEST_MINIMAL_SCORE_SET, TEST_MINIMAL_SCORE_SET_RESPONSE
+
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 
 

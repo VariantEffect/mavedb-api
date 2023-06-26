@@ -5,12 +5,9 @@ import re
 
 import mavedb.view_models.experiment
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
-from tests.conftest import (
-    client,
-    TEST_USER,
+from tests.helpers.constants import (
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_EXPERIMENT_RESPONSE,
-    change_ownership,
 )
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.models.experiment import Experiment as ExperimentDbModel
@@ -23,6 +20,7 @@ def test_test_minimal_experiment_is_valid():
 
 
 def test_create_minimal_experiment(test_router_db):
+    client = test_router_db
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     assert response.status_code == 200
     response_data = response.json()
@@ -50,6 +48,7 @@ def test_create_minimal_experiment(test_router_db):
     ],
 )
 def test_cannot_create_special_fields(test_router_db, test_field, test_value):
+    client = test_router_db
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload[test_field] = test_value
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
@@ -73,6 +72,7 @@ def test_cannot_create_special_fields(test_router_db, test_field, test_value):
     ],
 )
 def test_cannot_edit_special_fields(test_router_db, test_field, test_value):
+    client = test_router_db
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     response_data = response.json()
     urn = response_data["urn"]
@@ -99,6 +99,7 @@ def test_edit_preserves_optional_metadata(test_router_db):
     ],
 )
 def test_can_edit_private_experiment(test_router_db, test_field, test_value):
+    client = test_router_db
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     response_data = response.json()
     urn = response_data["urn"]
@@ -121,6 +122,7 @@ def test_cannot_edit_unowned_experiment(test_router_db):
 
 @pytest.mark.parametrize("test_field", ["title", "shortDescription", "abstractText", "methodText"])
 def test_required_fields(test_router_db, test_field):
+    client = test_router_db
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     del experiment_post_payload[test_field]
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
@@ -130,6 +132,7 @@ def test_required_fields(test_router_db, test_field):
 
 
 def test_create_experiment_with_new_primary_publication(test_router_db):
+    client = test_router_db
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload["primaryPublicationIdentifiers"] = [{"identifier": "20711194"}]
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
@@ -142,6 +145,7 @@ def test_create_experiment_with_new_primary_publication(test_router_db):
 
 
 def test_create_experiment_with_invalid_doi(test_router_db):
+    client = test_router_db
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload["doiIdentifiers"] = [{"identifier": "20711194"}]
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
@@ -154,6 +158,7 @@ def test_create_experiment_with_invalid_doi(test_router_db):
 
 
 def test_create_experiment_with_invalid_primary_publication(test_router_db):
+    client = test_router_db
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload["primaryPublicationIdentifiers"] = [{"identifier": "abcdefg"}]
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
@@ -166,6 +171,7 @@ def test_create_experiment_with_invalid_primary_publication(test_router_db):
 
 
 def test_get_own_private_experiment(test_router_db):
+    client = test_router_db
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     response_data = response.json()
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
@@ -181,6 +187,7 @@ def test_get_own_private_experiment(test_router_db):
 
 
 def test_cannot_get_other_user_private_experiment(test_router_db):
+    client = test_router_db
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     response_data = response.json()
     experiment_urn = response_data["urn"]
