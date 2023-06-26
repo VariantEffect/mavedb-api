@@ -141,8 +141,23 @@ def test_cannot_publish_other_user_private_score_set(session, client, setup_rout
     assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
 
 
-def test_single_published_score_set_meta_analysis(client, setup_router_db):
-    pass
+def test_create_single_published_score_set_meta_analysis(client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    meta_score_set = create_score_set(
+        client, None, update={"title": "Test Meta Analysis", "metaAnalysisSourceScoreSetUrns": [score_set["urn"]]}
+    )
+
+
+def test_create_single_published_score_set_meta_analysis(client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    meta_score_set = create_score_set(
+        client, None, update={"title": "Test Meta Analysis", "metaAnalysisSourceScoreSetUrns": [score_set["urn"]]}
+    )
+    # TODO: assertions for response fields
 
 
 def test_multiple_published_score_set_meta_analysis_single_experiment(client, setup_router_db):

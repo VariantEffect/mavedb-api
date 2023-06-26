@@ -85,8 +85,6 @@ TEST_MINIMAL_SCORE_SET = {
             "sequence": "ACGTTT",
         },
     },
-    # keys to be set after setting up
-    "experimentUrn": "",
 }
 
 TEST_MINIMAL_SCORE_SET_RESPONSE = {

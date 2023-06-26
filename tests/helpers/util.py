@@ -31,7 +31,8 @@ def create_experiment(client, update=None):
 
 def create_score_set(client, experiment_urn, update=None):
     score_set_payload = deepcopy(TEST_MINIMAL_SCORE_SET)
-    score_set_payload["experimentUrn"] = experiment_urn
+    if experiment_urn is not None:
+        score_set_payload["experimentUrn"] = experiment_urn
     if update is not None:
         score_set_payload.update(update)
     jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
@@ -46,13 +47,10 @@ def create_score_set_with_variants(client, experiment_urn, scores_csv_path, upda
     files = {"scores_file": (scores_csv_path.name, score_file, "rb")}
     if counts_csv_path is not None:
         counts_file = open(counts_csv_path, "rb")
-        files.update({"counts_file": (counts_csv_path.name, counts_file, "text/csv")})
+        files["counts_file"] = (counts_csv_path.name, counts_file, "text/csv")
     else:
         counts_file = None
-    response = client.post(
-        f"/api/v1/score-sets/{score_set['urn']}/variants/data",
-        files=files,
-    )
+    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/variants/data", files=files)
     assert response.status_code == 200
     score_file.close()
     if counts_file is not None:
