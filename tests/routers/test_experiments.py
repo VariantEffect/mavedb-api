@@ -13,6 +13,7 @@ from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 import pytest
+from tests.helpers.util import change_ownership
 
 
 def test_test_minimal_experiment_is_valid():
@@ -186,14 +187,14 @@ def test_get_own_private_experiment(test_router_db):
         assert expected_response[key] == response_data[key]
 
 
-def test_cannot_get_other_user_private_experiment(test_router_db):
+def test_cannot_get_other_user_private_experiment(session, test_router_db):
     client = test_router_db
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     response_data = response.json()
     experiment_urn = response_data["urn"]
     experiment_set_urn = response_data["experimentSetUrn"]
-    change_ownership(experiment_urn, ExperimentDbModel)
-    change_ownership(experiment_set_urn, ExperimentSetDbModel)
+    change_ownership(session, experiment_urn, ExperimentDbModel)
+    change_ownership(session, experiment_set_urn, ExperimentSetDbModel)
     response = client.get(f"/api/v1/experiments/{experiment_urn}")
     assert response.status_code == 404
     response_data = response.json()

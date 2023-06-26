@@ -2,6 +2,7 @@ from tempfile import TemporaryDirectory
 from pathlib import Path
 from fastapi.testclient import TestClient
 import pytest
+from shutil import copytree
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from datetime import date
@@ -18,7 +19,7 @@ from tests.helpers.constants import TEST_USER, EXTRA_USER, TEST_REFERENCE_GENOME
 
 
 @pytest.fixture
-def test_router_db(session, test_empty_db):
+def setup_router_db(session):
     """Set up the database with information needed to create a score set.
 
     This fixture creates ReferenceGenome and License, each with id 1.
@@ -31,18 +32,8 @@ def test_router_db(session, test_empty_db):
     db.add(License(**TEST_LICENSE))
     db.commit()
 
-    yield test_empty_db
 
-
-def change_ownership(urn, model):
-    """Change the ownership of the record with given urn and model to the extra user."""
-    db = TestingSessionLocal()
-    item = db.query(model).filter(model.urn == urn).one_or_none()
-    assert item is not None
-    extra_user = db.query(User).filter(User.username == EXTRA_USER["username"]).one_or_none()
-    assert extra_user is not None
-    item.created_by_id = extra_user.id
-    item.modified_by_id = extra_user.id
-    db.add(item)
-    db.commit()
-    db.close()
+@pytest.fixture
+def data_files(tmp_path):
+    copytree(Path(__file__).absolute().parent / "data", tmp_path / "data")
+    return tmp_path / "data"

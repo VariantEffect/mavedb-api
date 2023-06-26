@@ -1,8 +1,5 @@
 import sys
 import os
-
-sys.path.append(os.path.join(os.path.dirname(__file__), "helpers"))
-
 from tempfile import TemporaryDirectory
 from pathlib import Path
 from fastapi.testclient import TestClient
@@ -36,7 +33,7 @@ def session():
 
 
 @pytest.fixture()
-def test_empty_db(session):
+def client(session):
     def override_get_db():
         try:
             yield session
