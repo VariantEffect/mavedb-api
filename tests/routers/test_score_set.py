@@ -148,15 +148,6 @@ def test_create_single_published_score_set_meta_analysis(client, setup_router_db
     meta_score_set = create_score_set(
         client, None, update={"title": "Test Meta Analysis", "metaAnalysisSourceScoreSetUrns": [score_set["urn"]]}
     )
-
-
-def test_create_single_published_score_set_meta_analysis(client, setup_router_db, data_files):
-    experiment = create_experiment(client)
-    score_set = create_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
-    score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
-    meta_score_set = create_score_set(
-        client, None, update={"title": "Test Meta Analysis", "metaAnalysisSourceScoreSetUrns": [score_set["urn"]]}
-    )
     # TODO: assertions for response fields
 
 
