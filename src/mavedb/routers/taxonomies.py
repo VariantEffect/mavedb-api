@@ -20,7 +20,7 @@ def list_taxonomies(
     """
     List taxonomies.
     """
-    items = db.query(Taxonomy).order_by(Taxonomy.species_name).all()
+    items = db.query(Taxonomy).order_by(Taxonomy.organism_name).all()
     return items
 
 @router.get("/speciesNames", status_code=200, response_model=List[str], responses={404: {}})

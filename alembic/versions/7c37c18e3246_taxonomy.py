@@ -21,7 +21,7 @@ def upgrade():
     op.create_table('taxonomies',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('tax_id', sa.Integer(), nullable=False),
-    sa.Column('organism_names', sa.String(), nullable=False),
+    sa.Column('organism_name', sa.String(), nullable=False),
     sa.Column('common_name', sa.String(), nullable=True),
     sa.Column('genome_identifier_id', sa.Integer(), nullable=True),
     sa.Column('creation_date', sa.Date(), nullable=False),
