@@ -76,7 +76,7 @@ class SavedExperiment(ExperimentBase):
     modification_date: date
     published_date: Optional[date]
     experiment_set_urn: str
-    score_set_urns: list[str]
+    # score_set_urns: list[str]  TODO: uncomment when this is implemented
     doi_identifiers: list[SavedDoiIdentifier]
     primary_publication_identifiers: list[SavedPublicationIdentifier]
     secondary_publication_identifiers: list[SavedPublicationIdentifier]
