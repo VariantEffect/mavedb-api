@@ -28,8 +28,7 @@ def test_create_minimal_experiment(client, setup_router_db):
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
-    expected_response["urn"] = response_data["urn"]
-    expected_response["experimentSetUrn"] = response_data["experimentSetUrn"]
+    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert expected_response[key] == response_data[key]
@@ -120,7 +119,7 @@ def test_create_experiment_with_new_primary_publication(client, setup_router_db)
 
 def test_create_experiment_with_invalid_doi(client, setup_router_db):
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
-    experiment_post_payload["doiIdentifiers"] = [{"identifier": "20711194"}]
+    experiment_post_payload.update({"doiIdentifiers": [{"identifier": "20711194"}]})
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
     assert response.status_code == 422
     response_data = response.json()
@@ -132,7 +131,7 @@ def test_create_experiment_with_invalid_doi(client, setup_router_db):
 
 def test_create_experiment_with_invalid_primary_publication(client, setup_router_db):
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
-    experiment_post_payload["primaryPublicationIdentifiers"] = [{"identifier": "abcdefg"}]
+    experiment_post_payload.update({"primaryPublicationIdentifiers": [{"identifier": "abcdefg"}]})
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
     assert response.status_code == 422
     response_data = response.json()
@@ -145,8 +144,9 @@ def test_create_experiment_with_invalid_primary_publication(client, setup_router
 def test_get_own_private_experiment(client, setup_router_db):
     experiment = create_experiment(client)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
-    expected_response["urn"] = experiment["urn"]
-    expected_response["experimentSetUrn"] = experiment["experimentSetUrn"]
+    expected_response.update(
+        {"urn": expected_response["urn"], "experimentSetUrn": expected_response["experimentSetUrn"]}
+    )
     response = client.get(f"/api/v1/experiments/{experiment['urn']}")
     assert response.status_code == 200
     response_data = response.json()
