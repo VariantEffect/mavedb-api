@@ -70,13 +70,13 @@ class ExperimentUpdate(ExperimentModify):
 # Properties shared by models stored in DB
 class SavedExperiment(ExperimentBase):
     urn: str
-    num_score_sets: int
     created_by: SavedUser
     modified_by: SavedUser
     creation_date: date
     modification_date: date
     published_date: Optional[date]
     experiment_set_urn: str
+    score_set_urns: list[str]
     doi_identifiers: list[SavedDoiIdentifier]
     primary_publication_identifiers: list[SavedPublicationIdentifier]
     secondary_publication_identifiers: list[SavedPublicationIdentifier]

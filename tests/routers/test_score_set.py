@@ -27,7 +27,7 @@ def test_create_minimal_score_set(client, setup_router_db):
     expected_response["urn"] = response_data["urn"]
     expected_response["experiment"]["urn"] = experiment["urn"]
     expected_response["experiment"]["experimentSetUrn"] = experiment["experimentSetUrn"]
-    expected_response["experiment"]["numScoreSets"] = 1
+    expected_response["experiment"]["scoreSetUrns"] = [response_data["urn"]]
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert expected_response[key] == response_data[key]
@@ -41,7 +41,11 @@ def test_get_own_private_score_set(client, setup_router_db):
     expected_response = deepcopy(TEST_MINIMAL_SCORE_SET_RESPONSE)
     expected_response.update({"urn": score_set["urn"]})
     expected_response["experiment"].update(
-        {"urn": experiment["urn"], "experimentSetUrn": experiment["experimentSetUrn"], "numScoreSets": 1}
+        {
+            "urn": experiment["urn"],
+            "experimentSetUrn": experiment["experimentSetUrn"],
+            "scoreSetUrns": [score_set["urn"]],
+        }
     )
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
     assert response.status_code == 200
