@@ -150,9 +150,12 @@ def test_create_single_published_score_set_meta_analysis(client, setup_router_db
     score_set = create_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
     score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
     meta_score_set = create_score_set(
-        client, None, update={"title": "Test Meta Analysis", "metaAnalysisSourceScoreSetUrns": [score_set["urn"]]}
+        client, None, update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [score_set["urn"]]}
     )
-    # TODO: assertions for response fields
+    score_set_refresh = client.get(f"/api/v1/score-sets/{score_set['urn']}").json()
+    assert meta_score_set["metaAnalyzesScoreSetUrns"] == [score_set["urn"]]
+    assert score_set_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(meta_score_set["urn"]), re.Match)
 
 
 def test_multiple_published_score_set_meta_analysis_single_experiment(client, setup_router_db):

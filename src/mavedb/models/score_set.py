@@ -105,12 +105,12 @@ class ScoreSet(Base):
     )
     # sra_identifiers = relationship('SraIdentifier', secondary=score_sets_sra_identifiers_association_table, backref='score_sets')
     # raw_read_identifiers = relationship('RawReadIdentifier', secondary=score_sets_raw_read_identifiers_association_table,backref='score_sets')
-    meta_analysis_source_score_sets = relationship(
+    meta_analyzes_score_set_urns = relationship(
         "ScoreSet",
         secondary=score_sets_meta_analysis_score_sets_association_table,
         primaryjoin=(score_sets_meta_analysis_score_sets_association_table.c.meta_analysis_scoreset_id == id),
         secondaryjoin=(score_sets_meta_analysis_score_sets_association_table.c.source_scoreset_id == id),
-        backref="meta_analyses",
+        backref="meta_analyzed_by_score_set_urns",
     )
 
     # Unfortunately, we can't use association_proxy here, because in spite of what the documentation seems to imply, it

@@ -216,13 +216,10 @@ async def create_score_set(
         experiment = db.query(Experiment).filter(Experiment.urn == item_create.experiment_urn).one_or_none()
         if not experiment:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
-    if (
-        item_create.meta_analysis_source_score_set_urns is not None
-        and len(item_create.meta_analysis_source_score_set_urns) > 0
-    ):
+    if item_create.meta_analyzes_score_set_urns is not None and len(item_create.meta_analyzes_score_set_urns) > 0:
         # If any existing score set is a meta-analysis for the same set of score sets, use its experiment as the parent
         # of our new meta-analysis. Otherwise, create a new experiment.
-        existing_meta_analyses = find_meta_analyses_for_score_sets(db, item_create.meta_analysis_source_score_set_urns)
+        existing_meta_analyses = find_meta_analyses_for_score_sets(db, item_create.meta_analyzes_score_set_urns)
         if len(existing_meta_analyses) > 0:
             experiment = existing_meta_analyses[0].experiment
         else:
@@ -246,8 +243,8 @@ async def create_score_set(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown superseded score set")
     else:
         superseded_score_set = None
-    meta_analysis_source_score_sets = [
-        await fetch_score_set_by_urn(db, urn, None) for urn in item_create.meta_analysis_source_score_set_urns or []
+    meta_analyzes_score_set_urns = [
+        await fetch_score_set_by_urn(db, urn, None) for urn in item_create.meta_analyzes_score_set_urns or []
     ]
 
     doi_identifiers = [
@@ -272,7 +269,7 @@ async def create_score_set(
         **jsonable_encoder(
             item_create.target_gene,
             by_alias=False,
-            exclude=["external_identifiers", "reference_maps", "wt_sequence"],
+            exclude={"external_identifiers", "reference_maps", "wt_sequence"},
         ),
         wt_sequence=wt_sequence,
     )
@@ -287,22 +284,22 @@ async def create_score_set(
         **jsonable_encoder(
             item_create,
             by_alias=False,
-            exclude=[
+            exclude={
                 "doi_identifiers",
                 "experiment_urn",
                 "keywords",
                 "license_id",
-                "meta_analysis_source_score_set_urns",
+                "meta_analyzes_score_set_urns",
                 "primary_publication_identifiers",
                 "publication_identifiers",
                 "superseded_score_set_urn",
                 "target_gene",
-            ],
+            },
         ),
         experiment=experiment,
         license=license_,
         superseded_score_set=superseded_score_set,
-        meta_analysis_source_score_sets=meta_analysis_source_score_sets,
+        meta_analyzes_score_set_urns=meta_analyzes_score_set_urns,
         target_gene=target_gene,
         doi_identifiers=doi_identifiers,
         publication_identifiers=publication_identifiers,
@@ -523,7 +520,7 @@ async def update_score_set(
             **jsonable_encoder(
                 item_update.target_gene,
                 by_alias=False,
-                exclude=["external_identifiers", "reference_maps", "wt_sequence"],
+                exclude={"external_identifiers", "reference_maps", "wt_sequence"},
             ),
             wt_sequence=wt_sequence,
         )

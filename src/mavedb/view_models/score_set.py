@@ -69,7 +69,7 @@ class ScoreSetCreate(ScoreSetModify):
     experiment_urn: Optional[str]
     license_id: int
     superseded_score_set_urn: Optional[str]
-    meta_analysis_source_score_set_urns: Optional[list[str]]
+    meta_analyzes_score_set_urns: Optional[list[str]]
 
     @validator("superseded_score_set_urn")
     def validate_superseded_score_set_urn(cls, v):
@@ -83,7 +83,7 @@ class ScoreSetCreate(ScoreSetModify):
                     raise ValueError("cannot supersede a private score set - please edit it instead")
         return v
 
-    @validator("meta_analysis_source_score_set_urns")
+    @validator("meta_analyzes_score_set_urns")
     def validate_score_set_urn(cls, v):
         if v is not None:
             for s in v:
@@ -103,12 +103,12 @@ class ScoreSetCreate(ScoreSetModify):
     @root_validator
     def validate_experiment_urn_required_except_for_meta_analyses(cls, values):
         experiment_urn = values["experiment_urn"]
-        meta_analysis_source_score_set_urns = values["meta_analysis_source_score_set_urns"]
-        is_meta_analysis = meta_analysis_source_score_set_urns is None or len(meta_analysis_source_score_set_urns) == 0
-        if experiment_urn is None and is_meta_analysis:
-            raise ValidationError("An experiment URN is required, unless your score set is a meta-analysis.")
-        if experiment_urn is not None and not is_meta_analysis:
-            raise ValidationError("An experiment URN should not be supplied when your score set is a meta-analysis.")
+        meta_analyzes_score_set_urns = values["meta_analyzes_score_set_urns"]
+        is_meta_analysis = not (meta_analyzes_score_set_urns is None or len(meta_analyzes_score_set_urns) == 0)
+        if experiment_urn is None and not is_meta_analysis:
+            raise ValidationError("experiment URN is required unless your score set is a meta-analysis")
+        if experiment_urn is not None and is_meta_analysis:
+            raise ValidationError("experiment URN should not be supplied when your score set is a meta-analysis")
         return values
 
 
@@ -150,10 +150,10 @@ class SavedScoreSet(ScoreSetBase):
     num_variants: int
     experiment: SavedExperiment
     license: ShortLicense
-    superseded_score_set: Optional[ShortScoreSet]
-    superseding_score_set: Optional[SavedScoreSet]
-    meta_analysis_source_score_sets: list[ShortScoreSet]
-    meta_analyses: list[ShortScoreSet]
+    superseded_score_set_urn: Optional[str]
+    superseding_score_set_urn: Optional[str]
+    meta_analyzes_score_set_urns: list[str]
+    meta_analyzed_by_score_set_urns: list[str]
     doi_identifiers: list[SavedDoiIdentifier]
     primary_publication_identifiers: list[SavedPublicationIdentifier]
     secondary_publication_identifiers: list[SavedPublicationIdentifier]
@@ -183,18 +183,12 @@ class ScoreSet(SavedScoreSet):
     """Score set view model containing most properties visible to non-admin users, but no variant data."""
 
     experiment: Experiment
-    license: ShortLicense
-    superseded_score_set: Optional[ShortScoreSet]
-    superseding_score_set: Optional[ScoreSet]
-    meta_analysis_source_score_sets: list[ShortScoreSet]
-    meta_analyses: list[ShortScoreSet]
     doi_identifiers: list[DoiIdentifier]
     primary_publication_identifiers: list[PublicationIdentifier]
     secondary_publication_identifiers: list[PublicationIdentifier]
     created_by: Optional[User]
     modified_by: Optional[User]
     target_gene: TargetGene
-    num_variants: int
     private: bool
     # processing_state: Optional[str]
 
