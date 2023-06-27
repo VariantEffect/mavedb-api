@@ -1,16 +1,9 @@
-import sys
-import os
 from tempfile import TemporaryDirectory
 from pathlib import Path
 from fastapi.testclient import TestClient
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from datetime import date
-from humps import camelize
-
-from mavedb.models.reference_genome import ReferenceGenome
-from mavedb.models.license import License
 from mavedb.server_main import app
 from mavedb.db.base import Base
 from mavedb.deps import get_db

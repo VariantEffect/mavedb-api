@@ -3,7 +3,6 @@ from copy import deepcopy
 import jsonschema
 import re
 
-import mavedb.view_models.experiment
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from tests.helpers.constants import (
     TEST_MINIMAL_EXPERIMENT,
