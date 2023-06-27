@@ -104,13 +104,13 @@ def get_experiment_score_sets(*, urn: str, db: Session = Depends(deps.get_db)) -
     """
     experiment = db.query(Experiment).filter(Experiment.urn == urn).first()
     if not experiment:
-        raise HTTPException(status_code=404, detail=f"Experiment with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"experiment with URN '{urn}' not found")
     # Only get published score sets. Unpublished score sets won't be shown on experiment page.
     score_sets = (
         db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(ScoreSet.urn.contains("urn")).all()
     )
     if not score_sets:
-        raise HTTPException(status_code=404, detail="No associated score set")
+        raise HTTPException(status_code=404, detail="no associated score sets")
     else:
         score_sets.sort(key=attrgetter("urn"))
     return score_sets
@@ -161,14 +161,14 @@ async def create_experiment(
         **jsonable_encoder(
             item_create,
             by_alias=False,
-            exclude=[
+            exclude={
                 "doi_identifiers",
                 "experiment_set_urn",
                 "keywords",
                 "primary_publication_identifiers",
                 "publication_identifiers",
                 "raw_read_identifiers",
-            ],
+            },
         ),
         experiment_set=experiment_set,
         doi_identifiers=doi_identifiers,
