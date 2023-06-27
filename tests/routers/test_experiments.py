@@ -12,7 +12,7 @@ from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 import pytest
-from tests.helpers.util import change_ownership, create_experiment
+from tests.helpers.util import change_ownership, create_experiment, create_score_set_with_variants
 
 
 def test_test_minimal_experiment_is_valid():
@@ -48,15 +48,12 @@ def test_create_minimal_experiment(client, setup_router_db):
 def test_cannot_create_special_fields(client, setup_router_db, test_field, test_value):
     response_data = create_experiment(client, {test_field: test_value})
     if test_field in response_data:
-        assert response_data[test_field] != test_value
+        assert (test_field, response_data[test_field]) != (test_field, test_value)
 
 
 @pytest.mark.parametrize(
     "test_field,test_value",
     [
-        ("urn", "tmp:33df10c9-78b3-4e04-bafb-2446078573d7"),
-        ("experimentSetUrn", "tmp:33df10c9-78b3-4e04-bafb-2446078573d7"),
-        ("numScoreSets", 2),
         ("createdBy", {"firstName": "Sneaky", "lastName": "User", "orcidId": "0000-9999-9999-0000"}),
         ("modifiedBy", {"firstName": "Sneaky", "lastName": "User", "orcidId": "0000-9999-9999-0000"}),
         ("creationDate", date(2020, 4, 1).isoformat()),
@@ -68,7 +65,55 @@ def test_cannot_edit_special_fields(client, setup_router_db, test_field, test_va
     experiment = create_experiment(client)
     response_data = create_experiment(client, {test_field: test_value, "urn": experiment["urn"]})
     if test_field in response_data:
-        assert response_data[test_field] != test_value
+        assert (test_field, response_data[test_field]) != (test_field, test_value)
+
+
+def test_cannot_assign_to_missing_experiment_set(client, setup_router_db):
+    experiment_set_urn = "tmp:33df10c9-78b3-4e04-bafb-2446078573d7"
+    experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    experiment_post_payload.update({"experimentSetUrn": experiment_set_urn})
+    response = client.post("/api/v1/experiments/", json=experiment_post_payload)
+    assert response.status_code == 404
+    response_data = response.json()
+    assert f"experiment set with URN '{experiment_set_urn}' not found" in response_data["detail"]
+
+
+def test_cannot_assign_to_other_user_private_experiment_set(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
+    experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    experiment_post_payload.update({"experimentSetUrn": experiment["experimentSetUrn"]})
+    response = client.post("/api/v1/experiments/", json=experiment_post_payload)
+    assert response.status_code == 404
+    response_data = response.json()
+    assert f"experiment set with URN '{experiment['experimentSetUrn']}' not found" in response_data["detail"]
+
+
+def test_can_assign_to_own_public_experiment_set(client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    response_data = create_experiment(
+        client,
+        {"experimentSetUrn": published_score_set["experiment"]["experimentSetUrn"], "title": "Second Experiment"},
+    )
+    assert response_data["experimentSetUrn"] == published_score_set["experiment"]["experimentSetUrn"]
+    assert response_data["title"] == "Second Experiment"
+
+
+def test_cannot_assign_to_other_user_public_experiment_set(session, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    published_experiment_set_urn = published_score_set["experiment"]["experimentSetUrn"]
+    change_ownership(session, published_experiment_set_urn, ExperimentSetDbModel)
+    experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    experiment_post_payload.update({"experimentSetUrn": published_experiment_set_urn, "title": "Second Experiment"})
+    response = client.post("/api/v1/experiments/", json=experiment_post_payload)
+    assert response.status_code == 403
+    response_data = response.json()
+    assert f"insufficient permissions for URN '{published_experiment_set_urn}'" in response_data["detail"]
 
 
 def test_edit_preserves_optional_metadata(client, setup_router_db):
@@ -88,7 +133,7 @@ def test_can_edit_private_experiment(client, setup_router_db, test_field, test_v
     experiment = create_experiment(client)
     response_data = create_experiment(client, {test_field: test_value, "urn": experiment["urn"]})
     jsonschema.validate(instance=response_data, schema=Experiment.schema())
-    assert response_data[test_field] == test_value
+    assert (test_field, response_data[test_field]) == (test_field, test_value)
 
 
 def test_can_edit_published_experiment(client, setup_router_db):

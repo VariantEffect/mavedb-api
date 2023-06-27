@@ -136,7 +136,9 @@ async def create_experiment(
             db.query(ExperimentSet).filter(ExperimentSet.urn == item_create.experiment_set_urn).one_or_none()
         )
         if not experiment_set:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment set")
+            raise HTTPException(
+                status_code=404, detail=f"experiment set with URN '{item_create.experiment_set_urn}' not found."
+            )
     doi_identifiers = [
         await find_or_create_doi_identifier(db, identifier.identifier)
         for identifier in item_create.doi_identifiers or []
@@ -274,7 +276,7 @@ async def delete_experiment(
     """
     item = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
     if not item:
-        raise HTTPException(status_code=404, detail=f"Experiment with URN {urn} not found.")
+        raise HTTPException(status_code=404, detail=f"experiment with URN '{urn}' not found.")
 
     db.delete(item)
     db.commit()
