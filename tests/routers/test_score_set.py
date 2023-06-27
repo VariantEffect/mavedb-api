@@ -30,7 +30,7 @@ def test_create_minimal_score_set(client, setup_router_db):
     expected_response["experiment"]["scoreSetUrns"] = [response_data["urn"]]
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
-        assert expected_response[key] == response_data[key]
+        assert (key, expected_response[key]) == (key, response_data[key])
     response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
     assert response.status_code == 200
 
@@ -52,7 +52,7 @@ def test_get_own_private_score_set(client, setup_router_db):
     response_data = response.json()
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
-        assert expected_response[key] == response_data[key]
+        assert (key, expected_response[key]) == (key, response_data[key])
 
 
 def test_cannot_get_other_user_private_score_set(session, client, setup_router_db):

@@ -30,7 +30,7 @@ def test_create_minimal_experiment(client, setup_router_db):
     expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
-        assert expected_response[key] == response_data[key]
+        assert (key, expected_response[key]) == (key, response_data[key])
 
 
 @pytest.mark.parametrize(
@@ -143,16 +143,14 @@ def test_create_experiment_with_invalid_primary_publication(client, setup_router
 def test_get_own_private_experiment(client, setup_router_db):
     experiment = create_experiment(client)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
-    expected_response.update(
-        {"urn": expected_response["urn"], "experimentSetUrn": expected_response["experimentSetUrn"]}
-    )
+    expected_response.update({"urn": experiment["urn"], "experimentSetUrn": experiment["experimentSetUrn"]})
     response = client.get(f"/api/v1/experiments/{experiment['urn']}")
     assert response.status_code == 200
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=Experiment.schema())
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
-        assert expected_response[key] == response_data[key]
+        assert (key, expected_response[key]) == (key, response_data[key])
 
 
 def test_cannot_get_other_user_private_experiment(session, client, setup_router_db):
