@@ -102,12 +102,12 @@ class ScoreSetCreate(ScoreSetModify):
 
     @root_validator
     def validate_experiment_urn_required_except_for_meta_analyses(cls, values):
-        experiment_urn = values["experiment_urn"]
-        meta_analyzes_score_set_urns = values["meta_analyzes_score_set_urns"]
-        is_meta_analysis = not (meta_analyzes_score_set_urns is None or len(meta_analyzes_score_set_urns) == 0)
-        if experiment_urn is None and not is_meta_analysis:
+        experiment_urn = values.get("experiment_urn")
+        meta_analysis_source_score_set_urns = values.get("meta_analysis_source_score_set_urns")
+        is_meta_analysis = not (meta_analysis_source_score_set_urns is None or len(meta_analysis_source_score_set_urns) == 0)
+        if experiment_urn is None and is_meta_analysis:
             raise ValidationError("experiment URN is required unless your score set is a meta-analysis")
-        if experiment_urn is not None and is_meta_analysis:
+        if experiment_urn is not None and not is_meta_analysis:
             raise ValidationError("experiment URN should not be supplied when your score set is a meta-analysis")
         return values
 
