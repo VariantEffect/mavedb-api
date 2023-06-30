@@ -4,9 +4,9 @@ from __future__ import annotations
 from datetime import date
 from typing import Collection, Dict, Optional
 
-from pydantic import Field, root_validator
+from pydantic import root_validator
 
-from mavedb.lib.validation import keywords, urn
+from mavedb.lib.validation import keywords, urn_re
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
@@ -36,15 +36,27 @@ class ScoreSetBase(BaseModel):
     """Base class for score set view models."""
 
     title: str
-    method_text: Optional[str]
-    abstract_text: Optional[str]
+    method_text: str
+    abstract_text: str
     short_description: str
-    extra_metadata: Dict
+    extra_metadata: Optional[dict]
     data_usage_policy: Optional[str]
-    keywords: Optional[list[str]]
 
 
 class ScoreSetModify(ScoreSetBase):
+    keywords: Optional[list[str]]
+    primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
+    publication_identifiers: Optional[list[PublicationIdentifierCreate]]
+    doi_identifiers: Optional[list[DoiIdentifierCreate]]
+    target_gene: TargetGeneCreate
+
+    @validator("primary_publication_identifiers")
+    def max_one_primary_publication_identifier(cls, v):
+        if isinstance(v, list):
+            if len(v) > 1:
+                raise ValidationError("multiple primary publication identifiers are not allowed")
+        return v
+
     @validator("keywords")
     def validate_keywords(cls, v):
         keywords.validate_keywords(v)
@@ -57,38 +69,46 @@ class ScoreSetCreate(ScoreSetModify):
     experiment_urn: Optional[str]
     license_id: int
     superseded_score_set_urn: Optional[str]
-    meta_analysis_source_score_set_urns: Optional[list[str]]
-    target_gene: TargetGeneCreate
-    doi_identifiers: Optional[list[DoiIdentifierCreate]]
-    primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = Field(..., min_items=0, max_items=1)
-    publication_identifiers: Optional[list[PublicationIdentifierCreate]]
+    meta_analyzes_score_set_urns: Optional[list[str]]
 
-    @validator("superseded_score_set_urn", "meta_analysis_source_score_set_urns")
-    def validate_score_set_urn(cls, v):
+    @validator("superseded_score_set_urn")
+    def validate_superseded_score_set_urn(cls, v):
         if v is None:
             pass
-        # For superseded_score_set_urn
-        elif type(v) == str:
-            urn.validate_mavedb_urn_score_set(v)
-        # For meta_analysis_source_score_set_urns
         else:
-            [urn.validate_mavedb_urn_score_set(s) for s in v]
+            if urn_re.MAVEDB_SCORE_SET_URN_RE.fullmatch(v) is None:
+                if urn_re.MAVEDB_TMP_URN_RE.fullmatch(v) is None:
+                    raise ValueError(f"'{v}' is not a valid score set URN")
+                else:
+                    raise ValueError("cannot supersede a private score set - please edit it instead")
+        return v
+
+    @validator("meta_analyzes_score_set_urns")
+    def validate_score_set_urn(cls, v):
+        if v is not None:
+            for s in v:
+                if (
+                    urn_re.MAVEDB_SCORE_SET_URN_RE.fullmatch(s) is None
+                    and urn_re.MAVEDB_TMP_URN_RE.fullmatch(s) is None
+                ):
+                    raise ValueError(f"'{s}' is not a valid score set URN")
         return v
 
     @validator("experiment_urn")
     def validate_experiment_urn(cls, v):
-        urn.validate_mavedb_urn_experiment(v)
+        if urn_re.MAVEDB_EXPERIMENT_URN_RE.fullmatch(v) is None and urn_re.MAVEDB_TMP_URN_RE.fullmatch(v) is None:
+            raise ValueError(f"'{v}' is not a valid experiment URN")
         return v
 
     @root_validator
     def validate_experiment_urn_required_except_for_meta_analyses(cls, values):
         experiment_urn = values.get("experiment_urn")
         meta_analysis_source_score_set_urns = values.get("meta_analysis_source_score_set_urns")
-        is_meta_analysis = meta_analysis_source_score_set_urns is None or len(meta_analysis_source_score_set_urns) == 0
+        is_meta_analysis = not (meta_analysis_source_score_set_urns is None or len(meta_analysis_source_score_set_urns) == 0)
         if experiment_urn is None and is_meta_analysis:
-            raise ValidationError("An experiment URN is required, unless your score set is a meta-analysis.")
+            raise ValidationError("experiment URN is required unless your score set is a meta-analysis")
         if experiment_urn is not None and not is_meta_analysis:
-            raise ValidationError("An experiment URN should not be supplied when your score set is a meta-analysis.")
+            raise ValidationError("experiment URN should not be supplied when your score set is a meta-analysis")
         return values
 
 
@@ -96,10 +116,6 @@ class ScoreSetUpdate(ScoreSetModify):
     """View model for updating a score set."""
 
     license_id: Optional[int]
-    doi_identifiers: list[DoiIdentifierCreate]
-    primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = Field(..., min_items=0, max_items=1)
-    publication_identifiers: list[PublicationIdentifierCreate]
-    target_gene: TargetGeneCreate
 
 
 class ShortScoreSet(BaseModel):
@@ -134,10 +150,10 @@ class SavedScoreSet(ScoreSetBase):
     num_variants: int
     experiment: SavedExperiment
     license: ShortLicense
-    superseded_score_set: Optional[ShortScoreSet]
-    superseding_score_set: Optional[SavedScoreSet]
-    meta_analysis_source_score_sets: list[ShortScoreSet]
-    meta_analyses: list[ShortScoreSet]
+    superseded_score_set_urn: Optional[str]
+    superseding_score_set_urn: Optional[str]
+    meta_analyzes_score_set_urns: list[str]
+    meta_analyzed_by_score_set_urns: list[str]
     doi_identifiers: list[SavedDoiIdentifier]
     primary_publication_identifiers: list[SavedPublicationIdentifier]
     secondary_publication_identifiers: list[SavedPublicationIdentifier]
@@ -148,6 +164,7 @@ class SavedScoreSet(ScoreSetBase):
     modified_by: Optional[SavedUser]
     target_gene: SavedTargetGene
     dataset_columns: Dict
+    keywords: list[str]
 
     class Config:
         orm_mode = True
@@ -166,18 +183,12 @@ class ScoreSet(SavedScoreSet):
     """Score set view model containing most properties visible to non-admin users, but no variant data."""
 
     experiment: Experiment
-    license: ShortLicense
-    superseded_score_set: Optional[ShortScoreSet]
-    superseding_score_set: Optional[ScoreSet]
-    meta_analysis_source_score_sets: list[ShortScoreSet]
-    meta_analyses: list[ShortScoreSet]
     doi_identifiers: list[DoiIdentifier]
     primary_publication_identifiers: list[PublicationIdentifier]
     secondary_publication_identifiers: list[PublicationIdentifier]
     created_by: Optional[User]
     modified_by: Optional[User]
     target_gene: TargetGene
-    num_variants: int
     private: bool
     # processing_state: Optional[str]
 

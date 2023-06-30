@@ -21,12 +21,15 @@ def generate_experiment_set_urn(db: Session):
     :return: The next available experiment set URN
     """
 
-    # PostgreSQL-specific operator: ~
-    # TODO Provide an alternative for use with SQLite in unit tests.
     # TODO We can't use func.max if an experiment set URN's numeric part will ever have anything other than 8 digits,
     # because we rely on the order guaranteed by zero-padding. This assumption is valid until we have 99999999
     # experiment sets.
-    row = db.query(func.max(ExperimentSet.urn)).filter(ExperimentSet.urn.op("~")("^urn:mavedb:[0-9]+$")).one_or_none()
+    if db.get_bind().engine.driver == "pysqlite":  # running unit tests
+        row = db.query(func.max(ExperimentSet.urn)).filter(ExperimentSet.urn.like("urn:mavedb:%")).one_or_none()
+    else:  # use PostgreSQL-specific regex operator: ~
+        row = (
+            db.query(func.max(ExperimentSet.urn)).filter(ExperimentSet.urn.op("~")("^urn:mavedb:[0-9]+$")).one_or_none()
+        )
     max_urn_number = 0
     if row and row[0]:
         max_urn = row[0]
@@ -62,13 +65,18 @@ def generate_experiment_urn(db: Session, experiment_set: ExperimentSet, experime
         # Do not increment for meta-analysis, since this is a singleton
         next_suffix = "0"
     else:
-        # PostgreSQL-specific operator: ~
-        # TODO Provide an alternative for use with SQLite in unit tests.
-        published_experiments_query = (
-            db.query(Experiment)
-            .filter(Experiment.experiment_set_id == experiment_set.id)
-            .filter(Experiment.urn.op("~")(f"^{re.escape(experiment_set_urn)}-[a-z]+$"))
-        )
+        if db.get_bind().engine.driver == "pysqlite":  # running unit tests
+            published_experiments_query = (
+                db.query(Experiment)
+                .filter(Experiment.experiment_set_id == experiment_set.id)
+                .filter(Experiment.urn.like(f"{experiment_set_urn}-%"))
+            )
+        else:  # use PostgreSQL-specific regex operator: ~
+            published_experiments_query = (
+                db.query(Experiment)
+                .filter(Experiment.experiment_set_id == experiment_set.id)
+                .filter(Experiment.urn.op("~")(f"^{re.escape(experiment_set_urn)}-[a-z]+$"))
+            )
         max_suffix = None
         for experiment in published_experiments_query:
             suffix = re.search(f"^{re.escape(experiment_set.urn)}-([a-z]+)$", experiment.urn).group(1)
@@ -109,13 +117,18 @@ def generate_score_set_urn(db: Session, experiment: Experiment):
 
     experiment_urn = experiment.urn
 
-    # PostgreSQL-specific operator: ~
-    # TODO Provide an alternative for use with SQLite in unit tests.
-    published_scoresets_query = (
-        db.query(ScoreSet)
-        .filter(ScoreSet.experiment_id == experiment.id)
-        .filter(ScoreSet.urn.op("~")(f"^{re.escape(experiment_urn)}-[0-9]+$"))
-    )
+    if db.get_bind().engine.driver == "pysqlite":  # running unit tests
+        published_scoresets_query = (
+            db.query(ScoreSet)
+            .filter(ScoreSet.experiment_id == experiment.id)
+            .filter(ScoreSet.urn.like(f"{experiment_urn}-%$"))
+        )
+    else:  # use PostgreSQL-specific regex operator: ~
+        published_scoresets_query = (
+            db.query(ScoreSet)
+            .filter(ScoreSet.experiment_id == experiment.id)
+            .filter(ScoreSet.urn.op("~")(f"^{re.escape(experiment_urn)}-[0-9]+$"))
+        )
     max_suffix_number = 0
     for scoreset in published_scoresets_query:
         suffix_number = int(re.search(f"^{re.escape(experiment.urn)}-([0-9]+)$", scoreset.urn).group(1))

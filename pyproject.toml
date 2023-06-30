@@ -19,7 +19,7 @@ classifiers = [
 ]
 dependencies = [
     "fqfa~=1.2.3",
-    "humps~=0.2.2",
+    "pyhumps~=3.8.0",
     "IDUtils~=1.2.0",
     "mavehgvs~=0.6.0",
     "metapub~=0.5.5",
@@ -36,6 +36,7 @@ dev = [
     "flake8",
     "pre-commit",
     "pytest~=7.0.1",
+    "jsonschema",
 ]
 server = [
     "alembic~=1.7.6",
@@ -81,3 +82,4 @@ packages = ["src/mavedb"]
 addopts = [
     "--import-mode=importlib",
 ]
+norecursedirs = "tests/helpers"

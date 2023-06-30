@@ -27,7 +27,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["experiments"], responses={404: {"description": "Not found"}})
 
 
-@router.get("/experiments/", status_code=200, response_model=list[experiment.Experiment])
+@router.get(
+    "/experiments/", status_code=200, response_model=list[experiment.Experiment], response_model_exclude_none=True
+)
 def list_experiments(
     *,
     editable: Optional[bool] = None,
@@ -50,7 +52,6 @@ def list_experiments(
         # else:
         #     query = query.filter(Experiment.created_by_id == user.id).filter(Experiment.published_date is None)
     items = query.order_by(Experiment.urn).all()
-    logger.error(len(items))
     return items
 
 
@@ -72,7 +73,13 @@ def search_my_experiments(
     return _search_experiments(db, user, search)
 
 
-@router.get("/experiments/{urn}", status_code=200, response_model=experiment.Experiment, responses={404: {}})
+@router.get(
+    "/experiments/{urn}",
+    status_code=200,
+    response_model=experiment.Experiment,
+    responses={404: {}},
+    response_model_exclude_none=True,
+)
 def fetch_experiment(*, urn: str, db: Session = Depends(deps.get_db)) -> Experiment:
     """
     Fetch a single experiment by URN.
@@ -89,6 +96,7 @@ def fetch_experiment(*, urn: str, db: Session = Depends(deps.get_db)) -> Experim
     status_code=200,
     response_model=list[score_set.ScoreSet],
     responses={404: {}},
+    response_model_exclude_none=True,
 )
 def get_experiment_score_sets(*, urn: str, db: Session = Depends(deps.get_db)) -> Any:
     """
@@ -96,19 +104,21 @@ def get_experiment_score_sets(*, urn: str, db: Session = Depends(deps.get_db)) -
     """
     experiment = db.query(Experiment).filter(Experiment.urn == urn).first()
     if not experiment:
-        raise HTTPException(status_code=404, detail=f"Experiment with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"experiment with URN '{urn}' not found")
     # Only get published score sets. Unpublished score sets won't be shown on experiment page.
     score_sets = (
         db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(ScoreSet.urn.contains("urn")).all()
     )
     if not score_sets:
-        raise HTTPException(status_code=404, detail="No associated score set")
+        raise HTTPException(status_code=404, detail="no associated score sets")
     else:
         score_sets.sort(key=attrgetter("urn"))
     return score_sets
 
 
-@router.post("/experiments/", response_model=experiment.Experiment, responses={422: {}})
+@router.post(
+    "/experiments/", response_model=experiment.Experiment, responses={422: {}}, response_model_exclude_none=True
+)
 async def create_experiment(
     *,
     item_create: experiment.ExperimentCreate,
@@ -126,7 +136,9 @@ async def create_experiment(
             db.query(ExperimentSet).filter(ExperimentSet.urn == item_create.experiment_set_urn).one_or_none()
         )
         if not experiment_set:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment set")
+            raise HTTPException(
+                status_code=404, detail=f"experiment set with URN '{item_create.experiment_set_urn}' not found."
+            )
     doi_identifiers = [
         await find_or_create_doi_identifier(db, identifier.identifier)
         for identifier in item_create.doi_identifiers or []
@@ -151,14 +163,14 @@ async def create_experiment(
         **jsonable_encoder(
             item_create,
             by_alias=False,
-            exclude=[
+            exclude={
                 "doi_identifiers",
                 "experiment_set_urn",
                 "keywords",
                 "primary_publication_identifiers",
                 "publication_identifiers",
                 "raw_read_identifiers",
-            ],
+            },
         ),
         experiment_set=experiment_set,
         doi_identifiers=doi_identifiers,
@@ -174,7 +186,9 @@ async def create_experiment(
     return item
 
 
-@router.put("/experiments/{urn}", response_model=experiment.Experiment, responses={422: {}})
+@router.put(
+    "/experiments/{urn}", response_model=experiment.Experiment, responses={422: {}}, response_model_exclude_none=True
+)
 async def update_experiment(
     *,
     item_update: experiment.ExperimentUpdate,
@@ -241,7 +255,9 @@ async def update_experiment(
     return item
 
 
-@router.delete("/experiments/{urn}", response_model=experiment.Experiment, responses={422: {}})
+@router.delete(
+    "/experiments/{urn}", response_model=experiment.Experiment, responses={422: {}}, response_model_exclude_none=True
+)
 async def delete_experiment(
     *, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(require_current_user)
 ) -> Any:
@@ -260,7 +276,7 @@ async def delete_experiment(
     """
     item = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
     if not item:
-        raise HTTPException(status_code=404, detail=f"Experiment with URN {urn} not found.")
+        raise HTTPException(status_code=404, detail=f"experiment with URN '{urn}' not found.")
 
     db.delete(item)
     db.commit()

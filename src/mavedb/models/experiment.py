@@ -1,6 +1,6 @@
 from datetime import date
 
-from typing import List, Iterable
+from typing import List, Iterable, Optional
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.event import listens_for
 from sqlalchemy.orm import relationship, backref
@@ -102,8 +102,11 @@ class Experiment(Base):
         keyword_objs = self.keyword_objs or []  # getattr(self, 'keyword_objs', [])
         return list(map(lambda keyword_obj: keyword_obj.text, keyword_objs))
 
-    async def set_keywords(self, db, keywords: list[str]):
-        self.keyword_objs = [await self._find_or_create_keyword(db, text) for text in keywords]
+    async def set_keywords(self, db, keywords: Optional[list[str]]):
+        if keywords is None:
+            self.keyword_objs = []
+        else:
+            self.keyword_objs = [await self._find_or_create_keyword(db, text) for text in keywords]
 
     # See https://gist.github.com/tachyondecay/e0fe90c074d6b6707d8f1b0b1dcc8e3a
     # @keywords.setter
