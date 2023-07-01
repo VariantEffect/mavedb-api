@@ -83,3 +83,6 @@ addopts = [
     "--import-mode=importlib",
 ]
 norecursedirs = "tests/helpers"
+# Uncomment the following lines to include application log output in Pytest logs.
+# log_cli = true
+# log_cli_level = "DEBUG"
