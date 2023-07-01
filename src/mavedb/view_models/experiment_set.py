@@ -25,7 +25,6 @@ class ExperimentSetUpdate(ExperimentSetBase):
 class SavedExperimentSet(ExperimentSetBase):
     id: int
     experiments: List[SavedExperiment]
-    num_experiments: int
     created_by: Optional[SavedUser]
     modified_by: Optional[SavedUser]
     creation_date: date
