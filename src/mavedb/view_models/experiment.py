@@ -37,9 +37,9 @@ class ExperimentGetter(PublicationIdentifiersGetter):
 
 class ExperimentBase(BaseModel):
     title: str
-    short_description: str
-    abstract_text: str
-    method_text: str
+    short_description: Optional[str]
+    abstract_text: Optional[str]
+    method_text: Optional[str]
     extra_metadata: Optional[dict]
 
     @classmethod
@@ -52,6 +52,9 @@ class ExperimentBase(BaseModel):
 
 
 class ExperimentModify(ExperimentBase):
+    short_description: str
+    abstract_text: str
+    method_text: str
     keywords: Optional[list[str]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
