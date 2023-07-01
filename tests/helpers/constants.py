@@ -43,7 +43,7 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     },
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
-    # "scoreSetUrns": [],  TODO: uncomment when this is implemented
+    "scoreSetUrns": [],
     "keywords": [],
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],

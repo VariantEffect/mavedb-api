@@ -23,6 +23,18 @@ from mavedb.view_models.raw_read_identifier import (
 from mavedb.view_models.user import SavedUser, User
 
 
+class ExperimentGetter(PublicationIdentifiersGetter):
+    def get(self, key: str, default: Any) -> Any:
+        if key == "score_set_urns":
+            score_sets = getattr(self._obj, "score_sets") or []
+            return [score_set.urn for score_set in score_sets]
+        elif key == "experiment_set_urn":
+            experiment_set = getattr(self._obj, "experiment_set")
+            return experiment_set.urn if experiment_set is not None else None
+        else:
+            return super().get(key, default)
+
+
 class ExperimentBase(BaseModel):
     title: str
     short_description: str
@@ -76,7 +88,7 @@ class SavedExperiment(ExperimentBase):
     modification_date: date
     published_date: Optional[date]
     experiment_set_urn: str
-    # score_set_urns: list[str]  TODO: uncomment when this is implemented
+    score_set_urns: list[str]
     doi_identifiers: list[SavedDoiIdentifier]
     primary_publication_identifiers: list[SavedPublicationIdentifier]
     secondary_publication_identifiers: list[SavedPublicationIdentifier]
@@ -86,7 +98,7 @@ class SavedExperiment(ExperimentBase):
 
     class Config:
         orm_mode = True
-        getter_dict = PublicationIdentifiersGetter
+        getter_dict = ExperimentGetter
 
     # Association proxy objects return an untyped _AssocitionList object.
     # Recast it into something more generic.
