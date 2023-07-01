@@ -96,12 +96,12 @@ def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[Scor
     score_set_aliases = [aliased(ScoreSet) for urn in urns]
     analyzed_score_set = aliased(ScoreSet)
     urn_filters = [
-        ScoreSet.meta_analysis_source_score_sets.of_type(score_set_aliases[i]).any(score_set_aliases[i].urn == urn)
+        ScoreSet.meta_analyzes_score_sets.of_type(score_set_aliases[i]).any(score_set_aliases[i].urn == urn)
         for i, urn in enumerate(urns)
     ]
     return (
         db.query(ScoreSet)
-        .join(ScoreSet.meta_analysis_source_score_sets.of_type(analyzed_score_set))
+        .join(ScoreSet.meta_analyzes_score_sets.of_type(analyzed_score_set))
         .filter(*urn_filters)
         .group_by(ScoreSet)
         .having(func.count(analyzed_score_set.id) == len(urns))
