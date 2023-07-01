@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Collection, Dict, Optional
-
 from pydantic import root_validator
+from typing import Collection, Dict, Optional, Any
 
 from mavedb.lib.validation import keywords, urn_re
 from mavedb.lib.validation.exceptions import ValidationError
@@ -16,7 +15,7 @@ from mavedb.view_models.doi_identifier import (
     SavedDoiIdentifier,
 )
 from mavedb.view_models.experiment import Experiment, SavedExperiment
-from mavedb.view_models.license import License, SavedLicense, ShortLicense
+from mavedb.view_models.license import ShortLicense
 from mavedb.view_models.publication_identifier import (
     PublicationIdentifier,
     PublicationIdentifierCreate,
@@ -30,6 +29,18 @@ from mavedb.view_models.target_gene import (
 )
 from mavedb.view_models.user import SavedUser, User
 from mavedb.view_models.variant import VariantInDbBase
+
+
+class ScoreSetGetter(PublicationIdentifiersGetter):
+    def get(self, key: str, default: Any) -> Any:
+        if key == "meta_analyzes_score_set_urns":
+            meta_analyzes_score_sets = getattr(self._obj, "meta_analyzes_score_sets") or []
+            return [score_set.urn for score_set in meta_analyzes_score_sets]
+        elif key == "meta_analyzed_by_score_set_urns":
+            meta_analyzed_by_score_sets = getattr(self._obj, "meta_analyzed_by_score_sets") or []
+            return [score_set.urn for score_set in meta_analyzed_by_score_sets]
+        else:
+            return super().get(key, default)
 
 
 class ScoreSetBase(BaseModel):
@@ -105,9 +116,9 @@ class ScoreSetCreate(ScoreSetModify):
         experiment_urn = values.get("experiment_urn")
         meta_analysis_source_score_set_urns = values.get("meta_analysis_source_score_set_urns")
         is_meta_analysis = not (meta_analysis_source_score_set_urns is None or len(meta_analysis_source_score_set_urns) == 0)
-        if experiment_urn is None and is_meta_analysis:
+        if experiment_urn is None and not is_meta_analysis:
             raise ValidationError("experiment URN is required unless your score set is a meta-analysis")
-        if experiment_urn is not None and not is_meta_analysis:
+        if experiment_urn is not None and is_meta_analysis:
             raise ValidationError("experiment URN should not be supplied when your score set is a meta-analysis")
         return values
 
@@ -169,7 +180,7 @@ class SavedScoreSet(ScoreSetBase):
     class Config:
         orm_mode = True
         arbitrary_types_allowed = True
-        getter_dict = PublicationIdentifiersGetter
+        getter_dict = ScoreSetGetter
 
     # Association proxy objects return an untyped _AssocitionList object.
     # Recast it into something more generic.

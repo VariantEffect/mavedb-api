@@ -264,7 +264,7 @@ async def create_score_set(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown superseded score set")
     else:
         superseded_score_set = None
-    meta_analyzes_score_set_urns = [
+    meta_analyzes_score_sets = [
         await fetch_score_set_by_urn(db, urn, None) for urn in item_create.meta_analyzes_score_set_urns or []
     ]
 
@@ -320,7 +320,7 @@ async def create_score_set(
         experiment=experiment,
         license=license_,
         superseded_score_set=superseded_score_set,
-        meta_analyzes_score_set_urns=meta_analyzes_score_set_urns,
+        meta_analyzes_score_sets=meta_analyzes_score_sets,
         target_gene=target_gene,
         doi_identifiers=doi_identifiers,
         publication_identifiers=publication_identifiers,
