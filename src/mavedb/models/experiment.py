@@ -1,10 +1,10 @@
 from datetime import date
 
-from typing import List, Iterable, Optional
+from typing import Optional
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.event import listens_for
+from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.orm import relationship, backref
-from sqlalchemy.ext.associationproxy import association_proxy, AssociationProxy
 from sqlalchemy.schema import Table
 
 from mavedb.db.base import Base

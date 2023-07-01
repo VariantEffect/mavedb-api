@@ -1,5 +1,5 @@
-import jsonschema
 from copy import deepcopy
+import jsonschema
 
 from mavedb.models.user import User
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
