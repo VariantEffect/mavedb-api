@@ -24,10 +24,14 @@ def test_create_minimal_score_set(client, setup_router_db):
     jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     expected_response = deepcopy(TEST_MINIMAL_SCORE_SET_RESPONSE)
-    expected_response["urn"] = response_data["urn"]
-    expected_response["experiment"]["urn"] = experiment["urn"]
-    expected_response["experiment"]["experimentSetUrn"] = experiment["experimentSetUrn"]
-    expected_response["experiment"]["scoreSetUrns"] = [response_data["urn"]]
+    expected_response.update({"urn": response_data["urn"]})
+    expected_response["experiment"].update(
+        {
+            "urn": experiment["urn"],
+            "experimentSetUrn": experiment["experimentSetUrn"],
+            "scoreSetUrns": [response_data["urn"]],
+        }
+    )
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
