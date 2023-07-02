@@ -131,7 +131,13 @@ def test_publish_score_set(client, setup_router_db, data_files):
     assert response_data["experiment"]["urn"] == "urn:mavedb:00000001-a"
     expected_response = deepcopy(TEST_MINIMAL_SCORE_SET_RESPONSE)
     expected_response.update(
-        {"urn": response_data["urn"], "publishedDate": date.today().isoformat(), "numVariants": 3, "private": False}
+        {
+            "urn": response_data["urn"],
+            "publishedDate": date.today().isoformat(),
+            "numVariants": 3,
+            "private": False,
+            "datasetColumns": {"countColumns": [], "scoreColumns": ["score"]},
+        }
     )
     expected_response["experiment"].update(
         {

@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date
 from pydantic import root_validator
 from typing import Collection, Dict, Optional, Any
+from humps import camelize
 
 from mavedb.lib.validation import keywords, urn_re
 from mavedb.lib.validation.exceptions import ValidationError
@@ -188,6 +189,10 @@ class SavedScoreSet(ScoreSetBase):
     def publication_identifiers_validator(cls, value) -> list[PublicationIdentifier]:
         assert isinstance(value, Collection), "`publication_identifiers` must be a collection"
         return list(value)  # Re-cast into proper list-like type
+
+    @validator("dataset_columns")
+    def camelize_dataset_columns_keys(cls, value) -> dict:
+        return camelize(value)
 
 
 class ScoreSet(SavedScoreSet):
