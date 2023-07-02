@@ -269,3 +269,57 @@ def test_multiple_score_set_meta_analysis_multiple_experiment(client, setup_rout
     assert score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
     meta_score_set = client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish").json()
     assert meta_score_set["urn"] == f"urn:mavedb:00000003-0-1"
+
+
+def test_multiple_score_set_meta_analysis_multiple_experiment_different_score_sets(client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client, {"title": "Experiment 1"})
+    experiment_2 = create_experiment(client, {"title": "Experiment 2"})
+    score_set_1_1 = create_score_set_with_variants(
+        client, experiment_1["urn"], data_files / "scores.csv", update={"title": "Exp 1 Score Set 1"}
+    )
+    score_set_1_2 = create_score_set_with_variants(
+        client, experiment_1["urn"], data_files / "scores.csv", update={"title": "Exp 1 Score Set 2"}
+    )
+    score_set_2_1 = create_score_set_with_variants(
+        client, experiment_2["urn"], data_files / "scores.csv", update={"title": "Exp 2 Score Set 1"}
+    )
+    score_set_2_2 = create_score_set_with_variants(
+        client, experiment_2["urn"], data_files / "scores.csv", update={"title": "Exp 2 Score Set 2"}
+    )
+    score_set_1_1 = client.post(f"/api/v1/score-sets/{score_set_1_1['urn']}/publish").json()
+    score_set_1_2 = client.post(f"/api/v1/score-sets/{score_set_1_2['urn']}/publish").json()
+    score_set_2_1 = client.post(f"/api/v1/score-sets/{score_set_2_1['urn']}/publish").json()
+    score_set_2_2 = client.post(f"/api/v1/score-sets/{score_set_2_2['urn']}/publish").json()
+    meta_score_set_1 = create_score_set(
+        client,
+        None,
+        update={
+            "title": "Test Meta Analysis 1-1 2-1",
+            "metaAnalyzesScoreSetUrns": [score_set_1_1["urn"], score_set_2_1["urn"]],
+        },
+    )
+    score_set_1_1_refresh = client.get(f"/api/v1/score-sets/{score_set_1_1['urn']}").json()
+    assert meta_score_set_1["metaAnalyzesScoreSetUrns"] == sorted([score_set_1_1["urn"], score_set_2_1["urn"]])
+    assert score_set_1_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set_1["urn"]]
+    meta_score_set_1 = client.post(f"/api/v1/score-sets/{meta_score_set_1['urn']}/publish").json()
+    assert meta_score_set_1["urn"] == f"urn:mavedb:00000003-0-1"
+    meta_score_set_2 = create_score_set(
+        client,
+        None,
+        update={
+            "title": "Test Meta Analysis 1-2 2-2",
+            "metaAnalyzesScoreSetUrns": [score_set_1_2["urn"], score_set_2_2["urn"]],
+        },
+    )
+    meta_score_set_2 = client.post(f"/api/v1/score-sets/{meta_score_set_2['urn']}/publish").json()
+    assert meta_score_set_2["urn"] == f"urn:mavedb:00000003-0-2"
+    meta_score_set_3 = create_score_set(
+        client,
+        None,
+        update={
+            "title": "Test Meta Analysis 1-1 2-2",
+            "metaAnalyzesScoreSetUrns": [score_set_1_1["urn"], score_set_2_2["urn"]],
+        },
+    )
+    meta_score_set_3 = client.post(f"/api/v1/score-sets/{meta_score_set_3['urn']}/publish").json()
+    assert meta_score_set_3["urn"] == f"urn:mavedb:00000003-0-3"
