@@ -91,9 +91,9 @@ def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[Scor
     # Ensure that URNs are not repeated in the list.
     urns = list(set(urns))
 
-    # Find all score sets that are meta-analyses for a superset of the specified URNs and are meta-analysises for
+    # Find all score sets that are meta-analyses for a superset of the specified URNs and are meta-analyses for
     # exactly len(urns) score sets.
-    score_set_aliases = [aliased(ScoreSet) for urn in urns]
+    score_set_aliases = [aliased(ScoreSet) for _ in urns]
     analyzed_score_set = aliased(ScoreSet)
     urn_filters = [
         ScoreSet.meta_analyzes_score_sets.of_type(score_set_aliases[i]).any(score_set_aliases[i].urn == urn)
@@ -201,7 +201,7 @@ def create_variants_data(scores, counts=None, index_col=None) -> list[VariantDat
         validate_datasets_define_same_variants(scores, counts)
 
     variants = []
-    for (primary_hgvs, group) in scores.groupby(by=scores.index, sort=False):
+    for primary_hgvs, group in scores.groupby(by=scores.index, sort=False):
         score_records = group.to_dict(orient="records")
         if has_count_data:
             count_records = counts[counts.index == primary_hgvs].to_dict(orient="records")
@@ -210,7 +210,7 @@ def create_variants_data(scores, counts=None, index_col=None) -> list[VariantDat
             # Make duplicates to zip with self when no count data.
             count_records = [r.copy() for r in score_records]
 
-        for (sr, cr) in zip(score_records, count_records):
+        for sr, cr in zip(score_records, count_records):
             hgvs_nt = sr.pop(HGVS_NT_COLUMN)
             hgvs_splice = sr.pop(HGVS_SPLICE_COLUMN)
             hgvs_pro = sr.pop(HGVS_PRO_COLUMN)
