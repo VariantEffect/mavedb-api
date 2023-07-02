@@ -2,6 +2,7 @@ from pathlib import Path
 import jsonschema
 import re
 from copy import deepcopy
+from datetime import date
 import pytest
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
@@ -128,6 +129,52 @@ def test_publish_score_set(client, setup_router_db, data_files):
     response_data = response.json()
     assert response_data["urn"] == "urn:mavedb:00000001-a-1"
     assert response_data["experiment"]["urn"] == "urn:mavedb:00000001-a"
+    expected_response = deepcopy(TEST_MINIMAL_SCORE_SET_RESPONSE)
+    expected_response.update(
+        {"urn": response_data["urn"], "publishedDate": date.today().isoformat(), "numVariants": 3, "private": False}
+    )
+    expected_response["experiment"].update(
+        {
+            "urn": response_data["experiment"]["urn"],
+            "experimentSetUrn": response_data["experiment"]["experimentSetUrn"],
+            "scoreSetUrns": [response_data["urn"]],
+            "publishedDate": date.today().isoformat(),
+        }
+    )
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+
+
+def test_publish_multiple_score_sets(client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set_1 = create_score_set_with_variants(
+        client, experiment["urn"], data_files / "scores.csv", update={"title": "Score Set 1"}
+    )
+    score_set_2 = create_score_set_with_variants(
+        client, experiment["urn"], data_files / "scores.csv", update={"title": "Score Set 2"}
+    )
+    score_set_3 = create_score_set_with_variants(
+        client, experiment["urn"], data_files / "scores.csv", update={"title": "Score Set 3"}
+    )
+    pub_score_set_1_response = client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish")
+    assert pub_score_set_1_response.status_code == 200
+    pub_score_set_2_response = client.post(f"/api/v1/score-sets/{score_set_2['urn']}/publish")
+    assert pub_score_set_2_response.status_code == 200
+    pub_score_set_3_response = client.post(f"/api/v1/score-sets/{score_set_3['urn']}/publish")
+    assert pub_score_set_3_response.status_code == 200
+    pub_score_set_1_data = pub_score_set_1_response.json()
+    pub_score_set_2_data = pub_score_set_2_response.json()
+    pub_score_set_3_data = pub_score_set_3_response.json()
+    assert pub_score_set_1_data["urn"] == "urn:mavedb:00000001-a-1"
+    assert pub_score_set_1_data["title"] == score_set_1["title"]
+    assert pub_score_set_1_data["experiment"]["urn"] == "urn:mavedb:00000001-a"
+    assert pub_score_set_2_data["urn"] == "urn:mavedb:00000001-a-2"
+    assert pub_score_set_2_data["title"] == score_set_2["title"]
+    assert pub_score_set_2_data["experiment"]["urn"] == "urn:mavedb:00000001-a"
+    assert pub_score_set_3_data["urn"] == "urn:mavedb:00000001-a-3"
+    assert pub_score_set_3_data["title"] == score_set_3["title"]
+    assert pub_score_set_3_data["experiment"]["urn"] == "urn:mavedb:00000001-a"
 
 
 def test_cannot_publish_score_set_without_variants(client, setup_router_db):
