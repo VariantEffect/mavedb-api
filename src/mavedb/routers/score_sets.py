@@ -645,7 +645,9 @@ def publish_score_set(
         item.experiment.published_date = published_date
         db.add(item.experiment)
 
+    old_urn = item.urn
     item.urn = generate_score_set_urn(db, item.experiment)
+    logger.info(f"publishing {old_urn} as {item.urn}")
     item.private = False
     item.published_date = published_date
     db.add(item)
