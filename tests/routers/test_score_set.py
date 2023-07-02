@@ -248,7 +248,7 @@ def test_multiple_score_set_meta_analysis_single_experiment(client, setup_router
     assert meta_score_set["urn"] == f"urn:mavedb:00000001-0-1"
 
 
-def test_multiple_score_set_meta_analysis_multiple_experiment(client, setup_router_db, data_files):
+def test_multiple_score_set_meta_analysis_multiple_experiment_sets(client, setup_router_db, data_files):
     experiment_1 = create_experiment(client, {"title": "Experiment 1"})
     experiment_2 = create_experiment(client, {"title": "Experiment 2"})
     score_set_1 = create_score_set_with_variants(
@@ -271,7 +271,34 @@ def test_multiple_score_set_meta_analysis_multiple_experiment(client, setup_rout
     assert meta_score_set["urn"] == f"urn:mavedb:00000003-0-1"
 
 
-def test_multiple_score_set_meta_analysis_multiple_experiment_different_score_sets(client, setup_router_db, data_files):
+def test_multiple_score_set_meta_analysis_multiple_experiments(client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client, {"title": "Experiment 1"})
+    experiment_2 = create_experiment(
+        client, {"title": "Experiment 2", "experimentSetUrn": experiment_1["experimentSetUrn"]}
+    )
+    score_set_1 = create_score_set_with_variants(
+        client, experiment_1["urn"], data_files / "scores.csv", update={"title": "Score Set 1"}
+    )
+    score_set_2 = create_score_set_with_variants(
+        client, experiment_2["urn"], data_files / "scores.csv", update={"title": "Score Set 2"}
+    )
+    score_set_1 = client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish").json()
+    score_set_2 = client.post(f"/api/v1/score-sets/{score_set_2['urn']}/publish").json()
+    meta_score_set = create_score_set(
+        client,
+        None,
+        update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [score_set_1["urn"], score_set_2["urn"]]},
+    )
+    score_set_1_refresh = client.get(f"/api/v1/score-sets/{score_set_1['urn']}").json()
+    assert meta_score_set["metaAnalyzesScoreSetUrns"] == sorted([score_set_1["urn"], score_set_2["urn"]])
+    assert score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
+    meta_score_set = client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish").json()
+    assert meta_score_set["urn"] == f"urn:mavedb:00000001-0-1"
+
+
+def test_multiple_score_set_meta_analysis_multiple_experiment_sets_different_score_sets(
+    client, setup_router_db, data_files
+):
     experiment_1 = create_experiment(client, {"title": "Experiment 1"})
     experiment_2 = create_experiment(client, {"title": "Experiment 2"})
     score_set_1_1 = create_score_set_with_variants(
