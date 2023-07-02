@@ -125,7 +125,7 @@ def generate_score_set_urn(db: Session, experiment: Experiment):
         published_score_sets_query = (
             db.query(ScoreSet)
             .filter(ScoreSet.experiment_id == experiment.id)
-            .filter(ScoreSet.urn.like(f"{experiment_urn}-%$"))
+            .filter(ScoreSet.urn.like(f"{experiment_urn}-%"))
         )
     else:  # use PostgreSQL-specific regex operator: ~
         published_score_sets_query = (
