@@ -187,8 +187,7 @@ async def get_score_set_counts_csv(
     return StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
 
 
-@router.get(
-    "/score-sets/{urn}/mapped-variants", status_code=200, response_model=list[mapped_variant.MappedVariant])
+@router.get("/score-sets/{urn}/mapped-variants", status_code=200, response_model=list[mapped_variant.MappedVariant])
 def get_score_set_mapped_variants(
     *,
     urn: str,
@@ -198,13 +197,18 @@ def get_score_set_mapped_variants(
     Return mapped variants from a score set, identified by URN.
     """
     mapped_variants = (
-        db.query(MappedVariant).filter(ScoreSet.urn == urn).filter(ScoreSet.id == Variant.score_set_id).filter(Variant.id == MappedVariant.variant_id).all()
+        db.query(MappedVariant)
+        .filter(ScoreSet.urn == urn)
+        .filter(ScoreSet.id == Variant.score_set_id)
+        .filter(Variant.id == MappedVariant.variant_id)
+        .all()
     )
 
     if not mapped_variants:
         raise HTTPException(status_code=404, detail=f"No mapped variant associated with score set URN {urn} was found")
 
     return mapped_variants
+
 
 class HGVSColumns:
     NUCLEOTIDE: str = "hgvs_nt"  # dataset.constants.hgvs_nt_column
@@ -634,13 +638,16 @@ def publish_score_set(
         db.add(item.experiment.experiment_set)
 
     if item.experiment.private or not item.experiment.published_date:
-        # TODO Pass experiment.is_meta_analysis instead of False
-        item.experiment.urn = generate_experiment_urn(db, item.experiment.experiment_set, False)
+        item.experiment.urn = generate_experiment_urn(
+            db, item.experiment.experiment_set, experiment_is_meta_analysis=len(item.meta_analyzes_score_sets) > 0
+        )
         item.experiment.private = False
         item.experiment.published_date = published_date
         db.add(item.experiment)
 
+    old_urn = item.urn
     item.urn = generate_score_set_urn(db, item.experiment)
+    logger.info(f"publishing {old_urn} as {item.urn}")
     item.private = False
     item.published_date = published_date
     db.add(item)

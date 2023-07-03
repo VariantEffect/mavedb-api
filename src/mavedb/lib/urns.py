@@ -8,6 +8,10 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def generate_experiment_set_urn(db: Session):
     """
@@ -118,20 +122,20 @@ def generate_score_set_urn(db: Session, experiment: Experiment):
     experiment_urn = experiment.urn
 
     if db.get_bind().engine.driver == "pysqlite":  # running unit tests
-        published_scoresets_query = (
+        published_score_sets_query = (
             db.query(ScoreSet)
             .filter(ScoreSet.experiment_id == experiment.id)
-            .filter(ScoreSet.urn.like(f"{experiment_urn}-%$"))
+            .filter(ScoreSet.urn.like(f"{experiment_urn}-%"))
         )
     else:  # use PostgreSQL-specific regex operator: ~
-        published_scoresets_query = (
+        published_score_sets_query = (
             db.query(ScoreSet)
             .filter(ScoreSet.experiment_id == experiment.id)
             .filter(ScoreSet.urn.op("~")(f"^{re.escape(experiment_urn)}-[0-9]+$"))
         )
     max_suffix_number = 0
-    for scoreset in published_scoresets_query:
-        suffix_number = int(re.search(f"^{re.escape(experiment.urn)}-([0-9]+)$", scoreset.urn).group(1))
+    for score_set in published_score_sets_query:
+        suffix_number = int(re.search(f"^{re.escape(experiment.urn)}-([0-9]+)$", score_set.urn).group(1))
         if suffix_number > max_suffix_number:
             max_suffix_number = suffix_number
     next_suffix_number = max_suffix_number + 1
