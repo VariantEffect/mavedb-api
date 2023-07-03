@@ -659,6 +659,13 @@ def publish_score_set(
             status_code=500,
             detail="This score set's experiment does not belong to an experiment set and cannot be published.",
         )
+    # TODO This can probably be done more efficiently; at least, it's worth checking the SQL query that SQLAlchemy
+    # generates when all we want is len(score_set.variants).
+    if len(item.variants) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="cannot publish score set without variant scores",
+        )
 
     published_date = date.today()
 
