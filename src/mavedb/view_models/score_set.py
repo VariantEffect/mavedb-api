@@ -36,10 +36,10 @@ class ScoreSetGetter(PublicationIdentifiersGetter):
     def get(self, key: str, default: Any) -> Any:
         if key == "meta_analyzes_score_set_urns":
             meta_analyzes_score_sets = getattr(self._obj, "meta_analyzes_score_sets") or []
-            return [score_set.urn for score_set in meta_analyzes_score_sets]
+            return sorted([score_set.urn for score_set in meta_analyzes_score_sets])
         elif key == "meta_analyzed_by_score_set_urns":
             meta_analyzed_by_score_sets = getattr(self._obj, "meta_analyzed_by_score_sets") or []
-            return [score_set.urn for score_set in meta_analyzed_by_score_sets]
+            return sorted([score_set.urn for score_set in meta_analyzed_by_score_sets])
         else:
             return super().get(key, default)
 
