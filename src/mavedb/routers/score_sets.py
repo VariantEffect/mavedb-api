@@ -22,6 +22,7 @@ from mavedb.lib.identifiers import (
     find_or_create_doi_identifier,
     find_or_create_publication_identifier,
 )
+from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.score_sets import (
     create_variants_data,
     search_score_sets as _search_score_sets,
@@ -138,6 +139,7 @@ def get_score_set_scores_csv(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
+    user: User = Depends(get_current_user),
 ) -> Any:
     """
     Return scores from a score set, identified by URN, in CSV format.
@@ -145,6 +147,10 @@ def get_score_set_scores_csv(
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+    permission = has_permission(user, score_set, Action.READ)
+    if not permission.permitted:
+        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+
     columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_set.dataset_columns["score_columns"]
     type_column = "score_data"
     rows_data = get_csv_rows_data(score_set.variants, columns=columns, dtype=type_column)
@@ -170,6 +176,7 @@ async def get_score_set_counts_csv(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
+    user: User = Depends(get_current_user),
 ) -> Any:
     """
     Return counts from a score set, identified by URN, in CSV format.
@@ -177,6 +184,10 @@ async def get_score_set_counts_csv(
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
+    permission = has_permission(user, score_set, Action.READ)
+    if not permission.permitted:
+        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+
     columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_set.dataset_columns["count_columns"]
     type_column = "count_data"
     rows_data = get_csv_rows_data(score_set.variants, columns=columns, dtype=type_column)
@@ -192,10 +203,18 @@ def get_score_set_mapped_variants(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
+    user: User = Depends(get_current_user),
 ) -> Any:
     """
     Return mapped variants from a score set, identified by URN.
     """
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
+    if not score_set:
+        raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
+    permission = has_permission(user, score_set, Action.READ)
+    if not permission.permitted:
+        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+
     mapped_variants = (
         db.query(MappedVariant)
         .filter(ScoreSet.urn == urn)
@@ -241,6 +260,9 @@ async def create_score_set(
         experiment = db.query(Experiment).filter(Experiment.urn == item_create.experiment_urn).one_or_none()
         if not experiment:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
+        permission = has_permission(user, experiment, Action.ADD_SCORE_SET)
+        if not permission.permitted:
+            raise HTTPException(status_code=permission.http_code, detail=permission.message)
     if item_create.meta_analyzes_score_set_urns is not None and len(item_create.meta_analyzes_score_set_urns) > 0:
         # If any existing score set is a meta-analysis for the same set of score sets, use its experiment as the parent
         # of our new meta-analysis. Otherwise, create a new experiment.
@@ -364,6 +386,9 @@ async def upload_score_set_variant_data(
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item.urn or not scores_file:
         return None
+    permission = has_permission(user, item, Action.SET_SCORES)
+    if not permission.permitted:
+        raise HTTPException(status_code=permission.http_code, detail=permission.message)
 
     # Delete the old variants so that uploading new scores and counts won't accumulate the old ones.
     db.query(Variant).filter(Variant.score_set_id == item.id).delete()
@@ -482,11 +507,12 @@ async def update_score_set(
     if not item_update:
         raise HTTPException(status_code=400, detail="The request contained no updated item.")
 
-    # item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(ScoreSet.private.is_(False)).one_or_none()
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
-    # TODO Ensure that the current user has edit rights for this score set.
+    permission = has_permission(user, item, Action.UPDATE)
+    if not permission.permitted:
+        raise HTTPException(status_code=permission.http_code, detail=permission.message)
 
     # Editing unpublished score set
     if item.private is True:
@@ -601,7 +627,9 @@ async def delete_score_set(
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
-    # TODO Ensure that the current user has edit rights for this score set.
+    permission = has_permission(user, item, Action.DELETE)
+    if not permission.permitted:
+        raise HTTPException(status_code=permission.http_code, detail=permission.message)
     db.delete(item)
     db.commit()
 
@@ -618,7 +646,10 @@ def publish_score_set(
     item: ScoreSet = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
-    # TODO Ensure that the current user has edit rights for this score set.
+    permission = has_permission(user, item, Action.UPDATE)
+    if not permission.permitted:
+        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+
     if not item.experiment:
         raise HTTPException(
             status_code=500, detail="This score set does not belong to an experiment and cannot be published."
