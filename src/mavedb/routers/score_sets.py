@@ -25,9 +25,9 @@ from mavedb.lib.identifiers import (
 from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.score_sets import (
     create_variants_data,
+    find_meta_analyses_for_experiment_sets,
     search_score_sets as _search_score_sets,
     VariantData,
-    find_meta_analyses_for_score_sets,
 )
 from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_score_set_urn
 from mavedb.lib.validation import exceptions
@@ -263,22 +263,6 @@ async def create_score_set(
         permission = has_permission(user, experiment, Action.ADD_SCORE_SET)
         if not permission.permitted:
             raise HTTPException(status_code=permission.http_code, detail=permission.message)
-    if item_create.meta_analyzes_score_set_urns is not None and len(item_create.meta_analyzes_score_set_urns) > 0:
-        # If any existing score set is a meta-analysis for the same set of score sets, use its experiment as the parent
-        # of our new meta-analysis. Otherwise, create a new experiment.
-        existing_meta_analyses = find_meta_analyses_for_score_sets(db, item_create.meta_analyzes_score_set_urns)
-        if len(existing_meta_analyses) > 0:
-            experiment = existing_meta_analyses[0].experiment
-        else:
-            experiment = Experiment(
-                title=item_create.title,
-                short_description=item_create.short_description,
-                abstract_text=item_create.abstract_text,
-                method_text=item_create.method_text,
-                extra_metadata={},
-                created_by=user,
-                modified_by=user,
-            )
 
     license_ = db.query(License).filter(License.id == item_create.license_id).one_or_none()
     if not license_:
@@ -290,9 +274,56 @@ async def create_score_set(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown superseded score set")
     else:
         superseded_score_set = None
+
+    distinct_meta_analyzes_score_set_urns = list(set(item_create.meta_analyzes_score_set_urns or []))
     meta_analyzes_score_sets = [
-        await fetch_score_set_by_urn(db, urn, None) for urn in item_create.meta_analyzes_score_set_urns or []
+        await fetch_score_set_by_urn(db, urn, None) for urn in distinct_meta_analyzes_score_set_urns
     ]
+    for i, meta_analyzes_score_set in enumerate(meta_analyzes_score_sets):
+        if meta_analyzes_score_set is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown meta-analyzed score set {distinct_meta_analyzes_score_set_urns[i]}",
+            )
+
+    if len(meta_analyzes_score_sets) > 0:
+        # If any existing score set is a meta-analysis for score sets in the same collection of exepriment sets, use its
+        # experiment as the parent of our new meta-analysis. Otherwise, create a new experiment.
+        meta_analyzes_experiment_sets = list(
+            set(map(lambda ss: ss.experiment.experiment_set, meta_analyzes_score_sets))
+        )
+        meta_analyzes_experiment_set_urns = list(
+            set(map(lambda ss: ss.experiment.experiment_set.urn, meta_analyzes_score_sets))
+        )
+        existing_meta_analyses = find_meta_analyses_for_experiment_sets(db, meta_analyzes_experiment_set_urns)
+
+        if len(existing_meta_analyses) > 0:
+            experiment = existing_meta_analyses[0].experiment
+        elif len(meta_analyzes_experiment_sets) == 1:
+            # The analyzed score sets all belong to one experiment set, so the meta-analysis should go in that
+            # experiment set's meta-analysis experiment. But there is no meta-analysis experiment (or else we would
+            # have found it by looking at existing_meta_analyses[0].experiment), so we will create one.
+            meta_analyzes_experiment_set = meta_analyzes_experiment_sets[0]
+            experiment = Experiment(
+                experiment_set=meta_analyzes_experiment_set,
+                title=item_create.title,
+                short_description=item_create.short_description,
+                abstract_text=item_create.abstract_text,
+                method_text=item_create.method_text,
+                extra_metadata={},
+                created_by=user,
+                modified_by=user,
+            )
+        else:
+            experiment = Experiment(
+                title=item_create.title,
+                short_description=item_create.short_description,
+                abstract_text=item_create.abstract_text,
+                method_text=item_create.method_text,
+                extra_metadata={},
+                created_by=user,
+                modified_by=user,
+            )
 
     doi_identifiers = [
         await find_or_create_doi_identifier(db, identifier.identifier)

@@ -17,6 +17,7 @@ from mavedb.lib.mave.constants import (
 )
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.models.experiment import Experiment
+from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.keyword import Keyword
 from mavedb.models.reference_genome import ReferenceGenome
 from mavedb.models.reference_map import ReferenceMap
@@ -77,6 +78,50 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
     if not score_sets:
         score_sets = []
     return score_sets  # filter_visible_score_sets(score_sets)
+
+
+def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list[ScoreSet]:
+    """
+    Find all score sets that are meta-analyses for score sets from a specified collection of experiment sets.
+
+    :param db: An active database session.
+    :param urns: A list of experiment set URNS.
+    :return: A score set that is a meta-analysis for score sets belonging to exactly the collection of experiment sets
+      specified by urns; or None if there is no such meta-analysis.
+    """
+    # Ensure that URNs are not repeated in the list.
+    urns = list(set(urns))
+
+    # Find all score sets that are meta-analyses for a superset of the specified URNs and are meta-analyses for
+    # exactly len(urns) score sets.
+    score_set_aliases = [aliased(ScoreSet) for _ in urns]
+    experiment_aliases = [aliased(Experiment) for _ in urns]
+    experiment_set_aliases = [aliased(ExperimentSet) for _ in urns]
+    analyzed_score_set = aliased(ScoreSet)
+    analyzed_experiment = aliased(Experiment)
+    analyzed_experiment_set = aliased(ExperimentSet)
+    urn_filters = [
+        ScoreSet.meta_analyzes_score_sets.of_type(score_set_aliases[i]).any(
+            score_set_aliases[i]
+            .experiment.of_type(experiment_aliases[i])
+            .has(
+                experiment_aliases[i]
+                .experiment_set.of_type(experiment_set_aliases[i])
+                .has(experiment_set_aliases[i].urn == urn)
+            )
+        )
+        for i, urn in enumerate(urns)
+    ]
+    return (
+        db.query(ScoreSet)
+        .join(ScoreSet.meta_analyzes_score_sets.of_type(analyzed_score_set))
+        .join(analyzed_score_set.experiment.of_type(analyzed_experiment))
+        .join(analyzed_experiment.experiment_set.of_type(analyzed_experiment_set))
+        .filter(*urn_filters)
+        .group_by(ScoreSet)
+        .having(func.count(func.distinct(analyzed_experiment_set.id)) == len(urns))
+        .all()
+    )
 
 
 def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[ScoreSet]:
