@@ -53,6 +53,7 @@ class TargetGeneCreate(TargetGeneModify):
     """View model for creating a new target gene."""
 
     #reference_maps: conlist(ReferenceMapCreate, min_items=1)
+    taxonomy_id: int
     wt_sequence: WildTypeSequenceCreate
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffsetCreate]
 

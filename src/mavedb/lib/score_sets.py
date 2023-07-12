@@ -40,20 +40,24 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
         else:
             query = query.filter(ScoreSet.published_date is None)
 
-    if search.text:
-        lower_search_text = search.text.lower()
-        query = query.filter(
-            or_(
-                ScoreSet.urn.contains(lower_search_text),
-                ScoreSet.title.contains(lower_search_text),
-                ScoreSet.short_description.contains(lower_search_text),
-                ScoreSet.abstract_text.contains(lower_search_text),
-                ScoreSet.target_gene.has(func.lower(TargetGene.name).contains(lower_search_text)),
-                ScoreSet.target_gene.has(func.lower(TargetGene.category).contains(lower_search_text)),
-                ScoreSet.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text))
-                # TODO Add: ORGANISM_NAME UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
+    if search.text and len(search.text.strip()) > 0:
+        if search.text.isnumeric() is False:
+            lower_search_text = search.text.lower()
+            query = query.filter(
+                or_(
+                    ScoreSet.urn.contains(lower_search_text),
+                    ScoreSet.title.contains(lower_search_text),
+                    ScoreSet.short_description.contains(lower_search_text),
+                    ScoreSet.abstract_text.contains(lower_search_text),
+                    ScoreSet.target_gene.has(func.lower(TargetGene.name).contains(lower_search_text)),
+                    ScoreSet.target_gene.has(func.lower(TargetGene.category).contains(lower_search_text)),
+                    ScoreSet.target_gene.has(func.lower(Taxonomy.organism_name).contains(lower_search_text)),
+                    ScoreSet.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text))
+                    # TODO Add: UNIPROT, ENSEMBL, REFSEQ, LICENSE
+                )
             )
-        )
+        else:
+            query = query.filter(ScoreSet.target_gene.has(Taxonomy.tax_id == int(search.text)))
 
     if search.targets:
         query = query.filter(ScoreSet.target_gene.has(TargetGene.name.in_(search.targets)))
@@ -68,7 +72,7 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
         query = query.filter(ScoreSet.target_gene.has(TargetGene.category.in_(search.target_types)))
 
     score_sets: list[ScoreSet] = (
-        query.join(ScoreSet.experiment).join(ScoreSet.target_gene).order_by(Experiment.title).all()
+        query.join(ScoreSet.experiment).join(ScoreSet.target_gene).join(TargetGene.taxonomy).order_by(Experiment.title).all()
     )
     if not score_sets:
         score_sets = []

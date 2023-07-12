@@ -12,8 +12,6 @@ class TaxonomyBase(BaseModel):
     has_described_species_name: Optional[bool]
     article_reference: str
     genome_id: Optional[int]
-    creation_date: date
-    modification_date: date
 
 
 class TaxonomyCreate(TaxonomyBase):
@@ -38,12 +36,15 @@ class TaxonomyInDbBase(TaxonomyBase):
     class Config:
         orm_mode = True
 
-
-# Properties to return to client
-class Taxonomy(TaxonomyInDbBase):
-    pass
-
-
 # Properties stored in DB
 class TaxonomyInDbBase(TaxonomyInDbBase):
     pass
+
+# Properties to return to non-admin clients
+class Taxonomy(TaxonomyInDbBase):
+    pass
+
+# Properties to return to admin clients
+class AdminTaxonomy(TaxonomyInDbBase):
+    creation_date: date
+    modification_date: date

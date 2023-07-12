@@ -38,6 +38,7 @@ from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
+from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.models.wild_type_sequence import WildTypeSequence
@@ -282,13 +283,17 @@ async def create_score_set(
         setattr(publication, "primary", publication in primary_publication_identifiers)
 
     wt_sequence = WildTypeSequence(**jsonable_encoder(item_create.target_gene.wt_sequence, by_alias=False))
+    #taxonomy = Taxonomy(**jsonable_encoder(item_create.target_gene.taxonomy, by_alias=False))
+    taxonomy = db.query(Taxonomy).filter(Taxonomy.id == item_create.target_gene.taxonomy_id).one_or_none()
+
     target_gene = TargetGene(
         **jsonable_encoder(
             item_create.target_gene,
             by_alias=False,
-            exclude=["external_identifiers", "wt_sequence"],
+            exclude=["external_identifiers", "wt_sequence", "taxonomy"],
         ),
         wt_sequence=wt_sequence,
+        taxonomy=taxonomy,
     )
     for external_gene_identifier_offset_create in item_create.target_gene.external_identifiers:
         offset = external_gene_identifier_offset_create.offset
