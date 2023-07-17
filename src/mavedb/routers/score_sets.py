@@ -21,6 +21,7 @@ from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
     find_or_create_doi_identifier,
     find_or_create_publication_identifier,
+    find_or_create_taxonomy,
 )
 from mavedb.lib.score_sets import (
     create_variants_data,
@@ -283,8 +284,12 @@ async def create_score_set(
         setattr(publication, "primary", publication in primary_publication_identifiers)
 
     wt_sequence = WildTypeSequence(**jsonable_encoder(item_create.target_gene.wt_sequence, by_alias=False))
-    #taxonomy = Taxonomy(**jsonable_encoder(item_create.target_gene.taxonomy, by_alias=False))
-    taxonomy = db.query(Taxonomy).filter(Taxonomy.id == item_create.target_gene.taxonomy_id).one_or_none()
+    #taxonomy = db.query(Taxonomy).filter(Taxonomy.id == item_create.target_gene.taxonomy_id).one_or_none()
+    print("uuuu")
+    upload_taxonomy = item_create.target_gene.taxonomy
+    print(upload_taxonomy)
+    taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
+    print(taxonomy)
 
     target_gene = TargetGene(
         **jsonable_encoder(

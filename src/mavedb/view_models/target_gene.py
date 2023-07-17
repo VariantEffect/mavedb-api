@@ -6,7 +6,7 @@ from pydantic.utils import GetterDict
 
 from mavedb.view_models import external_gene_identifier_offset
 from mavedb.view_models.base.base import BaseModel, validator
-from mavedb.view_models.taxonomy import Taxonomy
+from mavedb.view_models.taxonomy import Taxonomy, TaxonomyCreate
 from mavedb.view_models.wild_type_sequence import WildTypeSequence, WildTypeSequenceCreate
 from mavedb.lib.validation import target
 
@@ -53,7 +53,8 @@ class TargetGeneCreate(TargetGeneModify):
     """View model for creating a new target gene."""
 
     #reference_maps: conlist(ReferenceMapCreate, min_items=1)
-    taxonomy_id: int
+    #taxonomy_id: int
+    taxonomy: TaxonomyCreate
     wt_sequence: WildTypeSequenceCreate
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffsetCreate]
 

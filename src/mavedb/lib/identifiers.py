@@ -11,6 +11,7 @@ from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.refseq_identifier import RefseqIdentifier
 from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.target_gene import TargetGene
+from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.raw_read_identifier import RawReadIdentifier
@@ -125,3 +126,25 @@ async def create_external_gene_identifier_offset(
 
     identifier_offset_attribute = EXTERNAL_GENE_IDENTIFIER_OFFSET_ATTRIBUTES[external_gene_identifier.db_name]
     setattr(target_gene, identifier_offset_attribute, external_gene_identifier_offset)
+
+async def find_or_create_taxonomy(db: Session, taxonomy: Taxonomy):
+    """
+    Find an existing taxonomy ID record with the specified tax_id int, or create a new one.
+
+    :param db: An active database session
+    :param tax_id: A valid taxonomy ID
+    :return: An existing Taxonomy containing the specified taxonomy ID, or a new, unsaved Taxonomy
+    """
+    taxonomy_record = db.query(Taxonomy).filter(Taxonomy.tax_id == taxonomy.tax_id).one_or_none()
+    if not taxonomy_record:
+        pass
+        """
+        taxonomy_record = Taxonomy(tax_id=taxonomy.tax_id,
+                                   organism_name=taxonomy.organism_name,
+                                   common_name=taxonomy.common_name,
+                                   rank=taxonomy.rank,
+                                   has_described_species_name=taxonomy.has_described_species_name,
+                                   url=taxonomy.url,
+                                   article_reference=taxonomy.article_reference)
+                                   """
+    return taxonomy_record

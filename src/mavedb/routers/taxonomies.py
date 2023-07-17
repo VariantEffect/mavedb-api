@@ -85,7 +85,7 @@ def fetch_taxonomy(
         )
     return item
 
-@router.get('/tax-id={item_id}', status_code=200, response_model=taxonomy.Taxonomy, responses={404: {}})
+@router.get('/tax-id/{item_id}', status_code=200, response_model=taxonomy.Taxonomy, responses={404: {}})
 def fetch_taxonomy_by_tax_id(
         *,
         item_id: int,
