@@ -27,6 +27,7 @@ def create_experiment(client, update=None):
     response = client.post("/api/v1/experiments/", json=experiment_payload)
     assert response.status_code == 200
     response_data = response.json()
+    print(response_data)
     jsonschema.validate(instance=response_data, schema=Experiment.schema())
     return response_data
 

@@ -19,11 +19,11 @@ class TestIsNull(TestCase):
 class TestGenerateHgvsPro(TestCase):
     def test_pro(self):
         pro = generate_hgvs("p")
-        validate_hgvs_string(pro)
+        validate_hgvs_string(pro, "p")
 
     def test_nt(self):
         nt = generate_hgvs()
-        validate_hgvs_string(nt)
+        validate_hgvs_string(nt, "nt")
 
 
 class TestConstructHgvsPro(TestCase):

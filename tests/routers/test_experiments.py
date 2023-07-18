@@ -154,10 +154,47 @@ def test_required_fields(client, setup_router_db, test_field):
     assert "field required" in response_data["detail"][0]["msg"]
 
 
-def test_create_experiment_with_new_primary_publication(client, setup_router_db):
+def test_create_experiment_with_new_primary_pubmed_publication(client, setup_router_db):
     response_data = create_experiment(client, {"primaryPublicationIdentifiers": [{"identifier": "20711194"}]})
     assert len(response_data["primaryPublicationIdentifiers"]) == 1
-    assert sorted(response_data["primaryPublicationIdentifiers"][0]) == sorted(["identifier", "url", "referenceHtml"])
+    assert sorted(response_data["primaryPublicationIdentifiers"][0]) == sorted(
+        [
+            "abstract",
+            "id",
+            "authors",
+            "dbName",
+            "identifier",
+            "title",
+            "url",
+            "referenceHtml",
+            "publicationDoi",
+            "publicationYear",
+            "publicationJournal",
+        ]
+    )
+    # TODO: add separate tests for generating the publication url and referenceHtml
+
+
+def test_create_experiment_with_new_primary_biorxiv_publication(client, setup_router_db):
+    response_data = create_experiment(
+        client, {"primaryPublicationIdentifiers": [{"identifier": "2021.06.21.21259225"}]}
+    )
+    assert len(response_data["primaryPublicationIdentifiers"]) == 1
+    assert sorted(response_data["primaryPublicationIdentifiers"][0]) == sorted(
+        [
+            "abstract",
+            "id",
+            "authors",
+            "dbName",
+            "identifier",
+            "title",
+            "url",
+            "referenceHtml",
+            "preprintDoi",
+            "preprintDate",
+            "publicationJournal",
+        ]
+    )
     # TODO: add separate tests for generating the publication url and referenceHtml
 
 
@@ -180,7 +217,7 @@ def test_create_experiment_with_invalid_primary_publication(client, setup_router
     assert response.status_code == 422
     response_data = response.json()
     assert (
-        f"'{experiment_post_payload['primaryPublicationIdentifiers'][0]['identifier']}' is not a valid PubMed identifier"
+        f"'{experiment_post_payload['primaryPublicationIdentifiers'][0]['identifier']}' is not a valid PubMed, bioRxiv, or medRxiv identifier"
         in response_data["detail"][0]["msg"]
     )
 
