@@ -57,7 +57,7 @@ class ExperimentModify(ExperimentBase):
     keywords: Optional[list[str]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
-    publication_identifiers: Optional[list[PublicationIdentifierCreate]]
+    secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     raw_read_identifiers: Optional[list[RawReadIdentifierCreate]]
 
     @validator("primary_publication_identifiers")
@@ -106,7 +106,7 @@ class SavedExperiment(ExperimentBase):
     # Recast it into something more generic.
     @validator("secondary_publication_identifiers", "primary_publication_identifiers", pre=True)
     def publication_identifiers_validator(cls, value) -> list[PublicationIdentifier]:
-        assert isinstance(value, Collection), "`publication_identifiers` must be a collection"
+        assert isinstance(value, Collection), "Publication identifiers lists must be a collection"
         return list(value)  # Re-cast into proper list-like type
 
 

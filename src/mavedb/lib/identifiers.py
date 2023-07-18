@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError
 from mavedb.lib.rxiv import Rxiv, RxivContentDetail
 from mavedb.lib.validation.publication import identifier_valid_for, validate_db_name
-from mavedb.models.author import Author
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset
@@ -44,7 +43,7 @@ class ExternalPublication:
     identifier: str
     title: str
     abstract: str
-    authors: tuple[str, ...]
+    authors: list[dict[str, str]]
     publication_year: int
     published_doi: Optional[str]
     preprint_doi: Optional[str]
@@ -88,36 +87,40 @@ class ExternalPublication:
 
         self.reference_html = str(external_publication.citation_html)
 
-    def _generate_author_list(self, authors: Union[list[str], list[metapub.PubMedAuthor]]) -> tuple[str, ...]:
+    def _generate_author_list(self, authors: Union[list[str], list[metapub.PubMedAuthor]]) -> list[dict[str, str]]:
         """
         Generates a tuple of author names associated with this publication.
         """
         if not authors:
-            return ()
+            return []
 
         if isinstance(authors[0], metapub.PubMedAuthor):
-            created_authors = [", ".join([str(authors[0].last_name), str(authors[0].fore_name)])]
+            created_authors = [
+                {"name": ", ".join([str(authors[0].last_name), str(authors[0].fore_name)]), "primary": True}
+            ]
         else:
-            created_authors = [authors[0]]
+            created_authors = [{"name": authors[0], "primary": True}]
 
         for author in authors[1:]:
             if isinstance(author, metapub.PubMedAuthor):
-                created_authors.append(", ".join([str(author.last_name), str(author.fore_name)]))
+                created_authors.append(
+                    {"name": ", ".join([str(author.last_name), str(author.fore_name)]), "primary": False}
+                )
             else:
-                created_authors.append(author)
+                created_authors.append({"name": author, "primary": False})
 
-        return tuple(created_authors)
+        return created_authors
 
     @property
     def first_author(self) -> str:
-        return self.authors[0]
+        return self.authors[0]["name"]
 
     @property
-    def secondary_authors(self) -> tuple[str, ...]:
+    def secondary_authors(self) -> list[str]:
         if len(self.authors) > 1:
-            return self.authors[1:]
+            return [author["name"] for author in self.authors[1:]]
         else:
-            return ()
+            return []
 
     @property
     def url(self) -> str:
@@ -256,9 +259,6 @@ def create_generic_article(article: ExternalPublication) -> PublicationIdentifie
     Create a new publication identifier object based on the provided identifier, article metadata,
     and publication database name.
     """
-    authors = [Author(name=article.first_author, primary_author=True)] + [
-        Author(name=author, primary_author=False) for author in article.secondary_authors
-    ]
     if article.db_name in ["bioRxiv", "medRxiv"]:
         return PublicationIdentifier(
             identifier=article.identifier,
@@ -266,7 +266,7 @@ def create_generic_article(article: ExternalPublication) -> PublicationIdentifie
             url=article.url,
             title=article.title,
             abstract=article.abstract,
-            authors=authors,
+            authors=article.authors,
             preprint_date=article.preprint_date,
             preprint_doi=article.preprint_doi,
             publication_journal="Preprint",  # blanket `Preprint` journal for preprint articles
@@ -279,7 +279,7 @@ def create_generic_article(article: ExternalPublication) -> PublicationIdentifie
             url=article.url,
             title=article.title,
             abstract=article.abstract,
-            authors=authors,
+            authors=article.authors,
             publication_doi=article.published_doi,
             publication_year=article.publication_year,
             publication_journal=article.publication_journal,

@@ -1,9 +1,7 @@
 from mavedb.lib.validation.publication import validate_publication, validate_db_name
 from mavedb.view_models.base.base import BaseModel, validator
 from datetime import date
-from typing import Optional, Union, Literal
-from pydantic import root_validator
-from mavedb.view_models import AuthorsGetter
+from typing import Optional
 
 import logging
 

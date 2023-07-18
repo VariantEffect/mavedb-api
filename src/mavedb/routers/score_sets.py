@@ -335,8 +335,8 @@ async def create_score_set(
     ]
     publication_identifiers = [
         await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_create.publication_identifiers or []
-    ]
+        for identifier in item_create.secondary_publication_identifiers or []
+    ] + primary_publication_identifiers
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
     primary_identifiers = [pub.identifier for pub in primary_publication_identifiers]
@@ -370,7 +370,7 @@ async def create_score_set(
                 "license_id",
                 "meta_analyzes_score_set_urns",
                 "primary_publication_identifiers",
-                "publication_identifiers",
+                "secondary_publication_identifiers",
                 "superseded_score_set_urn",
                 "target_gene",
             },
@@ -561,7 +561,7 @@ async def update_score_set(
                 "doi_identifiers",
                 "experiment_urn",
                 "license_id",
-                "publication_identifiers",
+                "secondary_publication_identifiers",
                 "primary_publication_identifiers",
                 "target_gene",
             ]:
@@ -577,7 +577,7 @@ async def update_score_set(
         ]
         publication_identifiers = [
             await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-            for identifier in item_update.publication_identifiers or []
+            for identifier in item_update.secondary_publication_identifiers or []
         ]
         # create a temporary `primary` attribute on each of our publications that indicates
         # to our association proxy whether it is a primary publication or not
@@ -623,7 +623,7 @@ async def update_score_set(
                 "doi_identifiers",
                 "experiment_urn",
                 "primary_publication_identifiers",
-                "publication_identifiers",
+                "secondary_publication_identifiers",
                 "target_gene",
             ]:
                 setattr(item, var, value) if value else None
