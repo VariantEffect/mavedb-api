@@ -4,7 +4,6 @@ from sqlalchemy import Column, Date, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 
 from mavedb.db.base import Base
-from mavedb.models.author import Author
 
 
 class PublicationIdentifier(Base):

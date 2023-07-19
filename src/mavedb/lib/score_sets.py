@@ -2,6 +2,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+import json
 from pandas.testing import assert_index_equal
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, aliased
@@ -16,7 +17,6 @@ from mavedb.lib.mave.constants import (
     VARIANT_SCORE_DATA,
 )
 from mavedb.lib.mave.utils import is_csv_null
-from mavedb.models.author import Author
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.keyword import Keyword
@@ -24,10 +24,8 @@ from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.reference_genome import ReferenceGenome
 from mavedb.models.reference_map import ReferenceMap
 from mavedb.models.score_set import ScoreSet
-from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.user import User
-from mavedb.view_models.search import ScoreSetsSearch
 from mavedb.view_models.search import ScoreSetsSearch
 
 VariantData = dict[str, Optional[dict[str, dict]]]
@@ -36,12 +34,8 @@ VariantData = dict[str, Optional[dict[str, dict]]]
 def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
     query = db.query(ScoreSet)  # \
     # .filter(ScoreSet.private.is_(False))
-def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
-    query = db.query(ScoreSet)  # \
-    # .filter(ScoreSet.private.is_(False))
 
     if owner is not None:
-        query = query.filter(ScoreSet.created_by_id == owner.id)
         query = query.filter(ScoreSet.created_by_id == owner.id)
 
     if search.published is not None:
@@ -63,6 +57,9 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ScoreSet.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text)),
                 # TODO Add: ORGANISM_NAME UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
                 ScoreSet.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.identifier).contains(lower_search_text)
+                ),
+                ScoreSet.publication_identifiers.any(
                     func.lower(PublicationIdentifier.abstract).contains(lower_search_text)
                 ),
                 ScoreSet.publication_identifiers.any(
@@ -72,7 +69,9 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                     func.lower(PublicationIdentifier.publication_journal).contains(lower_search_text)
                 ),
                 ScoreSet.publication_identifiers.any(
-                    PublicationIdentifier.authors.any(func.lower(Author.name).contains(lower_search_text))
+                    func.jsonb_path_exists(
+                        PublicationIdentifier.authors, f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")"""
+                    )
                 ),
             )
         )
@@ -92,16 +91,15 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
     if search.target_types:
         query = query.filter(ScoreSet.target_gene.has(TargetGene.category.in_(search.target_types)))
 
-    # TODO
-    # if search.authors:
-    #     query = query.filter(
-    #         Experiment.publication_identifiers.any(PublicationIdentifier.authors.any(Author.name.in_(search.authors)))
-    #     )
+    if search.authors:
+        query = query.filter(
+            ScoreSet.publication_identifiers.any(
+                func.jsonb_path_query_array(PublicationIdentifier.authors, "$.name").op("?|")(search.authors)
+            )
+        )
 
     if search.databases:
-        query = query.filter(
-            ScoreSet.publication_identifiers.any(PublicationIdentifier.db_name.in_(search.databases))
-        )
+        query = query.filter(ScoreSet.publication_identifiers.any(PublicationIdentifier.db_name.in_(search.databases)))
 
     if search.journals:
         query = query.filter(

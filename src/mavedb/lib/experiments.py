@@ -9,13 +9,12 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.view_models.search import ExperimentsSearch
-from mavedb.models.author import Author
 from mavedb.models.publication_identifier import PublicationIdentifier
 
 logger = logging.getLogger(__name__)
 
 
-def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSearch) -> list[ScoreSet]:
+def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSearch) -> list[Experiment]:
     query = db.query(Experiment)
     # .filter(ScoreSet.private.is_(False))
 
@@ -37,6 +36,9 @@ def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSe
                 Experiment.short_description.contains(lower_search_text),
                 Experiment.abstract_text.contains(lower_search_text),
                 Experiment.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.identifier).contains(lower_search_text)
+                ),
+                Experiment.publication_identifiers.any(
                     func.lower(PublicationIdentifier.abstract).contains(lower_search_text)
                 ),
                 Experiment.publication_identifiers.any(
@@ -46,7 +48,9 @@ def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSe
                     func.lower(PublicationIdentifier.publication_journal).contains(lower_search_text)
                 ),
                 Experiment.publication_identifiers.any(
-                    PublicationIdentifier.authors.any(func.lower(Author.name).contains(lower_search_text))
+                    func.jsonb_path_exists(
+                        PublicationIdentifier.authors, f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")"""
+                    )
                 ),
             )
         )
@@ -58,7 +62,9 @@ def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSe
 
     if search.authors:
         query = query.filter(
-            Experiment.publication_identifiers.any(PublicationIdentifier.authors.any(Author.name.in_(search.authors)))
+            Experiment.publication_identifiers.any(
+                func.jsonb_path_query_array(PublicationIdentifier.authors, "$.name").op("?|")(search.authors)
+            )
         )
 
     if search.databases:

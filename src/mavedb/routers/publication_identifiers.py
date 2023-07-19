@@ -11,7 +11,6 @@ from mavedb.lib.identifiers import find_generic_article
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.user import User
 from mavedb.view_models import publication_identifier
-from mavedb.view_models import author
 from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
