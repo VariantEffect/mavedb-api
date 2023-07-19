@@ -38,7 +38,7 @@ from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifie
 
 logging.basicConfig()
 # Un-comment this line to log all database queries:
-# logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+# logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 

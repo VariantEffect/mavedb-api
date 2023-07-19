@@ -1,5 +1,4 @@
 __all__ = [
-    "author",
     "access_key",
     "doi_identifier",
     "ensembl_identifier",
