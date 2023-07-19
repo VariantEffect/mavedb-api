@@ -105,8 +105,8 @@ class SavedExperiment(ExperimentBase):
     # Association proxy objects return an untyped _AssocitionList object.
     # Recast it into something more generic.
     @validator("secondary_publication_identifiers", "primary_publication_identifiers", pre=True)
-    def publication_identifiers_validator(cls, value) -> list[PublicationIdentifier]:
-        assert isinstance(value, Collection), "Publication identifiers lists must be a collection"
+    def publication_identifiers_validator(cls, value, values, field) -> list[PublicationIdentifier]:
+        assert isinstance(value, Collection), f"{field.name} must be a collection, not {type(value)}"
         return list(value)  # Re-cast into proper list-like type
 
 
