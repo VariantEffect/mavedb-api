@@ -57,7 +57,7 @@ class ExperimentModify(ExperimentBase):
     keywords: Optional[list[str]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
-    publication_identifiers: Optional[list[PublicationIdentifierCreate]]
+    secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     raw_read_identifiers: Optional[list[RawReadIdentifierCreate]]
 
     @validator("primary_publication_identifiers")
@@ -105,8 +105,8 @@ class SavedExperiment(ExperimentBase):
     # Association proxy objects return an untyped _AssocitionList object.
     # Recast it into something more generic.
     @validator("secondary_publication_identifiers", "primary_publication_identifiers", pre=True)
-    def publication_identifiers_validator(cls, value) -> list[PublicationIdentifier]:
-        assert isinstance(value, Collection), "`publication_identifiers` must be a collection"
+    def publication_identifiers_validator(cls, value, values, field) -> list[PublicationIdentifier]:
+        assert isinstance(value, Collection), f"{field.name} must be a collection, not {type(value)}"
         return list(value)  # Re-cast into proper list-like type
 
 

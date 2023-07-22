@@ -58,7 +58,7 @@ class ScoreSetBase(BaseModel):
 class ScoreSetModify(ScoreSetBase):
     keywords: Optional[list[str]]
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
-    publication_identifiers: Optional[list[PublicationIdentifierCreate]]
+    secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     target_gene: TargetGeneCreate
 
@@ -187,7 +187,7 @@ class SavedScoreSet(ScoreSetBase):
     # Recast it into something more generic.
     @validator("secondary_publication_identifiers", "primary_publication_identifiers", pre=True)
     def publication_identifiers_validator(cls, value) -> list[PublicationIdentifier]:
-        assert isinstance(value, Collection), "`publication_identifiers` must be a collection"
+        assert isinstance(value, Collection), "Publication identifier lists must be a collection"
         return list(value)  # Re-cast into proper list-like type
 
     @validator("dataset_columns")

@@ -137,3 +137,15 @@ class OpenIDConnectException(Exception):
     """Raised when OpenID login flow fails."""
 
     pass
+
+
+class AmbiguousIdentifierError(ValueError):
+    """Raised when a user tries to create a publication with an ambiguous identifier"""
+
+    pass
+
+
+class NonexistentIdentifierError(ValueError):
+    """Raised when a user tries to create a publication with an ambiguous identifier"""
+
+    pass
