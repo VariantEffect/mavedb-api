@@ -6,10 +6,13 @@ Create Date: 2023-06-01 14:51:04.700969
 
 """
 from typing import Optional
+import os
 
-import metapub
+import eutils
+from eutils._internal.xmlfacades.pubmedarticleset import PubmedArticleSet
 import sqlalchemy as sa
 from eutils import EutilsNCBIError
+from mavedb.lib.exceptions import AmbiguousIdentifierError
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
@@ -82,11 +85,11 @@ def upgrade():
         if pub_article:
             item.title = pub_article.title
             item.abstract = pub_article.abstract
-            item.publication_doi = pub_article.published_doi
+            item.publication_doi = pub_article.publication_doi
             item.publication_year = pub_article.publication_year
             item.publication_journal = pub_article.publication_journal
 
-            authors = [author["name"].replace("'", "''") for author in pub_article.authors]
+            authors = [str(author["name"]).replace("'", "''") for author in pub_article.authors]
             authors = [{"name": author, "primary": idx == 0} for idx, author in enumerate(authors)]
             item.authors = authors
 
@@ -97,7 +100,7 @@ def upgrade():
             item.preprint_date = bio_article.preprint_date
             item.reference_html = bio_article.reference_html
 
-            authors = [author["name"].replace("'", "''") for author in bio_article.authors]
+            authors = [str(author["name"]).replace("'", "''") for author in bio_article.authors]
             authors = [{"name": author, "primary": idx == 0} for idx, author in enumerate(authors)]
             item.authors = authors
 
@@ -108,7 +111,7 @@ def upgrade():
             item.preprint_date = med_article.preprint_date
             item.reference_html = med_article.reference_html
 
-            authors = [author["name"].replace("'", "''") for author in med_article.authors]
+            authors = [str(author["name"]).replace("'", "''") for author in med_article.authors]
             authors = [{"name": author, "primary": idx == 0} for idx, author in enumerate(authors)]
             item.authors = authors
 
@@ -145,12 +148,17 @@ def fetch_pubmed_article(identifier: str) -> Optional[ExternalPublication]:
     """
     Fetch an existing PubMed article from NCBI
     """
-    fetch = metapub.PubMedFetcher()
+    fetch = eutils.QueryService(api_key=os.getenv("NCBI_API_KEY"))
     try:
-        article = fetch.article_by_pmid(pmid=identifier)
-        if article:
-            article = ExternalPublication(identifier=identifier, db_name="PubMed", external_publication=article)
+        fetched_articles = list(PubmedArticleSet(fetch.efetch({"db": "pubmed", "id": identifier})))
+        assert len(fetched_articles) < 2
+        article = ExternalPublication(identifier=identifier, db_name="PubMed", external_publication=fetched_articles[0])
+
+    except AssertionError as exc:
+        raise AmbiguousIdentifierError(f"Fetched more than 1 PubMed article associated with PMID {identifier}") from exc
     except EutilsNCBIError:
+        return None
+    except IndexError:
         return None
     else:
         return article

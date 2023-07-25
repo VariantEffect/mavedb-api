@@ -12,8 +12,8 @@ from requests import Request
 from slack_sdk.webhook import WebhookClient
 from sqlalchemy.orm import configure_mappers
 from starlette import status
-from starlette.responses import JSONResponse, Response
-from metapub.exceptions import InvalidPMID
+from starlette.responses import JSONResponse
+from eutils._internal.exceptions import EutilsRequestError
 
 from mavedb.models import *
 
@@ -94,8 +94,8 @@ async def nonexistent_identifier_error_exception_handler(request: Request, exc: 
     )
 
 
-@app.exception_handler(InvalidPMID)
-async def nonexistent_pmid_error_exception_handler(request: Request, exc: InvalidPMID):
+@app.exception_handler(EutilsRequestError)
+async def nonexistent_pmid_error_exception_handler(request: Request, exc: EutilsRequestError):
     return JSONResponse(
         status_code=404,
         content={"message": str(exc)},
