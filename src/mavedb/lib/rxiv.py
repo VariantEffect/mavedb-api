@@ -20,7 +20,7 @@ class RxivContentDetail:
     title: str
     doi: str
     category: str
-    author_list: list[str]
+    authors: list[str]
     author_corresponding: str
     author_corresponding_institution: str
     date: datetime.date
@@ -32,13 +32,11 @@ class RxivContentDetail:
     published: str
     server: Optional[str]  # not guaranteed
 
-    _article_cit_fmt = "{author}. {title}. {journal}. {year}; {volume}:{pages}.{doi}"
-
     def __init__(self, metadata: dict[str, str]) -> None:
         self.title = metadata["title"]
         self.doi = metadata["doi"]
         self.category = metadata["category"]
-        self.author_list = [s.strip() for s in metadata.get("authors", "").split(";")]
+        self.authors = [s.strip() for s in metadata.get("authors", "").split(";")]
         self.author_corresponding = metadata["author_corresponding"]
         self.author_corresponding_institution = metadata["author_corresponding_institution"]
         self.date = datetime.datetime.strptime(metadata["date"], "%Y-%m-%d")
@@ -50,45 +48,12 @@ class RxivContentDetail:
         self.published = metadata["published"]
         self.server = metadata.get("server")
 
-    def _format_authors(self) -> str:
-        """Helper function for returning a well formatted HTML author list"""
-        if self.author_list and len(self.author_list) > 2:
-            author = self.author_list[0] + ", <i>et al</i>"
-        elif self.author_list and len(self.author_list) == 2:
-            author = " and ".join([author for author in self.author_list])
-        elif self.author_list and len(self.author_list) < 2:
-            author = self.author_list[0]
-        else:
-            author = ""
-
-        return author
-
     @property
     def first_author(self) -> Optional[str]:
-        if len(self.author_list) > 0:
-            return self.author_list[0]
+        if len(self.authors) > 0:
+            return self.authors[0]
         else:
             return None
-
-    @property
-    def citation_html(self):
-        """
-        Return a well formatted citation HTML string based on pre-print article data.
-        Intends to return an identical citation html string to metapub.PubMedArticle.
-        """
-        author = self._format_authors()
-        doi_str = "" if not self.doi else self.doi
-        title = "(None)" if not self.title else self.title.strip(".")
-        journal = "(None)" if not self.server else self.server.strip(".")
-        year = "(Unknown yeaer)" if not self.date.year else self.date.year
-
-        # We don't receive these fields from rxiv platforms
-        volume = "(Unknown volume)"
-        pages = "(Unknown pages)"
-
-        return self._article_cit_fmt.format(
-            author=author, volume=volume, pages=pages, year=year, title=title, journal=journal, doi=doi_str
-        )
 
 
 class RxivPublication:
@@ -166,46 +131,6 @@ class RxivPublicationDetail(RxivPublication):
             return self.preprint_authors[0]
         else:
             return None
-
-    @property
-    def citation_html(self):
-        """
-        Return a well formatted citation HTML string based on pre-print article data.
-        Intends to return an identical citation html string to metapub.PubMedArticle.
-        """
-        author = self._format_authors()
-        doi_str = "" if not self.preprint_doi else self.preprint_doi
-        title = "(None)" if not self.preprint_title else self.preprint_title.strip(".")
-        journal = "(None)" if not self.preprint_platform else self.preprint_platform.strip(".")
-        year = "(Unknown yeaer)" if not self.preprint_date.year else self.preprint_date.year
-
-        # We don't receive these fields from rxiv platforms
-        volume = "(Unknown volume)"
-        pages = "(Unknown pages)"
-
-        return self._article_cit_fmt.format(
-            author=author, volume=volume, pages=pages, year=year, title=title, journal=journal, doi=doi_str
-        )
-
-    @property
-    def publication_citation_html(self):
-        """
-        Return a well formatted citation HTML string based on publication data.
-        Intends to return an identical citation html string to metapub.PubMedArticle.
-        """
-        author = self._format_authors()
-        doi_str = "" if not self.published_doi else self.published_doi
-        title = "(None)" if not self.preprint_title else self.preprint_title.strip(".")
-        journal = "(None)" if not self.published_journal else self.published_journal.strip(".")
-        year = "(Unknown yeaer)" if not self.published_date.year else self.published_date.year
-
-        # We don't receive these fields from rxiv platforms
-        volume = "(Unknown volume)"
-        pages = "(Unknown pages)"
-
-        return self._article_cit_fmt.format(
-            author=author, volume=volume, pages=pages, year=year, title=title, journal=journal, doi=doi_str
-        )
 
 
 class RxivStatistics:
