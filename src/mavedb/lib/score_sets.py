@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import json
 from pandas.testing import assert_index_equal
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, and_
 from sqlalchemy.orm import Session, aliased
 
 from mavedb.lib.array_comparison import assert_array_equal
@@ -91,11 +91,9 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
     if search.target_types:
         query = query.filter(ScoreSet.target_gene.has(TargetGene.category.in_(search.target_types)))
 
-    if search.authors:
+    if search.publication_identifiers:
         query = query.filter(
-            ScoreSet.publication_identifiers.any(
-                func.jsonb_path_query_array(PublicationIdentifier.authors, "$.name").op("?|")(search.authors)
-            )
+            ScoreSet.publication_identifiers.any(PublicationIdentifier.identifier.in_(search.publication_identifiers))
         )
 
     if search.databases:
@@ -104,6 +102,13 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
     if search.journals:
         query = query.filter(
             ScoreSet.publication_identifiers.any(PublicationIdentifier.publication_journal.in_(search.journals))
+        )
+
+    if search.authors:
+        query = query.filter(
+            ScoreSet.publication_identifiers.any(
+                func.jsonb_path_query_array(PublicationIdentifier.authors, "$.name").op("?|")(search.authors)
+            )
         )
 
     score_sets: list[ScoreSet] = (

@@ -19,6 +19,7 @@ class ScoreSetsSearch(BaseModel):
     authors: Optional[list[str]]
     databases: Optional[list[str]]
     journals: Optional[list[str]]
+    publication_identifiers: Optional[list[str]]
     text: Optional[str]
 
 
