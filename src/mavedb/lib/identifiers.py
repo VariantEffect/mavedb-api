@@ -1,8 +1,11 @@
+import os
 from datetime import date
 from typing import Optional, Union
 
-import metapub
+import eutils
 from eutils import EutilsNCBIError
+from eutils._internal.xmlfacades.pubmedarticle import PubmedArticle
+from eutils._internal.xmlfacades.pubmedarticleset import PubmedArticleSet
 from sqlalchemy.orm import Session
 
 from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError
@@ -43,20 +46,23 @@ class ExternalPublication:
     identifier: str
     title: str
     abstract: str
-    authors: list[dict[str, str]]
+    authors: list[dict[str, Union[str, bool]]]
     publication_year: int
-    published_doi: Optional[str]
-    preprint_doi: Optional[str]
+    publication_volume: Optional[str]
+    publication_pages: Optional[str]
+    publication_doi: Optional[str]
     publication_journal: Optional[str]
+    preprint_doi: Optional[str]
     preprint_date: Optional[date]
     db_name: str
-    reference_html: str
+
+    _article_cit_fmt = "{author}. {title}. {journal}. {year}; {volume}:{pages}. {doi}"
 
     def __init__(
         self,
         identifier: str,
         db_name: str,
-        external_publication: Union[RxivContentDetail, metapub.PubMedArticle],
+        external_publication: Union[RxivContentDetail, PubmedArticle],
     ) -> None:
         """
         NOTE: We assume here that the first author in each of these author lists is the primary author
@@ -71,54 +77,46 @@ class ExternalPublication:
         self.db_name = db_name
         self.title = str(external_publication.title)
         self.abstract = str(external_publication.abstract)
-        self.authors = self._generate_author_list(external_publication.author_list)
+        self.authors = self._generate_author_list(external_publication.authors)
 
         # Non-shared fields
-        if isinstance(external_publication, metapub.PubMedArticle):
+        if isinstance(external_publication, PubmedArticle):
             self.publication_year = int(external_publication.year)
-            self.publication_journal = str(external_publication.journal)
-            self.published_doi = str(external_publication.doi)
-            self.preprint_doi = None
-            self.preprint_date = None
+            self.publication_journal = external_publication.jrnl
+            self.publication_doi = external_publication.doi
+            self.publication_volume = external_publication.volume
+            self.publication_pages = external_publication.pages
         elif isinstance(external_publication, RxivContentDetail):
             self.preprint_doi = external_publication.doi
             self.preprint_date = external_publication.date
-            self.publication_journal = None
 
-        self.reference_html = str(external_publication.citation_html)
-
-    def _generate_author_list(self, authors: Union[list[str], list[metapub.PubMedAuthor]]) -> list[dict[str, str]]:
+    def _generate_author_list(self, authors: list[str]) -> list[dict[str, Union[str, bool]]]:
         """
-        Generates a tuple of author names associated with this publication.
+        Generates a list of author names and thier authorship level associated with this publication.
         """
-        if not authors:
-            return []
+        return [{"name": author, "primary": idx == 0} for idx, author in enumerate(authors)]
 
-        if isinstance(authors[0], metapub.PubMedAuthor):
-            created_authors = [
-                {"name": ", ".join([str(authors[0].last_name), str(authors[0].fore_name)]), "primary": True}
-            ]
+    def _format_authors(self) -> str:
+        """Helper function for returning a well formatted HTML author list"""
+        if self.authors and len(self.authors) > 2:
+            author = str(self.authors[0]["name"]) + ", <i>et al</i>"
+        elif self.authors and len(self.authors) == 2:
+            author = " and ".join([str(author["name"]) for author in self.authors])
+        elif self.authors and len(self.authors) < 2:
+            author = str(self.authors[0]["name"])
         else:
-            created_authors = [{"name": authors[0], "primary": True}]
+            author = ""
 
-        for author in authors[1:]:
-            if isinstance(author, metapub.PubMedAuthor):
-                created_authors.append(
-                    {"name": ", ".join([str(author.last_name), str(author.fore_name)]), "primary": False}
-                )
-            else:
-                created_authors.append({"name": author, "primary": False})
-
-        return created_authors
+        return author
 
     @property
     def first_author(self) -> str:
-        return self.authors[0]["name"]
+        return str(self.authors[0]["name"])
 
     @property
     def secondary_authors(self) -> list[str]:
         if len(self.authors) > 1:
-            return [author["name"] for author in self.authors[1:]]
+            return [str(author["name"]) for author in self.authors[1:]]
         else:
             return []
 
@@ -132,6 +130,35 @@ class ExternalPublication:
             return f"https://www.medrxiv.org/content/10.1101/{self.identifier}"
         else:
             return ""
+
+    @property
+    def reference_html(self) -> str:
+        """
+        Return a well formatted citation HTML string based on article data.
+        Intends to return an identical citation html string to metapub.PubMedArticle.
+        """
+        author = self._format_authors()
+
+        if self.db_name in ["PubMed"]:
+            doi_str = "" if not self.publication_doi else self.publication_doi
+            title = "(None)" if not self.title else self.title.strip(".")
+            journal = "(None)" if not self.publication_journal else self.publication_journal.strip(".")
+            year = "(Unknown year)" if not self.publication_year else self.publication_year
+            volume = "(Unknown volume)" if not self.publication_volume else self.publication_volume
+            pages = "(Unknown pages)" if not self.publication_pages else self.publication_pages
+        else:
+            doi_str = "" if not self.preprint_doi else self.preprint_doi
+            title = "(None)" if not self.title else self.title.strip(".")
+            journal = "(None)" if not self.publication_journal else self.publication_journal.strip(".")
+            year = "(Unknown year)" if not self.preprint_date else self.preprint_date.year
+
+            # We don't receive these fields from rxiv platforms
+            volume = "(Unknown volume)"
+            pages = "(Unknown pages)"
+
+        return self._article_cit_fmt.format(
+            author=author, volume=volume, pages=pages, year=year, title=title, journal=journal, doi=doi_str
+        )
 
 
 async def find_or_create_doi_identifier(db: Session, identifier: str):
@@ -152,12 +179,17 @@ async def fetch_pubmed_article(identifier: str) -> Optional[ExternalPublication]
     """
     Fetch an existing PubMed article from NCBI
     """
-    fetch = metapub.PubMedFetcher()
+    fetch = eutils.QueryService(api_key=os.getenv("NCBI_API_KEY"))
     try:
-        article = fetch.article_by_pmid(pmid=identifier)
-        if article:
-            article = ExternalPublication(identifier=identifier, db_name="PubMed", external_publication=article)
+        fetched_articles = list(PubmedArticleSet(fetch.efetch({"db": "pubmed", "id": identifier})))
+        assert len(fetched_articles) < 2
+        article = ExternalPublication(identifier=identifier, db_name="PubMed", external_publication=fetched_articles[0])
+
+    except AssertionError as exc:
+        raise AmbiguousIdentifierError(f"Fetched more than 1 PubMed article associated with PMID {identifier}") from exc
     except EutilsNCBIError:
+        return None
+    except IndexError:
         return None
     else:
         return article
@@ -280,7 +312,7 @@ def create_generic_article(article: ExternalPublication) -> PublicationIdentifie
             title=article.title,
             abstract=article.abstract,
             authors=article.authors,
-            publication_doi=article.published_doi,
+            publication_doi=article.publication_doi,
             publication_year=article.publication_year,
             publication_journal=article.publication_journal,
             reference_html=article.reference_html,
