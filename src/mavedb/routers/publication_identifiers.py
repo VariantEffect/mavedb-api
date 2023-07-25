@@ -87,7 +87,7 @@ def list_publication_database_names(
     response_model=publication_identifier.PublicationIdentifier,
     responses={404: {}, 500: {}},
 )
-async def show_scoreset(*, identifier: str, db: Session = Depends(deps.get_db)) -> Any:
+async def search_publications_by_identifier(*, identifier: str, db: Session = Depends(deps.get_db)) -> Any:
     """
     Fetch a single scoreset by URN.
     """
@@ -98,6 +98,37 @@ async def show_scoreset(*, identifier: str, db: Session = Depends(deps.get_db)) 
 
     if not item:
         raise HTTPException(status_code=404, detail=f"Publication with identifier {identifier} not found")
+    return item
+
+
+@router.get(
+    "/publications/{db_name}/{identifier}",
+    status_code=200,
+    response_model=publication_identifier.PublicationIdentifier,
+    responses={404: {}, 500: {}},
+)
+async def search_publications_by_identifier_and_db(
+    *, identifier: str, db_name: str, db: Session = Depends(deps.get_db)
+) -> Any:
+    """
+    Fetch a single scoreset by URN.
+    """
+    try:
+        item = (
+            db.query(PublicationIdentifier)
+            .filter(PublicationIdentifier.identifier == identifier and PublicationIdentifier.db_name == db_name)
+            .one_or_none()
+        )
+    except MultipleResultsFound:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Multiple publications with identifier {identifier} and db_name {db_name} were found.",
+        )
+
+    if not item:
+        raise HTTPException(
+            status_code=404, detail=f"Publication with identifier {identifier} and db_name {db_name} not found"
+        )
     return item
 
 
