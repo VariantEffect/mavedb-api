@@ -10,7 +10,7 @@ class TaxonomyBase(BaseModel):
     common_name: Optional[str]
     rank: Optional[str]
     has_described_species_name: Optional[bool]
-    article_reference: str
+    article_reference: Optional[str]
     genome_id: Optional[int]
 
 

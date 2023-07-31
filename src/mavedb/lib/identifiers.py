@@ -1,7 +1,9 @@
 from typing import Union
 
+import httpx
 import metapub
 from eutils import EutilsNCBIError
+from fastapi.exceptions import HTTPException
 from sqlalchemy.orm import Session
 
 from mavedb.models.doi_identifier import DoiIdentifier
@@ -137,14 +139,27 @@ async def find_or_create_taxonomy(db: Session, taxonomy: Taxonomy):
     """
     taxonomy_record = db.query(Taxonomy).filter(Taxonomy.tax_id == taxonomy.tax_id).one_or_none()
     if not taxonomy_record:
-        pass
-        """
-        taxonomy_record = Taxonomy(tax_id=taxonomy.tax_id,
-                                   organism_name=taxonomy.organism_name,
-                                   common_name=taxonomy.common_name,
-                                   rank=taxonomy.rank,
-                                   has_described_species_name=taxonomy.has_described_species_name,
-                                   url=taxonomy.url,
-                                   article_reference=taxonomy.article_reference)
-                                   """
+        url = f"https://api.ncbi.nlm.nih.gov/datasets/v2alpha/taxonomy/taxon/{taxonomy.tax_id}"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            if response.status_code == 200:
+                data = response.json()
+                # Process the retrieved data as needed
+                ncbi_taxonomy = data['taxonomy_nodes'][0]['taxonomy']
+                ncbi_taxonomy.setdefault('organism_name', 'NULL')
+                ncbi_taxonomy.setdefault('common_name', 'NULL')
+                ncbi_taxonomy.setdefault('rank', 'NULL')
+                ncbi_taxonomy.setdefault('has_described_species_name', 'NULL')
+                taxonomy_record = Taxonomy(tax_id=ncbi_taxonomy['tax_id'],
+                                           organism_name=ncbi_taxonomy['organism_name'],
+                                           common_name=ncbi_taxonomy['common_name'],
+                                           rank=ncbi_taxonomy['rank'],
+                                           has_described_species_name=ncbi_taxonomy['has_described_species_name'],
+                                           url="https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id="+str(ncbi_taxonomy['tax_id']),
+                                           article_reference="NCBI:txid"+str(ncbi_taxonomy['tax_id']))
+                db.add(taxonomy_record)
+                db.commit()
+                db.refresh(taxonomy_record)
+            else:
+                raise HTTPException(status_code=404, detail=f"Taxonomy with taxID {taxonomy.tax_id} not found")
     return taxonomy_record

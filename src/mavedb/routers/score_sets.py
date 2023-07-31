@@ -306,7 +306,7 @@ async def create_score_set(
         await create_external_gene_identifier_offset(
             db, target_gene, identifier_create.db_name, identifier_create.identifier, offset
         )
-    #reference_map = ReferenceMap(genome_id=item_create.target_gene.reference_maps[0].genome_id, target=target_gene)
+
     item = ScoreSet(
         **jsonable_encoder(
             item_create,
@@ -540,13 +540,17 @@ async def update_score_set(
 
         wt_sequence = WildTypeSequence(**jsonable_encoder(item_update.target_gene.wt_sequence, by_alias=False))
 
+        update_taxonomy = item_update.target_gene.taxonomy
+        taxonomy = await find_or_create_taxonomy(db, update_taxonomy)
+
         target_gene = TargetGene(
             **jsonable_encoder(
                 item_update.target_gene,
                 by_alias=False,
-                exclude=["external_identifiers", "wt_sequence"],
+                exclude=["external_identifiers", "wt_sequence", "taxonomy"],
             ),
             wt_sequence=wt_sequence,
+            taxonomy=taxonomy,
         )
         for external_gene_identifier_offset_create in item_update.target_gene.external_identifiers:
             offset = external_gene_identifier_offset_create.offset
@@ -556,7 +560,6 @@ async def update_score_set(
             )
         item.target_gene = target_gene
 
-        #reference_map = ReferenceMap(genome_id=item_update.target_gene.reference_maps[0].genome_id, target=target_gene)
         for var, value in vars(item_update).items():
             if var not in [
                 "keywords",

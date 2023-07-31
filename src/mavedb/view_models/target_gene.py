@@ -1,7 +1,6 @@
 from datetime import date
-from typing import Any, List, Optional
+from typing import Any, Optional
 
-from pydantic import conlist
 from pydantic.utils import GetterDict
 
 from mavedb.view_models import external_gene_identifier_offset
@@ -52,8 +51,6 @@ class TargetGeneModify(TargetGeneBase):
 class TargetGeneCreate(TargetGeneModify):
     """View model for creating a new target gene."""
 
-    #reference_maps: conlist(ReferenceMapCreate, min_items=1)
-    #taxonomy_id: int
     taxonomy: TaxonomyCreate
     wt_sequence: WildTypeSequenceCreate
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffsetCreate]
@@ -78,7 +75,6 @@ class SavedTargetGene(TargetGeneBase):
 class TargetGene(SavedTargetGene):
     """Target gene view model containing a complete set of properties visible to non-admin users."""
 
-    #reference_maps: List[ReferenceMap]
     taxonomy: Optional[Taxonomy]
     wt_sequence: WildTypeSequence
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
@@ -90,7 +86,6 @@ class TargetGene(SavedTargetGene):
 class ShortTargetGene(SavedTargetGene):
     """Target gene view model containing a smaller set of properties to return in list contexts."""
 
-    #reference_maps: List[ReferenceMap]
     taxonomy: Optional[Taxonomy]
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
 
@@ -103,7 +98,6 @@ class AdminTargetGene(SavedTargetGene):
 
     creation_date: date
     modification_date: date
-    #reference_maps: List[ReferenceMap]
     taxonomy: Optional[Taxonomy]
     wt_sequence: WildTypeSequence
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
