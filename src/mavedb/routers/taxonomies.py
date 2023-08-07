@@ -105,6 +105,7 @@ def fetch_taxonomy_by_tax_id(
 def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
     Search Taxonomy.
+    If no search text, return the whole taxonomy list so that front end Taxonomy component can get data to show in dropdown button.
     """
 
     query = db.query(Taxonomy)
@@ -120,8 +121,9 @@ def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_db)) ->
             )
         else:
             query = query.filter(Taxonomy.tax_id == int(search.text))
-    else:
-        raise HTTPException(status_code=500, detail="Search text is required")
+    # It leads dropdown button doesn't work in Mavedb-ui autocomplete component.
+    #else:
+        #raise HTTPException(status_code=500, detail="Search text is required")
 
     items = query.order_by(Taxonomy.organism_name).all()
     if not items:

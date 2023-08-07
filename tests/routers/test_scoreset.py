@@ -35,7 +35,15 @@ def create_an_experiment():
 
 
 def create_taxonomy():
-    taxonomy = Taxonomy(id=1, tax_id=9606, organism_names="Homo sapiens", common_name="human")
+    taxonomy = Taxonomy(id=1,
+                        tax_id=9606,
+                        organism_name="Homo sapiens",
+                        common_name="human",
+                        rank="SPECIES",
+                        has_described_species_name=True,
+                        article_reference="NCBI:txid9606",
+                        genome_identifier_id=None,
+                        url="https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606")
     db = TestingSessionLocal()
     db.add(taxonomy)
     db.commit()
@@ -657,15 +665,9 @@ def test_valid_score_file(test_empty_db):
 """
 # This one can't work cause duplicate column names will be processed automatically
 def test_score_file_with_duplicate_columns(test_empty_db):
-<<<<<<< HEAD
     create_taxonomy()
     scoreset = create_scoreset()
     urn = scoreset["urn"]
-=======
-    create_reference_genome()
-    score_set = create_score_set()
-    urn = score_set["urn"]
->>>>>>> main
     current_directory = os.path.dirname(os.path.abspath(__file__))
     score_csv_path = os.path.join(current_directory, "scores_with_duplicate_columns.csv")
     count_csv_path = os.path.join(current_directory, "counts.csv")
