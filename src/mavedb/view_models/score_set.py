@@ -144,6 +144,8 @@ class ShortScoreSet(BaseModel):
     replaces_id: Optional[int]
     num_variants: int
     experiment: Experiment
+    primary_publication_identifiers: list[SavedPublicationIdentifier]
+    secondary_publication_identifiers: list[SavedPublicationIdentifier]
     license: ShortLicense
     creation_date: date
     modification_date: date
@@ -153,6 +155,7 @@ class ShortScoreSet(BaseModel):
     class Config:
         orm_mode = True
         arbitrary_types_allowed = True
+        getter_dict = ScoreSetGetter
 
 
 class SavedScoreSet(ScoreSetBase):
