@@ -24,6 +24,7 @@ from mavedb.routers import (
     doi_identifiers,
     experiment_sets,
     experiments,
+    hgvs,
     licenses,
     mapped_variant,
     publication_identifiers,
@@ -59,6 +60,7 @@ app.include_router(api_information.router)
 app.include_router(doi_identifiers.router)
 app.include_router(experiment_sets.router)
 app.include_router(experiments.router)
+app.include_router(hgvs.router)
 app.include_router(licenses.router)
 app.include_router(mapped_variant.router)
 app.include_router(publication_identifiers.router)
