@@ -60,7 +60,7 @@ class ScoreSetModify(ScoreSetBase):
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
-    target_gene: TargetGeneCreate
+    target_gene: list[TargetGeneCreate]
 
     @validator("primary_publication_identifiers")
     def max_one_primary_publication_identifier(cls, v):
@@ -149,7 +149,7 @@ class ShortScoreSet(BaseModel):
     license: ShortLicense
     creation_date: date
     modification_date: date
-    target_gene: ShortTargetGene
+    target_gene: list[ShortTargetGene]
     private: bool
 
     class Config:
@@ -177,7 +177,7 @@ class SavedScoreSet(ScoreSetBase):
     modification_date: date
     created_by: Optional[SavedUser]
     modified_by: Optional[SavedUser]
-    target_gene: SavedTargetGene
+    target_gene: list[SavedTargetGene]
     dataset_columns: Dict
     keywords: list[str]
 
@@ -207,7 +207,7 @@ class ScoreSet(SavedScoreSet):
     secondary_publication_identifiers: list[PublicationIdentifier]
     created_by: Optional[User]
     modified_by: Optional[User]
-    target_gene: TargetGene
+    target_gene: list[TargetGene]
     private: bool
     # processing_state: Optional[str]
 

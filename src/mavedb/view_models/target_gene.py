@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Any, List
+from typing import Any, Optional
 
 from pydantic import conlist
 from pydantic.utils import GetterDict
@@ -8,6 +8,7 @@ from mavedb.view_models import external_gene_identifier_offset
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.reference_map import ReferenceMap, ReferenceMapCreate
 from mavedb.view_models.wild_type_sequence import WildTypeSequence, WildTypeSequenceCreate
+from mavedb.view_models.target_accession import TargetAccession, TargetAccessionCreate
 from mavedb.lib.validation import target
 
 
@@ -53,8 +54,15 @@ class TargetGeneCreate(TargetGeneModify):
     """View model for creating a new target gene."""
 
     reference_maps: conlist(ReferenceMapCreate, min_items=1)
-    wt_sequence: WildTypeSequenceCreate
+    wt_sequence: Optional[WildTypeSequenceCreate]
+    target_accession: Optional[TargetAccessionCreate]
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffsetCreate]
+
+    @validator("target_accession")
+    def check_seq_or_accession(cls, target_accession, values):
+        if "wt_sequence" not in values and not target_accession:
+            raise ValueError("either a `wt_sequence` or `target_accession` is required")
+        return target_accession
 
 
 class TargetGeneUpdate(TargetGeneModify):
@@ -76,18 +84,25 @@ class SavedTargetGene(TargetGeneBase):
 class TargetGene(SavedTargetGene):
     """Target gene view model containing a complete set of properties visible to non-admin users."""
 
-    reference_maps: List[ReferenceMap]
-    wt_sequence: WildTypeSequence
+    reference_maps: list[ReferenceMap]
+    wt_sequence: Optional[WildTypeSequence]
+    target_accession: Optional[TargetAccession]
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
 
     class Config:
         getter_dict = ExternalIdentifiersGetter
 
+    @validator("target_accession", always=True)
+    def check_seq_or_accession(cls, target_accession, values):
+        if "wt_sequence" not in values and not target_accession:
+            raise ValueError("either a `wt_sequence` or `target_accession` is required")
+        return target_accession
+
 
 class ShortTargetGene(SavedTargetGene):
     """Target gene view model containing a smaller set of properties to return in list contexts."""
 
-    reference_maps: List[ReferenceMap]
+    reference_maps: list[ReferenceMap]
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
 
     class Config:
@@ -99,9 +114,16 @@ class AdminTargetGene(SavedTargetGene):
 
     creation_date: date
     modification_date: date
-    reference_maps: List[ReferenceMap]
-    wt_sequence: WildTypeSequence
+    reference_maps: list[ReferenceMap]
+    wt_sequence: Optional[list[WildTypeSequence]]
+    target_accession: Optional[list[TargetAccession]]
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
 
     class Config:
         getter_dict = ExternalIdentifiersGetter
+
+    @validator("target_accession", always=True)
+    def check_seq_or_accession(cls, target_accession, values):
+        if "wt_sequence" not in values and not target_accession:
+            raise ValueError("either a `wt_sequence` or `target_accession` is required")
+        return target_accession

@@ -33,6 +33,7 @@ from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn
 from mavedb.lib.validation import exceptions
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_pair
+from mavedb.lib.exceptions import MixedTargetError
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
@@ -40,6 +41,7 @@ from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.reference_map import ReferenceMap
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
+from mavedb.models.target_accession import TargetAccession
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.models.wild_type_sequence import WildTypeSequence
@@ -343,22 +345,53 @@ async def create_score_set(
     for publication in publication_identifiers:
         setattr(publication, "primary", publication.identifier in primary_identifiers)
 
-    wt_sequence = WildTypeSequence(**jsonable_encoder(item_create.target_gene.wt_sequence, by_alias=False))
-    target_gene = TargetGene(
-        **jsonable_encoder(
-            item_create.target_gene,
-            by_alias=False,
-            exclude={"external_identifiers", "reference_maps", "wt_sequence"},
-        ),
-        wt_sequence=wt_sequence,
-    )
-    for external_gene_identifier_offset_create in item_create.target_gene.external_identifiers:
-        offset = external_gene_identifier_offset_create.offset
-        identifier_create = external_gene_identifier_offset_create.identifier
-        await create_external_gene_identifier_offset(
-            db, target_gene, identifier_create.db_name, identifier_create.identifier, offset
-        )
-    reference_map = ReferenceMap(genome_id=item_create.target_gene.reference_maps[0].genome_id, target=target_gene)
+    targets = []
+    accessions = False
+    for gene in item_create.target_gene:
+        if gene.wt_sequence:
+            if accessions and len(targets) > 0:
+                raise MixedTargetError(
+                    "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
+                )
+
+            wt_sequence = WildTypeSequence(**jsonable_encoder(gene.wt_sequence, by_alias=False))
+            target_gene = TargetGene(
+                **jsonable_encoder(
+                    gene,
+                    by_alias=False,
+                    exclude={"external_identifiers", "reference_maps", "wt_sequence", "target_accession"},
+                ),
+                wt_sequence=wt_sequence,
+            )
+
+        elif gene.target_accession:
+            if not accessions and len(targets) > 0:
+                raise MixedTargetError(
+                    "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
+                )
+            accessions = True
+            target_accession = TargetAccession(**jsonable_encoder(gene.target_accession, by_alias=False))
+            target_gene = TargetGene(
+                **jsonable_encoder(
+                    gene,
+                    by_alias=False,
+                    exclude={"external_identifiers", "reference_maps", "wt_sequence", "target_accession"},
+                ),
+                target_accession=target_accession,
+            )
+        else:
+            raise ValueError("One of either `target_accession` or `target_gene` should be present")
+
+        targets.append(target_gene)
+        for external_gene_identifier_offset_create in gene.external_identifiers:
+            offset = external_gene_identifier_offset_create.offset
+            identifier_create = external_gene_identifier_offset_create.identifier
+            await create_external_gene_identifier_offset(
+                db, target_gene, identifier_create.db_name, identifier_create.identifier, offset
+            )
+
+        reference_map = ReferenceMap(genome_id=gene.reference_maps[0].genome_id, target=target_gene)
+
     item = ScoreSet(
         **jsonable_encoder(
             item_create,
@@ -379,7 +412,7 @@ async def create_score_set(
         license=license_,
         superseded_score_set=superseded_score_set,
         meta_analyzes_score_sets=meta_analyzes_score_sets,
-        target_gene=target_gene,
+        target_gene=targets,
         doi_identifiers=doi_identifiers,
         publication_identifiers=publication_identifiers,
         processing_state=ProcessingState.incomplete,
@@ -425,11 +458,13 @@ async def upload_score_set_variant_data(
     # Delete the old variants so that uploading new scores and counts won't accumulate the old ones.
     db.query(Variant).filter(Variant.score_set_id == item.id).delete()
 
-    extra_na_values = set(
-        list(null_values_list)
-        + [str(x).lower() for x in null_values_list]
-        + [str(x).upper() for x in null_values_list]
-        + [str(x).capitalize() for x in null_values_list]
+    extra_na_values = list(
+        set(
+            list(null_values_list)
+            + [str(x).lower() for x in null_values_list]
+            + [str(x).upper() for x in null_values_list]
+            + [str(x).capitalize() for x in null_values_list]
+        )
     )
     scores_df = pd.read_csv(
         filepath_or_buffer=scores_file.file,
@@ -471,12 +506,11 @@ async def upload_score_set_variant_data(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     """
     if scores_file:
-        try:
-            validate_and_standardize_dataframe_pair(
-                scores_df, counts_df, item.target_gene.wt_sequence.sequence, item.target_gene.wt_sequence.sequence_type
-            )
-        except exceptions.ValidationError as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        if item.target_gene:
+            try:
+                validate_and_standardize_dataframe_pair(scores_df, counts_df, item.target_gene)
+            except exceptions.ValidationError as e:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     variants_data = create_variants_data(scores_df, counts_df, None)  # , index_col)
 
@@ -598,25 +632,57 @@ async def update_score_set(
         item.target_gene = None
         db.flush()
 
-        wt_sequence = WildTypeSequence(**jsonable_encoder(item_update.target_gene.wt_sequence, by_alias=False))
+        targets = []
+        accessions = False
+        for gene in item_update.target_gene:
+            if gene.wt_sequence:
+                if accessions and len(targets) > 0:
+                    raise MixedTargetError(
+                        "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
+                    )
 
-        target_gene = TargetGene(
-            **jsonable_encoder(
-                item_update.target_gene,
-                by_alias=False,
-                exclude={"external_identifiers", "reference_maps", "wt_sequence"},
-            ),
-            wt_sequence=wt_sequence,
-        )
-        for external_gene_identifier_offset_create in item_update.target_gene.external_identifiers:
-            offset = external_gene_identifier_offset_create.offset
-            identifier_create = external_gene_identifier_offset_create.identifier
-            external_gene_identifier = await create_external_gene_identifier_offset(
-                db, target_gene, identifier_create.db_name, identifier_create.identifier, offset
-            )
-        item.target_gene = target_gene
+                wt_sequence = WildTypeSequence(**jsonable_encoder(gene.wt_sequence, by_alias=False))
+                target_gene = TargetGene(
+                    **jsonable_encoder(
+                        gene,
+                        by_alias=False,
+                        exclude={"external_identifiers", "reference_maps", "wt_sequence", "target_accession"},
+                    ),
+                    wt_sequence=wt_sequence,
+                )
 
-        reference_map = ReferenceMap(genome_id=item_update.target_gene.reference_maps[0].genome_id, target=target_gene)
+            elif gene.target_accession:
+                if not accessions and len(targets) > 0:
+                    raise MixedTargetError(
+                        "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
+                    )
+                accessions = True
+                target_accession = TargetAccession(**jsonable_encoder(gene, by_alias=False))
+                target_gene = TargetGene(
+                    **jsonable_encoder(
+                        gene,
+                        by_alias=False,
+                        exclude={"external_identifiers", "reference_maps", "wt_sequence", "target_accession"},
+                    ),
+                    target_accession=target_accession,
+                )
+            else:
+                raise ValueError("One of either `target_accession` or `target_gene` should be present")
+
+            targets.append(target_gene)
+
+            for external_gene_identifier_offset_create in gene.external_identifiers:
+                offset = external_gene_identifier_offset_create.offset
+                identifier_create = external_gene_identifier_offset_create.identifier
+                await create_external_gene_identifier_offset(
+                    db, target_gene, identifier_create.db_name, identifier_create.identifier, offset
+                )
+
+            reference_map = ReferenceMap(genome_id=gene.reference_maps[0].genome_id, target=target_gene)
+            targets.append(target_gene)
+
+        item.target_gene = targets
+
         for var, value in vars(item_update).items():
             if var not in [
                 "keywords",
@@ -633,8 +699,8 @@ async def update_score_set(
         for var, value in vars(item_update).items():
             if var in ["title", "method_text", "abstract_text", "short_description"]:
                 setattr(item, var, value) if value else None
-    db.add(item)
 
+    db.add(item)
     db.commit()
     db.refresh(item)
     return item
