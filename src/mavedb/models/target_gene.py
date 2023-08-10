@@ -8,6 +8,7 @@ from .reference_map import ReferenceMap
 from .refseq_identifier import RefseqIdentifier
 from .uniprot_identifier import UniprotIdentifier
 from .wild_type_sequence import WildTypeSequence
+from .target_accession import TargetAccession
 
 # TODO Reformat code without removing dependencies whose use is not detected.
 
@@ -27,14 +28,21 @@ class TargetGene(Base):
     score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), nullable=False)
     score_set = relationship(
         "ScoreSet",
-        backref=backref("target_gene", cascade="all,delete-orphan", single_parent=True, uselist=False),
+        backref=backref("target_gene", cascade="all,delete-orphan", single_parent=True, uselist=True),
         single_parent=True,
     )
     # uniprot_id_id = Column(Integer, nullable=True)  # , ForeignKey('dataset_scoreset.id'), nullable=False)
-    wt_sequence_id = Column(Integer, ForeignKey("wild_type_sequences.id"), nullable=False)
+    wt_sequence_id = Column(Integer, ForeignKey("wild_type_sequences.id"), nullable=True)
+    accession_id = Column(Integer, ForeignKey("target_accessions.id"), nullable=True)
     wt_sequence = relationship(
         "WildTypeSequence",
-        backref=backref("target_gene", single_parent=True, uselist=False),
+        backref=backref("target_gene", single_parent=True, uselist=True),
+        cascade="all,delete-orphan",
+        single_parent=True,
+    )
+    target_accession = relationship(
+        "TargetAccession",
+        backref=backref("target_gene", single_parent=True, uselist=True),
         cascade="all,delete-orphan",
         single_parent=True,
     )
