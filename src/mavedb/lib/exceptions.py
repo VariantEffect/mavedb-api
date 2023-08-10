@@ -148,3 +148,9 @@ class NonexistentIdentifierError(ValueError):
     """Raised when a user tries to create a publication with a non-existent identifier"""
 
     pass
+
+
+class MixedTargetError(ValueError):
+    """Raised when a user tries to create a score-set against a set of mixed targets"""
+
+    pass

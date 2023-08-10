@@ -34,7 +34,7 @@ from mavedb.routers import (
     target_genes,
     users,
 )
-from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError
+from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError, MixedTargetError
 
 logging.basicConfig()
 # Un-comment this line to log all database queries:
@@ -98,6 +98,14 @@ async def nonexistent_identifier_error_exception_handler(request: Request, exc: 
 async def nonexistent_pmid_error_exception_handler(request: Request, exc: EutilsRequestError):
     return JSONResponse(
         status_code=404,
+        content={"message": str(exc)},
+    )
+
+
+@app.exception_handler(MixedTargetError)
+async def mixed_target_exception_handler(request: Request, exc: MixedTargetError):
+    return JSONResponse(
+        status_code=400,
         content={"message": str(exc)},
     )
 
