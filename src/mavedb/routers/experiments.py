@@ -120,7 +120,8 @@ def get_experiment_score_sets(
     if not permission.permitted:
         raise HTTPException(status_code=permission.http_code, detail=permission.message)
     # Only get published score sets. Unpublished score sets won't be shown on experiment page.
-    score_sets = db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(not ScoreSet.private).all()
+    # score_sets = db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(not ScoreSet.private).all()
+    score_sets = db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(ScoreSet.private.is_(False)).all()
     if not score_sets:
         raise HTTPException(status_code=404, detail="no associated score sets")
     else:
