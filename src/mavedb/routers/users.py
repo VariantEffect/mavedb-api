@@ -79,7 +79,7 @@ async def update_user(
         raise HTTPException(status_code=500, detail=f"Multiple users with ID {id} were found.")
     if not item:
         raise HTTPException(status_code=404, detail=f"User with id {id} not found.")
-    # TODO Ensure that the current user has edit rights for this scoreset.
+    # TODO Ensure that the current user has edit rights for this score set.
 
     item.first_name = item_update.first_name
     item.last_name = item_update.last_name

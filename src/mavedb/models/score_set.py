@@ -2,6 +2,7 @@ from collections import defaultdict
 from datetime import date
 from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship, backref
+from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.schema import Table
 from typing import Dict, Optional
 
@@ -10,20 +11,22 @@ from mavedb.deps import JSONB
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.legacy_keyword import LegacyKeyword
 from mavedb.models.controlled_keyword import ControlledKeyword
+from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 
 # from .raw_read_identifier import SraIdentifier
 from mavedb.lib.temp_urns import generate_temp_urn
 
 # TODO Reformat code without removing dependencies whose use is not detected.
 
-scoresets_controlled_keywords_association_table = Table(
+score_sets_controlled_keywords_association_table = Table(
     'scoreset_controlled_keywords',
     Base.metadata,
     Column('scoreset_id', ForeignKey('scoresets.id'), primary_key=True),
     Column('controlled_keyword_id', ForeignKey('controlled_keywords.id'), primary_key=True)
 )
 
-scoresets_doi_identifiers_association_table = Table(
+
+score_sets_doi_identifiers_association_table = Table(
     "scoreset_doi_identifiers",
     Base.metadata,
     Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
@@ -31,7 +34,7 @@ scoresets_doi_identifiers_association_table = Table(
 )
 
 
-scoresets_legacy_keywords_association_table = Table(
+score_sets_legacy_keywords_association_table = Table(
     "scoreset_keywords",
     Base.metadata,
     Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
@@ -39,7 +42,7 @@ scoresets_legacy_keywords_association_table = Table(
 )
 
 
-scoresets_meta_analysis_scoresets_association_table = Table(
+score_sets_meta_analysis_score_sets_association_table = Table(
     "scoreset_meta_analysis_sources",
     Base.metadata,
     Column("source_scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
@@ -47,16 +50,8 @@ scoresets_meta_analysis_scoresets_association_table = Table(
 )
 
 
-scoresets_pubmed_identifiers_association_table = Table(
-    "scoreset_pubmed_identifiers",
-    Base.metadata,
-    Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
-    Column("pubmed_identifier_id", ForeignKey("pubmed_identifiers.id"), primary_key=True),
-)
-
-
-# scoresets_sra_identifiers_association_table = Table(
-scoresets_raw_read_identifiers_association_table = Table(
+# score_sets_sra_identifiers_association_table = Table(
+score_sets_raw_read_identifiers_association_table = Table(
     "scoreset_sra_identifiers",
     Base.metadata,
     Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
@@ -64,7 +59,7 @@ scoresets_raw_read_identifiers_association_table = Table(
 )
 
 
-class Scoreset(Base):
+class ScoreSet(Base):
     __tablename__ = "scoresets"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -91,38 +86,43 @@ class Scoreset(Base):
     num_variants = Column(Integer, nullable=False, default=0)
 
     experiment_id = Column(Integer, ForeignKey("experiments.id"), nullable=False)
-    experiment = relationship("Experiment", backref=backref("scoresets", cascade="all,delete-orphan"))
+    experiment = relationship("Experiment", backref=backref("score_sets", cascade="all,delete-orphan"))
     # TODO Standardize on US or GB spelling for licenc/se.
     licence_id = Column(Integer, ForeignKey("licenses.id"), nullable=False)
     license = relationship("License")
-    superseded_scoreset_id = Column("replaces_id", Integer, ForeignKey("scoresets.id"), nullable=True)
-    superseded_scoreset = relationship(
-        "Scoreset", uselist=False, remote_side=[id], backref=backref("superseding_scoreset", uselist=False)
+    superseded_score_set_id = Column("replaces_id", Integer, ForeignKey("scoresets.id"), nullable=True)  # TODO
+    superseded_score_set = relationship(
+        "ScoreSet", uselist=False, remote_side=[id], backref=backref("superseding_score_set", uselist=False)
     )
 
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_by = relationship("User", foreign_keys="Scoreset.created_by_id")
+    created_by = relationship("User", foreign_keys="ScoreSet.created_by_id")
     modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    modified_by = relationship("User", foreign_keys="Scoreset.modified_by_id")
+    modified_by = relationship("User", foreign_keys="ScoreSet.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    keyword_objs = relationship("ControlledKeyword", secondary=scoresets_controlled_keywords_association_table, backref="scoresets")
-    legacy_keyword_objs = relationship('LegacyKeyword', secondary=scoresets_legacy_keywords_association_table, backref='scoresets')
+    keyword_objs = relationship("ControlledKeyword", secondary=score_sets_controlled_keywords_association_table, backref="scoresets")
+    legacy_keyword_objs = relationship('LegacyKeyword', secondary=score_sets_legacy_keywords_association_table, backref='scoresets')
     doi_identifiers = relationship(
-        "DoiIdentifier", secondary=scoresets_doi_identifiers_association_table, backref="scoresets"
+        "DoiIdentifier", secondary=score_sets_doi_identifiers_association_table, backref="score_sets"
     )
-    pubmed_identifiers = relationship(
-        "PubmedIdentifier", secondary=scoresets_pubmed_identifiers_association_table, backref="scoresets"
+    publication_identifier_associations = relationship(
+        "ScoreSetPublicationIdentifierAssociation", back_populates="score_set", cascade="all, delete-orphan"
     )
-    # sra_identifiers = relationship('SraIdentifier', secondary=scoresets_sra_identifiers_association_table, backref='scoresets')
-    # raw_read_identifiers = relationship('RawReadIdentifier', secondary=scoresets_raw_read_identifiers_association_table,backref='scoresets')
-    meta_analysis_source_scoresets = relationship(
-        "Scoreset",
-        secondary=scoresets_meta_analysis_scoresets_association_table,
-        primaryjoin=(scoresets_meta_analysis_scoresets_association_table.c.meta_analysis_scoreset_id == id),
-        secondaryjoin=(scoresets_meta_analysis_scoresets_association_table.c.source_scoreset_id == id),
-        backref="meta_analyses",
+    publication_identifiers = association_proxy(
+        "publication_identifier_associations",
+        "publication",
+        creator=lambda p: ScoreSetPublicationIdentifierAssociation(publication=p, primary=p.primary),
+    )
+    # sra_identifiers = relationship('SraIdentifier', secondary=score_sets_sra_identifiers_association_table, backref='score_sets')
+    # raw_read_identifiers = relationship('RawReadIdentifier', secondary=score_sets_raw_read_identifiers_association_table,backref='score_sets')
+    meta_analyzes_score_sets = relationship(
+        "ScoreSet",
+        secondary=score_sets_meta_analysis_score_sets_association_table,
+        primaryjoin=(score_sets_meta_analysis_score_sets_association_table.c.meta_analysis_scoreset_id == id),
+        secondaryjoin=(score_sets_meta_analysis_score_sets_association_table.c.source_scoreset_id == id),
+        backref="meta_analyzed_by_score_sets",
     )
 
     @property

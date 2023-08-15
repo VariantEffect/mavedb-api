@@ -28,7 +28,9 @@ class AdminUserUpdate(BaseModel):
     first_name: Optional[str]
     last_name: Optional[str]
     email: Optional[str]
-    roles: list[Literal["admin"]]
+    # TODO Change the type back to list[Literal["admin"]]. Currently this causes a startup error.
+    # roles: list[Literal["admin"]]
+    roles: list[str]
 
 
 class SavedUser(UserBase):

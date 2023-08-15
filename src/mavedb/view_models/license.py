@@ -6,6 +6,7 @@ from mavedb.view_models.base.base import BaseModel
 
 class LicenseBase(BaseModel):
     """Base class for license view models."""
+
     long_name: str
     short_name: str
     link: Optional[str]

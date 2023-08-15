@@ -24,9 +24,9 @@ class TargetGene(Base):
     # ensembl_id_id = Column(Integer, ForeignKey('ensembl_identifiers.id'), nullable=True)
     # ensembl_id = relationship('EnsemblIdentifier', backref='target_genes')
     # refseq_id_id = Column(Integer, nullable=True)  # , ForeignKey('dataset_scoreset.id'), nullable=False)
-    scoreset_id = Column(Integer, ForeignKey("scoresets.id"), nullable=False)
-    scoreset = relationship(
-        "Scoreset",
+    score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), nullable=False)
+    score_set = relationship(
+        "ScoreSet",
         backref=backref("target_gene", cascade="all,delete-orphan", single_parent=True, uselist=False),
         single_parent=True,
     )

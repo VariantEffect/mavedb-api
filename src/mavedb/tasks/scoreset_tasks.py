@@ -1,16 +1,16 @@
 from celery.utils.log import get_task_logger
 
 from mavedb.deps import get_db
-from mavedb.lib.scoresets import create_variants_data
+from mavedb.lib.score_sets import create_variants_data
 from mavedb.lib.worker import celery_app
-from mavedb.models.scoreset import Scoreset
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 
 logger = get_task_logger(__name__)
 
 
 # TODO Currently unused, but kept here for future reference when we need background processing.
-# In moving from Django to FastAPI, we eliminated the need to use this for short tasks like scoreset ingestion, thanks
+# In moving from Django to FastAPI, we eliminated the need to use this for short tasks like score set ingestion, thanks
 # to FastAPI's support for asynchronous operations. But if any operations are really long-running or computationally
 # intensive, we should move them to a separate process and have the option of moving them to a separate server.
 
@@ -21,10 +21,10 @@ logger = get_task_logger(__name__)
     # base=BaseCreateVariantsTask,
     serializer="pickle",
 )
-def create_variants_task(self, scoreset_urn, scores, counts, index_col, dataset_columns, user_id=None):
+def create_variants_task(self, score_set_urn, scores, counts, index_col, dataset_columns, user_id=None):
     """
     Celery task to that creates and associates `variant.model.Variant` instances
-    parsed/validated during upload to a `models.scoreset.ScoreSet` instance.
+    parsed/validated during upload to a `models.score_set.ScoreSet` instance.
 
     Parameters
     ----------
@@ -32,7 +32,7 @@ def create_variants_task(self, scoreset_urn, scores, counts, index_col, dataset_
         Bound when celery calls this task.
     user_id : int
         Primary key (id) of the submitting user.
-    scoreset_urn : str
+    score_set_urn : str
         The urn of the instance to associate variants to.
     scores : str
         JSON formatted dataframe (NaN replaced with None).
@@ -47,14 +47,14 @@ def create_variants_task(self, scoreset_urn, scores, counts, index_col, dataset_
 
     Returns
     -------
-    `models.scoreset.ScoreSet`
+    `models.score_set.ScoreSet`
     """
-    self.urn = scoreset_urn
+    self.urn = score_set_urn
     # Look for instances. This might throw an ObjectDoesNotExist exception.
     # Bind ORM objects if they were found.
     self.user = None  # User.objects.get(pk=user_id)
     db = next(get_db())
-    self.instance = db.query(Scoreset).get(Scoreset.urn == scoreset_urn).one_or_none()
+    self.instance = db.query(ScoreSet).get(ScoreSet.urn == score_set_urn).one_or_none()
 
     logger.info(f"Sending scores dataframe with {len(scores)} rows.")
     logger.info(f"Sending counts dataframe with {len(counts)} rows.")

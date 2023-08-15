@@ -8,7 +8,7 @@ from mavedb.models.reference_genome import ReferenceGenome
 from mavedb.view_models import reference_genome
 
 router = APIRouter(
-    prefix="/api/v1/referenceGenomes", tags=["reference-genomes"], responses={404: {"description": "Not found"}}
+    prefix="/api/v1/reference-genomes", tags=["reference-genomes"], responses={404: {"description": "Not found"}}
 )
 
 
@@ -24,7 +24,7 @@ def list_reference_genomes(
     return items
 
 
-@router.get("/organismNames", status_code=200, response_model=List[str], responses={404: {}})
+@router.get("/organism-names", status_code=200, response_model=List[str], responses={404: {}})
 def list_reference_genome_organism_names(
     *,
     db: Session = Depends(deps.get_db),

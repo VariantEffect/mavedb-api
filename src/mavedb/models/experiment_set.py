@@ -22,11 +22,11 @@ experiment_sets_legacy_keywords_association_table = Table(
     Column("keyword_id", ForeignKey("keywords.id"), primary_key=True),
 )
 
-experiment_sets_pubmed_identifiers_association_table = Table(
-    "experiment_set_pubmed_identifiers",
+experiment_sets_publication_identifiers_association_table = Table(
+    "experiment_set_publication_identifiers",
     Base.metadata,
     Column("experiment_set_id", ForeignKey("experiment_sets.id"), primary_key=True),
-    Column("pubmed_identifier_id", ForeignKey("pubmed_identifiers.id"), primary_key=True),
+    Column("publication_identifier_id", ForeignKey("publication_identifiers.id"), primary_key=True),
 )
 
 # experiment_sets_sra_identifiers_association_table = Table(
@@ -44,10 +44,6 @@ class ExperimentSet(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     urn = Column(String(64), nullable=True, default=generate_temp_urn)  # index=True, nullable=True
-    title = Column(String, nullable=False)
-    method_text = Column(String, nullable=False)
-    abstract_text = Column(String, nullable=False)
-    short_description = Column(String, nullable=False)
     extra_metadata = Column(JSONB, nullable=False)
 
     private = Column(Boolean, nullable=False, default=True)
@@ -71,8 +67,10 @@ class ExperimentSet(Base):
     doi_identifiers = relationship(
         "DoiIdentifier", secondary=experiment_sets_doi_identifiers_association_table, backref="experiment_sets"
     )
-    pubmed_identifiers = relationship(
-        "PubmedIdentifier", secondary=experiment_sets_pubmed_identifiers_association_table, backref="experiment_sets"
+    publication_identifiers = relationship(
+        "PublicationIdentifier",
+        secondary=experiment_sets_publication_identifiers_association_table,
+        backref="experiment_sets",
     )
     # sra_identifiers = relationship('SraIdentifier', secondary=experiment_sets_sra_identifiers_association_table, backref='experiment_sets')
     raw_read_identifiers = relationship(

@@ -10,11 +10,6 @@ from mavedb.view_models.user import SavedUser, User
 
 class ExperimentSetBase(BaseModel):
     urn: str
-    title: Optional[str]
-    method_text: Optional[str]
-    abstract_text: Optional[str]
-    short_description: Optional[str]
-    extra_metadata: Optional[Dict]
     published_date: Optional[date]
 
 
@@ -30,7 +25,6 @@ class ExperimentSetUpdate(ExperimentSetBase):
 class SavedExperimentSet(ExperimentSetBase):
     id: int
     experiments: List[SavedExperiment]
-    num_experiments: int
     created_by: Optional[SavedUser]
     modified_by: Optional[SavedUser]
     creation_date: date

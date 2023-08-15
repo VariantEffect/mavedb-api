@@ -157,7 +157,7 @@ class Task(CeleryTask):
         einfo : `~billiard.einfo.ExceptionInfo`
             Exception information.
         user : `User`, `int` or `str`.
-            User that called the task. Applicable to `publish_scoreset`
+            User that called the task. Applicable to `publish_score_set`
             and `create_variants` tasks. Will search User model if user
             is an int pk or str username.
 

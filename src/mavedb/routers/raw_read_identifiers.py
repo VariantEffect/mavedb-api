@@ -10,7 +10,7 @@ from mavedb.view_models import raw_read_identifier
 from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
-    prefix="/api/v1/rawReadIdentifiers", tags=["Raw read identifiers"], responses={404: {"description": "Not found"}}
+    prefix="/api/v1/raw-read-identifiers", tags=["Raw read identifiers"], responses={404: {"description": "Not found"}}
 )
 
 

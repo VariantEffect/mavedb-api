@@ -10,7 +10,7 @@ from mavedb.view_models import external_gene_identifier
 from mavedb.lib.identifiers import EXTERNAL_GENE_IDENTIFIER_CLASSES
 
 router = APIRouter(
-    prefix="/api/v1/targetGeneIdentifiers",
+    prefix="/api/v1/target-gene-identifiers",
     tags=["target gene identifiers"],
     responses={404: {"description": "Not found"}},
 )

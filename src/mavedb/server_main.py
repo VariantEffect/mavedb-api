@@ -13,6 +13,7 @@ from slack_sdk.webhook import WebhookClient
 from sqlalchemy.orm import configure_mappers
 from starlette import status
 from starlette.responses import JSONResponse, Response
+from metapub.exceptions import InvalidPMID
 
 from mavedb.models import *
 
@@ -24,18 +25,20 @@ from mavedb.routers import (
     experiment_sets,
     experiments,
     licenses,
-    pubmed_identifiers,
+    mapped_variant,
+    publication_identifiers,
     target_gene_identifiers,
     raw_read_identifiers,
     reference_genomes,
-    scoresets,
+    score_sets,
     target_genes,
     users,
 )
+from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError
 
 logging.basicConfig()
 # Un-comment this line to log all database queries:
-# logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+# logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -57,10 +60,11 @@ app.include_router(doi_identifiers.router)
 app.include_router(experiment_sets.router)
 app.include_router(experiments.router)
 app.include_router(licenses.router)
-app.include_router(pubmed_identifiers.router)
+app.include_router(mapped_variant.router)
+app.include_router(publication_identifiers.router)
 app.include_router(raw_read_identifiers.router)
 app.include_router(reference_genomes.router)
-app.include_router(scoresets.router)
+app.include_router(score_sets.router)
 app.include_router(target_gene_identifiers.router)
 app.include_router(target_genes.router)
 app.include_router(users.router)
@@ -72,6 +76,31 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=jsonable_encoder({"detail": list(map(lambda error: customize_validation_error(error), exc.errors()))}),
     )
+
+
+@app.exception_handler(AmbiguousIdentifierError)
+async def ambiguous_identifier_error_exception_handler(request: Request, exc: AmbiguousIdentifierError):
+    return JSONResponse(
+        status_code=400,
+        content={"message": str(exc)},
+    )
+
+
+@app.exception_handler(NonexistentIdentifierError)
+async def nonexistent_identifier_error_exception_handler(request: Request, exc: NonexistentIdentifierError):
+    return JSONResponse(
+        status_code=404,
+        content={"message": str(exc)},
+    )
+
+
+@app.exception_handler(InvalidPMID)
+async def nonexistent_pmid_error_exception_handler(request: Request, exc: InvalidPMID):
+    return JSONResponse(
+        status_code=404,
+        content={"message": str(exc)},
+    )
+
 
 def customize_validation_error(error):
     if error["type"] == "type_error.none.not_allowed":
@@ -100,9 +129,9 @@ async def exception_handler(request, err):
                     "text": {
                         "type": "plain_text",
                         "text": json.dumps(exception_as_dict(err)),
-                    }
+                    },
                 }
-            ]
+            ],
         )
     return JSONResponse(status_code=500, content={"message": "Internal server error"})
 

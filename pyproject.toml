@@ -19,9 +19,9 @@ classifiers = [
 ]
 dependencies = [
     "fqfa~=1.2.3",
-    "humps~=0.2.2",
+    "pyhumps~=3.8.0",
     "IDUtils~=1.2.0",
-    "mavehgvs~=0.4.0",
+    "mavehgvs~=0.6.0",
     "metapub~=0.5.5",
     "numpy~=1.22.3",
     "pandas~=1.4.1",
@@ -36,6 +36,7 @@ dev = [
     "flake8",
     "pre-commit",
     "pytest~=7.0.1",
+    "jsonschema",
 ]
 server = [
     "alembic~=1.7.6",
@@ -81,3 +82,7 @@ packages = ["src/mavedb"]
 addopts = [
     "--import-mode=importlib",
 ]
+norecursedirs = "tests/helpers"
+# Uncomment the following lines to include application log output in Pytest logs.
+# log_cli = true
+# log_cli_level = "DEBUG"

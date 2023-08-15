@@ -1,8 +1,10 @@
 from collections import defaultdict
 from datetime import date
 
+from typing import Optional
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.event import listens_for
+from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.schema import Table
 from typing import Dict, Optional
@@ -13,6 +15,7 @@ from mavedb.lib.temp_urns import generate_temp_urn
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.legacy_keyword import LegacyKeyword
 from mavedb.models.controlled_keyword import ControlledKeyword
+from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 
 experiments_controlled_keywords_association_table = Table(
     'experiment_controlled_keywords',
@@ -20,6 +23,7 @@ experiments_controlled_keywords_association_table = Table(
     Column('experiment_id', ForeignKey('experiments.id'), primary_key=True),
     Column('controlled_keyword_id', ForeignKey('controlled_keywords.id'), primary_key=True)
 )
+
 
 experiments_doi_identifiers_association_table = Table(
     "experiment_doi_identifiers",
@@ -34,14 +38,6 @@ experiments_legacy_keywords_association_table = Table(
     Base.metadata,
     Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
     Column("keyword_id", ForeignKey("keywords.id"), primary_key=True),
-)
-
-
-experiments_pubmed_identifiers_association_table = Table(
-    "experiment_pubmed_identifiers",
-    Base.metadata,
-    Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
-    Column("pubmed_identifier_id", ForeignKey("pubmed_identifiers.id"), primary_key=True),
 )
 
 
@@ -71,8 +67,8 @@ class Experiment(Base):
     published_date = Column(Date, nullable=True)
     processing_state = Column(String, nullable=True)
 
-    # TODO Refactor the way we track the number of scoresets?
-    num_scoresets = Column(Integer, nullable=False, default=0)
+    # TODO Remove this obsolete column.
+    num_score_sets = Column("num_scoresets", Integer, nullable=False, default=0)
 
     experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), nullable=True)
     experiment_set = relationship("ExperimentSet", backref=backref("experiments", cascade="all,delete-orphan"))
@@ -89,9 +85,15 @@ class Experiment(Base):
     doi_identifiers = relationship(
         "DoiIdentifier", secondary=experiments_doi_identifiers_association_table, backref="experiments"
     )
-    pubmed_identifiers = relationship(
-        "PubmedIdentifier", secondary=experiments_pubmed_identifiers_association_table, backref="experiments"
+    publication_identifier_associations = relationship(
+        "ExperimentPublicationIdentifierAssociation", back_populates="experiment", cascade="all, delete-orphan"
     )
+    publication_identifiers = association_proxy(
+        "publication_identifier_associations",
+        "publication",
+        creator=lambda p: ExperimentPublicationIdentifierAssociation(publication=p, primary=p.primary),
+    )
+
     # sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
     raw_read_identifiers = relationship(
         "RawReadIdentifier", secondary=experiments_raw_read_identifiers_association_table, backref="experiments"
@@ -155,10 +157,6 @@ class Experiment(Base):
 def create_parent_object(mapper, connect, target):
     if target.experiment_set_id is None:
         target.experiment_set = ExperimentSet(
-            title=target.title,
-            method_text=target.method_text,
-            abstract_text=target.abstract_text,
-            short_description=target.short_description,
             extra_metadata={},
             num_experiments=1,
             created_by=target.created_by,
