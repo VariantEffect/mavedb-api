@@ -17,6 +17,7 @@ from sqlalchemy.exc import MultipleResultsFound
 
 from mavedb import deps
 from mavedb.lib.authorization import get_current_user, require_current_user
+from mavedb.lib.validation.constants.general import hgvs_columns
 from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
     find_or_create_doi_identifier,
@@ -635,7 +636,8 @@ async def update_score_set(
         #
         # We must flush our database queries now so that the old target gene will be deleted before inserting a new one
         # with the same score_set_id.
-        item.target_gene = None
+        prior_targets = item.target_gene
+        item.target_gene = []
         db.flush()
 
         targets = []
@@ -692,10 +694,33 @@ async def update_score_set(
                     db, target_gene, identifier_create.db_name, identifier_create.identifier, offset
                 )
 
-            reference_map = ReferenceMap(genome_id=gene.reference_maps[0].genome_id, target=target_gene)
             targets.append(target_gene)
 
         item.target_gene = targets
+
+        # re-validate existing variants and clear them if they do not pass validation
+        if item.variants:
+            score_columns = ["hgvs_nt", "hgvs_splice", "hgvs_pro"] + item.dataset_columns["score_columns"]
+            count_columns = ["hgvs_nt", "hgvs_splice", "hgvs_pro"] + item.dataset_columns["count_columns"]
+            scores_data = pd.DataFrame(
+                get_csv_rows_data(item.variants, columns=score_columns, dtype="score_data")
+            ).replace("NA", pd.NA)
+            count_data = pd.DataFrame(
+                get_csv_rows_data(item.variants, columns=count_columns, dtype="count_data")
+            ).replace("NA", pd.NA)
+
+            # if our count data only has hgvs columns, we can assume we weren't provided with count data.
+            if set([col.lower() for col in count_data.columns]).issubset(set(hgvs_columns)):
+                count_data = None
+
+            try:
+                validate_and_standardize_dataframe_pair(scores_data, count_data, item.target_gene)
+            except exceptions.ValidationError as e:
+                db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Encountered an exception while re-validating variants: {e}. This update will be discarded.",
+                )
 
         for var, value in vars(item_update).items():
             if var not in [
