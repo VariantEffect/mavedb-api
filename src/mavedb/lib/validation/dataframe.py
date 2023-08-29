@@ -22,7 +22,7 @@ from mavedb.lib.validation.constants.general import (
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models.target_accession import TargetAccession
 from mavedb.view_models.target_gene import TargetGene
-from mavedb.view_models.wild_type_sequence import WildTypeSequence
+from mavedb.view_models.target_sequence import TargetSequence
 
 # handle with pandas all null strings
 # provide a csv or a pandas dataframe
@@ -207,9 +207,9 @@ def validate_dataframe(df: pd.DataFrame, kind: str, targets: list[TargetGene]) -
                 validate_hgvs_genomic_column(
                     df[column_mapping[c]], is_index, [target.target_accession for target in targets]  # type: ignore
                 )
-            elif all(target.wt_sequence for target in targets):
+            elif all(target.target_sequence for target in targets):
                 validate_hgvs_transgenic_column(
-                    df[column_mapping[c]], is_index, {target.name: target.wt_sequence for target in targets}  # type: ignore
+                    df[column_mapping[c]], is_index, {target.name: target.target_sequence for target in targets}  # type: ignore
                 )
             else:
                 raise MixedTargetError("Could not validate dataframe against provided mixed target types.")
@@ -228,7 +228,7 @@ def validate_dataframe(df: pd.DataFrame, kind: str, targets: list[TargetGene]) -
         hgvs_nt=prefixes[hgvs_nt_column],
         hgvs_splice=prefixes[hgvs_splice_column],
         hgvs_pro=prefixes[hgvs_pro_column],
-        transgenic=all(target.wt_sequence for target in targets),
+        transgenic=all(target.target_sequence for target in targets),
     )
 
 
@@ -336,7 +336,7 @@ def choose_dataframe_index_column(df: pd.DataFrame) -> str:
         raise ValidationError("failed to find valid HGVS variant column")
 
 
-def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: dict[str, WildTypeSequence]) -> None:
+def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: dict[str, TargetSequence]) -> None:
     """
     Validate the variants in an HGVS column from a dataframe.
 

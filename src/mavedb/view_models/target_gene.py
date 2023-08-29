@@ -6,8 +6,8 @@ from pydantic.utils import GetterDict
 
 from mavedb.view_models import external_gene_identifier_offset
 from mavedb.view_models.base.base import BaseModel, validator
-from mavedb.view_models.wild_type_sequence import WildTypeSequence, WildTypeSequenceCreate
-from mavedb.view_models.target_accession import TargetAccession, TargetAccessionCreate
+from mavedb.view_models.target_sequence import TargetSequence, TargetSequenceCreate, SavedTargetSequence
+from mavedb.view_models.target_accession import TargetAccession, TargetAccessionCreate, SavedTargetAccession
 from mavedb.lib.validation import target
 
 
@@ -52,14 +52,14 @@ class TargetGeneModify(TargetGeneBase):
 class TargetGeneCreate(TargetGeneModify):
     """View model for creating a new target gene."""
 
-    wt_sequence: Optional[WildTypeSequenceCreate]
+    target_sequence: Optional[TargetSequenceCreate]
     target_accession: Optional[TargetAccessionCreate]
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffsetCreate]
 
     @validator("target_accession")
     def check_seq_or_accession(cls, target_accession, values):
-        if "wt_sequence" not in values and not target_accession:
-            raise ValueError("either a `wt_sequence` or `target_accession` is required")
+        if "target_sequence" not in values and not target_accession:
+            raise ValueError("either a `target_sequence` or `target_accession` is required")
         return target_accession
 
 
@@ -73,6 +73,8 @@ class SavedTargetGene(TargetGeneBase):
     """Base class for target gene view models representing saved records."""
 
     id: int
+    target_sequence: Optional[SavedTargetSequence]
+    target_accession: Optional[SavedTargetAccession]
     external_identifiers: list[external_gene_identifier_offset.SavedExternalGeneIdentifierOffset]
 
     class Config:
@@ -83,7 +85,7 @@ class SavedTargetGene(TargetGeneBase):
 class TargetGene(SavedTargetGene):
     """Target gene view model containing a complete set of properties visible to non-admin users."""
 
-    wt_sequence: Optional[WildTypeSequence]
+    target_sequence: Optional[TargetSequence]
     target_accession: Optional[TargetAccession]
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
 
@@ -92,8 +94,8 @@ class TargetGene(SavedTargetGene):
 
     @validator("target_accession", always=True)
     def check_seq_or_accession(cls, target_accession, values):
-        if "wt_sequence" not in values and not target_accession:
-            raise ValueError("either a `wt_sequence` or `target_accession` is required")
+        if "target_sequence" not in values and not target_accession:
+            raise ValueError("either a `target_sequence` or `target_accession` is required")
         return target_accession
 
 
@@ -111,7 +113,7 @@ class AdminTargetGene(SavedTargetGene):
 
     creation_date: date
     modification_date: date
-    wt_sequence: Optional[list[WildTypeSequence]]
+    target_sequence: Optional[list[TargetSequence]]
     target_accession: Optional[list[TargetAccession]]
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
 
@@ -120,6 +122,6 @@ class AdminTargetGene(SavedTargetGene):
 
     @validator("target_accession", always=True)
     def check_seq_or_accession(cls, target_accession, values):
-        if "wt_sequence" not in values and not target_accession:
-            raise ValueError("either a `wt_sequence` or `target_accession` is required")
+        if "target_sequence" not in values and not target_accession:
+            raise ValueError("either a `target_sequence` or `target_accession` is required")
         return target_accession

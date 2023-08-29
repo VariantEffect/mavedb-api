@@ -17,9 +17,9 @@ __all__ = [
     "role",
     "score_set",
     "target_gene",
+    "target_sequence",
     "uniprot_identifier",
     "uniprot_offset",
     "user",
     "variant",
-    "wild_type_sequence",
 ]

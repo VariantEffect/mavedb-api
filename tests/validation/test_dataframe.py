@@ -605,7 +605,7 @@ class TestValidateVariantColumnsMatch(DfTestCase):
             validate_variant_columns_match(self.dataframe, df2)
 
 
-# Spoof the wild type sequence type
+# Spoof the target sequence type
 class SequenceTestCase:
     def __init__(self):
         self.sequence = "ATG"

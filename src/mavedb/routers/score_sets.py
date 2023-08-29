@@ -45,7 +45,7 @@ from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
-from mavedb.models.wild_type_sequence import WildTypeSequence
+from mavedb.models.target_sequence import TargetSequence
 from mavedb.view_models import mapped_variant
 from mavedb.view_models import score_set
 from mavedb.view_models.search import ScoreSetsSearch
@@ -349,27 +349,28 @@ async def create_score_set(
     targets = []
     accessions = False
     for gene in item_create.target_gene:
-        if gene.wt_sequence:
+        if gene.target_sequence:
             if accessions and len(targets) > 0:
                 raise MixedTargetError(
                     "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                 )
             reference_genome = (
-                db.query(ReferenceGenome).filter(ReferenceGenome.id == gene.wt_sequence.reference.id).one_or_none()
+                db.query(ReferenceGenome).filter(ReferenceGenome.id == gene.target_sequence.reference.id).one_or_none()
             )
             if not reference_genome:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown reference")
 
-            wt_sequence = WildTypeSequence(
-                **jsonable_encoder(gene.wt_sequence, by_alias=False, exclude={"reference"}), reference=reference_genome
+            target_sequence = TargetSequence(
+                **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"reference"}),
+                reference=reference_genome,
             )
             target_gene = TargetGene(
                 **jsonable_encoder(
                     gene,
                     by_alias=False,
-                    exclude={"external_identifiers", "wt_sequence", "target_accession"},
+                    exclude={"external_identifiers", "target_sequence", "target_accession"},
                 ),
-                wt_sequence=wt_sequence,
+                target_sequence=target_sequence,
             )
 
         elif gene.target_accession:
@@ -383,7 +384,7 @@ async def create_score_set(
                 **jsonable_encoder(
                     gene,
                     by_alias=False,
-                    exclude={"external_identifiers", "wt_sequence", "target_accession"},
+                    exclude={"external_identifiers", "target_sequence", "target_accession"},
                 ),
                 target_accession=target_accession,
             )
@@ -643,7 +644,7 @@ async def update_score_set(
         targets = []
         accessions = False
         for gene in item_update.target_gene:
-            if gene.wt_sequence:
+            if gene.target_sequence:
                 if accessions and len(targets) > 0:
                     raise MixedTargetError(
                         "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
@@ -653,20 +654,20 @@ async def update_score_set(
                 if not reference_genome:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Unknown reference {gene.wt_sequence.reference.id}",
+                        detail=f"Unknown reference {gene.target_sequence.reference.id}",
                     )
 
-                wt_sequence = WildTypeSequence(
-                    **jsonable_encoder(gene.wt_sequence, by_alias=False, exclude="reference"),
+                target_sequence = TargetSequence(
+                    **jsonable_encoder(gene.target_sequence, by_alias=False, exclude="reference"),
                     reference=reference_genome,
                 )
                 target_gene = TargetGene(
                     **jsonable_encoder(
                         gene,
                         by_alias=False,
-                        exclude={"external_identifiers", "wt_sequence", "target_accession"},
+                        exclude={"external_identifiers", "target_sequence", "target_accession"},
                     ),
-                    wt_sequence=wt_sequence,
+                    target_sequence=target_sequence,
                 )
 
             elif gene.target_accession:
@@ -680,7 +681,7 @@ async def update_score_set(
                     **jsonable_encoder(
                         gene,
                         by_alias=False,
-                        exclude={"external_identifiers", "wt_sequence", "target_accession"},
+                        exclude={"external_identifiers", "target_sequence", "target_accession"},
                     ),
                     target_accession=target_accession,
                 )
