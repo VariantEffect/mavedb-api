@@ -5,6 +5,7 @@ from mavedb.view_models.base.base import BaseModel
 
 class TargetAccessionBase(BaseModel):
     accession: str
+    assembly: str
 
 
 class TargetAccessionModify(TargetAccessionBase):

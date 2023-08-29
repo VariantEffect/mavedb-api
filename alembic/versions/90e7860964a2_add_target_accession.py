@@ -21,6 +21,7 @@ def upgrade():
     op.create_table(
         "target_accessions",
         sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("assembly", sa.String(), nullable=False),
         sa.Column("accession", sa.String(), nullable=False),
         sa.Column("creation_date", sa.Date(), nullable=False),
         sa.Column("modification_date", sa.Date(), nullable=False),
@@ -30,7 +31,6 @@ def upgrade():
         "target_genes", sa.Column("accession_id", sa.Integer, sa.ForeignKey("target_accessions.id"), nullable=True)
     )
     op.alter_column("target_genes", "wt_sequence_id", nullable=True)
-
     # ### end Alembic commands ###
 
 

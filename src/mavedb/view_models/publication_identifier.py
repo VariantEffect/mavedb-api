@@ -30,7 +30,7 @@ class ExternalPublicationIdentifier(PublicationIdentifierBase):
     url: str
     reference_html: str
     title: str
-    abstract: str
+    abstract: Optional[str]
     authors: list[dict[str, str]]
     publication_doi: Optional[str]
     preprint_doi: Optional[str]
