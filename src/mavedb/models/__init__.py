@@ -12,7 +12,6 @@ __all__ = [
     "publication_identifier",
     "raw_read_identifier",
     "reference_genome",
-    "reference_map",
     "refseq_identifier",
     "refseq_offset",
     "role",

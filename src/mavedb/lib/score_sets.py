@@ -22,7 +22,6 @@ from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.keyword import Keyword
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.reference_genome import ReferenceGenome
-from mavedb.models.reference_map import ReferenceMap
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.user import User
@@ -82,9 +81,7 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
     if search.target_organism_names:
         query = query.filter(
             ScoreSet.target_gene.has(
-                TargetGene.reference_maps.any(
-                    ReferenceMap.genome.has(ReferenceGenome.organism_name.in_(search.target_organism_names))
-                )
+                TargetGene.reference.any(ReferenceGenome.organism_name.in_(search.target_organism_names))
             )
         )
 

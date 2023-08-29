@@ -4,7 +4,6 @@ from sqlalchemy.orm import backref, relationship
 
 from mavedb.db.base import Base
 from .ensembl_identifier import EnsemblIdentifier
-from .reference_map import ReferenceMap
 from .refseq_identifier import RefseqIdentifier
 from .uniprot_identifier import UniprotIdentifier
 from .wild_type_sequence import WildTypeSequence

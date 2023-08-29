@@ -1,6 +1,7 @@
 from datetime import date
 
 from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models.reference_genome import ReferenceGenome
 from mavedb.lib.validation import target
 
 from fqfa import infer_sequence_type
@@ -9,6 +10,7 @@ from fqfa import infer_sequence_type
 class WildTypeSequenceBase(BaseModel):
     sequence_type: str
     sequence: str
+    reference: ReferenceGenome
 
 
 class WildTypeSequenceModify(WildTypeSequenceBase):

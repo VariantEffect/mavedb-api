@@ -38,7 +38,7 @@ from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
-from mavedb.models.reference_map import ReferenceMap
+from mavedb.models.reference_genome import ReferenceGenome
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_accession import TargetAccession
@@ -353,13 +353,20 @@ async def create_score_set(
                 raise MixedTargetError(
                     "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                 )
+            reference_genome = (
+                db.query(ReferenceGenome).filter(ReferenceGenome.id == gene.wt_sequence.reference.id).one_or_none()
+            )
+            if not reference_genome:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown reference")
 
-            wt_sequence = WildTypeSequence(**jsonable_encoder(gene.wt_sequence, by_alias=False))
+            wt_sequence = WildTypeSequence(
+                **jsonable_encoder(gene.wt_sequence, by_alias=False, exclude={"reference"}), reference=reference_genome
+            )
             target_gene = TargetGene(
                 **jsonable_encoder(
                     gene,
                     by_alias=False,
-                    exclude={"external_identifiers", "reference_maps", "wt_sequence", "target_accession"},
+                    exclude={"external_identifiers", "wt_sequence", "target_accession"},
                 ),
                 wt_sequence=wt_sequence,
             )
@@ -375,14 +382,13 @@ async def create_score_set(
                 **jsonable_encoder(
                     gene,
                     by_alias=False,
-                    exclude={"external_identifiers", "reference_maps", "wt_sequence", "target_accession"},
+                    exclude={"external_identifiers", "wt_sequence", "target_accession"},
                 ),
                 target_accession=target_accession,
             )
         else:
             raise ValueError("One of either `target_accession` or `target_gene` should be present")
 
-        targets.append(target_gene)
         for external_gene_identifier_offset_create in gene.external_identifiers:
             offset = external_gene_identifier_offset_create.offset
             identifier_create = external_gene_identifier_offset_create.identifier
@@ -390,7 +396,7 @@ async def create_score_set(
                 db, target_gene, identifier_create.db_name, identifier_create.identifier, offset
             )
 
-        reference_map = ReferenceMap(genome_id=gene.reference_maps[0].genome_id, target=target_gene)
+        targets.append(target_gene)
 
     item = ScoreSet(
         **jsonable_encoder(
@@ -612,7 +618,7 @@ async def update_score_set(
         publication_identifiers = [
             await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             for identifier in item_update.secondary_publication_identifiers or []
-        ]
+        ] + primary_publication_identifiers
         # create a temporary `primary` attribute on each of our publications that indicates
         # to our association proxy whether it is a primary publication or not
         primary_identifiers = [pub.identifier for pub in primary_publication_identifiers]
@@ -641,12 +647,22 @@ async def update_score_set(
                         "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                     )
 
-                wt_sequence = WildTypeSequence(**jsonable_encoder(gene.wt_sequence, by_alias=False))
+                reference_genome = db.query(ReferenceGenome).filter(ReferenceGenome.id == 2).one_or_none()
+                if not reference_genome:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Unknown reference {gene.wt_sequence.reference.id}",
+                    )
+
+                wt_sequence = WildTypeSequence(
+                    **jsonable_encoder(gene.wt_sequence, by_alias=False, exclude="reference"),
+                    reference=reference_genome,
+                )
                 target_gene = TargetGene(
                     **jsonable_encoder(
                         gene,
                         by_alias=False,
-                        exclude={"external_identifiers", "reference_maps", "wt_sequence", "target_accession"},
+                        exclude={"external_identifiers", "wt_sequence", "target_accession"},
                     ),
                     wt_sequence=wt_sequence,
                 )
@@ -657,19 +673,17 @@ async def update_score_set(
                         "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                     )
                 accessions = True
-                target_accession = TargetAccession(**jsonable_encoder(gene, by_alias=False))
+                target_accession = TargetAccession(**jsonable_encoder(gene.target_accession, by_alias=False))
                 target_gene = TargetGene(
                     **jsonable_encoder(
                         gene,
                         by_alias=False,
-                        exclude={"external_identifiers", "reference_maps", "wt_sequence", "target_accession"},
+                        exclude={"external_identifiers", "wt_sequence", "target_accession"},
                     ),
                     target_accession=target_accession,
                 )
             else:
                 raise ValueError("One of either `target_accession` or `target_gene` should be present")
-
-            targets.append(target_gene)
 
             for external_gene_identifier_offset_create in gene.external_identifiers:
                 offset = external_gene_identifier_offset_create.offset
