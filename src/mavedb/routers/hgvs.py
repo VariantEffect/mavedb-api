@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Union
 
 import hgvs.validator
 import hgvs.parser
@@ -46,6 +46,27 @@ def list_assemblies() -> Any:
     List stored assemblies
     """
     return bioutils.assemblies.get_assembly_names()
+
+
+@router.get("/grouped-assemblies", status_code=200, response_model=list[dict[str, Union[str, list[str]]]])
+def list_assemblies_grouped() -> Any:
+    """
+    List stored assemblies in groups of major/minor versions
+    """
+    assemblies = list_assemblies()
+
+    major = []
+    minor = []
+    for assembly in assemblies:
+        if "." in assembly:
+            minor.append(assembly)
+        else:
+            major.append(assembly)
+
+    return [
+        {"type": "Major Assembly Versions", "assemblies": major},
+        {"type": "Minor Assembly Versions", "assemblies": minor},
+    ]
 
 
 @router.get("/{assembly}/accessions", status_code=200, response_model=list[str])
