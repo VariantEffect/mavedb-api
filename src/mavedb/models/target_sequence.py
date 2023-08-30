@@ -13,11 +13,11 @@ class TargetSequence(Base):
     id = Column(Integer, primary_key=True, index=True)
     sequence_type = Column(String, nullable=False)
     sequence = Column(String, nullable=False)
+    label = Column(String, nullable=True)
     reference_id = Column("reference_id", Integer, ForeignKey("reference_genomes.id"), nullable=False)
     reference = relationship(
         "ReferenceGenome",
         backref=backref("target_sequences", single_parent=True),
-        single_parent=True,
     )
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)

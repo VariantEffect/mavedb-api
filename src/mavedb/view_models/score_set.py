@@ -69,6 +69,36 @@ class ScoreSetModify(ScoreSetBase):
                 raise ValidationError("multiple primary publication identifiers are not allowed")
         return v
 
+    # Validate nested label field within target sequence if there are multiple target genes
+    @validator("target_gene")
+    def targets_need_labels_when_multiple_targets_exist(cls, field_value, values):
+        if len(field_value) > 1:
+            for idx, target in enumerate(field_value):
+                if target.target_sequence and target.target_sequence.label is None:
+                    raise ValidationError(
+                        "Target sequence labels cannot be empty when multiple targets are defined.",
+                        custom_loc=["body", "targetGene", idx, "targetSequence", "label"],
+                    )
+
+        return field_value
+
+    # Validate nested label fields are not identical
+    @validator("target_gene")
+    def target_labels_are_unique(cls, field_value, values):
+        if len(field_value) > 1:
+            labels = [target.target_sequence.label for target in field_value]
+            dup_indices = [idx for idx, item in enumerate(labels) if item in labels[:idx]]
+            if dup_indices:
+                # TODO: surface the error for the each duplicated index. the way these pydantic validators are
+                # implemented would require additional customization to surface each duplicate, so surfacing
+                # just one for now seems fine.
+                raise ValidationError(
+                    "Target sequence labels cannot be duplicated.",
+                    custom_loc=["body", "targetGene", dup_indices[-1], "targetSequence", "label"],
+                )
+
+        return field_value
+
     @validator("keywords")
     def validate_keywords(cls, v):
         keywords.validate_keywords(v)

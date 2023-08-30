@@ -1,8 +1,10 @@
 from datetime import date
+from typing import Optional
 
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.reference_genome import ReferenceGenome
 from mavedb.lib.validation import target
+from mavedb.lib.validation.exceptions import ValidationError
 
 from fqfa import infer_sequence_type
 
@@ -10,6 +12,7 @@ from fqfa import infer_sequence_type
 class TargetSequenceBase(BaseModel):
     sequence_type: str
     sequence: str
+    label: Optional[str]
     reference: ReferenceGenome
 
 
@@ -35,6 +38,16 @@ class TargetSequenceModify(TargetSequenceBase):
             target.validate_target_sequence(field_value, sequence_type)
         else:
             raise ValueError("sequence_type is invalid")
+        return field_value
+
+    @validator("label")
+    def check_alphanumeric(cls, field_value, values, field, config) -> str:
+        if isinstance(field_value, str):
+            is_alphanumeric = field_value.replace("_", "").isalnum()
+            if not is_alphanumeric:
+                raise ValidationError(
+                    f"Target sequence label `{field_value}` can contain only letters, numbers, and underscores."
+                )
         return field_value
 
 
