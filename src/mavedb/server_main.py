@@ -113,6 +113,10 @@ async def mixed_target_exception_handler(request: Request, exc: MixedTargetError
 
 
 def customize_validation_error(error):
+    # surface custom validation loc context
+    if error.get("ctx", {}).get("custom_loc"):
+        error = {"loc": error["ctx"]["custom_loc"], "msg": error["msg"], "type": error["type"]}
+
     if error["type"] == "type_error.none.not_allowed":
         return {"loc": error["loc"], "msg": "Required", "type": error["type"]}
     return error
