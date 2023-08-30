@@ -637,7 +637,6 @@ async def update_score_set(
         #
         # We must flush our database queries now so that the old target gene will be deleted before inserting a new one
         # with the same score_set_id.
-        prior_targets = item.target_gene
         item.target_gene = []
         db.flush()
 
@@ -650,7 +649,11 @@ async def update_score_set(
                         "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                     )
 
-                reference_genome = db.query(ReferenceGenome).filter(ReferenceGenome.id == 2).one_or_none()
+                reference_genome = (
+                    db.query(ReferenceGenome)
+                    .filter(ReferenceGenome.id == gene.target_sequence.reference.id)
+                    .one_or_none()
+                )
                 if not reference_genome:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
@@ -658,7 +661,7 @@ async def update_score_set(
                     )
 
                 target_sequence = TargetSequence(
-                    **jsonable_encoder(gene.target_sequence, by_alias=False, exclude="reference"),
+                    **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"reference"}),
                     reference=reference_genome,
                 )
                 target_gene = TargetGene(

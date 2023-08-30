@@ -209,14 +209,16 @@ def validate_dataframe(df: pd.DataFrame, kind: str, targets: list[TargetGene]) -
                 )
             elif all(target.target_sequence for target in targets):
                 validate_hgvs_transgenic_column(
-                    df[column_mapping[c]], is_index, {target.name: target.target_sequence for target in targets}  # type: ignore
+                    df[column_mapping[c]], is_index, {target.target_sequence.label: target.target_sequence for target in targets}  # type: ignore
                 )
             else:
                 raise MixedTargetError("Could not validate dataframe against provided mixed target types.")
 
             # post validation, handle prefixes. We've already established these columns are non-null
             if len(targets) > 1:
-                prefixes[c] = df[column_mapping[c]].dropna()[0].split(":")[1][0]
+                prefixes[c] = (
+                    df[column_mapping[c]].dropna()[0].split(" ")[0].split(":")[1][0]
+                )  # Just take the first prefix, we validate consistency elsewhere
             else:
                 prefixes[c] = df[column_mapping[c]].dropna()[0][0]
 
@@ -399,22 +401,25 @@ def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: 
     # get a list of all invalid variants
     invalid_variants = list()
     for i, s in column.items():
-        # When there are multiple targets, treat provided variants as fully qualified.
-        if len(targets) > 1:
-            name = str(s).split(":")[0]
-            s = str(s).split(":")[1]
-        else:
-            name = list(targets.keys())[0]
-        if s is not None:
-            try:
-                Variant(s, targetseq=target_seqs[name])
-            except MaveHgvsParseError:
+        # variants can exist on the same line separated by a space
+        for variant in s.split(" "):
+            # When there are multiple targets, treat provided variants as fully qualified.
+            if len(targets) > 1:
+                name, variant = str(variant).split(":")
+            else:
+                name = list(targets.keys())[0]
+            if variant is not None:
                 try:
-                    Variant(s)  # note this will get called a second time for splice variants
+                    Variant(variant, targetseq=target_seqs[name])
                 except MaveHgvsParseError:
-                    invalid_variants.append(f"invalid variant string '{s}' at row {i} for sequence {name}")
-                else:
-                    invalid_variants.append(f"target sequence mismatch for '{s}' at row {i} for sequence {name}")
+                    try:
+                        Variant(variant)  # note this will get called a second time for splice variants
+                    except MaveHgvsParseError:
+                        invalid_variants.append(f"invalid variant string '{variant}' at row {i} for sequence {name}")
+                    else:
+                        invalid_variants.append(
+                            f"target sequence mismatch for '{variant}' at row {i} for sequence {name}"
+                        )
 
     # format and raise an error message that contains all invalid variants
     if len(invalid_variants) > 0:
@@ -486,13 +491,14 @@ def validate_hgvs_genomic_column(column: pd.Series, is_index: bool, targets: lis
     invalid_variants = list()
     for i, s in column.items():
         if s is not None:
-            # Add accession info when we only have one target
-            if len(targets) == 1:
-                s = f"{targets[0].accession}:{s}"
-            try:
-                validate_variant(s)  # via biocommons.hgvs
-            except hgvs.exceptions.HGVSError as e:
-                invalid_variants.append(f"Failed to parse row {i} with HGVS exception: {e}")
+            for variant in s.split(" "):
+                # Add accession info when we only have one target
+                if len(targets) == 1:
+                    s = f"{targets[0].accession}:{variant}"
+                try:
+                    validate_variant(variant)  # via biocommons.hgvs
+                except hgvs.exceptions.HGVSError as e:
+                    invalid_variants.append(f"Failed to parse row {i} with HGVS exception: {e}")
 
     # format and raise an error message that contains all invalid variants
     if len(invalid_variants) > 0:
@@ -528,24 +534,25 @@ def validate_variant_formatting(column: pd.Series, prefixes: list[str], targets:
     ValidationError
         If the column contains target accessions not present in the list of possible targets
     """
+    variants = [variant for s in column.dropna() for variant in s.split(" ")]
 
     # if there is more than one target, we expect variants to be fully qualified
     if len(targets) > 1:
-        if not all(len(str(s).split(":")) == 2 for s in column.dropna()):
+        if not all(len(str(v).split(":")) == 2 for v in variants):
             raise ValidationError(
                 f"variant column '{column.name}' needs fully qualified coordinates when validating against multiple targets"
             )
-        if len(set(str(s).split(":")[1][:2] for s in column.dropna())) > 1:
+        if len(set(str(v).split(":")[1][:2] for v in variants)) > 1:
             raise ValidationError(f"variant column '{column.name}' has inconsistent variant prefixes")
-        if not all(str(s).split(":")[1][:2] in prefixes for s in column.dropna()):
+        if not all(str(v).split(":")[1][:2] in prefixes for v in variants):
             raise ValidationError(f"variant column '{column.name}' has invalid variant prefixes")
-        if not all(str(s).split(":")[0] in targets for s in column.dropna()):
+        if not all(str(v).split(":")[0] in targets for v in variants):
             raise ValidationError(f"variant column '{column.name}' has invalid accession identifiers")
 
     else:
-        if len(set(s[:2] for s in column.dropna())) > 1:
+        if len(set(v[:2] for v in variants)) > 1:
             raise ValidationError(f"variant column '{column.name}' has inconsistent variant prefixes")
-        if not all(s[:2] in prefixes for s in column.dropna()):
+        if not all(v[:2] in prefixes for v in variants):
             raise ValidationError(f"variant column '{column.name}' has invalid variant prefixes")
 
 
