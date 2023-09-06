@@ -16,6 +16,7 @@ from mavedb.view_models.doi_identifier import (
     SavedDoiIdentifier,
 )
 from mavedb.view_models.experiment import Experiment, SavedExperiment
+from mavedb.view_models.keyword import Keyword, KeywordBase
 from mavedb.view_models.license import ShortLicense
 from mavedb.view_models.publication_identifier import (
     PublicationIdentifier,
@@ -56,7 +57,7 @@ class ScoreSetBase(BaseModel):
 
 
 class ScoreSetModify(ScoreSetBase):
-    keywords: Optional[list[str]]
+    keywords: Optional[Dict[str, KeywordBase]]
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
@@ -150,6 +151,7 @@ class ShortScoreSet(BaseModel):
     creation_date: date
     modification_date: date
     target_gene: ShortTargetGene
+    keywords: Optional[Dict[str, Keyword]]
     private: bool
 
     class Config:
@@ -169,6 +171,7 @@ class SavedScoreSet(ScoreSetBase):
     superseding_score_set_urn: Optional[str]
     meta_analyzes_score_set_urns: list[str]
     meta_analyzed_by_score_set_urns: list[str]
+    keywords: Optional[Dict[str, Keyword]]
     doi_identifiers: list[SavedDoiIdentifier]
     primary_publication_identifiers: list[SavedPublicationIdentifier]
     secondary_publication_identifiers: list[SavedPublicationIdentifier]
@@ -202,6 +205,7 @@ class ScoreSet(SavedScoreSet):
     """Score set view model containing most properties visible to non-admin users, but no variant data."""
 
     experiment: Experiment
+    keywords: Optional[Dict[str, Keyword]]
     doi_identifiers: list[DoiIdentifier]
     primary_publication_identifiers: list[PublicationIdentifier]
     secondary_publication_identifiers: list[PublicationIdentifier]

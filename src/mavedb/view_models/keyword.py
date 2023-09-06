@@ -10,6 +10,8 @@ class KeywordBase(BaseModel):
     key: str
     value: str
     vocabulary: Optional[str]
+    special: Optional[bool]
+    description: Optional[str]
 
 
 class KeywordCreate(KeywordBase):
