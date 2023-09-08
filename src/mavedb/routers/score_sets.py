@@ -500,7 +500,7 @@ async def upload_score_set_variant_data(
             na_values=extra_na_values,
             keep_default_na=True,
             dtype={**{col: str for col in HGVSColumns.options()}, "scores": float},
-        ).replace(null_values_re, np.NaN)
+        )  # .replace(null_values_re, np.NaN)
         for c in HGVSColumns.options():
             if c not in counts_df.columns:
                 counts_df[c] = np.NaN
