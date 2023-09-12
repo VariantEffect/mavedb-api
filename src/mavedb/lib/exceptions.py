@@ -1,6 +1,7 @@
 import datetime
 from decimal import Decimal
 
+
 NON_FIELD_ERRORS = "__all__"
 
 _PROTECTED_TYPES = (type(None), int, float, Decimal, datetime.datetime, datetime.date, datetime.time)
@@ -145,6 +146,6 @@ class AmbiguousIdentifierError(ValueError):
 
 
 class NonexistentIdentifierError(ValueError):
-    """Raised when a user tries to create a publication with a non-existent identifier"""
+    """Raised when a user tries to create a publication with an ambiguous identifier"""
 
     pass
