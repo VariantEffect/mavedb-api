@@ -182,7 +182,6 @@ class SavedScoreSet(ScoreSetBase):
     modified_by: Optional[SavedUser]
     target_gene: SavedTargetGene
     dataset_columns: Dict
-    keywords: list[str]
 
     class Config:
         orm_mode = True

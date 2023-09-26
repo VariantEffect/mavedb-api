@@ -109,10 +109,10 @@ class Experiment(Base):
     @property
     def keywords(self) -> Dict[str, ControlledKeyword]:
         keyword_objs = self.keyword_objs or []  # getattr(self, 'keyword_objs', [])
-        keywords = defaultdict(keyword_objs)
+        keywords = defaultdict(dict)
         for keyword in keyword_objs:
-            keywords[keyword.key].append(keyword)
-        return sorted(keywords.items)
+            keywords[keyword.key] = keyword
+        return sorted(keywords.items())
 
     @property
     def legacy_keywords(self) -> list[str]:

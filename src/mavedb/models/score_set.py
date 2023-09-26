@@ -128,10 +128,12 @@ class ScoreSet(Base):
     @property
     def keywords(self) -> Dict[str, ControlledKeyword]:
         keyword_objs = self.keyword_objs or []  # getattr(self, 'keyword_objs', [])
-        keywords = defaultdict(keyword_objs)
+        #keywords = defaultdict(keyword_objs)
+        keywords = defaultdict(dict)
         for keyword in keyword_objs:
-            keywords[keyword.key].append(keyword)
-        return sorted(keywords.items)
+            #keywords[keyword.key].append(keyword)
+            keywords[keyword.key] = keyword
+        return sorted(keywords.items())
 
     # Unfortunately, we can't use association_proxy here, because in spite of what the documentation seems to imply, it
     # doesn't check for a pre-existing keyword with the same text.
