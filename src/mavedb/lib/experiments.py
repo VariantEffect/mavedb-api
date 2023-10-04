@@ -1,5 +1,5 @@
 import logging
-from operator import or_
+from sqlalchemy import or_
 from typing import Optional
 
 from sqlalchemy import func
