@@ -461,14 +461,6 @@ def validate_hgvs_genomic_column(column: pd.Series, is_index: bool, targets: lis
     ValidationError
         If one of the variants fails validation
     """
-
-    def validate_variant(variant, strict=True):
-        hp = hgvs.parser.Parser()
-        hdp = hgvs.dataproviders.uta.connect()
-        vr = hgvs.validator.Validator(hdp=hdp)
-
-        return vr.validate(hp.parse(variant), strict=strict)
-
     validate_variant_column(column, is_index)
     prefixes = generate_variant_prefixes(column)
     validate_variant_formatting(column, prefixes, [target.accession for target in targets])
@@ -488,6 +480,10 @@ def validate_hgvs_genomic_column(column: pd.Series, is_index: bool, targets: lis
         else:
             raise ValueError(f"unrecognized hgvs column name '{column.name}'")
 
+    hp = hgvs.parser.Parser()
+    hdp = hgvs.dataproviders.uta.connect()
+    vr = hgvs.validator.Validator(hdp=hdp)
+
     invalid_variants = list()
     for i, s in column.items():
         if s is not None:
@@ -496,7 +492,8 @@ def validate_hgvs_genomic_column(column: pd.Series, is_index: bool, targets: lis
                 if len(targets) == 1:
                     s = f"{targets[0].accession}:{variant}"
                 try:
-                    validate_variant(variant)  # via biocommons.hgvs
+                    # We set strict to `False` to suppress validation warnings about intronic variants.
+                    vr.validate(hp.parse(s), strict=False)
                 except hgvs.exceptions.HGVSError as e:
                     invalid_variants.append(f"Failed to parse row {i} with HGVS exception: {e}")
 
