@@ -23,6 +23,7 @@ from mavedb.models.keyword import Keyword
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.reference_genome import ReferenceGenome
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.user import User
 from mavedb.view_models.search import ScoreSetsSearch
@@ -105,6 +106,13 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
         query = query.filter(
             ScoreSet.publication_identifiers.any(
                 func.jsonb_path_query_array(PublicationIdentifier.authors, "$.name").op("?|")(search.authors)
+            )
+        )
+
+    if search.target_accessions:
+        query = query.filter(
+            ScoreSet.target_genes.any(
+                TargetGene.target_accession.has(TargetAccession.accession.in_(search.target_accessions))
             )
         )
 

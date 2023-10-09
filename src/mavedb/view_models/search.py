@@ -17,6 +17,7 @@ class ScoreSetsSearch(BaseModel):
     targets: Optional[list[str]]
     target_organism_names: Optional[list[str]]
     target_types: Optional[list[str]]
+    target_accessions: Optional[list[str]]
     authors: Optional[list[str]]
     databases: Optional[list[str]]
     journals: Optional[list[str]]
