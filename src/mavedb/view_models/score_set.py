@@ -60,7 +60,7 @@ class ScoreSetModify(ScoreSetBase):
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
-    target_gene: list[TargetGeneCreate]
+    target_genes: list[TargetGeneCreate]
 
     @validator("primary_publication_identifiers")
     def max_one_primary_publication_identifier(cls, v):
@@ -70,7 +70,7 @@ class ScoreSetModify(ScoreSetBase):
         return v
 
     # Validate nested label field within target sequence if there are multiple target genes
-    @validator("target_gene")
+    @validator("target_genes")
     def targets_need_labels_when_multiple_targets_exist(cls, field_value, values):
         if len(field_value) > 1:
             for idx, target in enumerate(field_value):
@@ -83,7 +83,7 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     # Validate nested label fields are not identical
-    @validator("target_gene")
+    @validator("target_genes")
     def target_labels_are_unique(cls, field_value, values):
         if len(field_value) > 1:
             labels = [target.target_sequence.label for target in field_value]
@@ -179,7 +179,7 @@ class ShortScoreSet(BaseModel):
     license: ShortLicense
     creation_date: date
     modification_date: date
-    target_gene: list[ShortTargetGene]
+    target_genes: list[ShortTargetGene]
     private: bool
 
     class Config:
@@ -207,7 +207,7 @@ class SavedScoreSet(ScoreSetBase):
     modification_date: date
     created_by: Optional[SavedUser]
     modified_by: Optional[SavedUser]
-    target_gene: list[SavedTargetGene]
+    target_genes: list[SavedTargetGene]
     dataset_columns: Dict
     keywords: list[str]
 
@@ -237,7 +237,7 @@ class ScoreSet(SavedScoreSet):
     secondary_publication_identifiers: list[PublicationIdentifier]
     created_by: Optional[User]
     modified_by: Optional[User]
-    target_gene: list[TargetGene]
+    target_genes: list[TargetGene]
     private: bool
     # processing_state: Optional[str]
 

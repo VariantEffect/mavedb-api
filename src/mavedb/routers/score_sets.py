@@ -348,7 +348,7 @@ async def create_score_set(
 
     targets = []
     accessions = False
-    for gene in item_create.target_gene:
+    for gene in item_create.target_genes:
         if gene.target_sequence:
             if accessions and len(targets) > 0:
                 raise MixedTargetError(
@@ -413,14 +413,14 @@ async def create_score_set(
                 "primary_publication_identifiers",
                 "secondary_publication_identifiers",
                 "superseded_score_set_urn",
-                "target_gene",
+                "target_genes",
             },
         ),
         experiment=experiment,
         license=license_,
         superseded_score_set=superseded_score_set,
         meta_analyzes_score_sets=meta_analyzes_score_sets,
-        target_gene=targets,
+        target_genes=targets,
         doi_identifiers=doi_identifiers,
         publication_identifiers=publication_identifiers,
         processing_state=ProcessingState.incomplete,
@@ -514,9 +514,9 @@ async def upload_score_set_variant_data(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     """
     if scores_file:
-        if item.target_gene:
+        if item.target_genes:
             try:
-                validate_and_standardize_dataframe_pair(scores_df, counts_df, item.target_gene)
+                validate_and_standardize_dataframe_pair(scores_df, counts_df, item.target_genes)
             except exceptions.ValidationError as e:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -605,7 +605,7 @@ async def update_score_set(
                 "license_id",
                 "secondary_publication_identifiers",
                 "primary_publication_identifiers",
-                "target_gene",
+                "target_genes",
             ]:
                 setattr(item, var, value) if value else None
 
@@ -637,12 +637,12 @@ async def update_score_set(
         #
         # We must flush our database queries now so that the old target gene will be deleted before inserting a new one
         # with the same score_set_id.
-        item.target_gene = []
+        item.target_genes = []
         db.flush()
 
         targets = []
         accessions = False
-        for gene in item_update.target_gene:
+        for gene in item_update.target_genes:
             if gene.target_sequence:
                 if accessions and len(targets) > 0:
                     raise MixedTargetError(
@@ -700,7 +700,7 @@ async def update_score_set(
 
             targets.append(target_gene)
 
-        item.target_gene = targets
+        item.target_genes = targets
 
         # re-validate existing variants and clear them if they do not pass validation
         if item.variants:
@@ -718,7 +718,7 @@ async def update_score_set(
                 count_data = None
 
             try:
-                validate_and_standardize_dataframe_pair(scores_data, count_data, item.target_gene)
+                validate_and_standardize_dataframe_pair(scores_data, count_data, item.target_genes)
             except exceptions.ValidationError as e:
                 db.rollback()
                 raise HTTPException(
@@ -733,7 +733,7 @@ async def update_score_set(
                 "experiment_urn",
                 "primary_publication_identifiers",
                 "secondary_publication_identifiers",
-                "target_gene",
+                "target_genes",
             ]:
                 setattr(item, var, value) if value else None
 

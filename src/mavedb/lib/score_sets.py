@@ -51,8 +51,8 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ScoreSet.title.contains(lower_search_text),
                 ScoreSet.short_description.contains(lower_search_text),
                 ScoreSet.abstract_text.contains(lower_search_text),
-                ScoreSet.target_gene.has(func.lower(TargetGene.name).contains(lower_search_text)),
-                ScoreSet.target_gene.has(func.lower(TargetGene.category).contains(lower_search_text)),
+                ScoreSet.target_genes.any(func.lower(TargetGene.name).contains(lower_search_text)),
+                ScoreSet.target_genes.any(func.lower(TargetGene.category).contains(lower_search_text)),
                 ScoreSet.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text)),
                 # TODO Add: ORGANISM_NAME UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
                 ScoreSet.publication_identifiers.any(
@@ -76,17 +76,17 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
         )
 
     if search.targets:
-        query = query.filter(ScoreSet.target_gene.has(TargetGene.name.in_(search.targets)))
+        query = query.filter(ScoreSet.target_genes.any(TargetGene.name.in_(search.targets)))
 
     if search.target_organism_names:
         query = query.filter(
-            ScoreSet.target_gene.has(
+            ScoreSet.target_genes.any(
                 TargetGene.reference.any(ReferenceGenome.organism_name.in_(search.target_organism_names))
             )
         )
 
     if search.target_types:
-        query = query.filter(ScoreSet.target_gene.has(TargetGene.category.in_(search.target_types)))
+        query = query.filter(ScoreSet.target_genes.any(TargetGene.category.in_(search.target_types)))
 
     if search.publication_identifiers:
         query = query.filter(
@@ -109,7 +109,7 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
         )
 
     score_sets: list[ScoreSet] = (
-        query.join(ScoreSet.experiment).join(ScoreSet.target_gene).order_by(Experiment.title).all()
+        query.join(ScoreSet.experiment).join(ScoreSet.target_genes).order_by(Experiment.title).all()
     )
     if not score_sets:
         score_sets = []
