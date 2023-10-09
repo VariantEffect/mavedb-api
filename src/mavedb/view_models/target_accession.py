@@ -1,11 +1,19 @@
 from datetime import date
+from typing import Optional
 
-from mavedb.view_models.base.base import BaseModel
+from mavedb.view_models.base.base import BaseModel, validator
 
 
 class TargetAccessionBase(BaseModel):
     accession: str
-    assembly: str
+    assembly: Optional[str]
+    gene: Optional[str]
+
+    @validator("gene", always=True)
+    def check_gene_or_assembly(cls, gene, values):
+        if "assembly" not in values and not gene:
+            raise ValueError("either a `gene` or `assembly` is required")
+        return gene
 
 
 class TargetAccessionModify(TargetAccessionBase):

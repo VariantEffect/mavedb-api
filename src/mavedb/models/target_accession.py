@@ -10,7 +10,8 @@ class TargetAccession(Base):
     __tablename__ = "target_accessions"
 
     id = Column(Integer, primary_key=True, index=True)
-    assembly = Column(String, nullable=False)
+    assembly = Column(String, nullable=True)
     accession = Column(String, nullable=False)
+    gene = Column(String, nullable=True)
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
