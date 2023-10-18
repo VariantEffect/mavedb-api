@@ -24,6 +24,7 @@ from mavedb.routers import (
     doi_identifiers,
     experiment_sets,
     experiments,
+    hgvs,
     licenses,
     mapped_variant,
     publication_identifiers,
@@ -34,7 +35,7 @@ from mavedb.routers import (
     target_genes,
     users,
 )
-from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError
+from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError, MixedTargetError
 
 logging.basicConfig()
 # Un-comment this line to log all database queries:
@@ -59,6 +60,7 @@ app.include_router(api_information.router)
 app.include_router(doi_identifiers.router)
 app.include_router(experiment_sets.router)
 app.include_router(experiments.router)
+app.include_router(hgvs.router)
 app.include_router(licenses.router)
 app.include_router(mapped_variant.router)
 app.include_router(publication_identifiers.router)
@@ -102,7 +104,19 @@ async def nonexistent_pmid_error_exception_handler(request: Request, exc: Eutils
     )
 
 
+@app.exception_handler(MixedTargetError)
+async def mixed_target_exception_handler(request: Request, exc: MixedTargetError):
+    return JSONResponse(
+        status_code=400,
+        content={"message": str(exc)},
+    )
+
+
 def customize_validation_error(error):
+    # surface custom validation loc context
+    if error.get("ctx", {}).get("custom_loc"):
+        error = {"loc": error["ctx"]["custom_loc"], "msg": error["msg"], "type": error["type"]}
+
     if error["type"] == "type_error.none.not_allowed":
         return {"loc": error["loc"], "msg": "Required", "type": error["type"]}
     return error

@@ -1,6 +1,6 @@
 from datetime import date
 
-from pydantic.types import Optional
+from typing import Optional
 
 from .base.base import BaseModel
 

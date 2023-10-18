@@ -1,17 +1,22 @@
 from datetime import date
+from typing import Optional
 
 from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models.reference_genome import ReferenceGenome
 from mavedb.lib.validation import target
+from mavedb.lib.validation.exceptions import ValidationError
 
 from fqfa import infer_sequence_type
 
 
-class WildTypeSequenceBase(BaseModel):
+class TargetSequenceBase(BaseModel):
     sequence_type: str
     sequence: str
+    label: Optional[str]
+    reference: ReferenceGenome
 
 
-class WildTypeSequenceModify(WildTypeSequenceBase):
+class TargetSequenceModify(TargetSequenceBase):
     @validator("sequence_type")
     def validate_category(cls, field_value, values, field, config):
         field_value = field_value.lower()
@@ -35,28 +40,38 @@ class WildTypeSequenceModify(WildTypeSequenceBase):
             raise ValueError("sequence_type is invalid")
         return field_value
 
+    @validator("label")
+    def check_alphanumeric(cls, field_value, values, field, config) -> str:
+        if isinstance(field_value, str):
+            is_alphanumeric = field_value.replace("_", "").isalnum()
+            if not is_alphanumeric:
+                raise ValidationError(
+                    f"Target sequence label `{field_value}` can contain only letters, numbers, and underscores."
+                )
+        return field_value
 
-class WildTypeSequenceCreate(WildTypeSequenceModify):
+
+class TargetSequenceCreate(TargetSequenceModify):
     pass
 
 
-class WildTypeSequenceUpdate(WildTypeSequenceModify):
+class TargetSequenceUpdate(TargetSequenceModify):
     pass
 
 
 # Properties shared by models stored in DB
-class SavedWildTypeSequence(WildTypeSequenceBase):
+class SavedTargetSequence(TargetSequenceBase):
     class Config:
         orm_mode = True
         arbitrary_types_allowed = True
 
 
 # Properties to return to non-admin clients
-class WildTypeSequence(SavedWildTypeSequence):
+class TargetSequence(SavedTargetSequence):
     pass
 
 
 # Properties to return to admin clients
-class AdminWildTypeSequence(SavedWildTypeSequence):
+class AdminTargetSequence(SavedTargetSequence):
     creation_date: date
     modification_date: date

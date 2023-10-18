@@ -60,7 +60,7 @@ class ScoreSetModify(ScoreSetBase):
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
-    target_gene: TargetGeneCreate
+    target_genes: list[TargetGeneCreate]
 
     @validator("primary_publication_identifiers")
     def max_one_primary_publication_identifier(cls, v):
@@ -68,6 +68,36 @@ class ScoreSetModify(ScoreSetBase):
             if len(v) > 1:
                 raise ValidationError("multiple primary publication identifiers are not allowed")
         return v
+
+    # Validate nested label field within target sequence if there are multiple target genes
+    @validator("target_genes")
+    def targets_need_labels_when_multiple_targets_exist(cls, field_value, values):
+        if len(field_value) > 1:
+            for idx, target in enumerate(field_value):
+                if target.target_sequence and target.target_sequence.label is None:
+                    raise ValidationError(
+                        "Target sequence labels cannot be empty when multiple targets are defined.",
+                        custom_loc=["body", "targetGene", idx, "targetSequence", "label"],
+                    )
+
+        return field_value
+
+    # Validate nested label fields are not identical
+    @validator("target_genes")
+    def target_labels_are_unique(cls, field_value, values):
+        if len(field_value) > 1:
+            labels = [target.target_sequence.label for target in field_value]
+            dup_indices = [idx for idx, item in enumerate(labels) if item in labels[:idx]]
+            if dup_indices:
+                # TODO: surface the error for the each duplicated index. the way these pydantic validators are
+                # implemented would require additional customization to surface each duplicate, so surfacing
+                # just one for now seems fine.
+                raise ValidationError(
+                    "Target sequence labels cannot be duplicated.",
+                    custom_loc=["body", "targetGene", dup_indices[-1], "targetSequence", "label"],
+                )
+
+        return field_value
 
     @validator("keywords")
     def validate_keywords(cls, v):
@@ -149,7 +179,7 @@ class ShortScoreSet(BaseModel):
     license: ShortLicense
     creation_date: date
     modification_date: date
-    target_gene: ShortTargetGene
+    target_genes: list[ShortTargetGene]
     private: bool
 
     class Config:
@@ -177,7 +207,7 @@ class SavedScoreSet(ScoreSetBase):
     modification_date: date
     created_by: Optional[SavedUser]
     modified_by: Optional[SavedUser]
-    target_gene: SavedTargetGene
+    target_genes: list[SavedTargetGene]
     dataset_columns: Dict
     keywords: list[str]
 
@@ -207,7 +237,7 @@ class ScoreSet(SavedScoreSet):
     secondary_publication_identifiers: list[PublicationIdentifier]
     created_by: Optional[User]
     modified_by: Optional[User]
-    target_gene: TargetGene
+    target_genes: list[TargetGene]
     private: bool
     # processing_state: Optional[str]
 

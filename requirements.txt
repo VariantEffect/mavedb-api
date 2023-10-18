@@ -1,5 +1,6 @@
 alembic~=1.7.6
 authlib~=0.15.5
+biocommons~=0.0.0
 celery~=5.2.3
 cryptography~=37.0.4
 eutils~=0.6.0
@@ -7,6 +8,7 @@ fastapi~=0.71.0
 # fastapi-oidc~=0.0.9
 fqfa~=1.2.3
 IDUtils~=1.2.0
+hgvs~=1.5.4
 jsonschema~=4.17.3
 mavehgvs~=0.6.0
 numpy~=1.22.3

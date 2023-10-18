@@ -80,7 +80,7 @@ TEST_MINIMAL_SCORE_SET = {
         "category": "Protein coding",
         "externalIdentifiers": [],
         "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
-        "wtSequence": {
+        "targetSequence": {
             "sequenceType": "dna",
             "sequence": "ACGTTT",
         },
@@ -125,7 +125,7 @@ TEST_MINIMAL_SCORE_SET_RESPONSE = {
                 },
             }
         ],
-        "wtSequence": {
+        "targetSequence": {
             "sequenceType": "dna",
             "sequence": "ACGTTT",
         },

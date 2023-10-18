@@ -22,8 +22,8 @@ from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.keyword import Keyword
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.reference_genome import ReferenceGenome
-from mavedb.models.reference_map import ReferenceMap
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.user import User
 from mavedb.view_models.search import ScoreSetsSearch
@@ -52,8 +52,8 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ScoreSet.title.contains(lower_search_text),
                 ScoreSet.short_description.contains(lower_search_text),
                 ScoreSet.abstract_text.contains(lower_search_text),
-                ScoreSet.target_gene.has(func.lower(TargetGene.name).contains(lower_search_text)),
-                ScoreSet.target_gene.has(func.lower(TargetGene.category).contains(lower_search_text)),
+                ScoreSet.target_genes.any(func.lower(TargetGene.name).contains(lower_search_text)),
+                ScoreSet.target_genes.any(func.lower(TargetGene.category).contains(lower_search_text)),
                 ScoreSet.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text)),
                 # TODO Add: ORGANISM_NAME UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
                 ScoreSet.publication_identifiers.any(
@@ -77,19 +77,17 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
         )
 
     if search.targets:
-        query = query.filter(ScoreSet.target_gene.has(TargetGene.name.in_(search.targets)))
+        query = query.filter(ScoreSet.target_genes.any(TargetGene.name.in_(search.targets)))
 
     if search.target_organism_names:
         query = query.filter(
-            ScoreSet.target_gene.has(
-                TargetGene.reference_maps.any(
-                    ReferenceMap.genome.has(ReferenceGenome.organism_name.in_(search.target_organism_names))
-                )
+            ScoreSet.target_genes.any(
+                TargetGene.reference.any(ReferenceGenome.organism_name.in_(search.target_organism_names))
             )
         )
 
     if search.target_types:
-        query = query.filter(ScoreSet.target_gene.has(TargetGene.category.in_(search.target_types)))
+        query = query.filter(ScoreSet.target_genes.any(TargetGene.category.in_(search.target_types)))
 
     if search.publication_identifiers:
         query = query.filter(
@@ -111,8 +109,15 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
             )
         )
 
+    if search.target_accessions:
+        query = query.filter(
+            ScoreSet.target_genes.any(
+                TargetGene.target_accession.has(TargetAccession.accession.in_(search.target_accessions))
+            )
+        )
+
     score_sets: list[ScoreSet] = (
-        query.join(ScoreSet.experiment).join(ScoreSet.target_gene).order_by(Experiment.title).all()
+        query.join(ScoreSet.experiment).join(ScoreSet.target_genes).order_by(Experiment.title).all()
     )
     if not score_sets:
         score_sets = []

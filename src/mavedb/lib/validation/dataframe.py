@@ -1,17 +1,28 @@
-import pandas as pd
-from mavehgvs.variant import Variant
-from mavehgvs.exceptions import MaveHgvsParseError
-import numpy as np
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
+import hgvs.dataproviders.interface
+import hgvs.dataproviders.seqfetcher
+import hgvs.dataproviders.uta
+import hgvs.exceptions
+import hgvs.parser
+import hgvs.validator
+import numpy as np
+import pandas as pd
+from fqfa.util.translate import translate_dna
+from mavehgvs.exceptions import MaveHgvsParseError
+from mavehgvs.variant import Variant
+
+from mavedb.lib.exceptions import MixedTargetError
 from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
-    hgvs_splice_column,
     hgvs_pro_column,
+    hgvs_splice_column,
     required_score_column,
 )
 from mavedb.lib.validation.exceptions import ValidationError
-from fqfa.util.translate import translate_dna
+from mavedb.view_models.target_accession import TargetAccession
+from mavedb.view_models.target_gene import TargetGene
+from mavedb.view_models.target_sequence import TargetSequence
 
 # handle with pandas all null strings
 # provide a csv or a pandas dataframe
@@ -110,7 +121,47 @@ def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return sort_dataframe_columns(df)
 
 
-def validate_dataframe(df: pd.DataFrame, kind: str, target_seq: str, target_seq_type: str) -> None:
+def validate_and_standardize_dataframe_pair(
+    scores_df: pd.DataFrame, counts_df: Optional[pd.DataFrame], targets: list[TargetGene]
+) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+    """
+    Perform validation and standardization on a pair of score and count dataframes.
+
+    Parameters
+    ----------
+    scores_df : pandas.DataFrame
+        The scores dataframe
+    counts_df : Optional[pandas.DataFrame]
+        The counts dataframe, can be None if not present
+    target_seq : str
+        The target sequence for the dataset
+    target_seq_type : str
+        The target sequence type, can be "infer" "dna" or "protein"
+
+    Returns
+    -------
+    Tuple[pd.DataFrame, Optional[pd.DataFrame]]
+        The standardized score and count dataframes, or score and None if no count dataframe was provided
+
+    Raises
+    ------
+    ValidationError
+        If one of the validation functions raises an exception
+    """
+    if not targets:
+        raise ValueError("Can't validate provided file with no targets.")
+
+    validate_dataframe(scores_df, "scores", targets)
+    if counts_df is not None:
+        validate_dataframe(counts_df, "counts", targets)
+        validate_variant_columns_match(scores_df, counts_df)
+
+    new_scores_df = standardize_dataframe(scores_df)
+    new_counts_df = standardize_dataframe(counts_df) if counts_df is not None else None
+    return new_scores_df, new_counts_df
+
+
+def validate_dataframe(df: pd.DataFrame, kind: str, targets: list[TargetGene]) -> None:
     """
     Validate that a given dataframe passes all checks.
 
@@ -138,116 +189,49 @@ def validate_dataframe(df: pd.DataFrame, kind: str, target_seq: str, target_seq_
     validate_column_names(df, kind)
     validate_no_null_rows(df)
 
-    # validate individual columns
     column_mapping = {c.lower(): c for c in df.columns}
     index_column = choose_dataframe_index_column(df)
+
+    prefixes = dict()
     for c in column_mapping:
         if c in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
             is_index = column_mapping[c] == index_column
-            if is_index or not df[column_mapping[c]].isna().all():  # ignore null non-index HGVS columns
-                validate_hgvs_column(df[column_mapping[c]], is_index, target_seq, target_seq_type)
+            prefixes[c] = None
+
+            # Ignore validation for null non-index hgvs columns
+            if df[column_mapping[c]].isna().all() and not is_index:
+                continue
+
+            # This is typesafe, despite Pylance's claims otherwise
+            if all(target.target_accession for target in targets):
+                validate_hgvs_genomic_column(
+                    df[column_mapping[c]], is_index, [target.target_accession for target in targets]  # type: ignore
+                )
+            elif all(target.target_sequence for target in targets):
+                validate_hgvs_transgenic_column(
+                    df[column_mapping[c]], is_index, {target.target_sequence.label: target.target_sequence for target in targets}  # type: ignore
+                )
+            else:
+                raise MixedTargetError("Could not validate dataframe against provided mixed target types.")
+
+            # post validation, handle prefixes. We've already established these columns are non-null
+            if len(targets) > 1:
+                prefixes[c] = (
+                    df[column_mapping[c]].dropna()[0].split(" ")[0].split(":")[1][0]
+                )  # Just take the first prefix, we validate consistency elsewhere
+            else:
+                prefixes[c] = df[column_mapping[c]].dropna()[0][0]
+
         else:
             force_numeric = (c == required_score_column) or (kind == "counts")
             validate_data_column(df[column_mapping[c]], force_numeric)
 
-    # validate hgvs agreement
-    prefixes = dict()
-    for c in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
-        prefixes[c] = None
-        if c in column_mapping:
-            if not df[column_mapping[c]].isna().all():
-                prefixes[c] = df[column_mapping[c]].dropna()[0][0]
     validate_hgvs_prefix_combinations(
-        hgvs_nt=prefixes[hgvs_nt_column], hgvs_splice=prefixes[hgvs_splice_column], hgvs_pro=prefixes[hgvs_pro_column]
+        hgvs_nt=prefixes[hgvs_nt_column],
+        hgvs_splice=prefixes[hgvs_splice_column],
+        hgvs_pro=prefixes[hgvs_pro_column],
+        transgenic=all(target.target_sequence for target in targets),
     )
-
-
-def validate_and_standardize_dataframe_pair(
-    scores_df: pd.DataFrame, counts_df: Optional[pd.DataFrame], target_seq: str, target_seq_type: str
-) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
-    """
-    Perform validation and standardization on a pair of score and count dataframes.
-
-    Parameters
-    ----------
-    scores_df : pandas.DataFrame
-        The scores dataframe
-    counts_df : Optional[pandas.DataFrame]
-        The counts dataframe, can be None if not present
-    target_seq : str
-        The target sequence for the dataset
-    target_seq_type : str
-        The target sequence type, can be "infer" "dna" or "protein"
-
-    Returns
-    -------
-    Tuple[pd.DataFrame, Optional[pd.DataFrame]]
-        The standardized score and count dataframes, or score and None if no count dataframe was provided
-
-    Raises
-    ------
-    ValidationError
-        If one of the validation functions raises an exception
-    """
-    # validate the dataframes
-    validate_dataframe(scores_df, "scores", target_seq, target_seq_type)
-    if counts_df is not None:
-        validate_dataframe(counts_df, "counts", target_seq, target_seq_type)
-        validate_variant_columns_match(scores_df, counts_df)
-
-    new_scores_df = standardize_dataframe(scores_df)
-    if counts_df is not None:
-        new_counts_df = standardize_dataframe(counts_df)
-    else:
-        new_counts_df = None
-    return new_scores_df, new_counts_df
-
-
-def choose_dataframe_index_column(df: pd.DataFrame) -> str:
-    """
-    Identify the HGVS variant column that should be used as the index column in this dataframe.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        The dataframe to check
-
-    Returns
-    -------
-    str
-        The column name of the index column
-
-    Raises
-    ------
-    ValidationError
-        If no valid HGVS variant column is found
-    """
-    column_mapping = {c.lower(): c for c in df.columns if not df[c].isna().all()}
-
-    if hgvs_nt_column in column_mapping:
-        return column_mapping[hgvs_nt_column]
-    elif hgvs_pro_column in column_mapping:
-        return column_mapping[hgvs_pro_column]
-    else:
-        raise ValidationError("failed to find valid HGVS variant column")
-
-
-def validate_no_null_rows(df: pd.DataFrame) -> None:
-    """Check that there are no fully null rows in the dataframe.
-
-    Parameters
-    __________
-    df : pandas.DataFrame
-        The scores or counts dataframe being validated
-
-    Raises
-    ______
-    ValidationError
-        If there are null rows in the dataframe
-    """
-    null_rows = df.apply(lambda row: np.all(row.isna()), axis=1)
-    if sum(null_rows) > 0:
-        raise ValidationError(f"found {sum(null_rows)} null rows in the data frame")
 
 
 def validate_column_names(df: pd.DataFrame, kind: str) -> None:
@@ -308,7 +292,53 @@ def validate_column_names(df: pd.DataFrame, kind: str) -> None:
         raise ValidationError("dataframe does not define any data columns")
 
 
-def validate_hgvs_column(column: pd.Series, is_index: bool, target_seq: str, target_seq_type) -> None:
+def validate_no_null_rows(df: pd.DataFrame) -> None:
+    """Check that there are no fully null rows in the dataframe.
+
+    Parameters
+    __________
+    df : pandas.DataFrame
+        The scores or counts dataframe being validated
+
+    Raises
+    ______
+    ValidationError
+        If there are null rows in the dataframe
+    """
+    if any(df.isnull().all(axis=1)):
+        raise ValidationError(f"found {len(df[df.isnull().all(axis=1)])} null rows in the data frame")
+
+
+def choose_dataframe_index_column(df: pd.DataFrame) -> str:
+    """
+    Identify the HGVS variant column that should be used as the index column in this dataframe.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The dataframe to check
+
+    Returns
+    -------
+    str
+        The column name of the index column
+
+    Raises
+    ------
+    ValidationError
+        If no valid HGVS variant column is found
+    """
+    column_mapping = {c.lower(): c for c in df.columns if not df[c].isna().all()}
+
+    if hgvs_nt_column in column_mapping:
+        return column_mapping[hgvs_nt_column]
+    elif hgvs_pro_column in column_mapping:
+        return column_mapping[hgvs_pro_column]
+    else:
+        raise ValidationError("failed to find valid HGVS variant column")
+
+
+def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: dict[str, TargetSequence]) -> None:
     """
     Validate the variants in an HGVS column from a dataframe.
 
@@ -316,16 +346,17 @@ def validate_hgvs_column(column: pd.Series, is_index: bool, target_seq: str, tar
     This function also validates all individual variants in the column and checks for agreement against the target
     sequence (for non-splice variants).
 
+    Implementation NOTE: We assume variants will only be presented as fully qualified (accession:variant)
+    if this column is being validated against multiple targets.
+
     Parameters
     ----------
     column : pd.Series
         The column from the dataframe to validate
     is_index : bool
         True if this is the index column for the dataframe and therefore cannot have missing values; else False
-    target_seq : str
-        The target sequence to validate against
-    target_seq_type : str
-        The type of target sequence, which can be one of "dna", "protein", or "infer"
+    targets : dict
+        Dictionary containing a mapping of target gene names to their sequences.
 
     Returns
     -------
@@ -337,66 +368,59 @@ def validate_hgvs_column(column: pd.Series, is_index: bool, target_seq: str, tar
         If the target sequence does is not dna or protein (or inferred as dna or protein)
     ValueError
         If the target sequence is not valid for the variants (e.g. protein sequence for nucleotide variants)
-    ValueError
-        If the column name is not recognized
-    ValidationError
-        If the column contains multiple prefixes or the wrong prefix for that column name
-    ValidationError
-        If an index column contains missing values
     ValidationError
         If one of the variants fails validation
     """
-    if target_seq_type not in ("dna", "protein"):
-        raise ValueError("invalid target sequence type")
-
-    if infer_column_type(column) not in ("string", "empty"):
-        raise ValidationError(f"variant column '{column.name}' cannot contain numeric data")
-
-    if is_index:
-        if column.isna().any():
-            raise ValidationError(f"primary variant column '{column.name}' cannot contain null values")
-        if not column.is_unique:
-            raise ValidationError(f"primary variant column '{column.name}' must contain unique values")
-
-    # check the variant prefixes
-    if column.name.lower() == hgvs_nt_column:
-        prefixes = [f"{a}." for a in "cngmo"]
-    elif column.name.lower() == hgvs_splice_column:
-        prefixes = [f"{a}." for a in "cn"]
-    elif column.name.lower() == hgvs_pro_column:
-        prefixes = ["p."]
-    else:
-        raise ValueError(f"unrecognized hgvs column name '{column.name}'")
-    if len(set(s[:2] for s in column.dropna())) > 1:
-        raise ValidationError(f"variant column '{column.name}' has inconsistent variant prefixes")
-    if not all(s[:2] in prefixes for s in column.dropna()):
-        raise ValidationError(f"variant column '{column.name}' has invalid variant prefixes")
+    validate_variant_column(column, is_index)
+    prefixes = generate_variant_prefixes(column)
+    validate_variant_formatting(column, prefixes, list(targets.keys()))
 
     # validate the individual variant strings
-    # prepare the target sequence for validation
-    if column.name.lower() == hgvs_nt_column:
-        if target_seq_type != "dna":
-            raise ValueError(f"invalid target sequence type for '{column.name}'")
-    elif column.name.lower() == hgvs_splice_column:
-        target_seq = None  # don't validate splice variants against the target sequence
-    elif column.name.lower() == hgvs_pro_column:
-        if target_seq_type == "dna":
-            target_seq = translate_dna(target_seq)[0]  # translate the target sequence if needed
-    else:
-        raise ValueError(f"unrecognized hgvs column name '{column.name}'")
+    # prepare the target sequences for validation
+    target_seqs: dict[str, Union[str, None]] = {}
+    for name, target in targets.items():
+        if target.sequence_type not in ("dna", "protein"):
+            raise ValueError("invalid target sequence type")
+        if str(column.name).lower() == hgvs_nt_column:
+            if target.sequence_type != "dna":
+                raise ValueError(f"invalid target sequence type for '{column.name}'")
+            target_seqs[name] = target.sequence
+
+        elif str(column.name).lower() == hgvs_splice_column:
+            target_seqs[name] = None  # don't validate splice variants against a target sequence
+
+        elif str(column.name).lower() == hgvs_pro_column:
+            if target.sequence_type == "dna":
+                target_seqs[name] = translate_dna(target.sequence)[0]  # translate the target sequence if needed
+            else:
+                target_seqs[name] = target.sequence
+
+        else:
+            raise ValueError(f"unrecognized hgvs column name '{column.name}'")
+
     # get a list of all invalid variants
     invalid_variants = list()
     for i, s in column.items():
-        if s is not None:
-            try:
-                Variant(s, targetseq=target_seq)
-            except MaveHgvsParseError:
+        # variants can exist on the same line separated by a space
+        for variant in s.split(" "):
+            # When there are multiple targets, treat provided variants as fully qualified.
+            if len(targets) > 1:
+                name, variant = str(variant).split(":")
+            else:
+                name = list(targets.keys())[0]
+            if variant is not None:
                 try:
-                    Variant(s)  # note this will get called a second time for splice variants
+                    Variant(variant, targetseq=target_seqs[name])
                 except MaveHgvsParseError:
-                    invalid_variants.append(f"invalid variant string '{s}' at row {i}")
-                else:
-                    invalid_variants.append(f"target sequence mismatch for '{s}' at row {i}")
+                    try:
+                        Variant(variant)  # note this will get called a second time for splice variants
+                    except MaveHgvsParseError:
+                        invalid_variants.append(f"invalid variant string '{variant}' at row {i} for sequence {name}")
+                    else:
+                        invalid_variants.append(
+                            f"target sequence mismatch for '{variant}' at row {i} for sequence {name}"
+                        )
+
     # format and raise an error message that contains all invalid variants
     if len(invalid_variants) > 0:
         raise ValidationError(
@@ -404,8 +428,192 @@ def validate_hgvs_column(column: pd.Series, is_index: bool, target_seq: str, tar
         )
 
 
+def validate_hgvs_genomic_column(column: pd.Series, is_index: bool, targets: list[TargetAccession]) -> None:
+    """
+    Validate the variants in an HGVS column from a dataframe.
+
+    Tests whether the column has a correct and consistent prefix.
+    This function also validates all individual variants in the column and checks for agreement against the target
+    sequence (for non-splice variants).
+
+    Implementation NOTE: We assume variants will only be presented as fully qualified (accession:variant)
+    if this column is being validated against multiple targets.
+
+    Parameters
+    ----------
+    column : pd.Series
+        The column from the dataframe to validate
+    is_index : bool
+        True if this is the index column for the dataframe and therefore cannot have missing values; else False
+    targets : list
+        Dictionary containing a list of target accessions.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If the target sequence does is not dna or protein (or inferred as dna or protein)
+    ValueError
+        If the target sequence is not valid for the variants (e.g. protein sequence for nucleotide variants)
+    ValidationError
+        If one of the variants fails validation
+    """
+    validate_variant_column(column, is_index)
+    prefixes = generate_variant_prefixes(column)
+    validate_variant_formatting(column, prefixes, [target.accession for target in targets])
+
+    # validate the individual variant strings
+    # prepare the target sequences for validation
+    target_seqs: dict[str, Union[str, None]] = {}
+    for target in targets:
+        # We shouldn't have to worry about translating protein sequences when we deal with accession based variants
+        if str(column.name).lower() == hgvs_nt_column or str(column.name).lower() == hgvs_pro_column:
+            target_seqs[target.accession] = target.accession
+
+        # TODO: no splice col for genomic coordinate variants?
+        elif str(column.name).lower() == hgvs_splice_column:
+            target_seqs[target.accession] = None  # don't validate splice variants against a target sequence
+
+        else:
+            raise ValueError(f"unrecognized hgvs column name '{column.name}'")
+
+    hp = hgvs.parser.Parser()
+    hdp = hgvs.dataproviders.uta.connect()
+    vr = hgvs.validator.Validator(hdp=hdp)
+
+    invalid_variants = list()
+    for i, s in column.items():
+        if s is not None:
+            for variant in s.split(" "):
+                # Add accession info when we only have one target
+                if len(targets) == 1:
+                    s = f"{targets[0].accession}:{variant}"
+                try:
+                    # We set strict to `False` to suppress validation warnings about intronic variants.
+                    vr.validate(hp.parse(s), strict=False)
+                except hgvs.exceptions.HGVSError as e:
+                    invalid_variants.append(f"Failed to parse row {i} with HGVS exception: {e}")
+
+    # format and raise an error message that contains all invalid variants
+    if len(invalid_variants) > 0:
+        raise ValidationError(
+            f"encountered {len(invalid_variants)} invalid variant strings: {(', '.join(invalid_variants))}"
+        )
+
+
+def validate_variant_formatting(column: pd.Series, prefixes: list[str], targets: list[str]):
+    """
+    Validate the formatting of HGVS variants present in the passed column against
+    lists of prefixes and targets
+
+    Parameters
+    ----------
+    column : pd.Series
+        A pandas column containing HGVS variants
+    prefixes : list[str]
+        A list of prefixes we can expect to occur within the passed column
+    targets : list[str]
+        A list of targets we can expect to occur within the passed column
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValidationError
+        If any of the variants in the column are not fully qualified with respect to multiple possible targets
+    ValidationError
+        If the column contains multiple prefixes or the wrong prefix for that column name
+    ValidationError
+        If the column contains target accessions not present in the list of possible targets
+    """
+    variants = [variant for s in column.dropna() for variant in s.split(" ")]
+
+    # if there is more than one target, we expect variants to be fully qualified
+    if len(targets) > 1:
+        if not all(len(str(v).split(":")) == 2 for v in variants):
+            raise ValidationError(
+                f"variant column '{column.name}' needs fully qualified coordinates when validating against multiple targets"
+            )
+        if len(set(str(v).split(":")[1][:2] for v in variants)) > 1:
+            raise ValidationError(f"variant column '{column.name}' has inconsistent variant prefixes")
+        if not all(str(v).split(":")[1][:2] in prefixes for v in variants):
+            raise ValidationError(f"variant column '{column.name}' has invalid variant prefixes")
+        if not all(str(v).split(":")[0] in targets for v in variants):
+            raise ValidationError(f"variant column '{column.name}' has invalid accession identifiers")
+
+    else:
+        if len(set(v[:2] for v in variants)) > 1:
+            raise ValidationError(f"variant column '{column.name}' has inconsistent variant prefixes")
+        if not all(v[:2] in prefixes for v in variants):
+            raise ValidationError(f"variant column '{column.name}' has invalid variant prefixes")
+
+
+def generate_variant_prefixes(column: pd.Series):
+    """
+    Generate variant prefixes for the provided column
+
+    Parameters
+    ----------
+    column : pd.Series
+        The pandas column from which to generate variant prefixes
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If the provided pandas column has an unrecognized variant column name
+    """
+    if str(column.name).lower() == hgvs_nt_column:
+        return [f"{a}." for a in "cngmo"]
+    if str(column.name).lower() == hgvs_splice_column:
+        return [f"{a}." for a in "cn"]
+    if str(column.name).lower() == hgvs_pro_column:
+        return ["p."]
+
+    raise ValueError(f"unrecognized hgvs column name '{column.name}'")
+
+
+def validate_variant_column(column: pd.Series, is_index: bool):
+    """
+    Validate critical column properties of an HGVS variant column, with special
+    attention to certain properties expected on index columns
+
+    Parameters
+    ----------
+    column : pd.Series
+        The pandas column containing HGVS variant information
+    id_index : bool
+        Whether the provided column is the index column
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValidationError
+        If an index column contains missing or non-unique values
+    ValidationError
+        If a column contains any numeric data
+    """
+    if infer_column_type(column) not in ("string", "empty"):
+        raise ValidationError(f"variant column '{column.name}' cannot contain numeric data")
+    if column.isna().any() and is_index:
+        raise ValidationError(f"primary variant column '{column.name}' cannot contain null values")
+    if not column.is_unique and is_index:
+        raise ValidationError(f"primary variant column '{column.name}' must contain unique values")
+
+
 def validate_hgvs_prefix_combinations(
-    hgvs_nt: Optional[str], hgvs_splice: Optional[str], hgvs_pro: Optional[str]
+    hgvs_nt: Optional[str], hgvs_splice: Optional[str], hgvs_pro: Optional[str], transgenic: bool
 ) -> None:
     """
     Validate the combination of HGVS variant prefixes.
@@ -421,6 +629,8 @@ def validate_hgvs_prefix_combinations(
         The first character (prefix) of the HGVS splice variant strings, or None if not used.
     hgvs_pro : Optional[str]
         The first character (prefix) of the HGVS protein variant strings, or None if not used.
+    transgenic : bool
+        Whether we should validate these prefix combinations as transgenic variants
 
     Returns
     -------
@@ -457,8 +667,9 @@ def validate_hgvs_prefix_combinations(
                 "nucleotide variants must use 'c.' prefix when protein variants are present and splicing variants are"
                 " not present"
             )
+    # Only raise if this data will not be validated by biocommons.hgvs
     elif hgvs_nt is not None:  # just hgvs_nt
-        if hgvs_nt != "n":
+        if hgvs_nt != "n" and transgenic:
             raise ValidationError("nucleotide variants must use 'n.' prefix when only nucleotide variants are defined")
 
 
