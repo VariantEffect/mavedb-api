@@ -387,7 +387,8 @@ async def create_score_set(
         created_by=user,
         modified_by=user,
     )
-    keywords = {key: [ControlledKeyword(key, keyword.value, keyword.vocabulary) for keyword in keywords] for key, keywords in item_create.keywords}
+    keywords = item_create.keywords
+    #keywords = {key: [ControlledKeyword(key, keyword.value, keyword.vocabulary) for keyword in keywords] for key, keywords in item_create.keywords}
     try:
         await item.set_keywords(db, keywords)
     except Exception:
@@ -592,8 +593,8 @@ async def update_score_set(
 
         item.publication_identifiers = publication_identifiers
 
-        keywords = {key: [ControlledKeyword(key, keyword.value, keyword.vocabulary) for keyword in keywords] for
-                    key, keywords in item_update.keywords}
+        keywords = item_update.keywords #keywords = {key: [ControlledKeyword(key, keyword.value, keyword.vocabulary) for keyword in keywords] for
+                    #key, keywords in item_update.keywords}
         try:
             await item.set_keywords(db, keywords)
         except Exception:

@@ -1,7 +1,6 @@
 from collections import defaultdict
 from datetime import date
 
-from typing import Optional
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.event import listens_for
 from sqlalchemy.ext.associationproxy import association_proxy
@@ -125,8 +124,12 @@ class Experiment(Base):
     async def set_legacy_keywords(self, db, keywords: list[str]):
         self.keyword_objs = [await self._find_or_create_legacy_keyword(db, text) for text in keywords]
 
-    async def set_keywords(self, db, keywords: list[ControlledKeyword]):
-        self.keyword_objs = [await self._find_or_create_keyword(db, keyword.key, keyword.value, keyword.vocabulary) for keyword in keywords]
+    async def set_keywords(self, db, keywords: dict):
+        self.keyword_objs = []
+        for keyword_obj in keywords.values():
+            keyword = await self._find_or_create_keyword(db, keyword_obj.key, keyword_obj.value, keyword_obj.vocabulary)
+            self.keyword_objs.append(keyword)
+        #self.keyword_objs = [await self._find_or_create_keyword(db, keyword.key, keyword.value, keyword.vocabulary) for keyword in keywords]
 
     # See https://gist.github.com/tachyondecay/e0fe90c074d6b6707d8f1b0b1dcc8e3a
     # @keywords.setter

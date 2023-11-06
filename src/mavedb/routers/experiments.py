@@ -200,8 +200,8 @@ async def create_experiment(
         modified_by=user,
     )
     # await item.set_keywords(db, item_create.keywords)
-    keywords = {key: [ControlledKeyword(key, keyword.value, keyword.vocabulary) for keyword in keywords]
-                for key, keywords in item_create.keywords}
+    keywords = item_create.keywords#{key: [ControlledKeyword(keyword.key, keyword.value) for keyword in keywords]
+                #for key, keywords in item_create.keywords}
     try:
         await item.set_keywords(db, keywords)
     except Exception:
@@ -278,8 +278,8 @@ async def update_experiment(
     item.raw_read_identifiers = raw_read_identifiers
 
     # await item.set_keywords(db, item_update.keywords)
-    keywords = {key: [ControlledKeyword(key, keyword.value, keyword.vocabulary) for keyword in keywords] for
-                key, keywords in item_update.keywords}
+    keywords = item_update.keywords#keywords = {key: [ControlledKeyword(key, keyword.value, keyword.vocabulary) for keyword in keywords] for
+                #key, keywords in item_update.keywords}
     try:
         await item.set_keywords(db, keywords)
     except Exception:
