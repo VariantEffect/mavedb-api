@@ -167,13 +167,10 @@ def get_score_set_scores_csv(
     type_column = "score_data"
     variants = score_set.variants
 
-    if start and not limit:
+    if start:
         variants = variants[start:]
-    if not start and limit:
+    if limit:
         variants = variants[:limit]
-    if start and limit:
-        end = start + limit
-        variants = variants[start:end]
 
     rows_data = get_csv_rows_data(variants, columns=columns, dtype=type_column)
     stream = io.StringIO()
@@ -226,13 +223,10 @@ async def get_score_set_counts_csv(
     type_column = "count_data"
     variants = score_set.variants
 
-    if start and not limit:
+    if start:
         variants = variants[start:]
-    if not start and limit:
+    if limit:
         variants = variants[:limit]
-    if start and limit:
-        end = start + limit
-        variants = variants[start:end]
 
     rows_data = get_csv_rows_data(variants, columns=columns, dtype=type_column)
     stream = io.StringIO()
