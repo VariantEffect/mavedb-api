@@ -9,7 +9,7 @@ from mavedb.db.base import Base
 class TargetAccession(Base):
     __tablename__ = "target_accessions"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     assembly = Column(String, nullable=True)
     accession = Column(String, nullable=False)
     gene = Column(String, nullable=True)
