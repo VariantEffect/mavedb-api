@@ -12,7 +12,7 @@ class Variant(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    urn = Column(String(64), nullable=True)  # index=True, nullable=True
+    urn = Column(String(64), nullable=True, unique=True, index=True)
     data = Column(JSONB, nullable=False)
 
     score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), nullable=False)

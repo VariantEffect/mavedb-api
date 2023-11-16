@@ -53,7 +53,7 @@ class ScoreSet(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    urn = Column(String(64), nullable=True, default=generate_temp_urn)  # index=True, nullable=True
+    urn = Column(String(64), nullable=True, default=generate_temp_urn, unique=True, index=True)
     title = Column(String, nullable=False)
     method_text = Column(String, nullable=False)
     abstract_text = Column(String, nullable=False)
