@@ -1,2 +1,2 @@
 __project__ = "mavedb-api"
-__version__ = "2023.3.0"
+__version__ = "2023.4.1"
