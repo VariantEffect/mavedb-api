@@ -29,7 +29,6 @@ Or add `mavedb` to your Python project's dependencies.
 
 To build a new version of the package for PyPI:
 
-
 - [build](https://github.com/pypa/build)
 - [hatch](https://github.com/pypa/hatch)
 
