@@ -25,11 +25,23 @@ Or add `mavedb` to your Python project's dependencies.
 ### Prerequisites
 
 - Python 3.9 or later
-- PIP
-- [build](https://github.com/pypa/hatch) for building distributions. This can be installed with `pip install build`.
-- [hatch](https://github.com/pypa/hatch) for building distributions. This can be installed with `pip install hatch`.
+- `pip`
+
+To build a new version of the package for PyPI:
+
+
+- [build](https://github.com/pypa/build)
+- [hatch](https://github.com/pypa/hatch)
 
 ### Building distribution packages
+
+You will likely want to install the dependencies to build MaveDB in a virtualenv. To create one, run:
+
+```
+python -m venv .venv
+source .venv/bin/activate
+pip install build hatch
+```
 
 To build the source distribution and wheel, run
 
@@ -134,3 +146,19 @@ Before using either of these methods, configure the environment variables descri
 
 If you use PyCharm, the first method can be used in a Python run configuration, but the second method supports PyCharm's
 FastAPI run configuration.
+
+### Updating `openapi.json`
+
+`openapi.json` contains the OpenAPI spec for MaveDB. To update it, run:
+
+```
+python generate_openapi_json.py
+```
+
+As a side effect, this script will build and `pip install` the MaveDB package from your working tree. Therefore, you will likely want to do this from within a virtualenv with `build` and `hatch` installed. If you have not already created one (to e.g., build `mavedb` for PyPI), you can do so with:
+
+```
+python -m venv .venv
+source .venv/bin/activate
+pip install build hatch
+```
