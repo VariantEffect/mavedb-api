@@ -13,6 +13,4 @@ jobs:
         python-version: "3.11"
     - run: pip install --upgrade pip
     - run: pip install .[dev]
-    - env:
-      PYTHONPATH: .
-    - run: pytest tests/validation/
+    - run: PYTHONPATH=. pytest tests/validation/
