@@ -3,9 +3,9 @@ on:
   push:
 
 jobs:
-  run-tests-ubuntu-23_10-python-3_11:
-    runs-on: ubuntu-23.10
-    name: Ubuntu 23.10, Python 3.11
+  run-tests-ubuntu-python-3_11:
+    runs-on: ubuntu-latest
+    name: Ubuntu, Python 3.11
     steps:
     - uses: actions/checkout@v3
     - uses: actions/setup-python@v4
