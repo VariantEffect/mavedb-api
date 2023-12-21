@@ -3,14 +3,26 @@ on:
   push:
 
 jobs:
-  run-tests-ubuntu-python-3_10:
+  run-tests-3_10:
     runs-on: ubuntu-latest
-    name: Ubuntu, Python 3.10
+    name: Pytest on Python 3.10
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-python@v4
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
       with:
         python-version: "3.10"
     - run: pip install --upgrade pip
     - run: pip install .[dev,server]
-    - run: PYTHONPATH=. pytest tests/validation/
+    - run: pytest tests/
+
+  run-tests-3_11:
+    runs-on: ubuntu-latest
+    name: Pytest on Python 3.11
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    - run: pip install --upgrade pip
+    - run: pip install .[dev,server]
+    - run: pytest tests/
