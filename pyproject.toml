@@ -25,9 +25,9 @@ dependencies = [
     "eutils~=0.6.0",
     "hgvs~=1.5.4",
     "biocommons~=0.0.0",
-    "numpy~=1.22.3",
+    "numpy~=1.22",
     "pandas~=1.4.1",
-    "pydantic~=1.9.1",
+    "pydantic~=1.10",
     "python-dotenv~=0.20.0",
     "SQLAlchemy~=1.4.31",
 ]
