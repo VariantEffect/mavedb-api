@@ -115,7 +115,7 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
     if search.authors:
         query = query.filter(
             ScoreSet.publication_identifiers.any(
-                func.jsonb_path_query_array(PublicationIdentifier.authors, "$.name").op("?|")(search.authors)
+                func.jsonb_path_query_array(PublicationIdentifier.authors, "$.name").op("?&")(search.authors)
             )
         )
 
