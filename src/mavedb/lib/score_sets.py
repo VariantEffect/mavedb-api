@@ -30,6 +30,7 @@ from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.uniprot_offset import UniprotOffset
+from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
 from mavedb.view_models.search import ScoreSetsSearch
 
@@ -62,8 +63,8 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ScoreSet.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text)),
                 ScoreSet.target_genes.any(
                     TargetGene.target_sequence.has(
-                        TargetSequence.reference.has(
-                            func.lower(ReferenceGenome.organism_name).contains(lower_search_text)
+                        TargetSequence.taxonomy.has(
+                            func.lower(Taxonomy.organism_name).contains(lower_search_text)
                         )
                     )
                 ),
@@ -93,10 +94,9 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
 
     if search.target_organism_names:
         query = query.filter(
-            ScoreSet.target_genes.any(
-                TargetGene.target_sequence.has(
-                    TargetSequence.reference.has(ReferenceGenome.organism_name.in_(search.target_organism_names))
-                )
+            ScoreSet.target_gene.target_sequence.has(
+                TargetSequence.taxonomy.has(
+                    func.lower(Taxonomy.organism_name).contains(search.target_organism_names))
             )
         )
 
