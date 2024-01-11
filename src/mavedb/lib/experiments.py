@@ -1,8 +1,7 @@
 import logging
-from operator import or_
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from mavedb.models.experiment import Experiment
