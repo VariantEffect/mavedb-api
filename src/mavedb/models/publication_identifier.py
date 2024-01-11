@@ -1,7 +1,8 @@
 from datetime import date
 
 from sqlalchemy import Column, Date, Integer, String
-from sqlalchemy.dialects.postgresql import JSONB
+#from sqlalchemy.dialects.postgresql import JSONB
+from mavedb.deps import JSONB
 
 from mavedb.db.base import Base
 

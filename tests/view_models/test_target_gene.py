@@ -18,6 +18,9 @@ def test_create_target_gene(client):
         "CTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGTTTAT"
         "TGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGA"
         "CGGGGAGTCAGGCAACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA",
+        "taxonomy": {"taxId": 9606, "organismName": "Homo sapiens", "commonName": "human", "rank": "SPECIES",
+                    "hasDescribedSpeciesName": True, "articleReference": "NCBI:txid9606", "genomeId": None,
+                    "id": 14, "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606"}
     }
     externalIdentifier = TargetGeneCreate(
         name=name,
@@ -33,6 +36,9 @@ def test_create_invalid_category(client):
     name = "UBE2I"
     invalid_category = "invalid name"
     external_identifiers = [{"identifier": {"dbName": "Ensembl", "identifier": "ENSG00000103275"}, "offset": 0}]
+    taxonomy = {"taxId": 9606, "organismName": "Homo sapiens", "commonName": "human", "rank": "SPECIES",
+                "hasDescribedSpeciesName": True, "articleReference": "NCBI:txid9606", "genomeId": None,
+                "id": 14, "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606"}
     target_sequence = {
         "sequenceType": "dna",
         "sequence": "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGA"
@@ -49,6 +55,7 @@ def test_create_invalid_category(client):
         TargetGeneCreate(
             name=name,
             category=invalid_category,
+            taxonomy=taxonomy,
             external_identifiers=external_identifiers,
             target_sequence=target_sequence,
         )
@@ -62,6 +69,9 @@ def test_create_invalid_sequence_type(client):
     name = "UBE2I"
     category = "Regulatory"
     external_identifiers = [{"identifier": {"dbName": "Ensembl", "identifier": "ENSG00000103275"}, "offset": 0}]
+    taxonomy = {"taxId": 9606, "organismName": "Homo sapiens", "commonName": "human", "rank": "SPECIES",
+                "hasDescribedSpeciesName": True, "articleReference": "NCBI:txid9606", "genomeId": None,
+                "id": 14, "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606"}
     target_sequence = {
         "sequenceType": "dnaa",
         "sequence": "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGA"
@@ -78,6 +88,7 @@ def test_create_invalid_sequence_type(client):
         TargetGeneCreate(
             name=name,
             category=category,
+            taxonomy=taxonomy,
             external_identifiers=external_identifiers,
             target_sequence=target_sequence,
         )
@@ -89,10 +100,14 @@ def test_create_not_match_sequence_and_type(client):
     category = "Regulatory"
     external_identifiers = [{"identifier": {"dbName": "Ensembl", "identifier": "ENSG00000103275"}, "offset": 0}]
     target_sequence = {"sequenceType": "dna", "sequence": "ARCG"}
+    taxonomy = {"taxId": 9606, "organismName": "Homo sapiens", "commonName": "human", "rank": "SPECIES",
+                "hasDescribedSpeciesName": True, "articleReference": "NCBI:txid9606", "genomeId": None,
+                "id": 14, "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606"}
     with pytest.raises(ValueError) as exc_info:
         TargetGeneCreate(
             name=name,
             category=category,
+            taxonomy=taxonomy,
             external_identifiers=external_identifiers,
             target_sequence=target_sequence,
         )
@@ -104,10 +119,14 @@ def test_create_invalid_sequence(client):
     category = "Regulatory"
     external_identifiers = [{"identifier": {"dbName": "Ensembl", "identifier": "ENSG00000103275"}, "offset": 0}]
     target_sequence = {"sequenceType": "dna", "sequence": "AOCG%"}
+    taxonomy = {"taxId": 9606, "organismName": "Homo sapiens", "commonName": "human", "rank": "SPECIES",
+                "hasDescribedSpeciesName": True, "articleReference": "NCBI:txid9606", "genomeId": None,
+                "id": 14, "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606"}
     with pytest.raises(ValueError) as exc_info:
         TargetGeneCreate(
             name=name,
             category=category,
+            taxonomy=taxonomy,
             external_identifiers=external_identifiers,
             target_sequence=target_sequence,
         )

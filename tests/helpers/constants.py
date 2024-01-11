@@ -54,10 +54,16 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     "experimentSetUrn": None,
 }
 
-TEST_REFERENCE_GENOME = {
+TEST_TAXONOMY = {
     "id": 1,
-    "short_name": "Name",
-    "organism_name": "Organism",
+    "tax_id": 9606,
+    "organism_name": "Organism name",
+    "common_name": "Common name",
+    "rank": "Rank",
+    "has_described_species_name": True,
+    "article_reference": "NCBI:txid9606",
+    "genome_identifier_id": None,
+    "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606"
 }
 
 TEST_LICENSE = {
@@ -75,16 +81,26 @@ TEST_MINIMAL_SCORE_SET = {
     "abstractText": "Abstract",
     "methodText": "Methods",
     "licenseId": 1,
-    "targetGene": {
+    "targetGenes": [{
+        "id": 1,
         "name": "TEST1",
         "category": "Protein coding",
         "externalIdentifiers": [],
-        "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
         "targetSequence": {
             "sequenceType": "dna",
             "sequence": "ACGTTT",
+            "taxonomy": {
+                      "taxId": TEST_TAXONOMY["tax_id"],
+                      "organismName": TEST_TAXONOMY["organism_name"],
+                      "commonName": TEST_TAXONOMY["common_name"],
+                      "rank": TEST_TAXONOMY["rank"],
+                      "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                      "articleReference": TEST_TAXONOMY["article_reference"],
+                      "id": TEST_TAXONOMY["id"],
+                      "url": TEST_TAXONOMY["url"]
+            }
         },
-    },
+    }],
 }
 
 TEST_MINIMAL_SCORE_SET_RESPONSE = {
@@ -106,30 +122,26 @@ TEST_MINIMAL_SCORE_SET_RESPONSE = {
     "modificationDate": date.today().isoformat(),
     "license": {camelize(k): v for k, v in TEST_LICENSE.items() if k not in ("text",)},
     "numVariants": 0,
-    "targetGene": {
+    "targetGenes": [{
+        "id": 1,
         "name": "TEST1",
         "category": "Protein coding",
         "externalIdentifiers": [],
-        "referenceMaps": [
-            {
-                "creationDate": date.today().isoformat(),
-                "modificationDate": date.today().isoformat(),
-                "genomeId": TEST_REFERENCE_GENOME["id"],
-                "id": 1,
-                "targetId": 1,
-                "isPrimary": False,
-                "genome": {camelize(k): v for k, v in TEST_REFERENCE_GENOME.items()}
-                | {
-                    "creationDate": date.today().isoformat(),
-                    "modificationDate": date.today().isoformat(),
-                },
-            }
-        ],
         "targetSequence": {
             "sequenceType": "dna",
             "sequence": "ACGTTT",
+            "taxonomy": {
+                      "taxId": TEST_TAXONOMY["tax_id"],
+                      "organismName": TEST_TAXONOMY["organism_name"],
+                      "commonName": TEST_TAXONOMY["common_name"],
+                      "rank": TEST_TAXONOMY["rank"],
+                      "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                      "articleReference": TEST_TAXONOMY["article_reference"],
+                      "id": TEST_TAXONOMY["id"],
+                      "url": TEST_TAXONOMY["url"]
+            }
         },
-    },
+    },],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
     "keywords": [],

@@ -2,7 +2,6 @@ from datetime import date
 
 from sqlalchemy import Column, Date, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship, backref
-from .reference_genome import ReferenceGenome
 
 from mavedb.db.base import Base
 
@@ -14,9 +13,9 @@ class TargetSequence(Base):
     sequence_type = Column(String, nullable=False)
     sequence = Column(String, nullable=False)
     label = Column(String, nullable=True)
-    reference_id = Column("reference_id", Integer, ForeignKey("reference_genomes.id"), nullable=True)
-    reference = relationship(
-        "ReferenceGenome",
+    taxonomy_id = Column("taxonomy_id", Integer, ForeignKey("taxonomies.id"), nullable=True)
+    taxonomy = relationship(
+        "Taxonomy",
         backref=backref("target_sequences", single_parent=True),
     )
     creation_date = Column(Date, nullable=False, default=date.today)
