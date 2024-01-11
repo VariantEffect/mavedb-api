@@ -43,16 +43,16 @@ dev = [
 server = [
     "alembic~=1.7.6",
     "authlib~=0.15.5",
-    "cryptography~=41.0.6",
+    "cryptography~=37.0.4",
     "celery~=5.2.3",
     "fastapi~=0.71.0",
     "orcid~=1.0.3",
     "psycopg2~=2.9.3",
     "python-jose[cryptography]~=3.3.0",
     "python-multipart~=0.0.5",
-    "requests~=2.31.0",
+    "requests~=2.28.1",
     "slack-sdk~=3.21.3",
-    "starlette~=0.27.0",
+    "starlette~=0.17.1",
     "uvicorn[standard]",
 ]
 
