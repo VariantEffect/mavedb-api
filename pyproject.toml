@@ -83,8 +83,8 @@ exclude = [
 packages = ["src/mavedb"]
 
 [tool.mypy]
-plugins = sqlalchemy.ext.mypy.plugin
-mypy_path = mypy_stubs
+plugins = "sqlalchemy.ext.mypy.plugin"
+mypy_path = "mypy_stubs"
 
 [tool.pytest.ini_options]
 addopts = [
