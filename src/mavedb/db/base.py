@@ -11,6 +11,5 @@ class Base:
     __name__: str
 
     # Generate __tablename__ automatically
-    @declared_attr
-    def __tablename__(cls) -> str:
-        return cls.__name__.lower()
+    # Declared in this odd way to provide correct type hint for mypy
+    __tablename__ : declared_attr[Any] | str = declared_attr(lambda cls: cls.__name__.lower())
