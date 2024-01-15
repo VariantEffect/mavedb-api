@@ -29,16 +29,18 @@ dependencies = [
     "pandas~=1.4.1",
     "pydantic~=1.10",
     "python-dotenv~=0.20.0",
-    "SQLAlchemy~=1.4.31",
+    "SQLAlchemy~=2.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "black",
     "flake8",
+    "mypy",
     "pre-commit",
     "pytest~=7.0.1",
     "jsonschema",
+    "SQLAlchemy[mypy]~=2.0.0",
 ]
 server = [
     "alembic~=1.7.6",
