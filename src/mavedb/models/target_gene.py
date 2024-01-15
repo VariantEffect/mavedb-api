@@ -8,6 +8,7 @@ from .refseq_identifier import RefseqIdentifier
 from .uniprot_identifier import UniprotIdentifier
 from .target_sequence import TargetSequence
 from .target_accession import TargetAccession
+from .score_set import ScoreSet
 
 # TODO Reformat code without removing dependencies whose use is not detected.
 
@@ -25,7 +26,7 @@ class TargetGene(Base):
     # ensembl_id = relationship('EnsemblIdentifier', backref='target_genes')
     # refseq_id_id = Column(Integer, nullable=True)  # , ForeignKey('dataset_scoreset.id'), nullable=False)
     score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), nullable=False)
-    score_set = relationship(
+    score_set : ScoreSet = relationship(
         "ScoreSet",
         backref=backref("target_genes", cascade="all,delete-orphan", single_parent=True, uselist=True),
         single_parent=True,
@@ -33,13 +34,13 @@ class TargetGene(Base):
     # uniprot_id_id = Column(Integer, nullable=True)  # , ForeignKey('dataset_scoreset.id'), nullable=False)
     target_sequence_id = Column(Integer, ForeignKey("target_sequences.id"), nullable=True)
     accession_id = Column(Integer, ForeignKey("target_accessions.id"), nullable=True)
-    target_sequence = relationship(
+    target_sequence : TargetSequence = relationship(
         "TargetSequence",
         backref=backref("target_genes", single_parent=True, uselist=True),
         cascade="all,delete-orphan",
         single_parent=True,
     )
-    target_accession = relationship(
+    target_accession : TargetAccession = relationship(
         "TargetAccession",
         backref=backref("target_genes", single_parent=True, uselist=True),
         cascade="all,delete-orphan",

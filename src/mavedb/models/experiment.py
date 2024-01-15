@@ -12,7 +12,10 @@ from mavedb.deps import JSONB
 from mavedb.lib.temp_urns import generate_temp_urn
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.keyword import Keyword
+from mavedb.models.doi_identifier import DoiIdentifier
+from mavedb.models.raw_read_identifier import RawReadIdentifier
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
+from mavedb.models.user import User
 
 experiments_doi_identifiers_association_table = Table(
     "experiment_doi_identifiers",
@@ -60,20 +63,20 @@ class Experiment(Base):
     num_score_sets = Column("num_scoresets", Integer, nullable=False, default=0)
 
     experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), nullable=True)
-    experiment_set = relationship("ExperimentSet", backref=backref("experiments", cascade="all,delete-orphan"))
+    experiment_set : ExperimentSet = relationship("ExperimentSet", backref=backref("experiments", cascade="all,delete-orphan"))
 
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_by = relationship("User", foreign_keys="Experiment.created_by_id")
+    created_by : User = relationship("User", foreign_keys="Experiment.created_by_id")
     modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    modified_by = relationship("User", foreign_keys="Experiment.modified_by_id")
+    modified_by : User = relationship("User", foreign_keys="Experiment.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    keyword_objs = relationship("Keyword", secondary=experiments_keywords_association_table, backref="experiments")
-    doi_identifiers = relationship(
+    keyword_objs : list[Keyword] = relationship("Keyword", secondary=experiments_keywords_association_table, backref="experiments")
+    doi_identifiers : list[DoiIdentifier] = relationship(
         "DoiIdentifier", secondary=experiments_doi_identifiers_association_table, backref="experiments"
     )
-    publication_identifier_associations = relationship(
+    publication_identifier_associations : list[ExperimentPublicationIdentifierAssociation] = relationship(
         "ExperimentPublicationIdentifierAssociation", back_populates="experiment", cascade="all, delete-orphan"
     )
     publication_identifiers = association_proxy(
@@ -83,7 +86,7 @@ class Experiment(Base):
     )
 
     # sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
-    raw_read_identifiers = relationship(
+    raw_read_identifiers : list[RawReadIdentifier] = relationship(
         "RawReadIdentifier", secondary=experiments_raw_read_identifiers_association_table, backref="experiments"
     )
 
@@ -100,7 +103,7 @@ class Experiment(Base):
         #     return self._updated_keywords
         # else:
         keyword_objs = self.keyword_objs or []  # getattr(self, 'keyword_objs', [])
-        return list(map(lambda keyword_obj: keyword_obj.text, keyword_objs))
+        return [keyword_obj.text for keyword_obj in keyword_objs if keyword_obj.text is not None]
 
     async def set_keywords(self, db, keywords: Optional[list[str]]):
         if keywords is None:

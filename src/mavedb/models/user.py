@@ -25,13 +25,13 @@ class User(Base):
     is_active = Column(Boolean, nullable=False)
     date_joined = Column(DateTime, nullable=True)
     email = Column(String, nullable=True)
-    role_objs = relationship("Role", secondary=users_roles_association_table, backref="users")
+    role_objs : list[Role] = relationship("Role", secondary=users_roles_association_table, backref="users")
     last_login = Column(DateTime, nullable=True)
 
     @property
     def roles(self) -> list[str]:
         role_objs = self.role_objs or []
-        return list(map(lambda role_obj: role_obj.name, role_objs))
+        return [role_obj.name for role_obj in role_objs if role_obj.name is not None]
 
     async def set_roles(self, db, roles: list[str]):
         self.role_objs = [await self._find_or_create_role(db, name) for name in roles]

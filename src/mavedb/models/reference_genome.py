@@ -14,6 +14,6 @@ class ReferenceGenome(Base):
     short_name = Column(String, nullable=False)
     organism_name = Column(String, nullable=False)
     genome_identifier_id = Column(Integer, ForeignKey("genome_identifiers.id"), nullable=True)
-    genome_identifier = relationship("GenomeIdentifier", backref="reference_genomes")
+    genome_identifier : GenomeIdentifier = relationship("GenomeIdentifier", backref="reference_genomes")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
