@@ -18,7 +18,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "fqfa~=1.2.3",
+    "fqfa~=1.3.0",
     "pyhumps~=3.8.0",
     "IDUtils~=1.2.0",
     "mavehgvs~=0.6.0",
@@ -81,6 +81,10 @@ exclude = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mavedb"]
+
+[tool.mypy]
+plugins = sqlalchemy.ext.mypy.plugin
+mypy_path = mypy_stubs
 
 [tool.pytest.ini_options]
 addopts = [
