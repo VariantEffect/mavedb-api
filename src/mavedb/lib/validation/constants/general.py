@@ -6,7 +6,7 @@ import re
 Null Constant definitions
 """
 NA_STRING = "NA"
-null_values_list = (
+null_values_list = [
     "nan",
     "na",
     "none",
@@ -16,10 +16,10 @@ null_values_list = (
     "null",
     "nil",
     "-",
-    None,
-)
+]
 # enforce the assumption that these are all lowercase values
-null_values_list = [s.lower() for s in null_values_list if s is not None]
+assert all(s.lower() == s for s in null_values_list)
+
 # add the NA_STRING only if it's not already in the list
 if NA_STRING.lower() not in null_values_list:
     null_values_list.append(NA_STRING.lower())
