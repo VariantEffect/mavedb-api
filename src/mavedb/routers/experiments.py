@@ -2,7 +2,7 @@ import logging
 from operator import attrgetter
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
@@ -93,6 +93,7 @@ def fetch_experiment(
         raise HTTPException(status_code=404, detail=f"Experiment with URN {urn} not found")
     permission = has_permission(user, item, Action.READ)
     if not permission.permitted:
+        assert permission.http_code and permission.message
         raise HTTPException(status_code=permission.http_code, detail=permission.message)
     return item
 
@@ -118,6 +119,7 @@ def get_experiment_score_sets(
         raise HTTPException(status_code=404, detail=f"experiment with URN '{urn}' not found")
     permission = has_permission(user, experiment, Action.READ)
     if not permission.permitted:
+        assert permission.http_code and permission.message
         raise HTTPException(status_code=permission.http_code, detail=permission.message)
     # Only get published score sets. Unpublished score sets won't be shown on experiment page.
     # score_sets = db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(not ScoreSet.private).all()
@@ -154,6 +156,7 @@ async def create_experiment(
             )
         permission = has_permission(user, experiment_set, Action.ADD_EXPERIMENT)
         if not permission.permitted:
+            assert permission.http_code and permission.message
             raise HTTPException(status_code=permission.http_code, detail=permission.message)
     doi_identifiers = [
         await find_or_create_doi_identifier(db, identifier.identifier)
@@ -303,6 +306,7 @@ async def delete_experiment(
         raise HTTPException(status_code=404, detail=f"experiment with URN '{urn}' not found.")
     permission = has_permission(user, item, Action.DELETE)
     if not permission.permitted:
+        assert permission.http_code and permission.message
         raise HTTPException(status_code=permission.http_code, detail=permission.message)
 
     db.delete(item)
