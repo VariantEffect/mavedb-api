@@ -1,6 +1,6 @@
 # import os
 import sys
-from typing import Generator
+from typing import Generator, Type
 
 from sqlalchemy.dialects.postgresql import JSONB as POSTGRES_JSONB
 from sqlalchemy.types import JSON
@@ -16,6 +16,8 @@ def get_db() -> Generator:
     finally:
         db.close()
 
+
+JSONB : Type
 
 # if 'PYTEST_RUN_CONFIG' in os.environ:
 if "pytest" in sys.modules:
