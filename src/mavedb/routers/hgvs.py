@@ -17,7 +17,7 @@ router = APIRouter(
 )
 
 
-@router.get("/fetch/{accession}", status_code=200, response_model=Any)
+@router.get("/fetch/{accession}", status_code=200)
 def hgvs_fetch(accession: str) -> Any:
     """
     List stored sequences
@@ -25,7 +25,7 @@ def hgvs_fetch(accession: str) -> Any:
     return hgvs.dataproviders.uta.connect().seqfetcher.fetch_seq(accession)
 
 
-@router.post("/validate", status_code=200, response_model=Any)
+@router.post("/validate", status_code=200)
 def hgvs_validate(variant: dict[str, str]) -> Any:
     """
     List stored sequences

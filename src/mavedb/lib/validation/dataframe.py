@@ -192,7 +192,7 @@ def validate_dataframe(df: pd.DataFrame, kind: str, targets: list[TargetGene]) -
     column_mapping = {c.lower(): c for c in df.columns}
     index_column = choose_dataframe_index_column(df)
 
-    prefixes = dict()
+    prefixes : dict[str, Optional[str]] = dict()
     for c in column_mapping:
         if c in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
             is_index = column_mapping[c] == index_column

@@ -18,7 +18,7 @@ class Variant(Base):
 
     score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), nullable=False)
     # TODO examine if delete-orphan is necessary, explore cascade
-    score_set : Mapped[ScoreSet] = relationship("ScoreSet", backref=backref("variants", cascade="all,delete-orphan"))
+    score_set : Mapped[ScoreSet] = relationship(back_populates="variants")
 
     hgvs_nt = Column(String, nullable=True)
     hgvs_pro = Column(String, nullable=True)

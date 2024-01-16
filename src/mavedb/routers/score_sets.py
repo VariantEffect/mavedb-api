@@ -67,12 +67,13 @@ async def fetch_score_set_by_urn(db, urn: str, owner: Optional[User]) -> Optiona
         user.
     """
     try:
-        permission_filter = ScoreSet.private.is_(False)
         if owner is not None:
             permission_filter = or_(
-                permission_filter,
+                ScoreSet.private.is_(False),
                 ScoreSet.created_by_id == owner.id,
             )
+        else:
+            permission_filter = ScoreSet.private.is_(False)
         item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(permission_filter).one_or_none()
     except MultipleResultsFound:
         raise HTTPException(status_code=500, detail=f"multiple score sets with URN '{urn}' were found")
@@ -152,9 +153,11 @@ def get_score_set_scores_csv(
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
     permission = has_permission(user, score_set, Action.READ)
     if not permission.permitted:
+        assert permission.http_code is not None
         raise HTTPException(status_code=permission.http_code, detail=permission.message)
 
-    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_set.dataset_columns["score_columns"]
+    score_columns = [str(x) for x in list(score_set.dataset_columns["score_columns"])]
+    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_columns
     type_column = "score_data"
     rows_data = get_csv_rows_data(score_set.variants, columns=columns, dtype=type_column)
     stream = io.StringIO()
@@ -189,9 +192,11 @@ async def get_score_set_counts_csv(
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
     permission = has_permission(user, score_set, Action.READ)
     if not permission.permitted:
+        assert permission.http_code is not None
         raise HTTPException(status_code=permission.http_code, detail=permission.message)
 
-    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_set.dataset_columns["count_columns"]
+    count_columns = [str(x) for x in list(score_set.dataset_columns["count_columns"])]
+    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + count_columns
     type_column = "count_data"
     rows_data = get_csv_rows_data(score_set.variants, columns=columns, dtype=type_column)
     stream = io.StringIO()
@@ -216,6 +221,7 @@ def get_score_set_mapped_variants(
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
     permission = has_permission(user, score_set, Action.READ)
     if not permission.permitted:
+        assert permission.http_code is not None
         raise HTTPException(status_code=permission.http_code, detail=permission.message)
 
     mapped_variants = (
@@ -258,13 +264,14 @@ async def create_score_set(
     if item_create is None:
         return None
 
-    experiment: Experiment = None
+    experiment: Optional[Experiment] = None
     if item_create.experiment_urn is not None:
         experiment = db.query(Experiment).filter(Experiment.urn == item_create.experiment_urn).one_or_none()
         if not experiment:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
         permission = has_permission(user, experiment, Action.ADD_SCORE_SET)
         if not permission.permitted:
+            assert permission.http_code is not None
             raise HTTPException(status_code=permission.http_code, detail=permission.message)
 
     license_ = db.query(License).filter(License.id == item_create.license_id).one_or_none()
@@ -292,12 +299,8 @@ async def create_score_set(
     if len(meta_analyzes_score_sets) > 0:
         # If any existing score set is a meta-analysis for score sets in the same collection of exepriment sets, use its
         # experiment as the parent of our new meta-analysis. Otherwise, create a new experiment.
-        meta_analyzes_experiment_sets = list(
-            set(map(lambda ss: ss.experiment.experiment_set, meta_analyzes_score_sets))
-        )
-        meta_analyzes_experiment_set_urns = list(
-            set(map(lambda ss: ss.experiment.experiment_set.urn, meta_analyzes_score_sets))
-        )
+        meta_analyzes_experiment_sets = list(set((ss.experiment.experiment_set for ss in meta_analyzes_score_sets if ss is not None)))
+        meta_analyzes_experiment_set_urns = [es.urn for es in meta_analyzes_experiment_sets if es.urn is not None]
         existing_meta_analyses = find_meta_analyses_for_experiment_sets(db, meta_analyzes_experiment_set_urns)
 
         if len(existing_meta_analyses) > 0:
@@ -346,7 +349,7 @@ async def create_score_set(
     for publication in publication_identifiers:
         setattr(publication, "primary", publication.identifier in primary_identifiers)
 
-    targets = []
+    targets : list[TargetGene] = []
     accessions = False
     for gene in item_create.target_genes:
         if gene.target_sequence:
@@ -457,7 +460,7 @@ async def upload_score_set_variant_data(
 
     # item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(ScoreSet.private.is_(False)).one_or_none()
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
-    if not item.urn or not scores_file:
+    if not item or not item.urn or not scores_file:
         return None
     permission = has_permission(user, item, Action.SET_SCORES)
     if not permission.permitted:
@@ -771,6 +774,7 @@ async def delete_score_set(
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
     permission = has_permission(user, item, Action.DELETE)
     if not permission.permitted:
+        assert permission.http_code is not None
         raise HTTPException(status_code=permission.http_code, detail=permission.message)
     db.delete(item)
     db.commit()
@@ -785,11 +789,12 @@ def publish_score_set(
     """
     Publish a score set.
     """
-    item: ScoreSet = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
+    item: Optional[ScoreSet] = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
     permission = has_permission(user, item, Action.UPDATE)
     if not permission.permitted:
+        assert permission.http_code is not None
         raise HTTPException(status_code=permission.http_code, detail=permission.message)
 
     if not item.experiment:

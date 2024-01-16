@@ -78,6 +78,7 @@ class ScoreSet(Base):
 
     # TODO Refactor the way we track the number of variants?
     num_variants = Column(Integer, nullable=False, default=0)
+    variants : Mapped[list["Variant"]] = relationship(back_populates="score_set")
 
     experiment_id = Column(Integer, ForeignKey("experiments.id"), nullable=False)
     experiment : Mapped["Experiment"] = relationship("Experiment", backref=backref("score_sets", cascade="all,delete-orphan"))
