@@ -33,14 +33,11 @@ __all__ = [
     "assert_raises",
     "build_err_msg",
     "decorate_methods",
-    "jiffies",
-    "memusage",
     "print_assert_equal",
     "raises",
     "rundocs",
     "runstring",
     "verbose",
-    "measure",
     "assert_",
     "assert_array_almost_equal_nulp",
     "assert_raises_regex",
@@ -176,103 +173,6 @@ def gisinf(x):
         if isinstance(st, type(NotImplemented)):
             raise TypeError("isinf not supported for this type")
     return st
-
-
-if os.name == "nt":
-    # Code "stolen" from enthought/debug/memusage.py
-    def GetPerformanceAttributes(object, counter, instance=None, inum=-1, format=None, machine=None):
-        # NOTE: Many counters require 2 samples to give accurate results,
-        # including "% Processor Time" (as by definition, at any instant, a
-        # thread's CPU usage is either 0 or 100).  To read counters like this,
-        # you should copy this function, but keep the counter open, and call
-        # CollectQueryData() each time you need to know.
-        # See http://msdn.microsoft.com/library/en-us/dnperfmo/html/perfmonpt2.asp (dead link)
-        # My older explanation for this was that the "AddCounter" process forced
-        # the CPU to 100%, but the above makes more sense :)
-        import win32pdh
-
-        if format is None:
-            format = win32pdh.PDH_FMT_LONG
-        path = win32pdh.MakeCounterPath((machine, object, instance, None, inum, counter))
-        hq = win32pdh.OpenQuery()
-        try:
-            hc = win32pdh.AddCounter(hq, path)
-            try:
-                win32pdh.CollectQueryData(hq)
-                type, val = win32pdh.GetFormattedCounterValue(hc, format)
-                return val
-            finally:
-                win32pdh.RemoveCounter(hc)
-        finally:
-            win32pdh.CloseQuery(hq)
-
-    def memusage(processName="python", instance=0):
-        # from win32pdhutil, part of the win32all package
-        import win32pdh
-
-        return GetPerformanceAttributes("Process", "Virtual Bytes", processName, instance, win32pdh.PDH_FMT_LONG, None)
-
-
-elif sys.platform[:5] == "linux":
-
-    def memusage(_proc_pid_stat="/proc/%s/stat" % (os.getpid())):
-        """
-        Return virtual memory size in bytes of the running python.
-        """
-        try:
-            with open(_proc_pid_stat, "r") as f:
-                l = f.readline().split(" ")
-            return int(l[22])
-        except Exception:
-            return
-
-
-else:
-
-    def memusage():
-        """
-        Return memory usage of running python. [Not implemented]
-        """
-        raise NotImplementedError
-
-
-if sys.platform[:5] == "linux":
-
-    def jiffies(_proc_pid_stat="/proc/%s/stat" % (os.getpid()), _load_time=[]):
-        """
-        Return number of jiffies elapsed.
-
-        Return number of jiffies (1/100ths of a second) that this
-        process has been scheduled in user mode. See man 5 proc.
-        """
-        import time
-
-        if not _load_time:
-            _load_time.append(time.time())
-        try:
-            with open(_proc_pid_stat, "r") as f:
-                l = f.readline().split(" ")
-            return int(l[13])
-        except Exception:
-            return int(100 * (time.time() - _load_time[0]))
-
-
-else:
-    # os.getpid is not in all platforms available.
-    # Using time is safe but inaccurate, especially when process
-    # was suspended or sleeping.
-    def jiffies(_load_time=[]):
-        """
-        Return number of jiffies elapsed.
-
-        Return number of jiffies (1/100ths of a second) that this
-        process has been scheduled in user mode. See man 5 proc.
-        """
-        import time
-
-        if not _load_time:
-            _load_time.append(time.time())
-        return int(100 * (time.time() - _load_time[0]))
 
 
 def build_err_msg(
