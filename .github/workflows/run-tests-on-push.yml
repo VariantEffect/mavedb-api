@@ -3,6 +3,19 @@ on:
   push:
 
 jobs:
+  run-tests-3_9:
+    runs-on: ubuntu-20.04
+    name: Pytest on Python 3.9 / Ubuntu 20.04
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.9"
+        cache: 'pip'
+    - run: pip install --upgrade pip
+    - run: pip install .[dev,server]
+    - run: pytest tests/
+
   run-tests-3_10:
     runs-on: ubuntu-latest
     name: Pytest on Python 3.10
