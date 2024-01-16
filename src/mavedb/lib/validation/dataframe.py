@@ -1,17 +1,16 @@
 from typing import Optional, Tuple, Union
 
-import hgvs.dataproviders.interface
-import hgvs.dataproviders.seqfetcher
-import hgvs.dataproviders.uta
 import hgvs.exceptions
 import hgvs.parser
 import hgvs.validator
 import numpy as np
 import pandas as pd
+
 from fqfa.util.translate import translate_dna
 from mavehgvs.exceptions import MaveHgvsParseError
 from mavehgvs.variant import Variant
 
+from mavedb.deps import hgvs_data_provider
 from mavedb.lib.exceptions import MixedTargetError
 from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
@@ -483,7 +482,7 @@ def validate_hgvs_genomic_column(column: pd.Series, is_index: bool, targets: lis
             raise ValueError(f"unrecognized hgvs column name '{column.name}'")
 
     hp = hgvs.parser.Parser()
-    hdp = hgvs.dataproviders.uta.connect()
+    hdp = hgvs_data_provider()
     vr = hgvs.validator.Validator(hdp=hdp)
 
     invalid_variants = list()
