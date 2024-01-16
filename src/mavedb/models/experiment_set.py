@@ -1,7 +1,7 @@
 from datetime import date
 
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.schema import Table
 
 from mavedb.db.base import Base
@@ -60,24 +60,24 @@ class ExperimentSet(Base):
     num_experiments = Column(Integer, nullable=False, default=0)
 
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_by : User = relationship("User", foreign_keys="ExperimentSet.created_by_id")
+    created_by : Mapped[User] = relationship("User", foreign_keys="ExperimentSet.created_by_id")
     modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    modified_by : User = relationship("User", foreign_keys="ExperimentSet.modified_by_id")
+    modified_by : Mapped[User] = relationship("User", foreign_keys="ExperimentSet.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    keyword_objs : list[Keyword] = relationship(
+    keyword_objs : Mapped[list[Keyword]] = relationship(
         "Keyword", secondary=experiment_sets_keywords_association_table, backref="experiment_sets"
     )
-    doi_identifiers : list[DoiIdentifier] = relationship(
+    doi_identifiers : Mapped[list[DoiIdentifier]] = relationship(
         "DoiIdentifier", secondary=experiment_sets_doi_identifiers_association_table, backref="experiment_sets"
     )
-    publication_identifiers : list[PublicationIdentifier] = relationship(
+    publication_identifiers : Mapped[list[PublicationIdentifier]] = relationship(
         "PublicationIdentifier",
         secondary=experiment_sets_publication_identifiers_association_table,
         backref="experiment_sets",
     )
     # sra_identifiers = relationship('SraIdentifier', secondary=experiment_sets_sra_identifiers_association_table, backref='experiment_sets')
-    raw_read_identifiers : list[RawReadIdentifier] = relationship(
+    raw_read_identifiers : Mapped[list[RawReadIdentifier]] = relationship(
         "RawReadIdentifier", secondary=experiment_sets_raw_read_identifiers_association_table, backref="experiment_sets"
     )

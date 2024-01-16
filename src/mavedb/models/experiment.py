@@ -4,7 +4,7 @@ from typing import Optional
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.event import listens_for
 from sqlalchemy.ext.associationproxy import association_proxy
-from sqlalchemy.orm import relationship, backref
+from sqlalchemy.orm import relationship, backref, Mapped
 from sqlalchemy.schema import Table
 
 from mavedb.db.base import Base
@@ -63,20 +63,20 @@ class Experiment(Base):
     num_score_sets = Column("num_scoresets", Integer, nullable=False, default=0)
 
     experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), nullable=True)
-    experiment_set : ExperimentSet = relationship("ExperimentSet", backref=backref("experiments", cascade="all,delete-orphan"))
+    experiment_set : Mapped[ExperimentSet] = relationship("ExperimentSet", backref=backref("experiments", cascade="all,delete-orphan"))
 
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_by : User = relationship("User", foreign_keys="Experiment.created_by_id")
+    created_by : Mapped[User] = relationship("User", foreign_keys="Experiment.created_by_id")
     modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    modified_by : User = relationship("User", foreign_keys="Experiment.modified_by_id")
+    modified_by : Mapped[User] = relationship("User", foreign_keys="Experiment.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    keyword_objs : list[Keyword] = relationship("Keyword", secondary=experiments_keywords_association_table, backref="experiments")
-    doi_identifiers : list[DoiIdentifier] = relationship(
+    keyword_objs : Mapped[list[Keyword]] = relationship("Keyword", secondary=experiments_keywords_association_table, backref="experiments")
+    doi_identifiers : Mapped[list[DoiIdentifier]] = relationship(
         "DoiIdentifier", secondary=experiments_doi_identifiers_association_table, backref="experiments"
     )
-    publication_identifier_associations : list[ExperimentPublicationIdentifierAssociation] = relationship(
+    publication_identifier_associations : Mapped[list[ExperimentPublicationIdentifierAssociation]] = relationship(
         "ExperimentPublicationIdentifierAssociation", back_populates="experiment", cascade="all, delete-orphan"
     )
     publication_identifiers = association_proxy(
@@ -86,7 +86,7 @@ class Experiment(Base):
     )
 
     # sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
-    raw_read_identifiers : list[RawReadIdentifier] = relationship(
+    raw_read_identifiers : Mapped[list[RawReadIdentifier]] = relationship(
         "RawReadIdentifier", secondary=experiments_raw_read_identifiers_association_table, backref="experiments"
     )
 

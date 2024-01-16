@@ -1,5 +1,5 @@
 from sqlalchemy import Column, ForeignKey, Integer
-from sqlalchemy.orm import relationship, backref
+from sqlalchemy.orm import relationship, backref, Mapped
 
 from mavedb.db.base import Base
 from mavedb.deps import JSONB
@@ -15,4 +15,4 @@ class MappedVariant(Base):
     post_mapped = Column(JSONB, nullable=False)
 
     variant_id = Column(Integer, ForeignKey("variants.id"), nullable=False)
-    variant : Variant = relationship("Variant", backref=backref("mapped_variants", cascade="all,delete-orphan"))
+    variant : Mapped[Variant] = relationship("Variant", backref=backref("mapped_variants", cascade="all,delete-orphan"))

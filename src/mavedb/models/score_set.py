@@ -8,11 +8,12 @@ from mavedb.db.base import Base
 from mavedb.deps import JSONB
 from mavedb.models.enums.processing_state import ProcessingState
 import mavedb.models.score_set_publication_identifier
+
 from mavedb.models.experiment import Experiment
-from .user import User
-from .license import License
-from .keyword import Keyword
-from .doi_identifier import DoiIdentifier
+from mavedb.models.user import User
+from mavedb.models.license import License
+from mavedb.models.keyword import Keyword
+from mavedb.models.doi_identifier import DoiIdentifier
 
 # from .raw_read_identifier import SraIdentifier
 from mavedb.lib.temp_urns import generate_temp_urn
@@ -79,24 +80,24 @@ class ScoreSet(Base):
     num_variants = Column(Integer, nullable=False, default=0)
 
     experiment_id = Column(Integer, ForeignKey("experiments.id"), nullable=False)
-    experiment : Experiment = relationship("Experiment", backref=backref("score_sets", cascade="all,delete-orphan"))
+    experiment : Mapped["Experiment"] = relationship("Experiment", backref=backref("score_sets", cascade="all,delete-orphan"))
     # TODO Standardize on US or GB spelling for licenc/se.
     licence_id = Column(Integer, ForeignKey("licenses.id"), nullable=False)
-    license : License = relationship("License")
+    license : Mapped["License"] = relationship("License")
     superseded_score_set_id = Column("replaces_id", Integer, ForeignKey("scoresets.id"), nullable=True)  # TODO
-    superseded_score_set : "ScoreSet" = relationship(
+    superseded_score_set : Mapped["ScoreSet"] = relationship(
         "ScoreSet", uselist=False, remote_side=[id], backref=backref("superseding_score_set", uselist=False)
     )
 
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_by : User = relationship("User", foreign_keys="ScoreSet.created_by_id")
+    created_by : Mapped["User"] = relationship("User", foreign_keys="ScoreSet.created_by_id")
     modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    modified_by : User = relationship("User", foreign_keys="ScoreSet.modified_by_id")
+    modified_by : Mapped["User"] = relationship("User", foreign_keys="ScoreSet.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    keyword_objs : list[Keyword] = relationship("Keyword", secondary=score_sets_keywords_association_table, backref="score_sets")
-    doi_identifiers : list[DoiIdentifier] = relationship(
+    keyword_objs : Mapped[list["Keyword"]] = relationship("Keyword", secondary=score_sets_keywords_association_table, backref="score_sets")
+    doi_identifiers : Mapped[list["DoiIdentifier"]] = relationship(
         "DoiIdentifier", secondary=score_sets_doi_identifiers_association_table, backref="score_sets"
     )
     publication_identifier_associations : Mapped[list[mavedb.models.score_set_publication_identifier.ScoreSetPublicationIdentifierAssociation]] = relationship(
@@ -109,7 +110,7 @@ class ScoreSet(Base):
     )
     # sra_identifiers = relationship('SraIdentifier', secondary=score_sets_sra_identifiers_association_table, backref='score_sets')
     # raw_read_identifiers = relationship('RawReadIdentifier', secondary=score_sets_raw_read_identifiers_association_table,backref='score_sets')
-    meta_analyzes_score_sets : list["ScoreSet"] = relationship(
+    meta_analyzes_score_sets : Mapped[list["ScoreSet"]] = relationship(
         "ScoreSet",
         secondary=score_sets_meta_analysis_score_sets_association_table,
         primaryjoin=(score_sets_meta_analysis_score_sets_association_table.c.meta_analysis_scoreset_id == id),

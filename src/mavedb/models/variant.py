@@ -1,12 +1,12 @@
 from datetime import date
 
 from sqlalchemy import Column, Date, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship, backref
+from sqlalchemy.orm import relationship, backref, Mapped
 
 from mavedb.db.base import Base
 from mavedb.deps import JSONB
 from .score_set import ScoreSet
-\
+
 
 class Variant(Base):
     __tablename__ = "variants"
@@ -18,7 +18,7 @@ class Variant(Base):
 
     score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), nullable=False)
     # TODO examine if delete-orphan is necessary, explore cascade
-    score_set : ScoreSet = relationship("ScoreSet", backref=backref("variants", cascade="all,delete-orphan"))
+    score_set : Mapped[ScoreSet] = relationship("ScoreSet", backref=backref("variants", cascade="all,delete-orphan"))
 
     hgvs_nt = Column(String, nullable=True)
     hgvs_pro = Column(String, nullable=True)

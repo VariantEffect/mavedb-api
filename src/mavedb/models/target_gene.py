@@ -1,6 +1,6 @@
 from datetime import date
 from sqlalchemy import Column, Date, ForeignKey, Integer, String
-from sqlalchemy.orm import backref, relationship
+from sqlalchemy.orm import backref, relationship, Mapped
 
 from mavedb.db.base import Base
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
@@ -26,7 +26,7 @@ class TargetGene(Base):
     # ensembl_id = relationship('EnsemblIdentifier', backref='target_genes')
     # refseq_id_id = Column(Integer, nullable=True)  # , ForeignKey('dataset_scoreset.id'), nullable=False)
     score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), nullable=False)
-    score_set : ScoreSet = relationship(
+    score_set : Mapped[ScoreSet] = relationship(
         "ScoreSet",
         backref=backref("target_genes", cascade="all,delete-orphan", single_parent=True, uselist=True),
         single_parent=True,
@@ -34,13 +34,13 @@ class TargetGene(Base):
     # uniprot_id_id = Column(Integer, nullable=True)  # , ForeignKey('dataset_scoreset.id'), nullable=False)
     target_sequence_id = Column(Integer, ForeignKey("target_sequences.id"), nullable=True)
     accession_id = Column(Integer, ForeignKey("target_accessions.id"), nullable=True)
-    target_sequence : TargetSequence = relationship(
+    target_sequence : Mapped[TargetSequence] = relationship(
         "TargetSequence",
         backref=backref("target_genes", single_parent=True, uselist=True),
         cascade="all,delete-orphan",
         single_parent=True,
     )
-    target_accession : TargetAccession = relationship(
+    target_accession : Mapped[TargetAccession] = relationship(
         "TargetAccession",
         backref=backref("target_genes", single_parent=True, uselist=True),
         cascade="all,delete-orphan",
