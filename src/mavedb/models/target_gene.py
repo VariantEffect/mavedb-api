@@ -3,12 +3,12 @@ from sqlalchemy import Column, Date, ForeignKey, Integer, String
 from sqlalchemy.orm import backref, relationship
 
 from mavedb.db.base import Base
-from .ensembl_identifier import EnsemblIdentifier
-from .refseq_identifier import RefseqIdentifier
-from .uniprot_identifier import UniprotIdentifier
-from .target_sequence import TargetSequence
-from .target_accession import TargetAccession
-from .score_set import ScoreSet
+from mavedb.models.ensembl_identifier import EnsemblIdentifier
+from mavedb.models.refseq_identifier import RefseqIdentifier
+from mavedb.models.uniprot_identifier import UniprotIdentifier
+from mavedb.models.target_sequence import TargetSequence
+from mavedb.models.target_accession import TargetAccession
+from mavedb.models.score_set import ScoreSet
 
 # TODO Reformat code without removing dependencies whose use is not detected.
 

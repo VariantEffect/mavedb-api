@@ -1,13 +1,13 @@
 from datetime import date
 from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship, backref
+from sqlalchemy.orm import relationship, backref, Mapped
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.schema import Table
 
 from mavedb.db.base import Base
 from mavedb.deps import JSONB
 from mavedb.models.enums.processing_state import ProcessingState
-from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
+import mavedb.models.score_set_publication_identifier
 from mavedb.models.experiment import Experiment
 from .user import User
 from .license import License
@@ -99,13 +99,13 @@ class ScoreSet(Base):
     doi_identifiers : list[DoiIdentifier] = relationship(
         "DoiIdentifier", secondary=score_sets_doi_identifiers_association_table, backref="score_sets"
     )
-    publication_identifier_associations : list[ScoreSetPublicationIdentifierAssociation] = relationship(
+    publication_identifier_associations : Mapped[list[mavedb.models.score_set_publication_identifier.ScoreSetPublicationIdentifierAssociation]] = relationship(
         "ScoreSetPublicationIdentifierAssociation", back_populates="score_set", cascade="all, delete-orphan"
     )
     publication_identifiers = association_proxy(
         "publication_identifier_associations",
         "publication",
-        creator=lambda p: ScoreSetPublicationIdentifierAssociation(publication=p, primary=p.primary),
+        creator=lambda p: mavedb.models.score_set_publication_identifier.ScoreSetPublicationIdentifierAssociation(publication=p, primary=p.primary),
     )
     # sra_identifiers = relationship('SraIdentifier', secondary=score_sets_sra_identifiers_association_table, backref='score_sets')
     # raw_read_identifiers = relationship('RawReadIdentifier', secondary=score_sets_raw_read_identifiers_association_table,backref='score_sets')

@@ -1,6 +1,6 @@
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table
-from sqlalchemy.orm import relationship
-
+from sqlalchemy.orm import relationship, Mapped
+from typing import List
 from mavedb.db.base import Base
 from mavedb.models.role import Role
 
@@ -25,7 +25,7 @@ class User(Base):
     is_active = Column(Boolean, nullable=False)
     date_joined = Column(DateTime, nullable=True)
     email = Column(String, nullable=True)
-    role_objs : list[Role] = relationship("Role", secondary=users_roles_association_table, backref="users")
+    role_objs : Mapped[List[Role]] = relationship("Role", secondary=users_roles_association_table, backref="users")
     last_login = Column(DateTime, nullable=True)
 
     @property
