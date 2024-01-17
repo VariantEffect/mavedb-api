@@ -400,6 +400,8 @@ def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: 
     # get a list of all invalid variants
     invalid_variants = list()
     for i, s in column.items():
+        if not s: continue
+
         # variants can exist on the same line separated by a space
         for variant in s.split(" "):
             # When there are multiple targets, treat provided variants as fully qualified.
