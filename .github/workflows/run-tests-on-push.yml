@@ -42,14 +42,14 @@ jobs:
     - run: pip install .[dev,server]
     - run: pytest tests/
 
-  run-mypy-3_11:
+  run-mypy-3_10:
     runs-on: ubuntu-latest
-    name: MyPy checks on Python 3.11
+    name: MyPy checks on Python 3.10
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
       with:
-        python-version: "3.11"
+        python-version: "3.10"
         cache: 'pip'
     - run: pip install --upgrade pip
     - run: pip install .[dev,server]
