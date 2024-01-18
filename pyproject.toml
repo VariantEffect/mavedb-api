@@ -25,6 +25,7 @@ dependencies = [
     "eutils~=0.6.0",
     "hgvs~=1.5.4",
     "biocommons~=0.0.0",
+    "cdot~=0.2.21",
     "numpy~=1.22",
     "pandas~=1.4.1",
     "pydantic~=1.10",
