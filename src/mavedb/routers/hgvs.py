@@ -7,6 +7,7 @@ import bioutils.assemblies
 from cdot.hgvs.dataproviders import RESTDataProvider
 from fastapi import APIRouter, Depends, HTTPException
 from hgvs import parser, validator
+from hgvs.exceptions import HGVSDataNotAvailableError
 
 from mavedb.deps import hgvs_data_provider
 
@@ -22,7 +23,10 @@ def hgvs_fetch(accession: str, hdp: RESTDataProvider = Depends(hgvs_data_provide
     """
     List stored sequences
     """
-    return hdp.seqfetcher.fetch_seq(accession)
+    try:
+        return hdp.seqfetcher.fetch_seq(accession)
+    except HGVSDataNotAvailableError as e:
+        raise HTTPException(404, str(e))
 
 
 @router.post("/validate", status_code=200, response_model=Any)
