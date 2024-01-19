@@ -75,6 +75,9 @@ def list_accessions(assembly: str, hdp: RESTDataProvider = Depends(hgvs_data_pro
     """
     List stored accessions
     """
+    if assembly not in hdp.assembly_maps:
+        raise HTTPException(404, f"Assembly '{assembly}' Not Found")
+
     return list(hdp.get_assembly_map(assembly_name=assembly).keys())
 
 
