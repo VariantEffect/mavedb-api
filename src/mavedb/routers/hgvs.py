@@ -91,7 +91,7 @@ def list_genes():
     return list(chain.from_iterable(hgvs.dataproviders.uta.connect()._fetchall("select hgnc from gene")))
 
 
-@router.get("/genes/{gene}", status_code=200, response_model=list)
+@router.get("/genes/{gene}", status_code=200)
 def gene_info(gene: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)):
     """
     List stored gene information for a specified gene
@@ -107,7 +107,7 @@ def list_transcripts_for_gene(gene: str, hdp: RESTDataProvider = Depends(hgvs_da
     return set([tx_info["tx_ac"] for tx_info in hdp.get_tx_for_gene(gene)])
 
 
-@router.get("/transcripts/{transcript}", status_code=200, response_model=list)
+@router.get("/transcripts/{transcript}", status_code=200)
 def transcript_info(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)):
     """
     List transcript information for a particular transcript
@@ -115,7 +115,7 @@ def transcript_info(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_p
     return hdp.get_tx_identity_info(transcript)
 
 
-@router.get("/transcripts/protein/{transcript}", status_code=200, response_model=str)
+@router.get("/transcripts/protein/{transcript}", status_code=200)
 def convert_to_protein(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)):
     """
     Convert a provided transcript from it's nucleotide accession identifier to its protein accession identifier
