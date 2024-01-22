@@ -219,7 +219,7 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
         .join(analyzed_score_set.experiment.of_type(analyzed_experiment))
         .join(analyzed_experiment.experiment_set.of_type(analyzed_experiment_set))
         .filter(*urn_filters)
-        .group_by(ScoreSet)
+        .group_by(ScoreSet.id)
         .having(func.count(func.distinct(analyzed_experiment_set.id)) == len(urns))
         .all()
     )
