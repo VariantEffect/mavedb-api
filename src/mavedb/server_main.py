@@ -129,7 +129,7 @@ def find_traceback_locations():
     return [
         f"{fs.filename}:{fs.lineno}:{fs.name}"
         for fs in traceback.extract_tb(tb)
-        if not fs.filename.startswith("/usr/")
+        if not fs.filename.startswith("/usr/") # Attempt to not show many layers of library code
     ]
 
 
