@@ -41,6 +41,7 @@ dev = [
     "pytest~=7.0.1",
     "jsonschema",
     "httpx~=0.26.0",
+    "requests-mock~=1.11.0",
 ]
 server = [
     "alembic~=1.7.6",

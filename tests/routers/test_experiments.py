@@ -154,7 +154,45 @@ def test_required_fields(client, setup_router_db, test_field):
     assert "field required" in response_data["detail"][0]["msg"]
 
 
-def test_create_experiment_with_new_primary_pubmed_publication(client, setup_router_db):
+def test_create_experiment_with_new_primary_pubmed_publication(client, setup_router_db, requests_mock):
+
+    # minimal xml to pass validation
+    requests_mock.post(
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+        text="""<?xml version="1.0"?>
+            <PubmedArticleSet>
+              <PubmedArticle>
+                <MedlineCitation>
+                  <PMID Version="1">20711194</PMID>
+                  <Article>
+                    <Journal>
+                      <Title>test</Title>
+                      <JournalIssue>
+                        <PubDate>
+                          <Year>1999</Year>
+                        </PubDate>
+                      </JournalIssue>
+                    </Journal>
+                    <Abstract>
+                      <AbstractText>test</AbstractText>
+                    </Abstract>
+                  </Article>
+                </MedlineCitation>
+                <PubmedData>
+                  <ArticleIdList>
+                    <ArticleId IdType="doi">test</ArticleId>
+                  </ArticleIdList>
+                </PubmedData>
+              </PubmedArticle>
+            </PubmedArticleSet>
+        """)
+
+    # code checks that this isn't also a valid bioxriv ID, so we return nothing
+    requests_mock.get(
+        "https://api.biorxiv.org/details/medrxiv/10.1101/20711194/na/json",
+        json={"collection": []}
+    )
+
     response_data = create_experiment(client, {"primaryPublicationIdentifiers": [{"identifier": "20711194"}]})
     assert len(response_data["primaryPublicationIdentifiers"]) == 1
     assert sorted(response_data["primaryPublicationIdentifiers"][0]) == sorted(
@@ -175,7 +213,28 @@ def test_create_experiment_with_new_primary_pubmed_publication(client, setup_rou
     # TODO: add separate tests for generating the publication url and referenceHtml
 
 
-def test_create_experiment_with_new_primary_biorxiv_publication(client, setup_router_db):
+def test_create_experiment_with_new_primary_biorxiv_publication(client, setup_router_db, requests_mock):
+
+    requests_mock.get(
+        "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.21.21259225/na/json",
+        json={"collection": [{
+            "title": "test1",
+            "doi": "test2",
+            "category": "test3",
+            "authors": "test4; test5",
+            "author_corresponding": "test6",
+            "author_corresponding_institution": "test7",
+            "date": "1999-12-31",
+            "version": "test8",
+            "type": "test9",
+            "license": "test10",
+            "jatsxml": "test11",
+            "abstract": "test12",
+            "published": "test13",
+            "server": "test14",
+        }]}
+    )
+
     response_data = create_experiment(
         client, {"primaryPublicationIdentifiers": [{"identifier": "2021.06.21.21259225"}]}
     )

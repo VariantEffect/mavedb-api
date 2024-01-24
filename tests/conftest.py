@@ -30,7 +30,7 @@ def session():
 
 
 @pytest.fixture()
-def client(session):
+def client(session, requests_mock):
     def override_get_db():
         try:
             yield session
