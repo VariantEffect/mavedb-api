@@ -127,9 +127,10 @@ def customize_validation_error(error):
 def find_traceback_locations():
     _, _, tb = sys.exc_info()
     return [
-        f"{fs.filename}:{fs.lineno}:{fs.name}"
+        (fs.filename, fs.lineno, fs.name)
         for fs in traceback.extract_tb(tb)
-        if not fs.filename.startswith("/usr/") # Attempt to not show many layers of library code
+        # attempt to show only *our* code, not the many layers of library code
+        if "/mavedb/" in fs.filename and "/.direnv/" not in fs.filename
     ]
 
 
