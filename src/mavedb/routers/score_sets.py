@@ -767,6 +767,8 @@ async def delete_score_set(
     204 if successful but not returning content - likely going with this
     """
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
+    print("ddd")
+    print(item)
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
     permission = has_permission(user, item, Action.DELETE)

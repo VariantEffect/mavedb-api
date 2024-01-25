@@ -149,7 +149,7 @@ class ExternalPublication:
         else:
             doi_str = "" if not self.preprint_doi else self.preprint_doi
             title = "(None)" if not self.title else self.title.strip(".")
-            journal = "(None)" if not self.publication_journal else self.publication_journal.strip(".")
+            journal = "(None)" if not (hasattr(self, "publication_journal") and self.publication_journal) else self.publication_journal.strip(".")
             year = "(Unknown year)" if not self.preprint_date else self.preprint_date.year
 
             # We don't receive these fields from rxiv platforms

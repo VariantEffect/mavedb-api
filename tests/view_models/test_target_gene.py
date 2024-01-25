@@ -1,7 +1,7 @@
 from mavedb.view_models.target_gene import TargetGeneCreate
 
 import pytest
-
+import datetime
 
 def test_create_target_gene(client):
     name = "UBE2I"

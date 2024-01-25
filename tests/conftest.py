@@ -9,6 +9,10 @@ from mavedb.db.base import Base
 from mavedb.deps import get_db
 from mavedb.lib.authentication import get_current_user
 from mavedb.models.user import User
+
+import sys
+sys.path.append('.')
+
 from tests.helpers.constants import TEST_USER
 
 

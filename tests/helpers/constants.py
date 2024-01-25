@@ -81,8 +81,7 @@ TEST_MINIMAL_SCORE_SET = {
     "abstractText": "Abstract",
     "methodText": "Methods",
     "licenseId": 1,
-    "targetGenes": [{
-        "id": 1,
+    "targetGenes":[ {
         "name": "TEST1",
         "category": "Protein coding",
         "externalIdentifiers": [],
@@ -100,7 +99,7 @@ TEST_MINIMAL_SCORE_SET = {
                       "url": TEST_TAXONOMY["url"]
             }
         },
-    }],
+    } ],
 }
 
 TEST_MINIMAL_SCORE_SET_RESPONSE = {
@@ -122,11 +121,11 @@ TEST_MINIMAL_SCORE_SET_RESPONSE = {
     "modificationDate": date.today().isoformat(),
     "license": {camelize(k): v for k, v in TEST_LICENSE.items() if k not in ("text",)},
     "numVariants": 0,
-    "targetGenes": [{
-        "id": 1,
+    "targetGenes": [ {
         "name": "TEST1",
         "category": "Protein coding",
         "externalIdentifiers": [],
+        "id": 1,
         "targetSequence": {
             "sequenceType": "dna",
             "sequence": "ACGTTT",
@@ -141,7 +140,7 @@ TEST_MINIMAL_SCORE_SET_RESPONSE = {
                       "url": TEST_TAXONOMY["url"]
             }
         },
-    },],
+    } ],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
     "keywords": [],
