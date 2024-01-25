@@ -75,7 +75,7 @@ TEST_MINIMAL_SCORE_SET = {
     "abstractText": "Abstract",
     "methodText": "Methods",
     "licenseId": 1,
-    "targetGene": {
+    "targetGenes":[ {
         "name": "TEST1",
         "category": "Protein coding",
         "externalIdentifiers": [],
@@ -83,8 +83,15 @@ TEST_MINIMAL_SCORE_SET = {
         "targetSequence": {
             "sequenceType": "dna",
             "sequence": "ACGTTT",
+            "reference": {
+                "id": 1,
+                "shortName": "Name",
+                "organismName": "Organism",
+                "creationDate": date.today().isoformat(),
+                "modificationDate": date.today().isoformat(),
+            }
         },
-    },
+    } ],
 }
 
 TEST_MINIMAL_SCORE_SET_RESPONSE = {
@@ -106,30 +113,23 @@ TEST_MINIMAL_SCORE_SET_RESPONSE = {
     "modificationDate": date.today().isoformat(),
     "license": {camelize(k): v for k, v in TEST_LICENSE.items() if k not in ("text",)},
     "numVariants": 0,
-    "targetGene": {
+    "targetGenes": [ {
         "name": "TEST1",
         "category": "Protein coding",
         "externalIdentifiers": [],
-        "referenceMaps": [
-            {
-                "creationDate": date.today().isoformat(),
-                "modificationDate": date.today().isoformat(),
-                "genomeId": TEST_REFERENCE_GENOME["id"],
-                "id": 1,
-                "targetId": 1,
-                "isPrimary": False,
-                "genome": {camelize(k): v for k, v in TEST_REFERENCE_GENOME.items()}
-                | {
-                    "creationDate": date.today().isoformat(),
-                    "modificationDate": date.today().isoformat(),
-                },
-            }
-        ],
+        "id": 1,
         "targetSequence": {
             "sequenceType": "dna",
             "sequence": "ACGTTT",
+            "reference": {
+                "id": 1,
+                "shortName": "Name",
+                "organismName": "Organism",
+                "creationDate": date.today().isoformat(),
+                "modificationDate": date.today().isoformat(),
+            }
         },
-    },
+    } ],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
     "keywords": [],

@@ -1,7 +1,7 @@
 from mavedb.view_models.target_gene import TargetGeneCreate
 
 import pytest
-
+import datetime
 
 def test_create_target_gene(client):
     name = "UBE2I"
@@ -18,6 +18,13 @@ def test_create_target_gene(client):
         "CTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGTTTAT"
         "TGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGA"
         "CGGGGAGTCAGGCAACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA",
+        "reference": { 
+            "id": 1,
+            "shortName": "Name",
+            "organismName": "Organism",
+            "creationDate": datetime.datetime.now(),
+            "modificationDate": datetime.datetime.now(),
+        }
     }
     externalIdentifier = TargetGeneCreate(
         name=name,
