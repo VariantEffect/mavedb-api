@@ -14,6 +14,9 @@ from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 import pytest
 from tests.helpers.util import change_ownership, create_experiment, create_score_set_with_variants
 
+import requests
+import requests_mock
+
 
 def test_test_minimal_experiment_is_valid():
     jsonschema.validate(instance=TEST_MINIMAL_EXPERIMENT, schema=ExperimentCreate.schema())
@@ -258,36 +261,56 @@ def test_create_experiment_with_new_primary_biorxiv_publication(client, setup_ro
     # TODO: add separate tests for generating the publication url and referenceHtml
 
 
-def test_create_experiment_biorxiv_not_found(client, setup_router_db, requests_mock):
+def test_create_experiment_biorxiv_not_found(client, setup_router_db):
 
-    # I think this should probably actually return a 400 Bad Request or
-    # a 404 Not Found so that the frontend can do something about it.
+    with requests_mock.mock() as m:
+        m.get(
+            "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.22.21259225/na/json",
+            json={"messages": [{"status": "no posts found"}], "collection": []}
+        )
+        payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+        payload['primaryPublicationIdentifiers'] = [
+            {'identifier': '2021.06.22.21259225'}
+        ]
+        r = client.post("/api/v1/experiments/", json=payload)
 
-    requests_mock.get(
-        "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.22.21259225/na/json",
-        json={"messages": [{"status": "no posts found"}], "collection": []}
-    )
-    payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
-    payload['identifier'] = '2021.06.22.21259225'
-    r = client.post("/api/v1/experiments/", json=payload)
-    assert r.status_code == 200
-    assert r.json()['primaryPublicationIdentifiers'] == []
+        assert m.called
+
+        assert r.status_code == 404
 
 
-def test_create_experiment_biorxiv_unavailable(client, setup_router_db, requests_mock):
+def test_create_experiment_biorxiv_timeout(client, setup_router_db):
 
-    # I think this should probably return a 502 Bad Gateway or a 504 Gateway Timeout
-    # so that the frontend can actually do something about it.
+    with requests_mock.mock() as m:
+        m.get(
+            "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.21.21259225/na/json",
+            exc=requests.exceptions.ConnectTimeout
+        )
+        payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+        payload['primaryPublicationIdentifiers'] = [
+            {'identifier': '2021.06.21.21259225'}
+        ]
+        r = client.post("/api/v1/experiments/", json=payload)
 
-    requests_mock.get(
-        "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.21.21259225/na/json",
-        status_code=504
-    )
-    payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
-    payload['identifier'] = '2021.06.21.21259225'
-    r = client.post("/api/v1/experiments/", json=payload)
-    assert r.status_code == 200
-    assert r.json()['primaryPublicationIdentifiers'] == []
+        assert m.called
+        assert r.status_code == 504
+
+
+def test_create_experiment_biorxiv_unavailable(client, setup_router_db):
+
+    with requests_mock.mock() as m:
+        m.get(
+            "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.21.21259225/na/json",
+            status_code=503
+        )
+        payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+        payload['primaryPublicationIdentifiers'] = [
+            {'identifier': '2021.06.21.21259225'}
+        ]
+        r = client.post("/api/v1/experiments/", json=payload)
+
+        assert m.called
+        assert r.status_code == 502
 
 
 def test_create_experiment_with_invalid_doi(client, setup_router_db):
