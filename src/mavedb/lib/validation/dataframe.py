@@ -370,37 +370,51 @@ def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: 
     ValidationError
         If one of the variants fails validation
     """
+    valid_sequence_types = ("dna", "protein")
     validate_variant_column(column, is_index)
     prefixes = generate_variant_prefixes(column)
     validate_variant_formatting(column, prefixes, list(targets.keys()))
 
-    # validate the individual variant strings
-    # prepare the target sequences for validation
+    observed_sequence_types = [target.sequence_type for target in targets.values()]
+    invalid_sequence_types = set(observed_sequence_types) - set(valid_sequence_types)
+    if invalid_sequence_types:
+        raise ValueError(
+            f"Some targets are invalid sequence types: {invalid_sequence_types}. Sequence types shoud be one of: {valid_sequence_types}"
+        )
+
+    # If this is the `hgvs_nt` column, at least one target should be of type `dna`.
+    if str(column.name).lower() == hgvs_nt_column:
+        if "dna" not in observed_sequence_types:
+            raise ValueError(
+                f"invalid target sequence type(s) for '{column.name}'. At least one target should be of type `dna`. Observed types: {observed_sequence_types}"
+            )
+
+    # Make sure this column is either the splice column or protein column.
+    elif str(column.name).lower() != hgvs_splice_column and str(column.name).lower() != hgvs_pro_column:
+        raise ValueError(f"unrecognized hgvs column name '{column.name}'")
+
+    # Build dictionary of target sequences based on the column we are validating.
     target_seqs: dict[str, Union[str, None]] = {}
     for name, target in targets.items():
-        if target.sequence_type not in ("dna", "protein"):
-            raise ValueError("invalid target sequence type")
         if str(column.name).lower() == hgvs_nt_column:
-            if target.sequence_type != "dna":
-                raise ValueError(f"invalid target sequence type for '{column.name}'")
             target_seqs[name] = target.sequence
 
+        # don't validate splice columns against provided sequences.
         elif str(column.name).lower() == hgvs_splice_column:
-            target_seqs[name] = None  # don't validate splice variants against a target sequence
+            target_seqs[name] = None
 
+        # translate the target sequence if needed.
         elif str(column.name).lower() == hgvs_pro_column:
             if target.sequence_type == "dna":
-                target_seqs[name] = translate_dna(target.sequence)[0]  # translate the target sequence if needed
+                target_seqs[name] = translate_dna(target.sequence)[0]
             else:
                 target_seqs[name] = target.sequence
-
-        else:
-            raise ValueError(f"unrecognized hgvs column name '{column.name}'")
 
     # get a list of all invalid variants
     invalid_variants = list()
     for i, s in column.items():
-        if not s: continue
+        if not s:
+            continue
 
         # variants can exist on the same line separated by a space
         for variant in s.split(" "):
