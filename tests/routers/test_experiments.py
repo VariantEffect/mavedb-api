@@ -238,6 +238,7 @@ def test_create_experiment_with_new_primary_biorxiv_publication(client, setup_ro
     response_data = create_experiment(
         client, {"primaryPublicationIdentifiers": [{"identifier": "2021.06.21.21259225"}]}
     )
+
     assert len(response_data["primaryPublicationIdentifiers"]) == 1
     assert sorted(response_data["primaryPublicationIdentifiers"][0]) == sorted(
         [
@@ -255,6 +256,38 @@ def test_create_experiment_with_new_primary_biorxiv_publication(client, setup_ro
         ]
     )
     # TODO: add separate tests for generating the publication url and referenceHtml
+
+
+def test_create_experiment_biorxiv_not_found(client, setup_router_db, requests_mock):
+
+    # I think this should probably actually return a 400 Bad Request or
+    # a 404 Not Found so that the frontend can do something about it.
+
+    requests_mock.get(
+        "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.22.21259225/na/json",
+        json={"messages": [{"status": "no posts found"}], "collection": []}
+    )
+    payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    payload['identifier'] = '2021.06.22.21259225'
+    r = client.post("/api/v1/experiments/", json=payload)
+    assert r.status_code == 200
+    assert r.json()['primaryPublicationIdentifiers'] == []
+
+
+def test_create_experiment_biorxiv_unavailable(client, setup_router_db, requests_mock):
+
+    # I think this should probably return a 502 Bad Gateway or a 504 Gateway Timeout
+    # so that the frontend can actually do something about it.
+
+    requests_mock.get(
+        "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.21.21259225/na/json",
+        status_code=504
+    )
+    payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    payload['identifier'] = '2021.06.21.21259225'
+    r = client.post("/api/v1/experiments/", json=payload)
+    assert r.status_code == 200
+    assert r.json()['primaryPublicationIdentifiers'] == []
 
 
 def test_create_experiment_with_invalid_doi(client, setup_router_db):
@@ -279,6 +312,7 @@ def test_create_experiment_with_invalid_primary_publication(client, setup_router
         f"'{experiment_post_payload['primaryPublicationIdentifiers'][0]['identifier']}' is not a valid PubMed, bioRxiv, or medRxiv identifier"
         in response_data["detail"][0]["msg"]
     )
+
 
 
 def test_get_own_private_experiment(client, setup_router_db):
