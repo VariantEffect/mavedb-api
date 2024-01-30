@@ -1,14 +1,15 @@
 from itertools import chain
 from typing import Any, Union
 
-import bioutils.assemblies
-import hgvs
-import hgvs.dataproviders.interface
-import hgvs.dataproviders.seqfetcher
 import hgvs.dataproviders.uta
-import hgvs.parser
-import hgvs.validator
-from fastapi import APIRouter, HTTPException
+import bioutils.assemblies
+
+from cdot.hgvs.dataproviders import RESTDataProvider
+from fastapi import APIRouter, Depends, HTTPException
+from hgvs import parser, validator
+from hgvs.exceptions import HGVSDataNotAvailableError
+
+from mavedb.deps import hgvs_data_provider
 
 router = APIRouter(
     prefix="/api/v1/hgvs",
@@ -17,25 +18,28 @@ router = APIRouter(
 )
 
 
-@router.get("/fetch/{accession}", status_code=200)
-def hgvs_fetch(accession: str) -> Any:
+@router.get("/fetch/{accession}", status_code=200, response_model=Any)
+def hgvs_fetch(accession: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> Any:
     """
     List stored sequences
     """
-    return hgvs.dataproviders.uta.connect().seqfetcher.fetch_seq(accession)
+    try:
+        return hdp.seqfetcher.fetch_seq(accession)
+    except HGVSDataNotAvailableError as e:
+        raise HTTPException(404, str(e))
 
 
-@router.post("/validate", status_code=200)
-def hgvs_validate(variant: dict[str, str]) -> Any:
+@router.post("/validate", status_code=200, response_model=Any)
+def hgvs_validate(variant: dict[str, str], hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> Any:
     """
-    List stored sequences
+    Validate a provided variant
     """
-    hp = hgvs.parser.Parser()
-    hdp = hgvs.dataproviders.uta.connect()
+    hp = parser.Parser()
+    variant = hp.parse(variant["variant"])
 
     try:
-        valid = hgvs.validator.Validator(hdp=hdp).validate(hp.parse(variant["variant"]), strict=False)
-    except hgvs.validator.HGVSInvalidVariantError as e:
+        valid = validator.Validator(hdp=hdp).validate(variant, strict=False)
+    except validator.HGVSInvalidVariantError as e:
         raise HTTPException(400, str(e))
     else:
         return valid
@@ -71,37 +75,53 @@ def list_assemblies_grouped() -> Any:
 
 
 @router.get("/{assembly}/accessions", status_code=200, response_model=list)
-def list_accessions(assembly: str) -> Any:
+def list_accessions(assembly: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> Any:
     """
     List stored accessions
     """
-    return list(hgvs.dataproviders.uta.connect().get_assembly_map(assembly_name=assembly).keys())
+    if assembly not in hdp.assembly_maps:
+        raise HTTPException(404, f"Assembly '{assembly}' Not Found")
+
+    return list(hdp.get_assembly_map(assembly_name=assembly).keys())
 
 
 @router.get("/genes", status_code=200, response_model=list)
 def list_genes():
+    """
+    List stored genes
+    """
+    # Even though it doesn't provide the most complete transcript pool, UTA does provide more direct
+    # access to a complete list of genes which have transcript information available.
     return list(chain.from_iterable(hgvs.dataproviders.uta.connect()._fetchall("select hgnc from gene")))
 
 
-@router.get("/genes/{gene}", status_code=200, response_model=list)
-def gene_info(gene: str):
-    return hgvs.dataproviders.uta.connect().get_gene_info(gene)
+@router.get("/genes/{gene}", status_code=200)
+def gene_info(gene: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)):
+    """
+    List stored gene information for a specified gene
+    """
+    return hdp.get_gene_info(gene)
 
 
 @router.get("/transcripts/gene/{gene}", status_code=200, response_model=list)
-def list_transcripts_for_gene(gene: str):
-    # the 4th element of each tx_info list is the accession number for the transcript. Only
-    # surface unique elements
-    return set([tx_info[3] for tx_info in hgvs.dataproviders.uta.connect().get_tx_for_gene(gene)])
+def list_transcripts_for_gene(gene: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)):
+    """
+    List transcripts associated with a particular gene
+    """
+    return set([tx_info["tx_ac"] for tx_info in hdp.get_tx_for_gene(gene)])
 
 
-@router.get("/transcripts/{transcript}", status_code=200, response_model=list)
-def transcript_info(transcript: str):
-    # the 4th element of each tx_info list is the accession number for the transcript. Only
-    # surface unique elements
-    return hgvs.dataproviders.uta.connect().get_tx_identity_info(transcript)
+@router.get("/transcripts/{transcript}", status_code=200)
+def transcript_info(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)):
+    """
+    List transcript information for a particular transcript
+    """
+    return hdp.get_tx_identity_info(transcript)
 
 
-@router.get("/transcripts/protein/{transcript}", status_code=200, response_model=str)
-def convert_to_protein(transcript: str):
-    return hgvs.dataproviders.uta.connect().get_pro_ac_for_tx_ac(transcript)
+@router.get("/transcripts/protein/{transcript}", status_code=200)
+def convert_to_protein(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)):
+    """
+    Convert a provided transcript from it's nucleotide accession identifier to its protein accession identifier
+    """
+    return hdp.get_pro_ac_for_tx_ac(transcript)

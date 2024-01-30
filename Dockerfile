@@ -1,4 +1,40 @@
+FROM python:3.9 AS downloader
+
+WORKDIR /data
+
+# Install tools necessary used to install samtools and htslib so we can configure fasta files for genomic assembly.
+RUN apt-get clean && apt-get update && apt-get install -y \
+	build-essential \
+	curl \
+	git \
+	libbz2-dev \
+	libcurl4-openssl-dev \
+	libgsl0-dev \
+	liblzma-dev \
+	libncurses5-dev \
+	libperl-dev \
+	libssl-dev \
+	zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install samtools and htslib.
+ARG htsversion=1.19
+RUN curl -L https://github.com/samtools/htslib/releases/download/${htsversion}/htslib-${htsversion}.tar.bz2 | tar xj && \
+    (cd htslib-${htsversion} && ./configure --enable-plugins --with-plugin-path='$(libexecdir)/htslib:/usr/libexec/htslib' && make install) && \
+    ldconfig && \
+    curl -L https://github.com/samtools/samtools/releases/download/${htsversion}/samtools-${htsversion}.tar.bz2 | tar xj && \
+    (cd samtools-${htsversion} && ./configure --with-htslib=system && make install) && \
+    curl -L https://github.com/samtools/bcftools/releases/download/${htsversion}/bcftools-${htsversion}.tar.bz2 | tar xj && \
+    (cd bcftools-${htsversion} && ./configure --enable-libgsl --enable-perl-filters --with-htslib=system && make install)
+
+# Fetch and index GRCh37 and GRCh38 assemblies. These will augment seqrepo transcript sequences.
+RUN wget -O - https://ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/all_assembly_versions/GCF_000001405.25_GRCh37.p13/GCF_000001405.25_GRCh37.p13_genomic.fna.gz | gzip -d | bgzip >  GCF_000001405.25_GRCh37.p13_genomic.fna.gz
+RUN wget -O - https://ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/all_assembly_versions/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.fna.gz | gzip -d | bgzip > GCF_000001405.39_GRCh38.p13_genomic.fna.gz
+RUN samtools faidx GCF_000001405.25_GRCh37.p13_genomic.fna.gz
+RUN samtools faidx GCF_000001405.39_GRCh38.p13_genomic.fna.gz
+
 FROM python:3.9
+COPY --from=downloader /data /data
 
 WORKDIR /code
 
