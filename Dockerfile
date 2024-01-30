@@ -3,7 +3,7 @@ FROM python:3.9 AS downloader
 WORKDIR /data
 
 # Install tools necessary used to install samtools and htslib so we can configure fasta files for genomic assembly.
-RUN apt-get update && apt-get install -y \
+RUN apt-get clean && apt-get update && apt-get install -y \
 	build-essential \
 	curl \
 	git \

@@ -7,6 +7,7 @@ import bioutils.assemblies
 from cdot.hgvs.dataproviders import RESTDataProvider
 from fastapi import APIRouter, Depends, HTTPException
 from hgvs import parser, validator
+from hgvs.exceptions import HGVSDataNotAvailableError
 
 from mavedb.deps import hgvs_data_provider
 
@@ -22,7 +23,10 @@ def hgvs_fetch(accession: str, hdp: RESTDataProvider = Depends(hgvs_data_provide
     """
     List stored sequences
     """
-    return hdp.seqfetcher.fetch_seq(accession)
+    try:
+        return hdp.seqfetcher.fetch_seq(accession)
+    except HGVSDataNotAvailableError as e:
+        raise HTTPException(404, str(e))
 
 
 @router.post("/validate", status_code=200, response_model=Any)
@@ -75,6 +79,9 @@ def list_accessions(assembly: str, hdp: RESTDataProvider = Depends(hgvs_data_pro
     """
     List stored accessions
     """
+    if assembly not in hdp.assembly_maps:
+        raise HTTPException(404, f"Assembly '{assembly}' Not Found")
+
     return list(hdp.get_assembly_map(assembly_name=assembly).keys())
 
 
@@ -88,7 +95,7 @@ def list_genes():
     return list(chain.from_iterable(hgvs.dataproviders.uta.connect()._fetchall("select hgnc from gene")))
 
 
-@router.get("/genes/{gene}", status_code=200, response_model=list)
+@router.get("/genes/{gene}", status_code=200)
 def gene_info(gene: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)):
     """
     List stored gene information for a specified gene
@@ -104,7 +111,7 @@ def list_transcripts_for_gene(gene: str, hdp: RESTDataProvider = Depends(hgvs_da
     return set([tx_info["tx_ac"] for tx_info in hdp.get_tx_for_gene(gene)])
 
 
-@router.get("/transcripts/{transcript}", status_code=200, response_model=list)
+@router.get("/transcripts/{transcript}", status_code=200)
 def transcript_info(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)):
     """
     List transcript information for a particular transcript
@@ -112,7 +119,7 @@ def transcript_info(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_p
     return hdp.get_tx_identity_info(transcript)
 
 
-@router.get("/transcripts/protein/{transcript}", status_code=200, response_model=str)
+@router.get("/transcripts/protein/{transcript}", status_code=200)
 def convert_to_protein(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)):
     """
     Convert a provided transcript from it's nucleotide accession identifier to its protein accession identifier
