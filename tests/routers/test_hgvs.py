@@ -32,7 +32,8 @@ def test_hgvs_fetch_valid(client, setup_router_db):
 
 def test_hgvs_fetch_invalid(client, setup_router_db):
 
-    with patch.object(cdot.hgvs.dataproviders.ChainedSeqFetcher, 'fetch_seq', side_effect=HGVSDataNotAvailableError()) as p:
+    with patch.object(cdot.hgvs.dataproviders.ChainedSeqFetcher, 'fetch_seq',
+                      side_effect=HGVSDataNotAvailableError()) as p:
         response = client.get(f"/api/v1/hgvs/fetch/{SMALL_ACCESSION}")
         p.assert_called_once()
         assert response.status_code == 404
@@ -47,7 +48,6 @@ def test_hgvs_validate_valid(client, setup_router_db):
 def test_hgvs_validate_invalid(client, setup_router_db):
 
     with requests_mock.mock() as m:
-      
         m.get(
             'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi',
             text='>NC_000001.11:1-1 Homo sapiens chromosome 1, GRCh38.p14 Primary Assembly\nN\n'
@@ -103,12 +103,13 @@ def test_hgvs_genes(client, setup_router_db):
 
 
 def test_hgvs_gene_info_valid(client, setup_router_db):
-    with requests_mock.mock() as m:
 
+    with requests_mock.mock() as m:
         m.get(
             f'https://cdot.cc/gene/{VALID_GENE}',
             headers={'Content-Type': 'application/json'},
-            json={'gene_symbol': 'BRCA1', 'aliases': "BRCAI, BRCC1", "map_location": "17q21.31", "description": "BRCA1 DNA repair associated", "summary": "This gene, etc"},
+            json={'gene_symbol': 'BRCA1', 'aliases': "BRCAI, BRCC1", "map_location": "17q21.31",
+                  "description": "BRCA1 DNA repair associated", "summary": "This gene, etc"},
         )
         response = client.get(f"/api/v1/hgvs/genes/{VALID_GENE}")
 
@@ -120,14 +121,14 @@ def test_hgvs_gene_info_valid(client, setup_router_db):
 
 
 def test_hgvs_gene_info_invalid(client, setup_router_db):
-    with requests_mock.mock() as m:
 
+    with requests_mock.mock() as m:
         m.get(
             'https://cdot.cc/gene/fnord',
             status_code=404,
         )
         response = client.get(f"/api/v1/hgvs/genes/{INVALID_GENE}")
-        # XXX this probably SHOULD return a 404, but currently returns a 200 with None
+        # TODO this probably SHOULD return a 404, but currently returns a 200 with None #149
         # assert response.status_code == 404
 
         assert m.called
@@ -137,8 +138,8 @@ def test_hgvs_gene_info_invalid(client, setup_router_db):
 
 
 def test_hgvs_gene_transcript_valid(client, setup_router_db):
-    with requests_mock.mock() as m:
 
+    with requests_mock.mock() as m:
         m.get(
             'https://cdot.cc/transcripts/gene/BRCA1',
             headers={'Content-Type': 'application/json'},
@@ -151,15 +152,15 @@ def test_hgvs_gene_transcript_valid(client, setup_router_db):
 
 
 def test_hgvs_gene_transcript_invalid(client, setup_router_db):
-    with requests_mock.mock() as m:
 
+    with requests_mock.mock() as m:
         m.get(
             'https://cdot.cc/transcripts/gene/fnord',
             status_code=404
         )
 
         response = client.get(f"/api/v1/hgvs/transcripts/gene/{INVALID_GENE}")
-        # XXX this probably SHOULD return a 404, but currently returns a 200 with empty list
+        # TODO this probably SHOULD return a 404, but currently returns a 200 with empty list #149
         # assert response.status_code == 404
 
         assert m.called
@@ -169,8 +170,8 @@ def test_hgvs_gene_transcript_invalid(client, setup_router_db):
 
 
 def test_hgvs_transcript_valid(client, setup_router_db):
-    with requests_mock.mock() as m:
 
+    with requests_mock.mock() as m:
         m.get(
             'https://cdot.cc/transcript/NM_001408458.1',
             headers={'Content-Type': 'application/json'},
@@ -186,8 +187,8 @@ def test_hgvs_transcript_valid(client, setup_router_db):
 
 
 def test_hgvs_transcript_invalid(client, setup_router_db):
-    with requests_mock.mock() as m:
 
+    with requests_mock.mock() as m:
         m.get(
             'https://cdot.cc/transcript/NX_99999.1',
             status_code=404
@@ -197,15 +198,15 @@ def test_hgvs_transcript_invalid(client, setup_router_db):
 
         assert m.called
 
-        # XXX this probably SHOULD return a 404, but currently returns a 200 with None
+        # TODO this probably SHOULD return a 404, but currently returns a 200 with None #149
         # assert response.status_code == 404
         assert response.status_code == 200
         assert response.json() is None
 
 
 def test_hgvs_transcript_protein_valid(client, setup_router_db):
-    with requests_mock.mock() as m:
 
+    with requests_mock.mock() as m:
         m.get(
             'https://cdot.cc/transcript/NM_000014.4',
             headers={'Content-Type': 'application/json'},
@@ -223,14 +224,13 @@ def test_hgvs_transcript_protein_valid(client, setup_router_db):
 def test_hgvs_transcript_protein_no_protein(client, setup_router_db):
 
     with requests_mock.mock() as m:
-
         m.get(
             'https://cdot.cc/transcript/NM_002977.4',
             status_code=404
         )
 
         response = client.get(f"/api/v1/hgvs/transcripts/protein/{SMALL_ACCESSION}")
-        # XXX this probably SHOULD return a 404, but currently returns a 200 with None
+        # TODO this probably SHOULD return a 404, but currently returns a 200 with None #149
         # assert response.status_code == 404
 
         assert m.called
@@ -242,19 +242,16 @@ def test_hgvs_transcript_protein_no_protein(client, setup_router_db):
 def test_hgvs_transcript_protein_invalid(client, setup_router_db):
 
     with requests_mock.mock() as m:
-
         m.get(
             'https://cdot.cc/transcript/NC_999999.99',
             status_code=404
         )
 
         response = client.get(f"/api/v1/hgvs/transcripts/protein/{INVALID_ACCESSION}")
-        # XXX this probably SHOULD return a 400, but currently returns a 200 with None
+        # TODO this probably SHOULD return a 400, but currently returns a 200 with None #149
         # assert response.status_code == 404
 
         assert m.called
 
         assert response.status_code == 200
         assert response.json() is None
-
-
