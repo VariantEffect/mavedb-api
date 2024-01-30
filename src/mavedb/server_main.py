@@ -1,6 +1,8 @@
 import json
 import logging
 import os
+import sys
+import traceback
 
 import uvicorn
 from fastapi import FastAPI
@@ -122,31 +124,45 @@ def customize_validation_error(error):
     return error
 
 
-def exception_as_dict(ex):
-    return dict(
-        type=ex.__class__.__name__,
-        exception=str(ex),
-    )
+def find_traceback_locations():
+    _, _, tb = sys.exc_info()
+    return [
+        (fs.filename, fs.lineno, fs.name)
+        for fs in traceback.extract_tb(tb)
+        # attempt to show only *our* code, not the many layers of library code
+        if "/mavedb/" in fs.filename and "/.direnv/" not in fs.filename
+    ]
 
 
 @app.exception_handler(Exception)
 async def exception_handler(request, err):
     logger.error("Uncaught exception", exc_info=err)
+
+    text = json.dumps({
+        "type": err.__class__.__name__,
+        "exception": str(err),
+        "location": find_traceback_locations(),
+        "client": str(request.client.host),
+        "request": f"{request.method} {request.url}",
+    })
+
     slack_webhook_url = os.getenv("SLACK_WEBHOOK_URL")
     if slack_webhook_url is not None and len(slack_webhook_url) > 0:
         client = WebhookClient(url=slack_webhook_url)
         response = client.send(
-            text=json.dumps(exception_as_dict(err)),
+            text=text,
             blocks=[
                 {
                     "type": "section",
                     "text": {
                         "type": "plain_text",
-                        "text": json.dumps(exception_as_dict(err)),
+                        "text": text
                     },
                 }
             ],
         )
+    else:
+        print(f"EXCEPTION_HANDLER: {text}")
     return JSONResponse(status_code=500, content={"message": "Internal server error"})
 
 
