@@ -41,6 +41,8 @@ dev = [
     "pytest~=7.0.1",
     "jsonschema",
     "httpx~=0.26.0",
+    "requests-mock~=1.11.0",
+    "pytest-socket~=0.6.0",
 ]
 server = [
     "alembic~=1.7.6",
@@ -83,10 +85,9 @@ exclude = [
 packages = ["src/mavedb"]
 
 [tool.pytest.ini_options]
-addopts = [
-    "--import-mode=importlib",
-]
-norecursedirs = "tests/helpers"
+addopts = "-v -rP --import-mode=importlib --disable-socket --allow-hosts localhost"
+testpaths = "tests/"
+norecursedirs = "tests/helpers/"
 # Uncomment the following lines to include application log output in Pytest logs.
 # log_cli = true
 # log_cli_level = "DEBUG"
