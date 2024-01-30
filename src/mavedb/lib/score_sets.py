@@ -53,32 +53,32 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
         lower_search_text = search.text.lower()
         query = query.filter(
             or_(
-                ScoreSet.urn.contains(lower_search_text),
-                ScoreSet.title.contains(lower_search_text),
-                ScoreSet.short_description.contains(lower_search_text),
-                ScoreSet.abstract_text.contains(lower_search_text),
-                ScoreSet.target_genes.any(func.lower(TargetGene.name).contains(lower_search_text)),
-                ScoreSet.target_genes.any(func.lower(TargetGene.category).contains(lower_search_text)),
-                ScoreSet.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text)),
+                ScoreSet.urn.icontains(lower_search_text),
+                ScoreSet.title.icontains(lower_search_text),
+                ScoreSet.short_description.icontains(lower_search_text),
+                ScoreSet.abstract_text.icontains(lower_search_text),
+                ScoreSet.target_genes.any(func.lower(TargetGene.name).icontains(lower_search_text)),
+                ScoreSet.target_genes.any(func.lower(TargetGene.category).icontains(lower_search_text)),
+                ScoreSet.keyword_objs.any(func.lower(Keyword.text).icontains(lower_search_text)),
                 ScoreSet.target_genes.any(
                     TargetGene.target_sequence.has(
                         TargetSequence.reference.has(
-                            func.lower(ReferenceGenome.organism_name).contains(lower_search_text)
+                            func.lower(ReferenceGenome.organism_name).icontains(lower_search_text)
                         )
                     )
                 ),
                 # TODO(#94): add UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
                 ScoreSet.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.identifier).contains(lower_search_text)
+                    func.lower(PublicationIdentifier.identifier).icontains(lower_search_text)
                 ),
                 ScoreSet.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.abstract).contains(lower_search_text)
+                    func.lower(PublicationIdentifier.abstract).icontains(lower_search_text)
                 ),
                 ScoreSet.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.title).contains(lower_search_text)
+                    func.lower(PublicationIdentifier.title).icontains(lower_search_text)
                 ),
                 ScoreSet.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.publication_journal).contains(lower_search_text)
+                    func.lower(PublicationIdentifier.publication_journal).icontains(lower_search_text)
                 ),
                 ScoreSet.publication_identifiers.any(
                     func.jsonb_path_exists(
@@ -219,7 +219,7 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
         .join(analyzed_score_set.experiment.of_type(analyzed_experiment))
         .join(analyzed_experiment.experiment_set.of_type(analyzed_experiment_set))
         .filter(*urn_filters)
-        .group_by(ScoreSet)
+        .group_by(ScoreSet.id)
         .having(func.count(func.distinct(analyzed_experiment_set.id)) == len(urns))
         .all()
     )

@@ -7,6 +7,7 @@ from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from tests.helpers.constants import (
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_EXPERIMENT_RESPONSE,
+    EXTRA_USER,
 )
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.models.experiment import Experiment as ExperimentDbModel
@@ -359,3 +360,40 @@ def test_cannot_get_other_user_private_experiment(session, client, setup_router_
     assert response.status_code == 404
     response_data = response.json()
     assert f"experiment with URN '{experiment['urn']}' not found" in response_data["detail"]
+
+
+def test_search_experiments(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    search_payload = {'text': experiment['shortDescription']}
+    response = client.post("/api/v1/experiments/search", json=search_payload)
+    assert response.status_code == 200
+    assert response.json()[0]['title'] == experiment['title']
+
+
+def test_search_my_experiments(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    search_payload = {'text': experiment['shortDescription']}
+    response = client.post("/api/v1/me/experiments/search", json=search_payload)
+    assert response.status_code == 200
+    assert response.json()[0]['title'] == experiment['title']
+
+
+def test_search_their_experiments(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
+    search_payload = {'text': experiment['shortDescription']}
+    response = client.post("/api/v1/experiments/search", json=search_payload)
+    assert response.status_code == 200
+    assert response.json()[0]['createdBy']['orcidId'] == EXTRA_USER["username"]
+    assert response.json()[0]['createdBy']['firstName'] == EXTRA_USER["first_name"]
+
+
+def test_search_not_my_experiments(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
+    search_payload = {'text': experiment['shortDescription']}
+    response = client.post("/api/v1/me/experiments/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 0
