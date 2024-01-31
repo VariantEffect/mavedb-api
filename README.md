@@ -109,7 +109,7 @@ Docker.  In Docker Desktop, this can be configured under Settings > Resources > 
 
 To start the application, run
 ```
-docker-compose -f docker-compose-dev.yml up -d
+docker-compose -f docker-compose-dev.yml up --build -d
 ```
 
 Docker integration can also be configured in IDEs like PyCharm.
