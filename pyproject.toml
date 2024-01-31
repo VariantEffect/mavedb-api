@@ -40,9 +40,12 @@ dev = [
     "mypy",
     "pre-commit",
     "pytest~=7.0.1",
+    "pytest-postgresql~=5.0.0",
     "jsonschema",
     "SQLAlchemy[mypy]~=2.0.0",
     "httpx~=0.26.0",
+    "requests-mock~=1.11.0",
+    "pytest-socket~=0.6.0",
 ]
 server = [
     "alembic~=1.7.6",
@@ -89,10 +92,9 @@ plugins = "sqlalchemy.ext.mypy.plugin"
 mypy_path = "mypy_stubs"
 
 [tool.pytest.ini_options]
-addopts = [
-    "--import-mode=importlib",
-]
-norecursedirs = "tests/helpers"
+addopts = "-v -rP --import-mode=importlib --disable-socket --allow-hosts localhost"
+testpaths = "tests/"
+norecursedirs = "tests/helpers/"
 # Uncomment the following lines to include application log output in Pytest logs.
 # log_cli = true
 # log_cli_level = "DEBUG"

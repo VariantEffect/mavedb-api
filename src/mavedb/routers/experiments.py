@@ -23,6 +23,8 @@ from mavedb.models.user import User
 from mavedb.view_models import experiment, score_set
 from mavedb.view_models.search import ExperimentsSearch
 
+import requests
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["experiments"], responses={404: {"description": "Not found"}})
@@ -158,23 +160,28 @@ async def create_experiment(
         if not permission.permitted:
             assert permission.http_code and permission.message
             raise HTTPException(status_code=permission.http_code, detail=permission.message)
-    doi_identifiers = [
-        await find_or_create_doi_identifier(db, identifier.identifier)
-        for identifier in item_create.doi_identifiers or []
-    ]
-    raw_read_identifiers = [
-        await find_or_create_raw_read_identifier(db, identifier.identifier)
-        for identifier in item_create.raw_read_identifiers or []
-    ]
+    try:
+        doi_identifiers = [
+            await find_or_create_doi_identifier(db, identifier.identifier)
+            for identifier in item_create.doi_identifiers or []
+        ]
+        raw_read_identifiers = [
+            await find_or_create_raw_read_identifier(db, identifier.identifier)
+            for identifier in item_create.raw_read_identifiers or []
+        ]
+        primary_publication_identifiers = [
+            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            for identifier in item_create.primary_publication_identifiers or []
+        ]
+        publication_identifiers = [
+            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            for identifier in item_create.secondary_publication_identifiers or []
+        ] + primary_publication_identifiers
+    except requests.exceptions.ConnectTimeout:
+        raise HTTPException(status_code=504, detail="Gateway Timeout")
+    except requests.exceptions.HTTPError:
+        raise HTTPException(status_code=502, detail="Bad Gateway")
 
-    primary_publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_create.primary_publication_identifiers or []
-    ]
-    publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_create.secondary_publication_identifiers or []
-    ] + primary_publication_identifiers
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
     primary_identifiers = [pub.identifier for pub in primary_publication_identifiers]

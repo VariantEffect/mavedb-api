@@ -521,6 +521,7 @@ async def upload_score_set_variant_data(
             try:
                 validate_and_standardize_dataframe_pair(scores_df, counts_df, item.target_genes)
             except exceptions.ValidationError as e:
+                logger.error(f"Validation error: {e}")
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     variants_data = create_variants_data(scores_df, counts_df, None)  # , index_col)

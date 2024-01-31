@@ -7,12 +7,16 @@ from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from tests.helpers.constants import (
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_EXPERIMENT_RESPONSE,
+    EXTRA_USER,
 )
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 import pytest
 from tests.helpers.util import change_ownership, create_experiment, create_score_set_with_variants
+
+import requests
+import requests_mock
 
 
 def test_test_minimal_experiment_is_valid():
@@ -154,7 +158,45 @@ def test_required_fields(client, setup_router_db, test_field):
     assert "field required" in response_data["detail"][0]["msg"]
 
 
-def test_create_experiment_with_new_primary_pubmed_publication(client, setup_router_db):
+def test_create_experiment_with_new_primary_pubmed_publication(client, setup_router_db, requests_mock):
+
+    # minimal xml to pass validation
+    requests_mock.post(
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+        text="""<?xml version="1.0"?>
+            <PubmedArticleSet>
+              <PubmedArticle>
+                <MedlineCitation>
+                  <PMID Version="1">20711194</PMID>
+                  <Article>
+                    <Journal>
+                      <Title>test</Title>
+                      <JournalIssue>
+                        <PubDate>
+                          <Year>1999</Year>
+                        </PubDate>
+                      </JournalIssue>
+                    </Journal>
+                    <Abstract>
+                      <AbstractText>test</AbstractText>
+                    </Abstract>
+                  </Article>
+                </MedlineCitation>
+                <PubmedData>
+                  <ArticleIdList>
+                    <ArticleId IdType="doi">test</ArticleId>
+                  </ArticleIdList>
+                </PubmedData>
+              </PubmedArticle>
+            </PubmedArticleSet>
+        """)
+
+    # code checks that this isn't also a valid bioxriv ID, so we return nothing
+    requests_mock.get(
+        "https://api.biorxiv.org/details/medrxiv/10.1101/20711194/na/json",
+        json={"collection": []}
+    )
+
     response_data = create_experiment(client, {"primaryPublicationIdentifiers": [{"identifier": "20711194"}]})
     assert len(response_data["primaryPublicationIdentifiers"]) == 1
     assert sorted(response_data["primaryPublicationIdentifiers"][0]) == sorted(
@@ -175,10 +217,32 @@ def test_create_experiment_with_new_primary_pubmed_publication(client, setup_rou
     # TODO: add separate tests for generating the publication url and referenceHtml
 
 
-def test_create_experiment_with_new_primary_biorxiv_publication(client, setup_router_db):
+def test_create_experiment_with_new_primary_biorxiv_publication(client, setup_router_db, requests_mock):
+
+    requests_mock.get(
+        "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.21.21259225/na/json",
+        json={"collection": [{
+            "title": "test1",
+            "doi": "test2",
+            "category": "test3",
+            "authors": "test4; test5",
+            "author_corresponding": "test6",
+            "author_corresponding_institution": "test7",
+            "date": "1999-12-31",
+            "version": "test8",
+            "type": "test9",
+            "license": "test10",
+            "jatsxml": "test11",
+            "abstract": "test12",
+            "published": "test13",
+            "server": "test14",
+        }]}
+    )
+
     response_data = create_experiment(
         client, {"primaryPublicationIdentifiers": [{"identifier": "2021.06.21.21259225"}]}
     )
+
     assert len(response_data["primaryPublicationIdentifiers"]) == 1
     assert sorted(response_data["primaryPublicationIdentifiers"][0]) == sorted(
         [
@@ -196,6 +260,58 @@ def test_create_experiment_with_new_primary_biorxiv_publication(client, setup_ro
         ]
     )
     # TODO: add separate tests for generating the publication url and referenceHtml
+
+
+def test_create_experiment_biorxiv_not_found(client, setup_router_db):
+
+    with requests_mock.mock() as m:
+        m.get(
+            "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.22.21259225/na/json",
+            json={"messages": [{"status": "no posts found"}], "collection": []}
+        )
+        payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+        payload['primaryPublicationIdentifiers'] = [
+            {'identifier': '2021.06.22.21259225'}
+        ]
+        r = client.post("/api/v1/experiments/", json=payload)
+
+        assert m.called
+
+        assert r.status_code == 404
+
+
+def test_create_experiment_biorxiv_timeout(client, setup_router_db):
+
+    with requests_mock.mock() as m:
+        m.get(
+            "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.21.21259225/na/json",
+            exc=requests.exceptions.ConnectTimeout
+        )
+        payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+        payload['primaryPublicationIdentifiers'] = [
+            {'identifier': '2021.06.21.21259225'}
+        ]
+        r = client.post("/api/v1/experiments/", json=payload)
+
+        assert m.called
+        assert r.status_code == 504
+
+
+def test_create_experiment_biorxiv_unavailable(client, setup_router_db):
+
+    with requests_mock.mock() as m:
+        m.get(
+            "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.21.21259225/na/json",
+            status_code=503
+        )
+        payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+        payload['primaryPublicationIdentifiers'] = [
+            {'identifier': '2021.06.21.21259225'}
+        ]
+        r = client.post("/api/v1/experiments/", json=payload)
+
+        assert m.called
+        assert r.status_code == 502
 
 
 def test_create_experiment_with_invalid_doi(client, setup_router_db):
@@ -222,6 +338,7 @@ def test_create_experiment_with_invalid_primary_publication(client, setup_router
     )
 
 
+
 def test_get_own_private_experiment(client, setup_router_db):
     experiment = create_experiment(client)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
@@ -243,3 +360,40 @@ def test_cannot_get_other_user_private_experiment(session, client, setup_router_
     assert response.status_code == 404
     response_data = response.json()
     assert f"experiment with URN '{experiment['urn']}' not found" in response_data["detail"]
+
+
+def test_search_experiments(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    search_payload = {'text': experiment['shortDescription']}
+    response = client.post("/api/v1/experiments/search", json=search_payload)
+    assert response.status_code == 200
+    assert response.json()[0]['title'] == experiment['title']
+
+
+def test_search_my_experiments(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    search_payload = {'text': experiment['shortDescription']}
+    response = client.post("/api/v1/me/experiments/search", json=search_payload)
+    assert response.status_code == 200
+    assert response.json()[0]['title'] == experiment['title']
+
+
+def test_search_their_experiments(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
+    search_payload = {'text': experiment['shortDescription']}
+    response = client.post("/api/v1/experiments/search", json=search_payload)
+    assert response.status_code == 200
+    assert response.json()[0]['createdBy']['orcidId'] == EXTRA_USER["username"]
+    assert response.json()[0]['createdBy']['firstName'] == EXTRA_USER["first_name"]
+
+
+def test_search_not_my_experiments(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
+    search_payload = {'text': experiment['shortDescription']}
+    response = client.post("/api/v1/me/experiments/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 0
