@@ -2,10 +2,9 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-import json
 from pandas.testing import assert_index_equal
-from sqlalchemy import func, or_, and_
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy import func, or_
+from sqlalchemy.orm import aliased, contains_eager, joinedload, selectinload, Session
 
 from mavedb.lib.array_comparison import assert_array_equal
 from mavedb.lib.exceptions import ValidationError
@@ -17,15 +16,20 @@ from mavedb.lib.mave.constants import (
     VARIANT_SCORE_DATA,
 )
 from mavedb.lib.mave.utils import is_csv_null
+from mavedb.models.ensembl_offset import EnsemblOffset
 from mavedb.models.experiment import Experiment
+from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.keyword import Keyword
 from mavedb.models.publication_identifier import PublicationIdentifier
+from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.reference_genome import ReferenceGenome
+from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
+from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.user import User
 from mavedb.view_models.search import ScoreSetsSearch
 
@@ -49,32 +53,32 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
         lower_search_text = search.text.lower()
         query = query.filter(
             or_(
-                ScoreSet.urn.contains(lower_search_text),
-                ScoreSet.title.contains(lower_search_text),
-                ScoreSet.short_description.contains(lower_search_text),
-                ScoreSet.abstract_text.contains(lower_search_text),
-                ScoreSet.target_genes.any(func.lower(TargetGene.name).contains(lower_search_text)),
-                ScoreSet.target_genes.any(func.lower(TargetGene.category).contains(lower_search_text)),
-                ScoreSet.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text)),
+                ScoreSet.urn.icontains(lower_search_text),
+                ScoreSet.title.icontains(lower_search_text),
+                ScoreSet.short_description.icontains(lower_search_text),
+                ScoreSet.abstract_text.icontains(lower_search_text),
+                ScoreSet.target_genes.any(func.lower(TargetGene.name).icontains(lower_search_text)),
+                ScoreSet.target_genes.any(func.lower(TargetGene.category).icontains(lower_search_text)),
+                ScoreSet.keyword_objs.any(func.lower(Keyword.text).icontains(lower_search_text)),
                 ScoreSet.target_genes.any(
                     TargetGene.target_sequence.has(
                         TargetSequence.reference.has(
-                            func.lower(ReferenceGenome.organism_name).contains(lower_search_text)
+                            func.lower(ReferenceGenome.organism_name).icontains(lower_search_text)
                         )
                     )
                 ),
                 # TODO(#94): add UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
                 ScoreSet.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.identifier).contains(lower_search_text)
+                    func.lower(PublicationIdentifier.identifier).icontains(lower_search_text)
                 ),
                 ScoreSet.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.abstract).contains(lower_search_text)
+                    func.lower(PublicationIdentifier.abstract).icontains(lower_search_text)
                 ),
                 ScoreSet.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.title).contains(lower_search_text)
+                    func.lower(PublicationIdentifier.title).icontains(lower_search_text)
                 ),
                 ScoreSet.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.publication_journal).contains(lower_search_text)
+                    func.lower(PublicationIdentifier.publication_journal).icontains(lower_search_text)
                 ),
                 ScoreSet.publication_identifiers.any(
                     func.jsonb_path_exists(
@@ -127,7 +131,50 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
         )
 
     score_sets: list[ScoreSet] = (
-        query.join(ScoreSet.experiment).join(ScoreSet.target_genes).order_by(Experiment.title).all()
+        query.join(ScoreSet.experiment)
+        .options(
+            contains_eager(ScoreSet.experiment).options(
+                joinedload(Experiment.experiment_set),
+                joinedload(Experiment.keyword_objs),
+                joinedload(Experiment.created_by),
+                joinedload(Experiment.modified_by),
+                joinedload(Experiment.keyword_objs),
+                joinedload(Experiment.doi_identifiers),
+                joinedload(Experiment.publication_identifier_associations).joinedload(
+                    ExperimentPublicationIdentifierAssociation.publication
+                ),
+                joinedload(Experiment.raw_read_identifiers),
+                selectinload(Experiment.score_sets).options(
+                    joinedload(ScoreSet.keyword_objs),
+                    joinedload(ScoreSet.doi_identifiers),
+                    joinedload(ScoreSet.publication_identifier_associations).joinedload(
+                        ScoreSetPublicationIdentifierAssociation.publication
+                    ),
+                    joinedload(ScoreSet.target_genes).options(
+                        joinedload(TargetGene.ensembl_offset).joinedload(EnsemblOffset.identifier),
+                        joinedload(TargetGene.refseq_offset).joinedload(RefseqOffset.identifier),
+                        joinedload(TargetGene.uniprot_offset).joinedload(UniprotOffset.identifier),
+                        joinedload(TargetGene.target_sequence).joinedload(TargetSequence.reference),
+                        joinedload(TargetGene.target_accession),
+                    ),
+                ),
+            ),
+            joinedload(ScoreSet.keyword_objs),
+            joinedload(ScoreSet.license),
+            joinedload(ScoreSet.doi_identifiers),
+            joinedload(ScoreSet.publication_identifier_associations).joinedload(
+                ScoreSetPublicationIdentifierAssociation.publication
+            ),
+            joinedload(ScoreSet.target_genes).options(
+                joinedload(TargetGene.ensembl_offset).joinedload(EnsemblOffset.identifier),
+                joinedload(TargetGene.refseq_offset).joinedload(RefseqOffset.identifier),
+                joinedload(TargetGene.uniprot_offset).joinedload(UniprotOffset.identifier),
+                joinedload(TargetGene.target_sequence).joinedload(TargetSequence.reference),
+                joinedload(TargetGene.target_accession),
+            ),
+        )
+        .order_by(Experiment.title)
+        .all()
     )
     if not score_sets:
         score_sets = []
@@ -172,7 +219,7 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
         .join(analyzed_score_set.experiment.of_type(analyzed_experiment))
         .join(analyzed_experiment.experiment_set.of_type(analyzed_experiment_set))
         .filter(*urn_filters)
-        .group_by(ScoreSet)
+        .group_by(ScoreSet.id)
         .having(func.count(func.distinct(analyzed_experiment_set.id)) == len(urns))
         .all()
     )

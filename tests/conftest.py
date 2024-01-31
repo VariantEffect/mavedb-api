@@ -1,28 +1,38 @@
-from tempfile import TemporaryDirectory
-from pathlib import Path
 from fastapi.testclient import TestClient
 import pytest
+import pytest_postgresql
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 from mavedb.server_main import app
 from mavedb.db.base import Base
 from mavedb.deps import get_db
 from mavedb.lib.authentication import get_current_user
 from mavedb.models.user import User
+
+import sys
+sys.path.append('.')
+
 from tests.helpers.constants import TEST_USER
+
+# needs the pytest_postgresql plugin installed
+assert pytest_postgresql.factories
 
 
 @pytest.fixture()
-def session():
-    Base.metadata.drop_all(bind=engine)
+def session(postgresql):
+    connection = f'postgresql+psycopg2://{postgresql.info.user}:' \
+        f'@{postgresql.info.host}:{postgresql.info.port}/{postgresql.info.dbname}'
+
+    engine = create_engine(connection, echo=False, poolclass=NullPool)
+    session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
     Base.metadata.create_all(bind=engine)
 
-    db = TestingSessionLocal()
-
     try:
-        yield db
+        yield session()
     finally:
-        db.close()
+        Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture()
@@ -41,9 +51,3 @@ def client(session):
     app.dependency_overrides[get_current_user] = override_current_user
 
     yield TestClient(app)
-
-
-# create the test database
-db_directory = TemporaryDirectory()
-engine = create_engine(f"sqlite:///{Path(db_directory.name, 'test.db')}", connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

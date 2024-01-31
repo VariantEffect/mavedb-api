@@ -1,8 +1,7 @@
 import logging
-from operator import or_
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from mavedb.models.experiment import Experiment
@@ -31,26 +30,24 @@ def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSe
         lower_search_text = search.text.lower()
         query = query.filter(
             or_(
-                Experiment.urn.contains(lower_search_text),
-                Experiment.title.contains(lower_search_text),
-                Experiment.short_description.contains(lower_search_text),
-                Experiment.abstract_text.contains(lower_search_text),
+                Experiment.urn.icontains(lower_search_text),
+                Experiment.title.icontains(lower_search_text),
+                Experiment.short_description.icontains(lower_search_text),
+                Experiment.abstract_text.icontains(lower_search_text),
                 Experiment.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.identifier).contains(lower_search_text)
+                    func.lower(PublicationIdentifier.identifier).icontains(lower_search_text)
                 ),
                 Experiment.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.abstract).contains(lower_search_text)
+                    func.lower(PublicationIdentifier.abstract).icontains(lower_search_text)
                 ),
                 Experiment.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.title).contains(lower_search_text)
+                    func.lower(PublicationIdentifier.title).icontains(lower_search_text)
                 ),
                 Experiment.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.publication_journal).contains(lower_search_text)
+                    func.lower(PublicationIdentifier.publication_journal).icontains(lower_search_text)
                 ),
                 Experiment.publication_identifiers.any(
-                    func.jsonb_path_exists(
-                        PublicationIdentifier.authors, f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")"""
-                    )
+                    func.jsonb_path_exists(PublicationIdentifier.authors, f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")""")
                 ),
             )
         )

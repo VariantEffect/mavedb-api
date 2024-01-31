@@ -339,7 +339,7 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_different_sco
     assert meta_score_set_1["metaAnalyzesScoreSetUrns"] == sorted([score_set_1_1["urn"], score_set_2_1["urn"]])
     assert score_set_1_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set_1["urn"]]
     meta_score_set_1 = client.post(f"/api/v1/score-sets/{meta_score_set_1['urn']}/publish").json()
-    assert meta_score_set_1["urn"] == f"urn:mavedb:00000003-0-1"
+    assert meta_score_set_1["urn"] == "urn:mavedb:00000003-0-1"
     meta_score_set_2 = create_score_set_with_variants(
         client,
         None,
@@ -350,7 +350,7 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_different_sco
         },
     )
     meta_score_set_2 = client.post(f"/api/v1/score-sets/{meta_score_set_2['urn']}/publish").json()
-    assert meta_score_set_2["urn"] == f"urn:mavedb:00000003-0-2"
+    assert meta_score_set_2["urn"] == "urn:mavedb:00000003-0-2"
     meta_score_set_3 = create_score_set_with_variants(
         client,
         None,
@@ -361,4 +361,28 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_different_sco
         },
     )
     meta_score_set_3 = client.post(f"/api/v1/score-sets/{meta_score_set_3['urn']}/publish").json()
-    assert meta_score_set_3["urn"] == f"urn:mavedb:00000003-0-3"
+    assert meta_score_set_3["urn"] == "urn:mavedb:00000003-0-3"
+
+
+def test_search_core_sets_no_match(client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client, {"title": "Experiment 1"})
+    create_score_set_with_variants(
+        client, experiment_1["urn"], data_files / "scores.csv", update={"title": "Test Score Set"}
+    )
+    search_payload = {'text': 'fnord'}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 0
+
+
+def test_search_core_sets_match(client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client, {"title": "Experiment 1"})
+    score_set_1_1 = create_score_set_with_variants(
+        client, experiment_1["urn"], data_files / "scores.csv", update={"title": "Test Fnord Score Set"}
+    )
+    search_payload = {'text': 'fnord'}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]['title'] == score_set_1_1['title']
+

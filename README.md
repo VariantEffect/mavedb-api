@@ -1,6 +1,12 @@
 # mavedb-api
 
-API for MaveDB, the database of the database of Multiplexed Assays of Variant Effect
+API for MaveDB. MaveDB is a biological database for Multiplex Assays of Variant Effect (MAVE) datasets.
+The API powers the MaveDB website at [mavedb.org](https://www.mavedb.org) and can also be called separately (see 
+instructions [below](#using-mavedb-api)). 
+
+
+For more information about MaveDB or to cite MaveDB please refer to the
+[MaveDB paper in Genome Biology](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-019-1845-6).
 
 ## Using mavedb-api
 

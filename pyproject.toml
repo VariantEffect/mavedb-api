@@ -25,11 +25,12 @@ dependencies = [
     "eutils~=0.6.0",
     "hgvs~=1.5.4",
     "biocommons~=0.0.0",
-    "numpy~=1.22.3",
+    "cdot~=0.2.21",
+    "numpy~=1.22",
     "pandas~=1.4.1",
-    "pydantic~=1.9.1",
+    "pydantic~=1.10",
     "python-dotenv~=0.20.0",
-    "SQLAlchemy~=1.4.31",
+    "SQLAlchemy~=2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -38,21 +39,25 @@ dev = [
     "flake8",
     "pre-commit",
     "pytest~=7.0.1",
+    "pytest-postgresql~=5.0.0",
     "jsonschema",
+    "httpx~=0.26.0",
+    "requests-mock~=1.11.0",
+    "pytest-socket~=0.6.0",
 ]
 server = [
     "alembic~=1.7.6",
     "authlib~=0.15.5",
-    "cryptography~=37.0.4",
+    "cryptography~=41.0.6",
     "celery~=5.2.3",
-    "fastapi~=0.71.0",
+    "fastapi~=0.95.0",
     "orcid~=1.0.3",
     "psycopg2~=2.9.3",
     "python-jose[cryptography]~=3.3.0",
     "python-multipart~=0.0.5",
-    "requests~=2.28.1",
+    "requests~=2.31.0",
     "slack-sdk~=3.21.3",
-    "starlette~=0.17.1",
+    "starlette~=0.27.0",
     "uvicorn[standard]",
 ]
 
@@ -81,10 +86,9 @@ exclude = [
 packages = ["src/mavedb"]
 
 [tool.pytest.ini_options]
-addopts = [
-    "--import-mode=importlib",
-]
-norecursedirs = "tests/helpers"
+addopts = "-v -rP --import-mode=importlib --disable-socket --allow-hosts localhost"
+testpaths = "tests/"
+norecursedirs = "tests/helpers/"
 # Uncomment the following lines to include application log output in Pytest logs.
 # log_cli = true
 # log_cli_level = "DEBUG"
