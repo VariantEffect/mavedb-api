@@ -156,7 +156,7 @@ def get_score_set_scores_csv(
     """
     if start and start < 0:
         raise HTTPException(status_code=400, detail="Start index must be non-negative")
-    if limit and limit <= 0:
+    if limit != None and limit <= 0:
         raise HTTPException(status_code=400, detail="Limit must be positive")
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
@@ -212,7 +212,7 @@ async def get_score_set_counts_csv(
     """
     if start and start < 0:
         raise HTTPException(status_code=400, detail="Start index must be non-negative")
-    if limit and limit <= 0:
+    if limit != None and limit <= 0:
         raise HTTPException(status_code=400, detail="Limit must be positive")
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
