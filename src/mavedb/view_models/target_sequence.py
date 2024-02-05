@@ -13,7 +13,7 @@ class TargetSequenceBase(BaseModel):
     sequence_type: str
     sequence: str
     label: Optional[str]
-    taxonomy: Optional[Taxonomy]
+    taxonomy: Taxonomy
 
 
 class TargetSequenceModify(TargetSequenceBase):
