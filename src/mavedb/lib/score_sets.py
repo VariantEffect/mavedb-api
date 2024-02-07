@@ -93,7 +93,7 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
 
     if search.target_organism_names:
         query = query.filter(
-            ScoreSet.target_gene.target_sequence.has(
+            ScoreSet.target_gene.target_sequence.any(
                 TargetSequence.taxonomy.has(
                     func.lower(Taxonomy.organism_name).contains(search.target_organism_names))
             )
@@ -153,7 +153,7 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                         joinedload(TargetGene.ensembl_offset).joinedload(EnsemblOffset.identifier),
                         joinedload(TargetGene.refseq_offset).joinedload(RefseqOffset.identifier),
                         joinedload(TargetGene.uniprot_offset).joinedload(UniprotOffset.identifier),
-                        joinedload(TargetGene.target_sequence).joinedload(TargetSequence.reference),
+                        joinedload(TargetGene.target_sequence).joinedload(TargetSequence.taxonomy),
                         joinedload(TargetGene.target_accession),
                     ),
                 ),
@@ -168,7 +168,7 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 joinedload(TargetGene.ensembl_offset).joinedload(EnsemblOffset.identifier),
                 joinedload(TargetGene.refseq_offset).joinedload(RefseqOffset.identifier),
                 joinedload(TargetGene.uniprot_offset).joinedload(UniprotOffset.identifier),
-                joinedload(TargetGene.target_sequence).joinedload(TargetSequence.reference),
+                joinedload(TargetGene.target_sequence).joinedload(TargetSequence.taxonomy),
                 joinedload(TargetGene.target_accession),
             ),
         )

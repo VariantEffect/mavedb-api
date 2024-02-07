@@ -13,25 +13,6 @@ router = APIRouter(
     prefix='/api/v1/taxonomies', tags=['taxonomies'], responses={404: {'description': 'Not found'}}
 )
 
-@router.get("/concatenateTaxonomyList", status_code=200, response_model=List[str], responses={404: {}})
-def concatenate_taxonomy_tax_id_organism_names_common_name(
-    *,
-    db: Session = Depends(deps.get_db),
-) -> Any:
-    """
-    List distinct species names, in alphabetical order.
-    """
-
-    items = db.query(Taxonomy).all()
-    concatenates = []
-    for i in items:
-        if i.common_name != 'NULL' and not None:
-            concatenate = i.organism_name + ' - ' + i.common_name + ' - ' + str(i.tax_id)
-        else:
-            concatenate = i.organism_name + ' - ' + str(i.tax_id)
-        concatenates.append(concatenate)
-    return sorted(list(set(concatenates)))
-
 @router.get('/', status_code=200, response_model=List[taxonomy.Taxonomy], responses={404: {}})
 def list_taxonomies(
         *,
@@ -121,9 +102,6 @@ def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_db)) ->
             )
         else:
             query = query.filter(Taxonomy.tax_id == int(search.text))
-    # It leads dropdown button doesn't work in Mavedb-ui autocomplete component.
-    #else:
-        #raise HTTPException(status_code=500, detail="Search text is required")
 
     items = query.order_by(Taxonomy.organism_name).all()
     if not items:

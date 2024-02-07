@@ -4614,13 +4614,14 @@ def upgrade():
     op.execute("""UPDATE target_sequences SET taxonomy_id = 1 WHERE id = 178""")
     op.execute("""UPDATE target_sequences SET taxonomy_id = 1 WHERE id = 186""")
     op.execute("""UPDATE target_sequences SET taxonomy_id = 1 WHERE id = 188""")
-    op.execute("""UPDATE target_sequences SET taxonomy_id = 1 WHERE id = 568""")
-    op.execute("""UPDATE target_sequences SET taxonomy_id = 1 WHERE id = 2470""")
+    # These two original reference genomes are Homo Sapiens
+    op.execute("""UPDATE target_sequences SET taxonomy_id = 15 WHERE id = 568""")
+    op.execute("""UPDATE target_sequences SET taxonomy_id = 15 WHERE id = 2470""")
 
     op.drop_column('target_sequences', 'reference_id')
     op.drop_index('ix_reference_genomes_id', table_name='reference_genomes')
     op.drop_table('reference_genomes')
-    ### end Alembic commands ###
+    ## end Alembic commands ###
 
 
 def downgrade():
