@@ -6,7 +6,6 @@ from pandas.testing import assert_index_equal
 from sqlalchemy import func, or_
 from sqlalchemy.orm import aliased, contains_eager, joinedload, selectinload, Session
 
-from mavedb.lib.array_comparison import assert_array_equal
 from mavedb.lib.exceptions import ValidationError
 from mavedb.lib.mave.constants import (
     HGVS_NT_COLUMN,
@@ -260,6 +259,14 @@ def filter_visible_score_sets(items: list[ScoreSet]):
     return filter(lambda item: not item.private, items or [])
 
 
+def arrays_equal(array1: np.ndarray, array2: np.ndarray):
+    # note that each of the three expressions here is a boolean ndarray
+    # so combining them with `&` and `|` works:
+    return all(
+        (pd.isnull(array1) & pd.isnull(array2)) | (array1 == array2)
+    )
+
+
 def validate_datasets_define_same_variants(scores, counts):
     """
     Checks if two `pd.DataFrame` objects parsed from uploaded files
@@ -273,23 +280,12 @@ def validate_datasets_define_same_variants(scores, counts):
         Scores dataframe parsed from an uploaded counts file.
     """
     # TODO First, confirm that the two dataframes have the same HGVS columns.
-    try:
-        if HGVS_NT_COLUMN in scores:
-            assert_array_equal(
-                scores[HGVS_NT_COLUMN].sort_values().values,
-                counts[HGVS_NT_COLUMN].sort_values().values,
-            )
-        if HGVS_SPLICE_COLUMN in scores:
-            assert_array_equal(
-                scores[HGVS_SPLICE_COLUMN].sort_values().values,
-                counts[HGVS_SPLICE_COLUMN].sort_values().values,
-            )
-        if HGVS_PRO_COLUMN in scores:
-            assert_array_equal(
-                scores[HGVS_PRO_COLUMN].sort_values().values,
-                counts[HGVS_PRO_COLUMN].sort_values().values,
-            )
-    except AssertionError:
+    if any(
+        col in scores and not arrays_equal(
+            scores[col].sort_values(),
+            counts[col].sort_values()
+        ) for col in (HGVS_NT_COLUMN, HGVS_SPLICE_COLUMN, HGVS_PRO_COLUMN)
+    ):
         raise ValidationError(
             "Your score and counts files do not define the same variants. "
             "Check that the hgvs columns in both files match."
