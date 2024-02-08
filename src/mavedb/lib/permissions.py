@@ -28,7 +28,9 @@ def has_permission(user: User, item: Base, action: Action) -> PermissionResponse
     private = False
     user_is_owner = False
     if isinstance(item, ExperimentSet) or isinstance(item, Experiment) or isinstance(item, ScoreSet):
+        assert item.private is not None
         private = item.private
+
         user_is_owner = user is not None and item.created_by_id == user.id
 
     if isinstance(item, ExperimentSet):
@@ -56,6 +58,8 @@ def has_permission(user: User, item: Base, action: Action) -> PermissionResponse
                 if private
                 else f"insufficient permissions for URN '{item.urn}'",
             )
+        else:
+            raise NotImplementedError(f"has_permission(User, ExperimentSet, {action})")
     elif isinstance(item, Experiment):
         if action == Action.READ:
             if user_is_owner or not private:
@@ -81,6 +85,9 @@ def has_permission(user: User, item: Base, action: Action) -> PermissionResponse
                 if private
                 else f"insufficient permissions for URN '{item.urn}'",
             )
+        else:
+            raise NotImplementedError(f"has_permission(User, Experiment, {action})")
+
     elif isinstance(item, ScoreSet):
         if action == Action.READ:
             if user_is_owner or not private:
@@ -106,3 +113,7 @@ def has_permission(user: User, item: Base, action: Action) -> PermissionResponse
                 if private
                 else f"insufficient permissions for URN '{item.urn}'",
             )
+        else:
+            raise NotImplementedError(f"has_permission(User, ScoreSet, {action})")
+    else:
+        raise NotImplementedError(f"has_permission(User, {item.__class__}, {action}")
