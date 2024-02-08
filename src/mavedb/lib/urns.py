@@ -34,7 +34,9 @@ def generate_experiment_set_urn(db: Session):
     max_urn_number = 0
     if row and row[0]:
         max_urn = row[0]
-        max_urn_number = int(re.search("^urn:mavedb:([0-9]+)$", max_urn).groups(1)[0])
+        match = re.search("^urn:mavedb:([0-9]+)$", max_urn)
+        assert match is not None
+        max_urn_number = int(match.groups(1)[0])
     next_urn_number = max_urn_number + 1
     return f"urn:mavedb:{next_urn_number:08}"
 
@@ -61,6 +63,7 @@ def generate_experiment_urn(db: Session, experiment_set: ExperimentSet, experime
     """
 
     experiment_set_urn = experiment_set.urn
+    assert experiment_set_urn is not None
 
     if experiment_is_meta_analysis:
         # Do not increment for meta-analysis, since this is a singleton
@@ -73,9 +76,12 @@ def generate_experiment_urn(db: Session, experiment_set: ExperimentSet, experime
         )
         max_suffix = None
         for experiment in published_experiments_query:
-            suffix = re.search(f"^{re.escape(experiment_set.urn)}-([a-z]+)$", experiment.urn).group(1)
-            if suffix and (max_suffix is None or len(max_suffix) < len(suffix) or max_suffix < suffix):
-                max_suffix = suffix
+            assert experiment.urn is not None
+            match = re.search(f"^{re.escape(experiment_set_urn)}-([a-z]+)$", experiment.urn)
+            if match is not None:
+                suffix = match.group(1)
+                if suffix and (max_suffix is None or len(max_suffix) < len(suffix) or max_suffix < suffix):
+                    max_suffix = suffix
         if max_suffix is None:
             next_suffix = "a"
         else:
@@ -110,6 +116,7 @@ def generate_score_set_urn(db: Session, experiment: Experiment):
     """
 
     experiment_urn = experiment.urn
+    assert experiment_urn is not None
 
     published_score_sets_query = (
         db.query(ScoreSet)
@@ -118,8 +125,11 @@ def generate_score_set_urn(db: Session, experiment: Experiment):
     )
     max_suffix_number = 0
     for score_set in published_score_sets_query:
-        suffix_number = int(re.search(f"^{re.escape(experiment.urn)}-([0-9]+)$", score_set.urn).group(1))
-        if suffix_number > max_suffix_number:
-            max_suffix_number = suffix_number
+        assert score_set.urn is not None
+        match = re.search(f"^{re.escape(experiment_urn)}-([0-9]+)$", score_set.urn)
+        if match is not None:
+            suffix_number = int(match.group(1))
+            if suffix_number > max_suffix_number:
+                max_suffix_number = suffix_number
     next_suffix_number = max_suffix_number + 1
     return f"{experiment_urn}-{next_suffix_number}"
