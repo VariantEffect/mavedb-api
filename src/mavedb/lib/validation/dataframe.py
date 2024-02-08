@@ -114,8 +114,13 @@ def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     pandas.DataFrame
         The standardized dataframe
     """
-    new_columns = [x.lower() if x.lower() in STANDARD_COLUMNS else x for x in df.columns]
-    df.columns = new_columns
+    column_mapper = {
+        x: x.lower()
+        for x in df.columns
+        if x.lower() in STANDARD_COLUMNS
+    }
+
+    df.rename(columns=column_mapper, inplace=True)
 
     return sort_dataframe_columns(df)
 
