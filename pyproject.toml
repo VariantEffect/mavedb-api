@@ -46,6 +46,9 @@ dev = [
     "httpx~=0.26.0",
     "requests-mock~=1.11.0",
     "pytest-socket~=0.6.0",
+    "pandas-stubs~=2.1.4",
+    "types-requests~=2.31.0",
+    "types-python-jose~=3.3.4",
 ]
 server = [
     "alembic~=1.7.6",
@@ -88,7 +91,10 @@ exclude = [
 packages = ["src/mavedb"]
 
 [tool.mypy]
-plugins = "sqlalchemy.ext.mypy.plugin"
+plugins = [
+    "sqlalchemy.ext.mypy.plugin",
+    "numpy.typing.mypy_plugin",
+]
 mypy_path = "mypy_stubs"
 
 [tool.pytest.ini_options]
