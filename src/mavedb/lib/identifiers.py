@@ -2,10 +2,10 @@ import os
 from datetime import date
 from typing import Optional, Union, Mapping
 
-import eutils
-from eutils import EutilsNCBIError
-from eutils._internal.xmlfacades.pubmedarticle import PubmedArticle
-from eutils._internal.xmlfacades.pubmedarticleset import PubmedArticleSet
+import eutils  # type: ignore
+from eutils import EutilsNCBIError  # type: ignore
+from eutils._internal.xmlfacades.pubmedarticle import PubmedArticle  # type: ignore
+from eutils._internal.xmlfacades.pubmedarticleset import PubmedArticleSet  # type: ignore
 from sqlalchemy.orm import Session
 
 from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError
