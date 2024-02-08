@@ -44,9 +44,9 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
 
     if search.published is not None:
         if search.published:
-            query = query.filter(ScoreSet.published_date is not None)
+            query = query.filter(ScoreSet.published_date.isnot(None))
         else:
-            query = query.filter(ScoreSet.published_date is None)
+            query = query.filter(ScoreSet.published_date.is_(None))
 
     if search.text:
         lower_search_text = search.text.lower()
@@ -248,7 +248,7 @@ def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[Scor
         db.query(ScoreSet)
         .join(ScoreSet.meta_analyzes_score_sets.of_type(analyzed_score_set))
         .filter(*urn_filters)
-        .group_by(ScoreSet)
+        .group_by(ScoreSet.id)
         .having(func.count(analyzed_score_set.id) == len(urns))
         .all()
     )
