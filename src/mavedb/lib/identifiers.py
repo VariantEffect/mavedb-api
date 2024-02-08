@@ -1,6 +1,6 @@
 import os
 from datetime import date
-from typing import Optional, Union
+from typing import Optional, Union, Mapping
 
 import eutils
 from eutils import EutilsNCBIError
@@ -209,8 +209,8 @@ async def fetch_biorxiv_article(identifier: str) -> Optional[ExternalPublication
     """
     fetch = Rxiv("https://api.biorxiv.org", "biorxiv")
     try:
-        article = fetch.content_detail(identifier=identifier)
-        article = ExternalPublication(identifier=identifier, db_name="bioRxiv", external_publication=article[-1])
+        articles = fetch.content_detail(identifier=identifier)
+        article = ExternalPublication(identifier=identifier, db_name="bioRxiv", external_publication=articles[-1])
     except IndexError:
         return None
     else:
@@ -223,8 +223,8 @@ async def fetch_medrxiv_article(identifier: str) -> Optional[ExternalPublication
     """
     fetch = Rxiv("https://api.biorxiv.org", "medrxiv")
     try:
-        article = fetch.content_detail(identifier=identifier)
-        article = ExternalPublication(identifier=identifier, db_name="medRxiv", external_publication=article[-1])
+        articles = fetch.content_detail(identifier=identifier)
+        article = ExternalPublication(identifier=identifier, db_name="medRxiv", external_publication=articles[-1])
     except IndexError:
         return None
     else:
@@ -233,7 +233,7 @@ async def fetch_medrxiv_article(identifier: str) -> Optional[ExternalPublication
 
 async def find_generic_article(
     db: Session, identifier: str
-) -> dict[str, Union[ExternalPublication, PublicationIdentifier]]:
+) -> Mapping[str, Union[ExternalPublication, PublicationIdentifier]]:
     """
     Check if a provided publication identifier ambiguously identifies a publication,
     ie the same identifier is identifies publications in multiple publication databases
@@ -245,6 +245,9 @@ async def find_generic_article(
     """
     valid_databases = identifier_valid_for(identifier)
     matching_articles = {}
+    pubmed_pub: Union[PublicationIdentifier, ExternalPublication, None]
+    biorxiv_pub: Union[PublicationIdentifier, ExternalPublication, None]
+    medrxiv_pub: Union[PublicationIdentifier, ExternalPublication, None]
 
     if valid_databases["PubMed"]:
         pubmed_pub = (
@@ -329,6 +332,8 @@ async def find_or_create_publication_identifier(
     :param identifier: A valid publication identifier
     :return: An existing PublicationIdentifier containing the specified identifier string, or a new, unsaved PublicationIdentifier
     """
+    article: Union[PublicationIdentifier, ExternalPublication, None]
+
     matching_articles = await find_generic_article(db, identifier)
 
     if not matching_articles:
@@ -383,7 +388,7 @@ async def find_or_create_external_gene_identifier(db: Session, db_name: str, ide
     """
 
     # TODO Handle key errors.
-    identifier_class: Union[EnsemblIdentifier, RefseqIdentifier, UniprotIdentifier] = EXTERNAL_GENE_IDENTIFIER_CLASSES[
+    identifier_class = EXTERNAL_GENE_IDENTIFIER_CLASSES[
         db_name
     ]
 
