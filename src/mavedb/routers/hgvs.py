@@ -35,10 +35,10 @@ def hgvs_validate(variant: dict[str, str], hdp: RESTDataProvider = Depends(hgvs_
     Validate a provided variant
     """
     hp = parser.Parser()
-    variant = hp.parse(variant["variant"])
+    variant_hgvs = hp.parse(variant["variant"])
 
     try:
-        valid = validator.Validator(hdp=hdp).validate(variant, strict=False)
+        valid = validator.Validator(hdp=hdp).validate(variant_hgvs, strict=False)
     except HGVSInvalidVariantError as e:
         raise HTTPException(400, str(e))
     else:

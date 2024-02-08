@@ -15,7 +15,7 @@ from slack_sdk.webhook import WebhookClient
 from sqlalchemy.orm import configure_mappers
 from starlette import status
 from starlette.responses import JSONResponse
-from eutils._internal.exceptions import EutilsRequestError
+from eutils._internal.exceptions import EutilsRequestError  # type: ignore
 
 from mavedb.models import *
 

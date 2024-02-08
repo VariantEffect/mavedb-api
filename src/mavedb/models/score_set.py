@@ -14,6 +14,7 @@ from mavedb.models.user import User
 from mavedb.models.license import License
 from mavedb.models.keyword import Keyword
 from mavedb.models.doi_identifier import DoiIdentifier
+from mavedb.models.variant import Variant
 
 # from .raw_read_identifier import SraIdentifier
 from mavedb.lib.temp_urns import generate_temp_urn

@@ -713,7 +713,7 @@ async def update_score_set(
             scores_data = pd.DataFrame(
                 get_csv_rows_data(item.variants, columns=score_columns, dtype="score_data")
             ).replace("NA", pd.NA)
-            count_data = pd.DataFrame(
+            count_data : Optional[pd.DataFrame] = pd.DataFrame(
                 get_csv_rows_data(item.variants, columns=count_columns, dtype="count_data")
             ).replace("NA", pd.NA)
 
