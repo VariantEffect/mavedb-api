@@ -2,7 +2,8 @@
 
 from typing import Generator
 
-from cdot.hgvs.dataproviders import RESTDataProvider, ChainedSeqFetcher, FastaSeqFetcher, SeqFetcher
+from cdot.hgvs.dataproviders import RESTDataProvider, ChainedSeqFetcher, FastaSeqFetcher
+from hgvs.dataproviders.seqfetcher import SeqFetcher
 from sqlalchemy.dialects.postgresql import JSONB
 
 from mavedb.db.session import SessionLocal
