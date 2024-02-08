@@ -20,3 +20,10 @@ class Variant:
     ]
 
     prefix: str
+
+    sequence: Union[
+        str,
+        Tuple[str, str],
+        List[Optional[Union[str, Tuple[str, str]]]],
+        None
+    ]
