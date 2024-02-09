@@ -19,9 +19,9 @@ from mavedb.lib.validation.constants.general import (
     required_score_column,
 )
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.view_models.target_accession import TargetAccession
-from mavedb.view_models.target_gene import TargetGene
-from mavedb.view_models.target_sequence import TargetSequence
+from mavedb.models.target_accession import TargetAccession
+from mavedb.models.target_gene import TargetGene
+from mavedb.models.target_sequence import TargetSequence
 
 # handle with pandas all null strings
 # provide a csv or a pandas dataframe
