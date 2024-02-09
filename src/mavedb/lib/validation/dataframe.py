@@ -410,7 +410,7 @@ def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: 
 
         # translate the target sequence if needed.
         elif str(column.name).lower() == hgvs_pro_column:
-            if target.sequence_type == "dna":
+            if target.sequence_type == "dna" and target.sequence is not None:
                 target_seqs[name] = translate_dna(target.sequence)[0]
             else:
                 target_seqs[name] = target.sequence
@@ -483,12 +483,13 @@ def validate_hgvs_genomic_column(column: pd.Series, is_index: bool, targets: lis
     """
     validate_variant_column(column, is_index)
     prefixes = generate_variant_prefixes(column)
-    validate_variant_formatting(column, prefixes, [target.accession for target in targets])
+    validate_variant_formatting(column, prefixes, [target.accession for target in targets if target.accession is not None])
 
     # validate the individual variant strings
     # prepare the target sequences for validation
     target_seqs: dict[str, Union[str, None]] = {}
     for target in targets:
+        assert target.accession is not None
         # We shouldn't have to worry about translating protein sequences when we deal with accession based variants
         if str(column.name).lower() == hgvs_nt_column or str(column.name).lower() == hgvs_pro_column:
             target_seqs[target.accession] = target.accession

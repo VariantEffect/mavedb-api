@@ -276,9 +276,10 @@ async def create_score_set(
         superseded_score_set = None
 
     distinct_meta_analyzes_score_set_urns = list(set(item_create.meta_analyzes_score_set_urns or []))
-    meta_analyzes_score_sets = [
+    meta_analyzes_score_sets = [ss for ss in [
         await fetch_score_set_by_urn(db, urn, None) for urn in distinct_meta_analyzes_score_set_urns
-    ]
+    ] if ss is not None]
+
     for i, meta_analyzes_score_set in enumerate(meta_analyzes_score_sets):
         if meta_analyzes_score_set is None:
             raise HTTPException(
@@ -289,7 +290,7 @@ async def create_score_set(
     if len(meta_analyzes_score_sets) > 0:
         # If any existing score set is a meta-analysis for score sets in the same collection of exepriment sets, use its
         # experiment as the parent of our new meta-analysis. Otherwise, create a new experiment.
-        meta_analyzes_experiment_sets = list(set((ss.experiment.experiment_set for ss in meta_analyzes_score_sets if ss is not None)))
+        meta_analyzes_experiment_sets = list(set((ss.experiment.experiment_set for ss in meta_analyzes_score_sets if ss.experiment.experiment_set is not None)))
         meta_analyzes_experiment_set_urns = [es.urn for es in meta_analyzes_experiment_sets if es.urn is not None]
         existing_meta_analyses = find_meta_analyses_for_experiment_sets(db, meta_analyzes_experiment_set_urns)
 
@@ -393,6 +394,8 @@ async def create_score_set(
 
         targets.append(target_gene)
 
+    assert experiment is not None
+
     item = ScoreSet(
         **jsonable_encoder(
             item_create,
@@ -419,8 +422,9 @@ async def create_score_set(
         processing_state=ProcessingState.incomplete,
         created_by=user,
         modified_by=user,
-    )
-    await item.set_keywords(db, item_create.keywords)
+    )  # type: ignore
+    if item_create.keywords is not None:
+        await item.set_keywords(db, item_create.keywords)
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -541,7 +545,9 @@ def create_variants(db, score_set: ScoreSet, variants_data: list[VariantData], b
     num_variants = len(variants_data)
     variant_urns = bulk_create_urns(num_variants, score_set, True)
     variants = (
-        Variant(urn=urn, score_set_id=score_set.id, **kwargs) for urn, kwargs in zip(variant_urns, variants_data)
+        # TODO: Is there a nicer way to handle this than passing dicts into kwargs
+        # of the class initializer?
+        Variant(urn=urn, score_set_id=score_set.id, **kwargs) for urn, kwargs in zip(variant_urns, variants_data)  # type: ignore
     )
     db.bulk_save_objects(variants)
     db.add(score_set)
@@ -618,7 +624,8 @@ async def update_score_set(
             setattr(publication, "primary", publication.identifier in primary_identifiers)
 
         item.publication_identifiers = publication_identifiers
-        await item.set_keywords(db, item_update.keywords)
+        if item_update.keywords is not None:
+            await item.set_keywords(db, item_update.keywords)
 
         # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the score set's
         # target_gene to None, because we have set cascade='all,delete-orphan' on ScoreSet.target_gene. (Since the
@@ -630,7 +637,7 @@ async def update_score_set(
         item.target_genes = []
         db.flush()
 
-        targets = []
+        targets : List[TargetGene] = []
         accessions = False
         for gene in item_update.target_genes:
             if gene.target_sequence:
@@ -694,21 +701,22 @@ async def update_score_set(
 
         # re-validate existing variants and clear them if they do not pass validation
         if item.variants:
+            assert item.dataset_columns is not None
             score_columns = ["hgvs_nt", "hgvs_splice", "hgvs_pro"] + item.dataset_columns["score_columns"]
             count_columns = ["hgvs_nt", "hgvs_splice", "hgvs_pro"] + item.dataset_columns["count_columns"]
             scores_data = pd.DataFrame(
                 get_csv_rows_data(item.variants, columns=score_columns, dtype="score_data")
             ).replace("NA", pd.NA)
-            count_data : Optional[pd.DataFrame] = pd.DataFrame(
+            count_data = pd.DataFrame(
                 get_csv_rows_data(item.variants, columns=count_columns, dtype="count_data")
             ).replace("NA", pd.NA)
 
-            # if our count data only has hgvs columns, we can assume we weren't provided with count data.
-            if set([col.lower() for col in count_data.columns]).issubset(set(hgvs_columns)):
-                count_data = None
-
             try:
-                validate_and_standardize_dataframe_pair(scores_data, count_data, item.target_genes)
+                # if our count data only has hgvs columns, we can assume we weren't provided with count data.
+                if set([col.lower() for col in count_data.columns]).issubset(set(hgvs_columns)):
+                    validate_and_standardize_dataframe_pair(scores_data, None, item.target_genes)
+                else:
+                    validate_and_standardize_dataframe_pair(scores_data, count_data, item.target_genes)
             except exceptions.ValidationError as e:
                 db.rollback()
                 raise HTTPException(
