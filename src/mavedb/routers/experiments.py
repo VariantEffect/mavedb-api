@@ -198,7 +198,7 @@ async def create_experiment(
         raw_read_identifiers=raw_read_identifiers,
         created_by=user,
         modified_by=user,
-    )
+    )  # type: ignore
     await item.set_keywords(db, item_create.keywords)
     db.add(item)
     db.commit()

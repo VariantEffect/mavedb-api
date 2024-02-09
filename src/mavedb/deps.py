@@ -11,7 +11,7 @@ from mavedb.db.session import SessionLocal
 
 def get_db() -> Generator:
     db = SessionLocal()
-    db.current_user_id = None
+    db.current_user_id = None  # type: ignore
     try:
         yield db
     finally:
