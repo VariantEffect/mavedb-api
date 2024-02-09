@@ -23,7 +23,7 @@ from mavedb.lib.identifiers import (
     find_or_create_doi_identifier,
     find_or_create_publication_identifier,
 )
-from mavedb.lib.permissions import Action, has_permission
+from mavedb.lib.permissions import Action, assert_permission
 from mavedb.lib.score_sets import (
     create_variants_data,
     find_meta_analyses_for_experiment_sets,
@@ -151,10 +151,7 @@ def get_score_set_scores_csv(
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
-    permission = has_permission(user, score_set, Action.READ)
-    if not permission.permitted:
-        assert permission.http_code is not None
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, score_set, Action.READ)
 
     assert type(score_set.dataset_columns) is dict
     score_columns = [str(x) for x in list(score_set.dataset_columns["score_columns"])]
@@ -191,10 +188,7 @@ async def get_score_set_counts_csv(
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
-    permission = has_permission(user, score_set, Action.READ)
-    if not permission.permitted:
-        assert permission.http_code is not None
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, score_set, Action.READ)
 
     assert type(score_set.dataset_columns) is dict
     count_columns = [str(x) for x in list(score_set.dataset_columns["count_columns"])]
@@ -221,10 +215,7 @@ def get_score_set_mapped_variants(
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
-    permission = has_permission(user, score_set, Action.READ)
-    if not permission.permitted:
-        assert permission.http_code is not None
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, score_set, Action.READ)
 
     mapped_variants = (
         db.query(MappedVariant)
@@ -271,10 +262,7 @@ async def create_score_set(
         experiment = db.query(Experiment).filter(Experiment.urn == item_create.experiment_urn).one_or_none()
         if not experiment:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
-        permission = has_permission(user, experiment, Action.ADD_SCORE_SET)
-        if not permission.permitted:
-            assert permission.http_code is not None
-            raise HTTPException(status_code=permission.http_code, detail=permission.message)
+        assert_permission(user, experiment, Action.ADD_SCORE_SET)
 
     license_ = db.query(License).filter(License.id == item_create.license_id).one_or_none()
     if not license_:
@@ -464,9 +452,7 @@ async def upload_score_set_variant_data(
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item or not item.urn or not scores_file:
         return None
-    permission = has_permission(user, item, Action.SET_SCORES)
-    if not permission.permitted:
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, item, Action.SET_SCORES)
 
     # Delete the old variants so that uploading new scores and counts won't accumulate the old ones.
     db.query(Variant).filter(Variant.score_set_id == item.id).delete()
@@ -590,9 +576,7 @@ async def update_score_set(
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
-    permission = has_permission(user, item, Action.UPDATE)
-    if not permission.permitted:
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, item, Action.UPDATE)
 
     # Editing unpublished score set
     if item.private is True:
@@ -775,10 +759,7 @@ async def delete_score_set(
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
-    permission = has_permission(user, item, Action.DELETE)
-    if not permission.permitted:
-        assert permission.http_code is not None
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, item, Action.DELETE)
     db.delete(item)
     db.commit()
 
@@ -795,10 +776,7 @@ def publish_score_set(
     item: Optional[ScoreSet] = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
-    permission = has_permission(user, item, Action.UPDATE)
-    if not permission.permitted:
-        assert permission.http_code is not None
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, item, Action.UPDATE)
 
     if not item.experiment:
         raise HTTPException(

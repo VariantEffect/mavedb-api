@@ -24,6 +24,12 @@ class PermissionResponse:
         self.message = message if not permitted else None
 
 
+class PermissionException(Exception):
+    def __init__(self, http_code: int, message: str):
+        self.http_code = http_code
+        self.message = message
+
+
 def has_permission(user: User, item: Base, action: Action) -> PermissionResponse:
     private = False
     user_is_owner = False
@@ -117,3 +123,11 @@ def has_permission(user: User, item: Base, action: Action) -> PermissionResponse
             raise NotImplementedError(f"has_permission(User, ScoreSet, {action})")
     else:
         raise NotImplementedError(f"has_permission(User, {item.__class__}, {action}")
+
+
+def assert_permission(user: User, item: Base, action: Action) -> PermissionResponse:
+    permission = has_permission(user, item, action)
+    if not permission.permitted:
+        assert permission.http_code and permission.message
+        raise PermissionException(http_code=permission.http_code, message=permission.message)
+    return permission
