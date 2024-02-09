@@ -22,6 +22,9 @@ from mavedb.models.target_gene import TargetGene
 from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
 
+# XXX these classes all have an "identifier" attribute but there's no superclass
+# to unify them ...
+
 EXTERNAL_GENE_IDENTIFIER_CLASSES = {
     "Ensembl": EnsemblIdentifier,
     "RefSeq": RefseqIdentifier,
@@ -388,9 +391,8 @@ async def find_or_create_external_gene_identifier(db: Session, db_name: str, ide
     """
 
     # TODO Handle key errors.
-    identifier_class = EXTERNAL_GENE_IDENTIFIER_CLASSES[
-        db_name
-    ]
+    identifier_class = EXTERNAL_GENE_IDENTIFIER_CLASSES[db_name]
+    assert hasattr(identifier_class, "identifier")
 
     external_gene_identifier = (
         db.query(identifier_class).filter(identifier_class.identifier == identifier).one_or_none()
