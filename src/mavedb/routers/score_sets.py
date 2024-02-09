@@ -156,6 +156,7 @@ def get_score_set_scores_csv(
         assert permission.http_code is not None
         raise HTTPException(status_code=permission.http_code, detail=permission.message)
 
+    assert type(score_set.dataset_columns) is dict
     score_columns = [str(x) for x in list(score_set.dataset_columns["score_columns"])]
     columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_columns
     type_column = "score_data"
@@ -195,6 +196,7 @@ async def get_score_set_counts_csv(
         assert permission.http_code is not None
         raise HTTPException(status_code=permission.http_code, detail=permission.message)
 
+    assert type(score_set.dataset_columns) is dict
     count_columns = [str(x) for x in list(score_set.dataset_columns["count_columns"])]
     columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + count_columns
     type_column = "count_data"
