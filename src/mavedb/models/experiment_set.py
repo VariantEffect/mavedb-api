@@ -1,4 +1,5 @@
 from datetime import date
+from typing import List, TYPE_CHECKING
 
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship, Mapped
@@ -12,6 +13,9 @@ from .keyword import Keyword
 from .doi_identifier import DoiIdentifier
 from .publication_identifier import PublicationIdentifier
 from .raw_read_identifier import RawReadIdentifier
+
+if TYPE_CHECKING:
+    from mavedb.models.experiment import Experiment
 
 experiment_sets_doi_identifiers_association_table = Table(
     "experiment_set_doi_identifiers",
@@ -58,6 +62,7 @@ class ExperimentSet(Base):
 
     # TODO Refactor the way we handle child collections?
     num_experiments = Column(Integer, nullable=False, default=0)
+    experiments : Mapped[List["Experiment"]] = relationship(back_populates="experiment_set", cascade="all, delete-orphan")
 
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_by : Mapped[User] = relationship("User", foreign_keys="ExperimentSet.created_by_id")

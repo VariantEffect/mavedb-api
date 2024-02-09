@@ -1,10 +1,11 @@
 from datetime import date
 
-from typing import Optional
+from typing import Optional, List, TYPE_CHECKING
+
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.event import listens_for
-from sqlalchemy.ext.associationproxy import association_proxy
-from sqlalchemy.orm import relationship, backref, Mapped
+from sqlalchemy.ext.associationproxy import association_proxy, AssociationProxy
+from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.schema import Table
 
 from mavedb.db.base import Base
@@ -16,6 +17,10 @@ from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.raw_read_identifier import RawReadIdentifier
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.user import User
+from mavedb.models.publication_identifier import PublicationIdentifier
+
+if TYPE_CHECKING:
+    from mavedb.models.score_set import ScoreSet
 
 experiments_doi_identifiers_association_table = Table(
     "experiment_doi_identifiers",
@@ -61,9 +66,10 @@ class Experiment(Base):
 
     # TODO Remove this obsolete column.
     num_score_sets = Column("num_scoresets", Integer, nullable=False, default=0)
+    score_sets : Mapped[List["ScoreSet"]] = relationship(back_populates="experiment")
 
     experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), nullable=True)
-    experiment_set : Mapped[ExperimentSet] = relationship("ExperimentSet", backref=backref("experiments", cascade="all,delete-orphan"))
+    experiment_set : Mapped[Optional[ExperimentSet]] = relationship(back_populates="experiments")
 
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_by : Mapped[User] = relationship("User", foreign_keys="Experiment.created_by_id")
@@ -79,7 +85,7 @@ class Experiment(Base):
     publication_identifier_associations : Mapped[list[ExperimentPublicationIdentifierAssociation]] = relationship(
         "ExperimentPublicationIdentifierAssociation", back_populates="experiment", cascade="all, delete-orphan"
     )
-    publication_identifiers = association_proxy(
+    publication_identifiers : AssociationProxy[List[PublicationIdentifier]] = association_proxy(
         "publication_identifier_associations",
         "publication",
         creator=lambda p: ExperimentPublicationIdentifierAssociation(publication=p, primary=p.primary),

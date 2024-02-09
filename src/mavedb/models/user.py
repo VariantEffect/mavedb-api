@@ -1,6 +1,6 @@
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table
 from sqlalchemy.orm import relationship, Mapped
-from typing import List
+from typing import List, TYPE_CHECKING
 from mavedb.db.base import Base
 from mavedb.models.role import Role
 
@@ -10,6 +10,9 @@ users_roles_association_table = Table(
     Column("user_id", ForeignKey("users.id"), primary_key=True),
     Column("role_id", ForeignKey("roles.id"), primary_key=True),
 )
+
+if TYPE_CHECKING:
+    from mavedb.models.access_key import AccessKey
 
 
 class User(Base):
@@ -27,6 +30,8 @@ class User(Base):
     email = Column(String, nullable=True)
     role_objs : Mapped[List[Role]] = relationship("Role", secondary=users_roles_association_table, backref="users")
     last_login = Column(DateTime, nullable=True)
+
+    access_keys : Mapped[List["AccessKey"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
     @property
     def roles(self) -> list[str]:

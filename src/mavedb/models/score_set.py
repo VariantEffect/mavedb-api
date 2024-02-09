@@ -1,8 +1,10 @@
 from datetime import date
 from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship, backref, Mapped
-from sqlalchemy.ext.associationproxy import association_proxy
+from sqlalchemy.ext.associationproxy import association_proxy, AssociationProxy
 from sqlalchemy.schema import Table
+
+from typing import List, TYPE_CHECKING, Optional
 
 from mavedb.db.base import Base
 from mavedb.deps import JSONB
@@ -14,7 +16,11 @@ from mavedb.models.user import User
 from mavedb.models.license import License
 from mavedb.models.keyword import Keyword
 from mavedb.models.doi_identifier import DoiIdentifier
-from mavedb.models.variant import Variant
+from mavedb.models.publication_identifier import PublicationIdentifier
+
+if TYPE_CHECKING:
+    from mavedb.models.variant import Variant
+    from mavedb.models.target_gene import TargetGene
 
 # from .raw_read_identifier import SraIdentifier
 from mavedb.lib.temp_urns import generate_temp_urn
@@ -82,12 +88,13 @@ class ScoreSet(Base):
     variants : Mapped[list["Variant"]] = relationship(back_populates="score_set")
 
     experiment_id = Column(Integer, ForeignKey("experiments.id"), nullable=False)
-    experiment : Mapped["Experiment"] = relationship("Experiment", backref=backref("score_sets", cascade="all,delete-orphan"))
+    experiment : Mapped["Experiment"] = relationship(back_populates="score_sets")
+
     # TODO Standardize on US or GB spelling for licenc/se.
     licence_id = Column(Integer, ForeignKey("licenses.id"), nullable=False)
     license : Mapped["License"] = relationship("License")
     superseded_score_set_id = Column("replaces_id", Integer, ForeignKey("scoresets.id"), nullable=True)  # TODO
-    superseded_score_set : Mapped["ScoreSet"] = relationship(
+    superseded_score_set : Mapped[Optional["ScoreSet"]] = relationship(
         "ScoreSet", uselist=False, remote_side=[id], backref=backref("superseding_score_set", uselist=False)
     )
 
@@ -105,7 +112,7 @@ class ScoreSet(Base):
     publication_identifier_associations : Mapped[list[mavedb.models.score_set_publication_identifier.ScoreSetPublicationIdentifierAssociation]] = relationship(
         "ScoreSetPublicationIdentifierAssociation", back_populates="score_set", cascade="all, delete-orphan"
     )
-    publication_identifiers = association_proxy(
+    publication_identifiers : AssociationProxy[List[PublicationIdentifier]]= association_proxy(
         "publication_identifier_associations",
         "publication",
         creator=lambda p: mavedb.models.score_set_publication_identifier.ScoreSetPublicationIdentifierAssociation(publication=p, primary=p.primary),
@@ -119,6 +126,8 @@ class ScoreSet(Base):
         secondaryjoin=(score_sets_meta_analysis_score_sets_association_table.c.source_scoreset_id == id),
         backref="meta_analyzed_by_score_sets",
     )
+
+    target_genes : Mapped[List["TargetGene"]] = relationship(back_populates="score_set")
 
     # Unfortunately, we can't use association_proxy here, because in spite of what the documentation seems to imply, it
     # doesn't check for a pre-existing keyword with the same text.

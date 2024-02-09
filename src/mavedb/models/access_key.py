@@ -12,7 +12,7 @@ class AccessKey(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    user : Mapped[User] = relationship("User", backref=backref("access_keys", cascade="all,delete-orphan"))
+    user : Mapped[User] = relationship(back_populates="access_keys")
     key_id = Column(String, unique=True, index=True, nullable=False)
     public_key = Column(String, nullable=False)
     name = Column(String, nullable=True)

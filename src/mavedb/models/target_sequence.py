@@ -1,4 +1,5 @@
 from datetime import date
+from typing import List, TYPE_CHECKING
 
 from sqlalchemy import Column, Date, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship, backref, Mapped
@@ -6,6 +7,8 @@ from .reference_genome import ReferenceGenome
 
 from mavedb.db.base import Base
 
+if TYPE_CHECKING:
+    from mavedb.models.target_gene import TargetGene
 
 class TargetSequence(Base):
     __tablename__ = "target_sequences"
@@ -21,3 +24,5 @@ class TargetSequence(Base):
     )
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
+
+    target_genes : Mapped[List["TargetGene"]] = relationship(back_populates="target_sequence")
