@@ -15,6 +15,6 @@ class UniprotOffset(Base):
         backref=backref("target_gene_offsets", uselist=True)
     )
     target_gene_id = Column(Integer, ForeignKey("target_genes.id"), nullable=False, primary_key=True)
-    target_gene : Mapped[TargetGene] = relationship(back_populates="uniprot_offset")
+    target_gene : Mapped[TargetGene] = relationship(back_populates="uniprot_offset", single_parent=True)
 
     offset = Column(Integer, nullable=False)
