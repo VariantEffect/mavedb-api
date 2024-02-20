@@ -69,32 +69,34 @@ TEST_LICENSE = {
     "version": "1.0",
 }
 
-TEST_MINIMAL_SCORE_SET = {
+TEST_MINIMAL_SEQ_SCORESET = {
     "title": "Test Score Set Title",
     "shortDescription": "Test score set",
     "abstractText": "Abstract",
     "methodText": "Methods",
     "licenseId": 1,
-    "targetGenes":[ {
-        "name": "TEST1",
-        "category": "Protein coding",
-        "externalIdentifiers": [],
-        "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
-        "targetSequence": {
-            "sequenceType": "dna",
-            "sequence": "ACGTTT",
-            "reference": {
-                "id": 1,
-                "shortName": "Name",
-                "organismName": "Organism",
-                "creationDate": date.today().isoformat(),
-                "modificationDate": date.today().isoformat(),
-            }
-        },
-    } ],
+    "targetGenes": [
+        {
+            "name": "TEST1",
+            "category": "Protein coding",
+            "externalIdentifiers": [],
+            "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
+            "targetSequence": {
+                "sequenceType": "dna",
+                "sequence": "ACGTTT",
+                "reference": {
+                    "id": 1,
+                    "shortName": "Name",
+                    "organismName": "Organism",
+                    "creationDate": date.today().isoformat(),
+                    "modificationDate": date.today().isoformat(),
+                },
+            },
+        }
+    ],
 }
 
-TEST_MINIMAL_SCORE_SET_RESPONSE = {
+TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "title": "Test Score Set Title",
     "shortDescription": "Test score set",
     "abstractText": "Abstract",
@@ -113,23 +115,84 @@ TEST_MINIMAL_SCORE_SET_RESPONSE = {
     "modificationDate": date.today().isoformat(),
     "license": {camelize(k): v for k, v in TEST_LICENSE.items() if k not in ("text",)},
     "numVariants": 0,
-    "targetGenes": [ {
-        "name": "TEST1",
-        "category": "Protein coding",
-        "externalIdentifiers": [],
-        "id": 1,
-        "targetSequence": {
-            "sequenceType": "dna",
-            "sequence": "ACGTTT",
-            "reference": {
-                "id": 1,
-                "shortName": "Name",
-                "organismName": "Organism",
-                "creationDate": date.today().isoformat(),
-                "modificationDate": date.today().isoformat(),
-            }
-        },
-    } ],
+    "targetGenes": [
+        {
+            "name": "TEST1",
+            "category": "Protein coding",
+            "externalIdentifiers": [],
+            "id": 1,
+            "targetSequence": {
+                "sequenceType": "dna",
+                "sequence": "ACGTTT",
+                "reference": {
+                    "id": 1,
+                    "shortName": "Name",
+                    "organismName": "Organism",
+                    "creationDate": date.today().isoformat(),
+                    "modificationDate": date.today().isoformat(),
+                },
+            },
+        }
+    ],
+    "metaAnalyzesScoreSetUrns": [],
+    "metaAnalyzedByScoreSetUrns": [],
+    "keywords": [],
+    "doiIdentifiers": [],
+    "primaryPublicationIdentifiers": [],
+    "secondaryPublicationIdentifiers": [],
+    "datasetColumns": {},
+    "private": True,
+    "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
+    # keys to be set after receiving response
+    "urn": None,
+}
+
+
+TEST_MINIMAL_ACC_SCORESET = {
+    "title": "Test Score Set Acc Title",
+    "shortDescription": "Test accession score set",
+    "abstractText": "Abstract",
+    "methodText": "Methods",
+    "licenseId": 1,
+    "targetGenes": [
+        {
+            "name": "TEST2",
+            "category": "Protein coding",
+            "externalIdentifiers": [],
+            "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
+            "targetAccession": {"accession": "NM_007294.4", "assembly": "GRCh38", "gene": "BRCA1"},
+        }
+    ],
+}
+
+TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
+    "title": "Test Score Set Acc Title",
+    "shortDescription": "Test accession score set",
+    "abstractText": "Abstract",
+    "methodText": "Methods",
+    "createdBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "modifiedBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
+    "license": {camelize(k): v for k, v in TEST_LICENSE.items() if k not in ("text",)},
+    "numVariants": 0,
+    "targetGenes": [
+        {
+            "name": "TEST2",
+            "category": "Protein coding",
+            "externalIdentifiers": [],
+            "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
+            "targetAccession": {"accession": "ENST00000460680", "assembly": "GRCh38", "gene": "BAP1"},
+        }
+    ],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
     "keywords": [],

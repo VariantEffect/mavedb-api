@@ -13,7 +13,7 @@ from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 import pytest
-from tests.helpers.util import change_ownership, create_experiment, create_score_set_with_variants
+from tests.helpers.util import change_ownership, create_experiment, create_seq_score_set_with_variants
 
 import requests
 import requests_mock
@@ -96,7 +96,7 @@ def test_cannot_assign_to_other_user_private_experiment_set(session, client, set
 
 def test_can_assign_to_own_public_experiment_set(client, setup_router_db, data_files):
     experiment = create_experiment(client)
-    score_set = create_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
     published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
     response_data = create_experiment(
         client,
@@ -108,7 +108,7 @@ def test_can_assign_to_own_public_experiment_set(client, setup_router_db, data_f
 
 def test_cannot_assign_to_other_user_public_experiment_set(session, client, setup_router_db, data_files):
     experiment = create_experiment(client)
-    score_set = create_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
     published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
     published_experiment_set_urn = published_score_set["experiment"]["experimentSetUrn"]
     change_ownership(session, published_experiment_set_urn, ExperimentSetDbModel)
