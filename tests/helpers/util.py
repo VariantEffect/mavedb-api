@@ -86,7 +86,6 @@ def create_seq_score_set_with_variants(client, experiment_urn, scores_csv_path, 
 
 
 def create_acc_score_set_with_variants(client, experiment_urn, scores_csv_path, update=None, counts_csv_path=None):
-    print(update)
     score_set = create_acc_score_set(client, experiment_urn, update)
     score_file = open(scores_csv_path, "rb")
     files = {"scores_file": (scores_csv_path.name, score_file, "rb")}
