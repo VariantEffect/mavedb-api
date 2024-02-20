@@ -85,7 +85,7 @@ class ScoreSet(Base):
 
     # TODO Refactor the way we track the number of variants?
     num_variants = Column(Integer, nullable=False, default=0)
-    variants : Mapped[list["Variant"]] = relationship(back_populates="score_set")
+    variants : Mapped[list["Variant"]] = relationship(back_populates="score_set", cascade="all, delete-orphan")
 
     experiment_id = Column(Integer, ForeignKey("experiments.id"), nullable=False)
     experiment : Mapped["Experiment"] = relationship(back_populates="score_sets")
@@ -127,7 +127,7 @@ class ScoreSet(Base):
         backref="meta_analyzed_by_score_sets",
     )
 
-    target_genes : Mapped[List["TargetGene"]] = relationship(back_populates="score_set")
+    target_genes : Mapped[List["TargetGene"]] = relationship(back_populates="score_set", cascade="all, delete-orphan")
 
     # Unfortunately, we can't use association_proxy here, because in spite of what the documentation seems to imply, it
     # doesn't check for a pre-existing keyword with the same text.

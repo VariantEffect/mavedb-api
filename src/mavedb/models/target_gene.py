@@ -27,7 +27,7 @@ class TargetGene(Base):
 
     score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), nullable=False)
     score_set : Mapped[ScoreSet] = relationship(
-        back_populates="target_genes", cascade="all, delete-orphan", single_parent=True, uselist=True
+        back_populates="target_genes", single_parent=True, uselist=True
     )
 
     target_sequence_id = Column(Integer, ForeignKey("target_sequences.id"), nullable=True)
