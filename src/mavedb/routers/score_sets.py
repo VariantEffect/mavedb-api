@@ -7,7 +7,7 @@ from typing import Any, List, Optional
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, Depends, File, status, UploadFile
+from fastapi import APIRouter, Depends, File, status, UploadFile, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
@@ -142,12 +142,24 @@ async def show_score_set(
 def get_score_set_scores_csv(
     *,
     urn: str,
+    start: int = Query(default=None, description="Start index for pagination"),
+    limit: int = Query(default=None, description="Number of variants to return"),
     db: Session = Depends(deps.get_db),
     user: User = Depends(get_current_user),
 ) -> Any:
     """
     Return scores from a score set, identified by URN, in CSV format.
+    If no start and limit, all of variants of this score set will be returned.
+    Example path:
+    /score-sets/{urn}/scores
+    /score-sets/{urn}/scores?start=0&limit=100
+    /score-sets/{urn}/scores?start=100
     """
+    if start and start < 0:
+        raise HTTPException(status_code=400, detail="Start index must be non-negative")
+    if limit != None and limit <= 0:
+        raise HTTPException(status_code=400, detail="Limit must be positive")
+
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
@@ -157,7 +169,14 @@ def get_score_set_scores_csv(
     score_columns = [str(x) for x in list(score_set.dataset_columns["score_columns"])]
     columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_columns
     type_column = "score_data"
-    rows_data = get_csv_rows_data(score_set.variants, columns=columns, dtype=type_column)
+    variants = score_set.variants
+
+    if start:
+        variants = variants[start:]
+    if limit:
+        variants = variants[:limit]
+
+    rows_data = get_csv_rows_data(variants, columns=columns, dtype=type_column)
     stream = io.StringIO()
     writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
     writer.writeheader()
@@ -179,12 +198,24 @@ def get_score_set_scores_csv(
 async def get_score_set_counts_csv(
     *,
     urn: str,
+    start: int = Query(default=None, description="Start index for pagination"),
+    limit: int = Query(default=None, description="Number of variants to return"),
     db: Session = Depends(deps.get_db),
     user: User = Depends(get_current_user),
 ) -> Any:
     """
     Return counts from a score set, identified by URN, in CSV format.
+    If no start and limit, all of variants of this score set will be returned.
+    Example path:
+    /score-sets/{urn}/counts
+    /score-sets/{urn}/counts?start=0&limit=100
+    /score-sets/{urn}/counts?start=100
     """
+    if start and start < 0:
+        raise HTTPException(status_code=400, detail="Start index must be non-negative")
+    if limit != None and limit <= 0:
+        raise HTTPException(status_code=400, detail="Limit must be positive")
+
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
@@ -194,7 +225,14 @@ async def get_score_set_counts_csv(
     count_columns = [str(x) for x in list(score_set.dataset_columns["count_columns"])]
     columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + count_columns
     type_column = "count_data"
-    rows_data = get_csv_rows_data(score_set.variants, columns=columns, dtype=type_column)
+    variants = score_set.variants
+
+    if start:
+        variants = variants[start:]
+    if limit:
+        variants = variants[:limit]
+
+    rows_data = get_csv_rows_data(variants, columns=columns, dtype=type_column)
     stream = io.StringIO()
     writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
     writer.writeheader()
