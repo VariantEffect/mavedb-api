@@ -260,9 +260,12 @@ def filter_visible_score_sets(items: list[ScoreSet]):
 
 
 def arrays_equal(array1: np.ndarray, array2: np.ndarray):
-    # note that each of the three expressions here is a boolean ndarray
-    # so combining them with `&` and `|` works:
-    return all(
+    # if the shape isn't the same the arrays are different.
+    # otherwise for each value make sure either both values are null
+    # or the values are equal.
+    return array1.shape == array2.shape and all(
+        # note that each of the three expressions here is a boolean ndarray
+        # so combining them with bitwise `&` and `|` works:
         (pd.isnull(array1) & pd.isnull(array2)) | (array1 == array2)
     )
 
