@@ -33,6 +33,7 @@ from mavedb.models.refseq_identifier import RefseqIdentifier
 from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
+from mavedb.models.user import User
 
 router = APIRouter(
     prefix="/api/v1/statistics",
@@ -74,6 +75,7 @@ class RecordFields(str, Enum):
     keywords = "keywords"
     doiIdentifiers = "doi-identifiers"
     rawReadIdentifiers = "raw-read-identifiers"
+    createdBy = "created-by"
 
 
 def _target_from_field_and_model(
@@ -298,18 +300,27 @@ def _record_from_field_and_model(
             db.query(DoiIdentifier.identifier, func.count(DoiIdentifier.identifier))
             .join(association_tables[model][field])
             .group_by(DoiIdentifier.identifier)
+            .join(models[model])
         )
     elif field is RecordFields.keywords:
         query = (
             db.query(Keyword.text, func.count(Keyword.text))
             .join(association_tables[model][field])
             .group_by(Keyword.text)
+            .join(models[model])
         )
     elif field is RecordFields.rawReadIdentifiers:
         query = (
             db.query(RawReadIdentifier.identifier, func.count(RawReadIdentifier.identifier))
             .join(association_tables[model][field])
             .group_by(RawReadIdentifier.identifier)
+            .join(models[model])
+        )
+    elif field is RecordFields.createdBy:
+        query = (
+            db.query(User.username, func.count(User.id))
+            .join(ScoreSet, ScoreSet.created_by_id == User.id)
+            .group_by(User.id)
         )
 
     # Handle publication identifiers separately since they may have duplicated identifiers
@@ -346,7 +357,7 @@ def _record_from_field_and_model(
         return []
 
     if only_published:
-        query = query.join(models[model]).filter((models[model].published_date.is_not(None)))
+        query = query.filter((models[model].published_date.is_not(None)))
 
     return query.all()
 
