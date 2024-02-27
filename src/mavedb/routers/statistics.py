@@ -82,7 +82,6 @@ def _target_from_field_and_model(
     db: Session,
     model: Union[type[TargetAccession], type[TargetSequence]],
     field: Union[TargetAccessionFields, TargetSequenceFields],
-    only_published: bool,
 ):
     """
     Given either the target accession or target sequence model, generate counts that can be used to create
@@ -95,54 +94,43 @@ def _target_from_field_and_model(
     ):
         raise HTTPException(422, f"Field `{field.name}` is incompatible with target model `{model}`.")
 
-    query = db.query(
-        getattr(model, field.value.replace("-", "_")),
-        func.count(getattr(model, field.value.replace("-", "_"))),
-    ).group_by(getattr(model, field.value.replace("-", "_")))
-
-    if only_published:
-        query = query.join(TargetGene).join(ScoreSet).filter((ScoreSet.published_date.is_not(None)))
+    query = (
+        db.query(
+            getattr(model, field.value.replace("-", "_")),
+            func.count(getattr(model, field.value.replace("-", "_"))),
+        )
+        .group_by(getattr(model, field.value.replace("-", "_")))
+        .join(TargetGene)
+        .join(ScoreSet)
+        .filter((ScoreSet.published_date.is_not(None)))
+    )
 
     return query.all()
 
 
 # Accession based targets only.
 @router.get("/target/accession/{field}", status_code=200, response_model=dict[str, int])
-def target_accessions_by_field(
-    field: TargetAccessionFields, only_published: bool = True, db: Session = Depends(get_db)
-) -> dict[str, int]:
+def target_accessions_by_field(field: TargetAccessionFields, db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the provided `field` (member of the `target_accessions` table).
     Don't include any NULL field values.
     """
-    return {
-        row[0]: row[1]
-        for row in _target_from_field_and_model(db, TargetAccession, field, only_published)
-        if row[0] is not None
-    }
+    return {row[0]: row[1] for row in _target_from_field_and_model(db, TargetAccession, field) if row[0] is not None}
 
 
 # Sequence based targets only.
 @router.get("/target/sequence/{field}", status_code=200, response_model=dict[str, int])
-def target_sequences_by_field(
-    field: TargetSequenceFields, only_published: bool = True, db: Session = Depends(get_db)
-) -> dict[str, int]:
+def target_sequences_by_field(field: TargetSequenceFields, db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the provided `field` (member of the `target_sequences` table).
     Don't include any NULL field values.
     """
-    return {
-        row[0]: row[1]
-        for row in _target_from_field_and_model(db, TargetSequence, field, only_published)
-        if row[0] is not None
-    }
+    return {row[0]: row[1] for row in _target_from_field_and_model(db, TargetSequence, field) if row[0] is not None}
 
 
 # Statistics on fields relevant to both accession and sequence based targets. Generally, these require custom logic to harmonize both target sub types.
 @router.get("/target/gene/{field}", status_code=200, response_model=dict[str, int])
-def target_genes_by_field(
-    field: TargetGeneFields, only_published: bool = True, db: Session = Depends(get_db)
-) -> dict[str, int]:
+def target_genes_by_field(field: TargetGeneFields, db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the provided `field` (member of the `target_sequences` table).
     Don't include any NULL field values. Each field here is handled individually because of the unique structure of this
@@ -170,18 +158,20 @@ def target_genes_by_field(
             )
             .join(association_tables[field])
             .group_by(identifier_models[field].identifier)
+            .join(TargetGene)
+            .join(ScoreSet)
+            .filter((ScoreSet.published_date.is_not(None)))
         )
-
-        if only_published:
-            query = query.join(TargetGene).join(ScoreSet).filter((ScoreSet.published_date.is_not(None)))
 
         return {row[0]: row[1] for row in query.all() if row[0] is not None}
 
     elif field is TargetGeneFields.category:
-        query = db.query(TargetGene.category, func.count(TargetGene.category)).group_by(TargetGene.category)
-
-        if only_published:
-            query = query.join(ScoreSet).filter((ScoreSet.published_date.is_not(None)))
+        query = (
+            db.query(TargetGene.category, func.count(TargetGene.category))
+            .group_by(TargetGene.category)
+            .join(ScoreSet)
+            .filter((ScoreSet.published_date.is_not(None)))
+        )
 
         return {row[0]: row[1] for row in query.all() if row[0] is not None}
 
@@ -191,20 +181,13 @@ def target_genes_by_field(
             db.query(ReferenceGenome.organism_name, func.count(ReferenceGenome.organism_name))
             .join(TargetSequence)
             .group_by(ReferenceGenome.organism_name)
+            .join(TargetGene)
+            .join(ScoreSet)
+            .filter((ScoreSet.published_date.is_not(None)))
         )
-        accession_based_targets_query = db.query(TargetAccession)
-
-        if only_published:
-            sequence_based_targets_query = (
-                sequence_based_targets_query.join(TargetGene)
-                .join(ScoreSet)
-                .filter((ScoreSet.published_date.is_not(None)))
-            )
-            accession_based_targets_query = (
-                accession_based_targets_query.join(TargetGene)
-                .join(ScoreSet)
-                .filter((ScoreSet.published_date.is_not(None)))
-            )
+        accession_based_targets_query = (
+            db.query(TargetAccession).join(TargetGene).join(ScoreSet).filter((ScoreSet.published_date.is_not(None)))
+        )
 
         organisms: dict[str, int] = {row[0]: row[1] for row in sequence_based_targets_query.all() if row[0] is not None}
         accessions = accession_based_targets_query.count()
@@ -219,24 +202,20 @@ def target_genes_by_field(
         return organisms
 
     elif field is TargetGeneFields.reference:
-        sequence_references_by_id_query = db.query(
-            TargetSequence.reference_id, func.count(TargetSequence.reference_id)
-        ).group_by(TargetSequence.reference_id)
-        accession_references_by_id_query = db.query(
-            TargetAccession.assembly, func.count(TargetAccession.assembly)
-        ).group_by(TargetAccession.assembly)
-
-        if only_published:
-            sequence_references_by_id_query = (
-                sequence_references_by_id_query.join(TargetGene)
-                .join(ScoreSet)
-                .filter((ScoreSet.published_date.is_not(None)))
-            )
-            accession_references_by_id_query = (
-                accession_references_by_id_query.join(TargetGene)
-                .join(ScoreSet)
-                .filter((ScoreSet.published_date.is_not(None)))
-            )
+        sequence_references_by_id_query = (
+            db.query(TargetSequence.reference_id, func.count(TargetSequence.reference_id))
+            .group_by(TargetSequence.reference_id)
+            .join(TargetGene)
+            .join(ScoreSet)
+            .filter((ScoreSet.published_date.is_not(None)))
+        )
+        accession_references_by_id_query = (
+            db.query(TargetAccession.assembly, func.count(TargetAccession.assembly))
+            .group_by(TargetAccession.assembly)
+            .join(TargetGene)
+            .join(ScoreSet)
+            .filter((ScoreSet.published_date.is_not(None)))
+        )
 
         # Sequence based target reference genomes are stored within a separate `ReferenceGenome` object.
         sequence_references = {
@@ -262,7 +241,6 @@ def _record_from_field_and_model(
     db: Session,
     model: RecordNames,
     field: RecordFields,
-    only_published: bool,
 ):
     """
     Given a member of the RecordNames and RecordFields Enums, generate counts that can be used to create a
@@ -306,6 +284,7 @@ def _record_from_field_and_model(
             .join(association_tables[model][field])
             .group_by(DoiIdentifier.identifier)
             .join(models[model])
+            .filter(getattr(models[model], "published_date").is_not(None))
         )
     elif field is RecordFields.keywords:
         query = (
@@ -313,6 +292,7 @@ def _record_from_field_and_model(
             .join(association_tables[model][field])
             .group_by(Keyword.text)
             .join(models[model])
+            .filter(getattr(models[model], "published_date").is_not(None))
         )
     elif field is RecordFields.rawReadIdentifiers:
         query = (
@@ -320,12 +300,14 @@ def _record_from_field_and_model(
             .join(association_tables[model][field])
             .group_by(RawReadIdentifier.identifier)
             .join(models[model])
+            .filter(getattr(models[model], "published_date").is_not(None))
         )
     elif field is RecordFields.createdBy:
         query = (
             db.query(User.username, func.count(User.id))
             .join(ScoreSet, ScoreSet.created_by_id == User.id)
             .group_by(User.id)
+            .filter(getattr(models[model], "published_date").is_not(None))
         )
 
     # Handle publication identifiers separately since they may have duplicated identifiers
@@ -338,12 +320,9 @@ def _record_from_field_and_model(
             )
             .join(association_tables[model][field])
             .group_by(PublicationIdentifier.identifier, PublicationIdentifier.db_name)
+            .join(models[model])
+            .filter((getattr(models[model], "published_date").is_not(None)))
         )
-
-        if only_published:
-            publication_query = publication_query.join(models[model]).filter(
-                (getattr(models[model], "published_date").is_not(None))
-            )
 
         publication_identifiers: dict[str, dict[str, int]] = {}
 
@@ -363,9 +342,6 @@ def _record_from_field_and_model(
     else:
         return []
 
-    if only_published:
-        query = query.filter(getattr(models[model], "published_date").is_not(None))
-
     return query.all()
 
 
@@ -375,7 +351,7 @@ def _record_from_field_and_model(
 #       i.e. non-shared fields, define them above this route so as not to obscure them.
 @router.get("/record/{model}/{field}", status_code=200, response_model=Union[dict[str, int], dict[str, dict[str, int]]])
 def record_object_statistics(
-    model: RecordNames, field: RecordFields, only_published: bool = True, db: Session = Depends(get_db)
+    model: RecordNames, field: RecordFields, db: Session = Depends(get_db)
 ) -> Union[dict[str, int], dict[str, dict[str, int]]]:
     """
     Resolve a dictionary of statistics based on the provided model name and model field.
@@ -383,6 +359,6 @@ def record_object_statistics(
     Model names and fields should be members of the Enum classes defined above. Providing an invalid model name or
     model field will yield a 422 Unprocessable Entity error with details about valid enum values.
     """
-    count_data = _record_from_field_and_model(db, model, field, only_published)
+    count_data = _record_from_field_and_model(db, model, field)
 
     return {row[0]: row[1] for row in count_data if row is not None}
