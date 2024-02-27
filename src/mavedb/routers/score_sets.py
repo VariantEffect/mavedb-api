@@ -7,6 +7,7 @@ from typing import Any, List, Optional
 
 import numpy as np
 import pandas as pd
+from cdot.hgvs.dataproviders import RESTDataProvider
 from fastapi import APIRouter, Depends, File, status, UploadFile, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
@@ -314,9 +315,11 @@ async def create_score_set(
         superseded_score_set = None
 
     distinct_meta_analyzes_score_set_urns = list(set(item_create.meta_analyzes_score_set_urns or []))
-    meta_analyzes_score_sets = [ss for ss in [
-        await fetch_score_set_by_urn(db, urn, None) for urn in distinct_meta_analyzes_score_set_urns
-    ] if ss is not None]
+    meta_analyzes_score_sets = [
+        ss
+        for ss in [await fetch_score_set_by_urn(db, urn, None) for urn in distinct_meta_analyzes_score_set_urns]
+        if ss is not None
+    ]
 
     for i, meta_analyzes_score_set in enumerate(meta_analyzes_score_sets):
         if meta_analyzes_score_set is None:
@@ -328,7 +331,15 @@ async def create_score_set(
     if len(meta_analyzes_score_sets) > 0:
         # If any existing score set is a meta-analysis for score sets in the same collection of exepriment sets, use its
         # experiment as the parent of our new meta-analysis. Otherwise, create a new experiment.
-        meta_analyzes_experiment_sets = list(set((ss.experiment.experiment_set for ss in meta_analyzes_score_sets if ss.experiment.experiment_set is not None)))
+        meta_analyzes_experiment_sets = list(
+            set(
+                (
+                    ss.experiment.experiment_set
+                    for ss in meta_analyzes_score_sets
+                    if ss.experiment.experiment_set is not None
+                )
+            )
+        )
         meta_analyzes_experiment_set_urns = [es.urn for es in meta_analyzes_experiment_sets if es.urn is not None]
         existing_meta_analyses = find_meta_analyses_for_experiment_sets(db, meta_analyzes_experiment_set_urns)
 
@@ -378,7 +389,7 @@ async def create_score_set(
     for publication in publication_identifiers:
         setattr(publication, "primary", publication.identifier in primary_identifiers)
 
-    targets : list[TargetGene] = []
+    targets: list[TargetGene] = []
     accessions = False
     for gene in item_create.target_genes:
         if gene.target_sequence:
@@ -482,6 +493,7 @@ async def upload_score_set_variant_data(
     scores_file: UploadFile = File(...),
     db: Session = Depends(deps.get_db),
     user: User = Depends(require_current_user),
+    hdp: RESTDataProvider = Depends(deps.hgvs_data_provider),
 ) -> Any:
     """
     Upload scores and variant count files for a score set, and initiate processing these files to
@@ -549,7 +561,7 @@ async def upload_score_set_variant_data(
     if scores_file:
         if item.target_genes:
             try:
-                validate_and_standardize_dataframe_pair(scores_df, counts_df, item.target_genes)
+                validate_and_standardize_dataframe_pair(scores_df, counts_df, item.target_genes, hdp)
             except exceptions.ValidationError as e:
                 logger.error(f"Validation error: {e}")
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -585,7 +597,8 @@ def create_variants(db, score_set: ScoreSet, variants_data: list[VariantData], b
     variants = (
         # TODO: Is there a nicer way to handle this than passing dicts into kwargs
         # of the class initializer?
-        Variant(urn=urn, score_set_id=score_set.id, **kwargs) for urn, kwargs in zip(variant_urns, variants_data)  # type: ignore
+        Variant(urn=urn, score_set_id=score_set.id, **kwargs)  # type: ignore
+        for urn, kwargs in zip(variant_urns, variants_data)
     )
     db.bulk_save_objects(variants)
     db.add(score_set)
@@ -609,6 +622,7 @@ async def update_score_set(
     item_update: score_set.ScoreSetUpdate,
     db: Session = Depends(deps.get_db),
     user: User = Depends(require_current_user),
+    hdp: RESTDataProvider = Depends(deps.hgvs_data_provider),
 ) -> Any:
     """
     Update a score set.
@@ -675,7 +689,7 @@ async def update_score_set(
         item.target_genes = []
         db.flush()
 
-        targets : List[TargetGene] = []
+        targets: List[TargetGene] = []
         accessions = False
         for gene in item_update.target_genes:
             if gene.target_sequence:
@@ -752,9 +766,9 @@ async def update_score_set(
             try:
                 # if our count data only has hgvs columns, we can assume we weren't provided with count data.
                 if set([col.lower() for col in count_data.columns]).issubset(set(hgvs_columns)):
-                    validate_and_standardize_dataframe_pair(scores_data, None, item.target_genes)
+                    validate_and_standardize_dataframe_pair(scores_data, None, item.target_genes, hdp)
                 else:
-                    validate_and_standardize_dataframe_pair(scores_data, count_data, item.target_genes)
+                    validate_and_standardize_dataframe_pair(scores_data, count_data, item.target_genes, hdp)
             except exceptions.ValidationError as e:
                 db.rollback()
                 raise HTTPException(

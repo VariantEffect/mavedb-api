@@ -1,6 +1,9 @@
 from datetime import date
 from humps import camelize
 
+VALID_ACCESSION = "NM_001637.3"
+VALID_GENE = "BRCA1"
+
 TEST_USER = {
     "username": "0000-1111-2222-3333",
     "first_name": "First",
@@ -160,7 +163,7 @@ TEST_MINIMAL_ACC_SCORESET = {
             "category": "Protein coding",
             "externalIdentifiers": [],
             "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
-            "targetAccession": {"accession": "NM_007294.4", "assembly": "GRCh38", "gene": "BRCA1"},
+            "targetAccession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
         }
     ],
 }
@@ -190,7 +193,7 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
             "category": "Protein coding",
             "externalIdentifiers": [],
             "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
-            "targetAccession": {"accession": "ENST00000460680", "assembly": "GRCh38", "gene": "BAP1"},
+            "targetAccession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
         }
     ],
     "metaAnalyzesScoreSetUrns": [],
@@ -204,4 +207,27 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
     # keys to be set after receiving response
     "urn": None,
+}
+
+
+TEST_CDOT_TRANSCRIPT = {
+    "start_codon": 0,
+    "stop_codon": 18,
+    "id": VALID_ACCESSION,
+    "gene_version": "313",
+    "gene_name": VALID_GENE,
+    "biotype": ["protein_coding"],
+    "protein": "NP_001628.1",
+    "genome_builds": {
+        "GRCh37": {
+            "cds_end": 1,
+            "cds_start": 18,
+            "contig": "NC_000007.13",
+            # The exons are non-sense but it doesn't really matter for the tests.
+            "exons": [[1, 12, 20, 2001, 2440, "M196 I1 M61 I1 M181"], [12, 18, 19, 1924, 2000, None]],
+            "start": 1,
+            "stop": 18,
+            "strand": "+",
+        }
+    },
 }
