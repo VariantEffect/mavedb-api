@@ -1,5 +1,7 @@
 import pytest
+from unittest.mock import patch
 from humps import camelize
+import cdot.hgvs.dataproviders
 from tests.helpers.util import (
     create_experiment,
     create_seq_score_set,
@@ -8,7 +10,14 @@ from tests.helpers.util import (
     create_acc_score_set_with_variants,
     publish_score_set,
 )
-from tests.helpers.constants import TEST_MINIMAL_ACC_SCORESET, TEST_MINIMAL_SEQ_SCORESET
+from tests.helpers.constants import (
+    TEST_MINIMAL_ACC_SCORESET,
+    TEST_MINIMAL_SEQ_SCORESET,
+    TEST_PUBMED_IDENTIFIER,
+    TEST_BIORXIV_IDENTIFIER,
+    TEST_MEDRXIV_IDENTIFIER,
+    TEST_CDOT_TRANSCRIPT,
+)
 
 TARGET_ACCESSION_FIELDS = ["accession", "assembly", "gene"]
 TARGET_SEQUENCE_FIELDS = ["sequence", "sequence-type"]
@@ -16,7 +25,7 @@ TARGET_GENE_FIELDS = ["category", "organism", "reference"]
 TARGET_GENE_IDENTIFIER_FIELDS = ["ensembl-identifier", "refseq-identifier", "uniprot-identifier"]
 
 RECORD_MODELS = ["experiment", "score-set"]
-RECORD_SHARED_FIELDS = ["publication-identifiers", "keywords", "doi-identifiers", "raw-read-identifiers"]
+RECORD_SHARED_FIELDS = ["publication-identifiers", "keywords", "doi-identifiers", "raw-read-identifiers", "created-by"]
 
 
 ## Test base case empty database responses for each statistic endpoint.
@@ -126,7 +135,8 @@ def test_target_accession_statistics_unpublished(client, setup_router_db, field_
 def test_target_accession_statistics(client, setup_router_db, field_value, data_files):
     """Test target accession statistics endpoint for (un)published score sets."""
     experiment = create_experiment(client)
-    score_set = create_acc_score_set_with_variants(client, experiment["urn"], data_files / "scores_acc.csv")
+    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+        score_set = create_acc_score_set_with_variants(client, experiment["urn"], data_files / "scores_acc.csv")
     response = client.get(f"/api/v1/statistics/target/accession/{field_value}?only_published=False")
     camelized_field_value = camelize(field_value.replace("-", "_"))
 
@@ -233,7 +243,8 @@ def test_target_gene_category_statistics_acc_unpublished(client, setup_router_db
 def test_target_gene_category_statistics_acc(client, setup_router_db, data_files):
     """Test target gene category endpoint on accession based targest for (un)published score sets."""
     experiment = create_experiment(client)
-    score_set = create_acc_score_set_with_variants(client, experiment["urn"], data_files / "scores_acc.csv")
+    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+        score_set = create_acc_score_set_with_variants(client, experiment["urn"], data_files / "scores_acc.csv")
     response = client.get("/api/v1/statistics/target/gene/category?only_published=False")
 
     assert response.status_code == 200
@@ -290,7 +301,8 @@ def test_target_gene_organism_statistics_acc_unpublished(client, setup_router_db
 def test_target_gene_organism_statistics_acc(client, setup_router_db, data_files):
     """Test target gene organism endpoint on accession based targets for (un)published score sets."""
     experiment = create_experiment(client)
-    score_set = create_acc_score_set_with_variants(client, experiment["urn"], data_files / "scores_acc.csv")
+    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+        score_set = create_acc_score_set_with_variants(client, experiment["urn"], data_files / "scores_acc.csv")
     response = client.get("/api/v1/statistics/target/gene/organism?only_published=False")
 
     assert "Homo sapiens" in response.json()
@@ -353,7 +365,8 @@ def test_target_gene_reference_statistics_acc_unpublished(client, setup_router_d
 def test_target_gene_reference_statistics_acc(client, setup_router_db, data_files):
     """Test target gene reference statistics on accession based targets for (un)published score sets."""
     experiment = create_experiment(client)
-    score_set = create_acc_score_set_with_variants(client, experiment["urn"], data_files / "scores_acc.csv")
+    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+        score_set = create_acc_score_set_with_variants(client, experiment["urn"], data_files / "scores_acc.csv")
     response = client.get("/api/v1/statistics/target/gene/reference?only_published=False")
 
     assert response.status_code == 200
@@ -451,9 +464,10 @@ def test_target_gene_identifier_statistiscs(client, setup_router_db, field_value
 
     acc_target = TEST_MINIMAL_ACC_SCORESET["targetGenes"][0].copy()
     acc_target.update({"externalIdentifiers": [v for v in test_mapper.values()]})
-    acc_score_set = create_acc_score_set_with_variants(
-        client, experiment["urn"], data_files / "scores_acc.csv", {"targetGenes": [acc_target]}
-    )
+    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+        acc_score_set = create_acc_score_set_with_variants(
+            client, experiment["urn"], data_files / "scores_acc.csv", {"targetGenes": [acc_target]}
+        )
 
     response = client.get(f"/api/v1/statistics/target/gene/{field_value}?only_published=False")
 
@@ -490,9 +504,21 @@ def test_target_gene_empty_field(client):
 
 
 @pytest.mark.parametrize("model_value", RECORD_MODELS)
-def test_record_publication_identifier_statistics_unpublished(client, setup_router_db, model_value):
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        ({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}),
+        ({"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"}),
+        (({"dbName": "medRxiv", "identifier": f"{TEST_MEDRXIV_IDENTIFIER}"})),
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_record_publication_identifier_statistics_unpublished(
+    client, setup_router_db, model_value, mock_publication_fetch
+):
     """Test record model statistics for publication identifiers do not include unpublished experiements or score sets."""
-    record_update = {"primaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": "20711194"}]}
+    mocked_publication = mock_publication_fetch
+    record_update = {"primaryPublicationIdentifiers": [mocked_publication]}
     experiment = create_experiment(client, record_update)
     create_seq_score_set(client, experiment["urn"], record_update)
     response = client.get(f"/api/v1/statistics/record/{model_value}/publication-identifiers")
@@ -503,9 +529,21 @@ def test_record_publication_identifier_statistics_unpublished(client, setup_rout
 
 
 @pytest.mark.parametrize("model_value", RECORD_MODELS)
-def test_record_publication_identifier_statistics(client, setup_router_db, model_value, data_files):
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        ({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}),
+        ({"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"}),
+        (({"dbName": "medRxiv", "identifier": f"{TEST_MEDRXIV_IDENTIFIER}"})),
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_record_publication_identifier_statistics(
+    client, setup_router_db, model_value, data_files, mock_publication_fetch
+):
     """Test record model statistics for publication identifiers endpoint for (un)published experiments and score sets."""
-    record_update = {"primaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": "20711194"}]}
+    mocked_publication = mock_publication_fetch
+    record_update = {"primaryPublicationIdentifiers": [mocked_publication]}
     experiment = create_experiment(client, record_update)
     score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv", record_update)
     response = client.get(f"/api/v1/statistics/record/{model_value}/publication-identifiers?only_published=False")
