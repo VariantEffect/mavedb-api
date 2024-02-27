@@ -1,6 +1,6 @@
 from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func
+from sqlalchemy import func, Table
 from sqlalchemy.orm import Session
 from typing import Union
 
@@ -148,18 +148,36 @@ def target_genes_by_field(
     Don't include any NULL field values. Each field here is handled individually because of the unique structure of this
     target gene object- fields might require information from both TargetGene subtypes (accession and sequence).
     """
-    association_tables: dict[TargetGeneFields, Union[EnsemblIdentifier, RefseqIdentifier, UniprotIdentifier]] = {
+    association_tables: dict[TargetGeneFields, Union[type[EnsemblOffset], type[RefseqOffset], type[UniprotOffset]]] = {
         TargetGeneFields.ensemblIdentifier: EnsemblOffset,
         TargetGeneFields.refseqIdentifier: RefseqOffset,
         TargetGeneFields.uniprotIdentifier: UniprotOffset,
     }
-    identifier_models: dict[TargetGeneFields, Union[EnsemblIdentifier, RefseqIdentifier, UniprotIdentifier]] = {
+    identifier_models: dict[
+        TargetGeneFields, Union[type[EnsemblIdentifier], type[RefseqIdentifier], type[UniprotIdentifier]]
+    ] = {
         TargetGeneFields.ensemblIdentifier: EnsemblIdentifier,
         TargetGeneFields.refseqIdentifier: RefseqIdentifier,
         TargetGeneFields.uniprotIdentifier: UniprotIdentifier,
     }
 
-    if field is TargetGeneFields.category:
+    # Assumes identifiers cannot be duplicated within a Target.
+    if field in identifier_models.keys():
+        query = (
+            db.query(
+                getattr(identifier_models[field], "identifier"),
+                func.count(getattr(identifier_models[field], "identifier")),
+            )
+            .join(association_tables[field])
+            .group_by(identifier_models[field].identifier)
+        )
+
+        if only_published:
+            query = query.join(TargetGene).join(ScoreSet).filter((ScoreSet.published_date.is_not(None)))
+
+        return {row[0]: row[1] for row in query.all() if row[0] is not None}
+
+    elif field is TargetGeneFields.category:
         query = db.query(TargetGene.category, func.count(TargetGene.category)).group_by(TargetGene.category)
 
         if only_published:
@@ -167,6 +185,7 @@ def target_genes_by_field(
 
         return {row[0]: row[1] for row in query.all() if row[0] is not None}
 
+    # Target gene organism and reference need special handling: These fields are stored differently between accession and sequence Targets.
     elif field is TargetGeneFields.organism:
         sequence_based_targets_query = (
             db.query(ReferenceGenome.organism_name, func.count(ReferenceGenome.organism_name))
@@ -187,24 +206,17 @@ def target_genes_by_field(
                 .filter((ScoreSet.published_date.is_not(None)))
             )
 
-        sequence_based_targets = sequence_based_targets_query.all()
+        organisms: dict[str, int] = {row[0]: row[1] for row in sequence_based_targets_query.all() if row[0] is not None}
+        accessions = accession_based_targets_query.count()
 
         # NOTE: For now (forever?), all accession based targets are human genomic sequences. It is possible this
         #       assumption changes if we add mouse (or other non-human) genomes to MaveDB.
-        organism_counts = {}
-        for organism, count in sequence_based_targets:
-            if organism in organism_counts:
-                organism_counts[organism] += count
-            else:
-                organism_counts[organism] = count
+        if "Homo sapiens" in organisms:
+            organisms["Homo sapiens"] += accessions
+        elif accessions:
+            organisms["Homo sapiens"] = accessions
 
-            if organism == "Homo Sapiens":
-                organism_counts["Homo sapiens"] += accession_based_targets_query.count()
-
-        if "Homo sapiens" not in organism_counts and accession_based_targets_query.count():
-            organism_counts["Homo sapiens"] = accession_based_targets_query.count()
-
-        return organism_counts
+        return organisms
 
     elif field is TargetGeneFields.reference:
         sequence_references_by_id_query = db.query(
@@ -241,21 +253,6 @@ def target_genes_by_field(
             for k in set(accession_references) | set(sequence_references)
         }
 
-    # Assumes identifiers cannot be duplicated within a Target.
-    elif field in identifier_models.keys():
-        model = identifier_models[field]
-
-        query = (
-            db.query(model.identifier, func.count(model.identifier))
-            .join(association_tables[field])
-            .group_by(model.identifier)
-        )
-
-        if only_published:
-            query = query.join(TargetGene).join(ScoreSet).filter((ScoreSet.published_date.is_not(None)))
-
-        return {row[0]: row[1] for row in query.all() if row[0] is not None}
-
     # Protection from this case occurs via FastApi/pydantic Enum validation.
     else:
         raise ValueError(f"Unknown field: {field}")
@@ -274,7 +271,15 @@ def _record_from_field_and_model(
     This function should be used for generating statistics for fields shared between Experiments and Score Sets.
     If necessary, Experiment Sets can be handled in a similar manner in the future.
     """
-    association_tables = {
+    association_tables: dict[
+        RecordNames,
+        dict[
+            RecordFields,
+            Union[
+                Table, type[ExperimentPublicationIdentifierAssociation], type[ScoreSetPublicationIdentifierAssociation]
+            ],
+        ],
+    ] = {
         RecordNames.experiment: {
             RecordFields.doiIdentifiers: experiments_doi_identifiers_association_table,
             RecordFields.publicationIdentifiers: ExperimentPublicationIdentifierAssociation,
@@ -289,7 +294,7 @@ def _record_from_field_and_model(
         },
     }
 
-    models: dict[RecordNames, Union[Experiment, ScoreSet]] = {
+    models: dict[RecordNames, Union[type[Experiment], type[ScoreSet]]] = {
         RecordNames.experiment: Experiment,
         RecordNames.scoreSet: ScoreSet,
     }
@@ -325,7 +330,7 @@ def _record_from_field_and_model(
 
     # Handle publication identifiers separately since they may have duplicated identifiers
     elif field is RecordFields.publicationIdentifiers:
-        query = (
+        publication_query = (
             db.query(
                 PublicationIdentifier.identifier,
                 PublicationIdentifier.db_name,
@@ -336,11 +341,13 @@ def _record_from_field_and_model(
         )
 
         if only_published:
-            query = query.join(models[model]).filter((models[model].published_date.is_not(None)))
+            publication_query = publication_query.join(models[model]).filter(
+                (getattr(models[model], "published_date").is_not(None))
+            )
 
-        publication_identifiers = {}
+        publication_identifiers: dict[str, dict[str, int]] = {}
 
-        for identifier in query.all():
+        for identifier in publication_query.all():
             db_name = identifier[1]
 
             # We don't need to worry about overwriting existing identifiers within these internal dictionaries because
@@ -350,14 +357,14 @@ def _record_from_field_and_model(
             else:
                 publication_identifiers[db_name] = {identifier[0]: identifier[2]}
 
-        return publication_identifiers
+        return [(db_name, identifiers) for db_name, identifiers in publication_identifiers.items()]
 
     # Protection from this case occurs via FastApi/pydantic Enum validation on methods which reference this one.
     else:
         return []
 
     if only_published:
-        query = query.filter((models[model].published_date.is_not(None)))
+        query = query.filter(getattr(models[model], "published_date").is_not(None))
 
     return query.all()
 
@@ -377,10 +384,5 @@ def record_object_statistics(
     model field will yield a 422 Unprocessable Entity error with details about valid enum values.
     """
     count_data = _record_from_field_and_model(db, model, field, only_published)
-
-    # Handle publication identifiers slightly differently so that any duplicated identifiers are resolvable
-    # via their database name.
-    if field == RecordFields.publicationIdentifiers:
-        return count_data
 
     return {row[0]: row[1] for row in count_data if row is not None}
