@@ -1,4 +1,3 @@
-from pathlib import Path
 import jsonschema
 import re
 from copy import deepcopy
@@ -194,7 +193,7 @@ def test_cannot_publish_score_set_without_variants(client, setup_router_db):
     response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
     assert response.status_code == 422
     response_data = response.json()
-    assert f"cannot publish score set without variant scores" in response_data["detail"]
+    assert "cannot publish score set without variant scores" in response_data["detail"]
 
 
 def test_cannot_publish_other_user_private_score_set(session, client, setup_router_db, data_files):
@@ -234,7 +233,7 @@ def test_publish_single_score_set_meta_analysis(client, setup_router_db, data_fi
         update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [score_set["urn"]]},
     )
     meta_score_set = client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish").json()
-    assert meta_score_set["urn"] == f"urn:mavedb:00000001-0-1"
+    assert meta_score_set["urn"] == "urn:mavedb:00000001-0-1"
 
 
 def test_multiple_score_set_meta_analysis_single_experiment(client, setup_router_db, data_files):
@@ -257,7 +256,7 @@ def test_multiple_score_set_meta_analysis_single_experiment(client, setup_router
     assert meta_score_set["metaAnalyzesScoreSetUrns"] == sorted([score_set_1["urn"], score_set_2["urn"]])
     assert score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
     meta_score_set = client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish").json()
-    assert meta_score_set["urn"] == f"urn:mavedb:00000001-0-1"
+    assert meta_score_set["urn"] == "urn:mavedb:00000001-0-1"
 
 
 def test_multiple_score_set_meta_analysis_multiple_experiment_sets(client, setup_router_db, data_files):
@@ -281,7 +280,7 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets(client, setup
     assert meta_score_set["metaAnalyzesScoreSetUrns"] == sorted([score_set_1["urn"], score_set_2["urn"]])
     assert score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
     meta_score_set = client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish").json()
-    assert meta_score_set["urn"] == f"urn:mavedb:00000003-0-1"
+    assert meta_score_set["urn"] == "urn:mavedb:00000003-0-1"
 
 
 def test_multiple_score_set_meta_analysis_multiple_experiments(client, setup_router_db, data_files):
@@ -307,7 +306,7 @@ def test_multiple_score_set_meta_analysis_multiple_experiments(client, setup_rou
     assert meta_score_set["metaAnalyzesScoreSetUrns"] == sorted([score_set_1["urn"], score_set_2["urn"]])
     assert score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
     meta_score_set = client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish").json()
-    assert meta_score_set["urn"] == f"urn:mavedb:00000001-0-1"
+    assert meta_score_set["urn"] == "urn:mavedb:00000001-0-1"
 
 
 def test_multiple_score_set_meta_analysis_multiple_experiment_sets_different_score_sets(
@@ -344,7 +343,7 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_different_sco
     assert meta_score_set_1["metaAnalyzesScoreSetUrns"] == sorted([score_set_1_1["urn"], score_set_2_1["urn"]])
     assert score_set_1_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set_1["urn"]]
     meta_score_set_1 = client.post(f"/api/v1/score-sets/{meta_score_set_1['urn']}/publish").json()
-    assert meta_score_set_1["urn"] == f"urn:mavedb:00000003-0-1"
+    assert meta_score_set_1["urn"] == "urn:mavedb:00000003-0-1"
     meta_score_set_2 = create_seq_score_set_with_variants(
         client,
         None,
@@ -355,7 +354,7 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_different_sco
         },
     )
     meta_score_set_2 = client.post(f"/api/v1/score-sets/{meta_score_set_2['urn']}/publish").json()
-    assert meta_score_set_2["urn"] == f"urn:mavedb:00000003-0-2"
+    assert meta_score_set_2["urn"] == "urn:mavedb:00000003-0-2"
     meta_score_set_3 = create_seq_score_set_with_variants(
         client,
         None,
@@ -374,7 +373,7 @@ def test_search_core_sets_no_match(client, setup_router_db, data_files):
     create_seq_score_set_with_variants(
         client, experiment_1["urn"], data_files / "scores.csv", update={"title": "Test Score Set"}
     )
-    search_payload = {'text': 'fnord'}
+    search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
     assert len(response.json()) == 0
@@ -385,8 +384,8 @@ def test_search_core_sets_match(client, setup_router_db, data_files):
     score_set_1_1 = create_seq_score_set_with_variants(
         client, experiment_1["urn"], data_files / "scores.csv", update={"title": "Test Fnord Score Set"}
     )
-    search_payload = {'text': 'fnord'}
+    search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
     assert len(response.json()) == 1
-    assert response.json()[0]['title'] == score_set_1_1['title']
+    assert response.json()[0]["title"] == score_set_1_1["title"]
