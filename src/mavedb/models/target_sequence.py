@@ -13,7 +13,7 @@ class TargetSequence(Base):
     sequence_type = Column(String, nullable=False)
     sequence = Column(String, nullable=False)
     label = Column(String, nullable=True)
-    taxonomy_id = Column("taxonomy_id", Integer, ForeignKey("taxonomies.id"), nullable=True)
+    taxonomy_id = Column("taxonomy_id", Integer, ForeignKey("taxonomies.tax_id"), nullable=True)
     taxonomy = relationship(
         "Taxonomy",
         backref=backref("target_sequences", single_parent=True),

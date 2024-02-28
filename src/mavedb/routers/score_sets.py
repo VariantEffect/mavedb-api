@@ -22,6 +22,7 @@ from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
     find_or_create_doi_identifier,
     find_or_create_publication_identifier,
+    find_or_create_taxonomy,
 )
 from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.score_sets import (
@@ -354,9 +355,9 @@ async def create_score_set(
                 raise MixedTargetError(
                     "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                 )
-            taxonomy = (
-                db.query(Taxonomy).filter(Taxonomy.id == gene.target_sequence.taxonomy.id).one_or_none()
-            )
+            upload_taxonomy = gene.target_sequence.taxonomy
+            taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
+
             if not taxonomy:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown taxonomy")
 
@@ -649,15 +650,13 @@ async def update_score_set(
                         "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                     )
 
-                taxonomy = (
-                    db.query(Taxonomy)
-                    .filter(Taxonomy.id == gene.target_sequence.taxonomy.id)
-                    .one_or_none()
-                )
+                upload_taxonomy = gene.target_sequence.taxonomy
+                taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
+
                 if not taxonomy:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.id}",
+                        detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.tax_id}",
                     )
 
                 target_sequence = TargetSequence(
