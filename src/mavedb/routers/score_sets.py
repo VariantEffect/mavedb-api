@@ -656,7 +656,7 @@ async def update_score_set(
                 if not taxonomy:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.tax_id}",
+                        detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.id}",
                     )
 
                 target_sequence = TargetSequence(

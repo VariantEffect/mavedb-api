@@ -436,7 +436,7 @@ async def find_or_create_taxonomy(db: Session, taxonomy: Taxonomy):
                 ncbi_taxonomy.setdefault('organism_name', 'NULL')
                 ncbi_taxonomy.setdefault('common_name', 'NULL')
                 ncbi_taxonomy.setdefault('rank', 'NULL')
-                ncbi_taxonomy.setdefault('has_described_species_name', 'NULL')
+                ncbi_taxonomy.setdefault('has_described_species_name', False)
                 taxonomy_record = Taxonomy(tax_id=ncbi_taxonomy['tax_id'],
                                            organism_name=ncbi_taxonomy['organism_name'],
                                            common_name=ncbi_taxonomy['common_name'],
