@@ -36,6 +36,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "black",
+    "coverage[toml]~=7.4.3",
     "flake8",
     "pre-commit",
     "pytest~=7.0.1",
@@ -43,6 +44,7 @@ dev = [
     "jsonschema",
     "httpx~=0.26.0",
     "requests-mock~=1.11.0",
+    "pytest-cov~=4.1.0",
     "pytest-socket~=0.6.0",
 ]
 server = [
@@ -86,9 +88,17 @@ exclude = [
 packages = ["src/mavedb"]
 
 [tool.pytest.ini_options]
-addopts = "-v -rP --import-mode=importlib --disable-socket --allow-hosts localhost"
+addopts = "-v -rP --import-mode=importlib --disable-socket --allow-hosts localhost --cov"
 testpaths = "tests/"
 norecursedirs = "tests/helpers/"
 # Uncomment the following lines to include application log output in Pytest logs.
 # log_cli = true
 # log_cli_level = "DEBUG"
+
+[tool.coverage.run]
+source = [ "src/" ]
+
+[tool.coverage.report]
+skip_covered = true
+skip_empty = true
+sort = "-Cover"
