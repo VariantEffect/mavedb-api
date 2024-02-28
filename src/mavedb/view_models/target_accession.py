@@ -17,7 +17,7 @@ class TargetAccessionBase(BaseModel):
 
 
 class TargetAccessionModify(TargetAccessionBase):
-    # Consider some validation, ie: Accession is in our SeqRepo instance
+    # Consider some validation, ie: Accession is in our CDOT data files
     pass
 
 
