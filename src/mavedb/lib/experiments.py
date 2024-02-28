@@ -22,9 +22,9 @@ def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSe
 
     if search.published is not None:
         if search.published:
-            query = query.filter(Experiment.published_date is not None)
+            query = query.filter(Experiment.published_date.isnot(None))
         else:
-            query = query.filter(Experiment.published_date is None)
+            query = query.filter(Experiment.published_date.is_(None))
 
     if search.text:
         lower_search_text = search.text.lower()

@@ -19,9 +19,9 @@ from mavedb.lib.validation.constants.general import (
     required_score_column,
 )
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.view_models.target_accession import TargetAccession
-from mavedb.view_models.target_gene import TargetGene
-from mavedb.view_models.target_sequence import TargetSequence
+from mavedb.models.target_accession import TargetAccession
+from mavedb.models.target_gene import TargetGene
+from mavedb.models.target_sequence import TargetSequence
 
 # handle with pandas all null strings
 # provide a csv or a pandas dataframe
@@ -114,8 +114,13 @@ def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     pandas.DataFrame
         The standardized dataframe
     """
-    new_columns = [x.lower() if x.lower() in STANDARD_COLUMNS else x for x in df.columns]
-    df.columns = new_columns
+    column_mapper = {
+        x: x.lower()
+        for x in df.columns
+        if x.lower() in STANDARD_COLUMNS
+    }
+
+    df.rename(columns=column_mapper, inplace=True)
 
     return sort_dataframe_columns(df)
 
@@ -191,7 +196,7 @@ def validate_dataframe(df: pd.DataFrame, kind: str, targets: list[TargetGene]) -
     column_mapping = {c.lower(): c for c in df.columns}
     index_column = choose_dataframe_index_column(df)
 
-    prefixes = dict()
+    prefixes : dict[str, Optional[str]] = dict()
     for c in column_mapping:
         if c in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
             is_index = column_mapping[c] == index_column
@@ -405,7 +410,7 @@ def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: 
 
         # translate the target sequence if needed.
         elif str(column.name).lower() == hgvs_pro_column:
-            if target.sequence_type == "dna":
+            if target.sequence_type == "dna" and target.sequence is not None:
                 target_seqs[name] = translate_dna(target.sequence)[0]
             else:
                 target_seqs[name] = target.sequence
@@ -478,12 +483,13 @@ def validate_hgvs_genomic_column(column: pd.Series, is_index: bool, targets: lis
     """
     validate_variant_column(column, is_index)
     prefixes = generate_variant_prefixes(column)
-    validate_variant_formatting(column, prefixes, [target.accession for target in targets])
+    validate_variant_formatting(column, prefixes, [target.accession for target in targets if target.accession is not None])
 
     # validate the individual variant strings
     # prepare the target sequences for validation
     target_seqs: dict[str, Union[str, None]] = {}
     for target in targets:
+        assert target.accession is not None
         # We shouldn't have to worry about translating protein sequences when we deal with accession based variants
         if str(column.name).lower() == hgvs_nt_column or str(column.name).lower() == hgvs_pro_column:
             target_seqs[target.accession] = target.accession

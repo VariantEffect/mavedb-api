@@ -1,7 +1,9 @@
 # import os
+
 from typing import Generator
 
-from cdot.hgvs.dataproviders import RESTDataProvider, ChainedSeqFetcher, FastaSeqFetcher, SeqFetcher
+from cdot.hgvs.dataproviders import RESTDataProvider, ChainedSeqFetcher, FastaSeqFetcher
+from hgvs.dataproviders.seqfetcher import SeqFetcher
 from sqlalchemy.dialects.postgresql import JSONB
 
 from mavedb.db.session import SessionLocal
@@ -9,7 +11,7 @@ from mavedb.db.session import SessionLocal
 
 def get_db() -> Generator:
     db = SessionLocal()
-    db.current_user_id = None
+    db.current_user_id = None  # type: ignore
     try:
         yield db
     finally:

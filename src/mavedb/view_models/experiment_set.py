@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Dict, List
+from typing import List, Sequence
 
 from pydantic.types import Optional
 
@@ -24,7 +24,7 @@ class ExperimentSetUpdate(ExperimentSetBase):
 # Properties shared by models stored in DB
 class SavedExperimentSet(ExperimentSetBase):
     id: int
-    experiments: List[SavedExperiment]
+    experiments: Sequence[SavedExperiment]
     created_by: Optional[SavedUser]
     modified_by: Optional[SavedUser]
     creation_date: date
@@ -38,7 +38,7 @@ class SavedExperimentSet(ExperimentSetBase):
 class ExperimentSet(SavedExperimentSet):
     created_by: Optional[User]
     modified_by: Optional[User]
-    experiments: List[Experiment]
+    experiments: Sequence[Experiment]
 
 
 # Properties to return to admin clients
@@ -48,4 +48,4 @@ class AdminExperimentSet(SavedExperimentSet):
     processing_state: Optional[str]
     created_by: Optional[User]
     modified_by: Optional[User]
-    experiments: List[Experiment]
+    experiments: Sequence[Experiment]

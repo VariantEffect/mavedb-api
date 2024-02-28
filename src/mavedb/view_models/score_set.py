@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date
 from pydantic import root_validator
-from typing import Collection, Dict, Optional, Any
+from typing import Collection, Dict, Optional, Any, Sequence
 from humps import camelize
 
 from mavedb.lib.validation import keywords, urn_re
@@ -33,7 +33,7 @@ from mavedb.view_models.variant import VariantInDbBase
 
 
 class ScoreSetGetter(PublicationIdentifiersGetter):
-    def get(self, key: str, default: Any) -> Any:
+    def get(self, key: Any, default: Any = ...) -> Any:
         if key == "meta_analyzes_score_set_urns":
             meta_analyzes_score_sets = getattr(self._obj, "meta_analyzes_score_sets") or []
             return sorted([score_set.urn for score_set in meta_analyzes_score_sets])
@@ -199,15 +199,15 @@ class SavedScoreSet(ScoreSetBase):
     superseding_score_set_urn: Optional[str]
     meta_analyzes_score_set_urns: list[str]
     meta_analyzed_by_score_set_urns: list[str]
-    doi_identifiers: list[SavedDoiIdentifier]
-    primary_publication_identifiers: list[SavedPublicationIdentifier]
-    secondary_publication_identifiers: list[SavedPublicationIdentifier]
+    doi_identifiers: Sequence[SavedDoiIdentifier]
+    primary_publication_identifiers: Sequence[SavedPublicationIdentifier]
+    secondary_publication_identifiers: Sequence[SavedPublicationIdentifier]
     published_date: Optional[date]
     creation_date: date
     modification_date: date
     created_by: Optional[SavedUser]
     modified_by: Optional[SavedUser]
-    target_genes: list[SavedTargetGene]
+    target_genes: Sequence[SavedTargetGene]
     dataset_columns: Dict
     keywords: list[str]
 
@@ -232,12 +232,12 @@ class ScoreSet(SavedScoreSet):
     """Score set view model containing most properties visible to non-admin users, but no variant data."""
 
     experiment: Experiment
-    doi_identifiers: list[DoiIdentifier]
-    primary_publication_identifiers: list[PublicationIdentifier]
-    secondary_publication_identifiers: list[PublicationIdentifier]
+    doi_identifiers: Sequence[DoiIdentifier]
+    primary_publication_identifiers: Sequence[PublicationIdentifier]
+    secondary_publication_identifiers: Sequence[PublicationIdentifier]
     created_by: Optional[User]
     modified_by: Optional[User]
-    target_genes: list[TargetGene]
+    target_genes: Sequence[TargetGene]
     private: bool
     # processing_state: Optional[str]
 

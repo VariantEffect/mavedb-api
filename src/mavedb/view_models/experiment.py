@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Any, Collection, Optional
+from typing import Any, Collection, Optional, Sequence
 
 from mavedb.lib.validation import keywords
 from mavedb.lib.validation.exceptions import ValidationError
@@ -24,7 +24,7 @@ from mavedb.view_models.user import SavedUser, User
 
 
 class ExperimentGetter(PublicationIdentifiersGetter):
-    def get(self, key: str, default: Any) -> Any:
+    def get(self, key: Any, default: Any = ...) -> Any:
         if key == "score_set_urns":
             score_sets = getattr(self._obj, "score_sets") or []
             return sorted([score_set.urn for score_set in score_sets])
@@ -91,10 +91,10 @@ class SavedExperiment(ExperimentBase):
     published_date: Optional[date]
     experiment_set_urn: str
     score_set_urns: list[str]
-    doi_identifiers: list[SavedDoiIdentifier]
-    primary_publication_identifiers: list[SavedPublicationIdentifier]
-    secondary_publication_identifiers: list[SavedPublicationIdentifier]
-    raw_read_identifiers: list[SavedRawReadIdentifier]
+    doi_identifiers: Sequence[SavedDoiIdentifier]
+    primary_publication_identifiers: Sequence[SavedPublicationIdentifier]
+    secondary_publication_identifiers: Sequence[SavedPublicationIdentifier]
+    raw_read_identifiers: Sequence[SavedRawReadIdentifier]
     processing_state: Optional[str]
     keywords: list[str]
 
@@ -112,10 +112,10 @@ class SavedExperiment(ExperimentBase):
 
 # Properties to return to non-admin clients
 class Experiment(SavedExperiment):
-    doi_identifiers: list[DoiIdentifier]
-    primary_publication_identifiers: list[PublicationIdentifier]
-    secondary_publication_identifiers: list[PublicationIdentifier]
-    raw_read_identifiers: list[RawReadIdentifier]
+    doi_identifiers: Sequence[DoiIdentifier]
+    primary_publication_identifiers: Sequence[PublicationIdentifier]
+    secondary_publication_identifiers: Sequence[PublicationIdentifier]
+    raw_read_identifiers: Sequence[RawReadIdentifier]
     created_by: User
     modified_by: User
 
