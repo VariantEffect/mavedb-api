@@ -5,6 +5,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from mavedb import deps
+from mavedb.lib.taxonomies import search_NCBI_taxonomy
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.view_models import taxonomy
 from mavedb.view_models.search import TextSearch
@@ -83,12 +84,11 @@ def fetch_taxonomy_by_tax_id(
     return item
 
 @router.post("/search", status_code=200, response_model=List[taxonomy.Taxonomy])
-def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
+async def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
     Search Taxonomy.
     If no search text, return the whole taxonomy list so that front end Taxonomy component can get data to show in dropdown button.
     """
-
     query = db.query(Taxonomy)
 
     if search.text and len(search.text.strip()) > 0:
@@ -105,5 +105,10 @@ def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_db)) ->
 
     items = query.order_by(Taxonomy.organism_name).all()
     if not items:
-        items = []
+        search_taxonomy = await search_NCBI_taxonomy(db, search.text)
+        if search_taxonomy:
+            items = [search_taxonomy]
+        else:
+            items = []
+
     return items

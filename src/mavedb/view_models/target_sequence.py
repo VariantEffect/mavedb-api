@@ -13,6 +13,8 @@ class TargetSequenceBase(BaseModel):
     sequence_type: str
     sequence: str
     label: Optional[str]
+    # Without this one targetGene.targetSequence?.taxonomy.organismName in front end doesn't work
+    taxonomy: Taxonomy
 
 
 class TargetSequenceModify(TargetSequenceBase):
@@ -67,7 +69,7 @@ class SavedTargetSequence(TargetSequenceBase):
 
 # Properties to return to non-admin clients
 class TargetSequence(SavedTargetSequence):
-    taxonomy: Taxonomy
+    pass
 
 
 # Properties to return to admin clients

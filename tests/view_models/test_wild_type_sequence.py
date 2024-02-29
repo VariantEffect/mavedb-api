@@ -1,11 +1,11 @@
 from mavedb.view_models.target_sequence import TargetSequenceCreate
-from mavedb.models.taxonomy import Taxonomy
+from mavedb.view_models.taxonomy import TaxonomyCreate
 
 import pytest
 
 import datetime
 
-taxonomy = Taxonomy(
+taxonomy = TaxonomyCreate(
     id = 1,
     tax_id = 1,
     organism_name = "Organism",

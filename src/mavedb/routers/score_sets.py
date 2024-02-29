@@ -22,7 +22,6 @@ from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
     find_or_create_doi_identifier,
     find_or_create_publication_identifier,
-    find_or_create_taxonomy,
 )
 from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.score_sets import (
@@ -31,6 +30,7 @@ from mavedb.lib.score_sets import (
     search_score_sets as _search_score_sets,
     VariantData,
 )
+from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_score_set_urn
 from mavedb.lib.validation import exceptions
 from mavedb.lib.validation.constants.general import null_values_list
