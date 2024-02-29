@@ -1,8 +1,8 @@
 from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, Table
+from sqlalchemy import func, Table, select
 from sqlalchemy.orm import Session
-from typing import Union
+from typing import Any, Union
 
 from mavedb.deps import get_db
 from mavedb.models.doi_identifier import DoiIdentifier
@@ -94,18 +94,18 @@ def _target_from_field_and_model(
     ):
         raise HTTPException(422, f"Field `{field.name}` is incompatible with target model `{model}`.")
 
+    published_score_sets_stmt = select(ScoreSet).where(ScoreSet.published_date.is_not(None)).subquery()
+
+    # getattr obscures MyPy errors by coercing return type to Any
+    model_field = field.value.replace("-", "_")
     query = (
-        db.query(
-            getattr(model, field.value.replace("-", "_")),
-            func.count(getattr(model, field.value.replace("-", "_"))),
-        )
-        .group_by(getattr(model, field.value.replace("-", "_")))
+        select(getattr(model, model_field), func.count(getattr(model, model_field)))
         .join(TargetGene)
-        .join(ScoreSet)
-        .filter((ScoreSet.published_date.is_not(None)))
+        .group_by(getattr(model, model_field))
+        .join_from(TargetGene, published_score_sets_stmt)
     )
 
-    return query.all()
+    return db.execute(query).all()
 
 
 # Accession based targets only.
@@ -115,7 +115,11 @@ def target_accessions_by_field(field: TargetAccessionFields, db: Session = Depen
     Returns a dictionary of counts for the distinct values of the provided `field` (member of the `target_accessions` table).
     Don't include any NULL field values.
     """
-    return {row[0]: row[1] for row in _target_from_field_and_model(db, TargetAccession, field) if row[0] is not None}
+    return {
+        field_val: count
+        for field_val, count in _target_from_field_and_model(db, TargetAccession, field)
+        if field_val is not None
+    }
 
 
 # Sequence based targets only.
@@ -125,7 +129,11 @@ def target_sequences_by_field(field: TargetSequenceFields, db: Session = Depends
     Returns a dictionary of counts for the distinct values of the provided `field` (member of the `target_sequences` table).
     Don't include any NULL field values.
     """
-    return {row[0]: row[1] for row in _target_from_field_and_model(db, TargetSequence, field) if row[0] is not None}
+    return {
+        field_val: count
+        for field_val, count in _target_from_field_and_model(db, TargetSequence, field)
+        if field_val is not None
+    }
 
 
 # Statistics on fields relevant to both accession and sequence based targets. Generally, these require custom logic to harmonize both target sub types.
@@ -149,87 +157,86 @@ def target_genes_by_field(field: TargetGeneFields, db: Session = Depends(get_db)
         TargetGeneFields.uniprotIdentifier: UniprotIdentifier,
     }
 
+    # All targets linked to a published score set.
+    published_score_sets_stmt = select(TargetGene).join(ScoreSet).where(ScoreSet.published_date.is_not(None)).subquery()
+
     # Assumes identifiers cannot be duplicated within a Target.
     if field in identifier_models.keys():
+        # getattr obscures MyPy errors by coercing return type to Any
+        attr_for_identifier = getattr(identifier_models[field], "identifier")
+
         query = (
-            db.query(
-                getattr(identifier_models[field], "identifier"),
-                func.count(getattr(identifier_models[field], "identifier")),
-            )
+            select(attr_for_identifier, func.count(attr_for_identifier))
             .join(association_tables[field])
-            .group_by(identifier_models[field].identifier)
-            .join(TargetGene)
-            .join(ScoreSet)
-            .filter((ScoreSet.published_date.is_not(None)))
+            .join(published_score_sets_stmt)
+            .group_by(attr_for_identifier)
         )
 
-        return {row[0]: row[1] for row in query.all() if row[0] is not None}
+        return {identifier: count for identifier, count in db.execute(query).all() if identifier is not None}
 
+    # Can't join a TargetGene query to TargetGene query, so just select the desired columns directly from the subquery.
     elif field is TargetGeneFields.category:
-        query = (
-            db.query(TargetGene.category, func.count(TargetGene.category))
-            .group_by(TargetGene.category)
-            .join(ScoreSet)
-            .filter((ScoreSet.published_date.is_not(None)))
+        query = select(published_score_sets_stmt.c.category, func.count(published_score_sets_stmt.c.category)).group_by(
+            published_score_sets_stmt.c.category
         )
 
-        return {row[0]: row[1] for row in query.all() if row[0] is not None}
+        return {category: count for category, count in db.execute(query).all() if category is not None}
 
     # Target gene organism and reference need special handling: These fields are stored differently between accession and sequence Targets.
     elif field is TargetGeneFields.organism:
         sequence_based_targets_query = (
-            db.query(ReferenceGenome.organism_name, func.count(ReferenceGenome.organism_name))
+            select(ReferenceGenome.organism_name, func.count(ReferenceGenome.organism_name))
             .join(TargetSequence)
+            .join(published_score_sets_stmt)
             .group_by(ReferenceGenome.organism_name)
-            .join(TargetGene)
-            .join(ScoreSet)
-            .filter((ScoreSet.published_date.is_not(None)))
         )
         accession_based_targets_query = (
-            db.query(TargetAccession).join(TargetGene).join(ScoreSet).filter((ScoreSet.published_date.is_not(None)))
+            select(func.count(TargetAccession.id)).join(published_score_sets_stmt).group_by(TargetAccession.id)
         )
 
-        organisms: dict[str, int] = {row[0]: row[1] for row in sequence_based_targets_query.all() if row[0] is not None}
-        accessions = accession_based_targets_query.count()
+        organisms: dict[str, int] = {
+            organism: count
+            for organism, count in db.execute(sequence_based_targets_query).all()
+            if organism is not None
+        }
+        accession_count = db.execute(accession_based_targets_query).scalar_one_or_none()
 
         # NOTE: For now (forever?), all accession based targets are human genomic sequences. It is possible this
         #       assumption changes if we add mouse (or other non-human) genomes to MaveDB.
-        if "Homo sapiens" in organisms:
-            organisms["Homo sapiens"] += accessions
-        elif accessions:
-            organisms["Homo sapiens"] = accessions
+        if "Homo sapiens" in organisms and accession_count:
+            organisms["Homo sapiens"] += accession_count
+        elif accession_count:
+            organisms["Homo sapiens"] = accession_count
 
         return organisms
 
     elif field is TargetGeneFields.reference:
         sequence_references_by_id_query = (
-            db.query(TargetSequence.reference_id, func.count(TargetSequence.reference_id))
+            select(TargetSequence.reference_id, func.count(TargetSequence.reference_id))
+            .join(published_score_sets_stmt)
             .group_by(TargetSequence.reference_id)
-            .join(TargetGene)
-            .join(ScoreSet)
-            .filter((ScoreSet.published_date.is_not(None)))
         )
         accession_references_by_id_query = (
-            db.query(TargetAccession.assembly, func.count(TargetAccession.assembly))
+            select(TargetAccession.assembly, func.count(TargetAccession.assembly))
+            .join(published_score_sets_stmt)
             .group_by(TargetAccession.assembly)
-            .join(TargetGene)
-            .join(ScoreSet)
-            .filter((ScoreSet.published_date.is_not(None)))
         )
 
-        # Sequence based target reference genomes are stored within a separate `ReferenceGenome` object.
-        sequence_references = {
-            db.query(ReferenceGenome.short_name).filter(ReferenceGenome.id == reference_id).one()[0]: count
-            for reference_id, count in sequence_references_by_id_query.all()
+        # Would prefer to use db.execute(...).scalar_one() here, but MyPy complains about Nonetypes.
+        sequence_references: dict[str, Any] = {
+            db.execute(select(ReferenceGenome.short_name).filter(ReferenceGenome.id == reference_id)).one()[0]: count
+            for reference_id, count in db.execute(sequence_references_by_id_query).all()
             if reference_id is not None
         }
-        accession_references = {
-            assembly[0]: assembly[1] for assembly in accession_references_by_id_query.all() if assembly[0] is not None
+        accession_references: dict[str, Any] = {
+            assembly: count
+            for assembly, count in db.execute(accession_references_by_id_query).all()
+            if assembly is not None
         }
 
         return {
-            k: accession_references.get(k, 0) + sequence_references.get(k, 0)
-            for k in set(accession_references) | set(sequence_references)
+            reference: accession_references.get(reference, 0) + sequence_references.get(reference, 0)
+            for reference in set(accession_references) | set(sequence_references)
         }
 
     # Protection from this case occurs via FastApi/pydantic Enum validation.
@@ -277,64 +284,70 @@ def _record_from_field_and_model(
         RecordNames.scoreSet: ScoreSet,
     }
 
+    queried_model = models[model]
+
+    # created-by field does not operate on association tables and is defined directly on score set / experiment
+    # records, so we operate directly on those records.
+    # getattr obscures MyPy errors by coercing return type to Any
+    if field is RecordFields.createdBy:
+        query = (
+            select(User.username, func.count(User.id))
+            .join(queried_model, getattr(queried_model, "created_by_id") == User.id)
+            .where(getattr(queried_model, "published_date").is_not(None))
+            .group_by(User.id)
+        )
+
+        return db.execute(query).all()
+
+    # All assc table identifiers which are linked to a published model.
+    # getattr obscures MyPy errors by coercing return type to Any
+    queried_assc_table = association_tables[model][field]
+    published_score_sets_statement = (
+        select(queried_assc_table)
+        .join(queried_model)
+        .where(getattr(queried_model, "published_date").is_not(None))
+        .subquery()
+    )
+
     # Assumes any identifiers / keywords may not be duplicated within a record.
     if field is RecordFields.doiIdentifiers:
         query = (
-            db.query(DoiIdentifier.identifier, func.count(DoiIdentifier.identifier))
-            .join(association_tables[model][field])
+            select(DoiIdentifier.identifier, func.count(DoiIdentifier.identifier))
+            .join(published_score_sets_statement)
             .group_by(DoiIdentifier.identifier)
-            .join(models[model])
-            .filter(getattr(models[model], "published_date").is_not(None))
         )
     elif field is RecordFields.keywords:
         query = (
-            db.query(Keyword.text, func.count(Keyword.text))
-            .join(association_tables[model][field])
-            .group_by(Keyword.text)
-            .join(models[model])
-            .filter(getattr(models[model], "published_date").is_not(None))
+            select(Keyword.text, func.count(Keyword.text)).join(published_score_sets_statement).group_by(Keyword.text)
         )
     elif field is RecordFields.rawReadIdentifiers:
         query = (
-            db.query(RawReadIdentifier.identifier, func.count(RawReadIdentifier.identifier))
-            .join(association_tables[model][field])
+            select(RawReadIdentifier.identifier, func.count(RawReadIdentifier.identifier))
+            .join(published_score_sets_statement)
             .group_by(RawReadIdentifier.identifier)
-            .join(models[model])
-            .filter(getattr(models[model], "published_date").is_not(None))
-        )
-    elif field is RecordFields.createdBy:
-        query = (
-            db.query(User.username, func.count(User.id))
-            .join(ScoreSet, ScoreSet.created_by_id == User.id)
-            .group_by(User.id)
-            .filter(getattr(models[model], "published_date").is_not(None))
         )
 
     # Handle publication identifiers separately since they may have duplicated identifiers
     elif field is RecordFields.publicationIdentifiers:
         publication_query = (
-            db.query(
+            select(
                 PublicationIdentifier.identifier,
                 PublicationIdentifier.db_name,
                 func.count(PublicationIdentifier.identifier),
             )
-            .join(association_tables[model][field])
+            .join(published_score_sets_statement)
             .group_by(PublicationIdentifier.identifier, PublicationIdentifier.db_name)
-            .join(models[model])
-            .filter((getattr(models[model], "published_date").is_not(None)))
         )
 
         publication_identifiers: dict[str, dict[str, int]] = {}
 
-        for identifier in publication_query.all():
-            db_name = identifier[1]
-
+        for identifier, db_name, count in db.execute(publication_query).all():
             # We don't need to worry about overwriting existing identifiers within these internal dictionaries because
             # of the SQL group by clause.
             if db_name in publication_identifiers:
-                publication_identifiers[db_name][identifier[0]] = identifier[2]
+                publication_identifiers[db_name][identifier] = count
             else:
-                publication_identifiers[db_name] = {identifier[0]: identifier[2]}
+                publication_identifiers[db_name] = {identifier: count}
 
         return [(db_name, identifiers) for db_name, identifiers in publication_identifiers.items()]
 
@@ -342,7 +355,7 @@ def _record_from_field_and_model(
     else:
         return []
 
-    return query.all()
+    return db.execute(query).all()
 
 
 # Model based statistics for shared fields.
@@ -361,4 +374,4 @@ def record_object_statistics(
     """
     count_data = _record_from_field_and_model(db, model, field)
 
-    return {row[0]: row[1] for row in count_data if row is not None}
+    return {field_val: count for field_val, count in count_data if field_val is not None}
