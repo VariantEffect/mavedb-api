@@ -93,9 +93,12 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
 
     if search.target_organism_names:
         query = query.filter(
-            ScoreSet.target_gene.target_sequence.any(
-                TargetSequence.taxonomy.has(
-                    func.lower(Taxonomy.organism_name).contains(search.target_organism_names))
+            ScoreSet.target_genes.any(
+                TargetGene.target_sequence.has(
+                    TargetSequence.taxonomy.has(
+                        Taxonomy.organism_name.in_(search.target_organism_names)
+                    )
+                )
             )
         )
 
