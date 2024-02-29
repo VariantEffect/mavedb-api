@@ -182,13 +182,13 @@ def test_target_sequence_empty_field(client):
 # NOTE: It's clearer to not parametrize target gene statistics due to non-standard behavior between target accession
 #       and target sequence subtypes.
 def test_target_gene_category_statistics_acc(client, setup_router_db, data_files):
-    """Test target gene category endpoint on accession based targest for published score sets."""
+    """Test target gene category endpoint on accession based target for published score sets."""
     experiment = create_experiment(client)
     with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
         score_set = create_acc_score_set_with_variants(client, experiment["urn"], data_files / "scores_acc.csv")
 
     publish_score_set(client, score_set["urn"])
-    response = client.get("/api/v1/statistics/target/gene/category?")
+    response = client.get("/api/v1/statistics/target/gene/category")
 
     assert response.status_code == 200
     assert TEST_MINIMAL_ACC_SCORESET["targetGenes"][0]["category"] in response.json()
@@ -196,7 +196,7 @@ def test_target_gene_category_statistics_acc(client, setup_router_db, data_files
 
 
 def test_target_gene_category_statistics_seq(client, setup_router_db, data_files):
-    """Test target gene category endpoint on sequence based targest for published score sets."""
+    """Test target gene category endpoint on sequence based target for published score sets."""
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
 
