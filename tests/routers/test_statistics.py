@@ -26,85 +26,53 @@ RECORD_MODELS = ["experiment", "score-set"]
 RECORD_SHARED_FIELDS = ["publication-identifiers", "keywords", "doi-identifiers", "raw-read-identifiers", "created-by"]
 
 
+# Fixtures for setting up score sets on which to calculate statistics.
+@pytest.fixture()
+def setup_acc_scoreset(setup_router_db, client, data_files):
+    experiment = create_experiment(client)
+    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+        score_set = create_acc_score_set_with_variants(client, experiment["urn"], data_files / "scores_acc.csv")
+    publish_score_set(client, score_set["urn"])
+
+
+@pytest.fixture()
+def setup_seq_scoreset(setup_router_db, client, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    publish_score_set(client, score_set["urn"])
+
+
 ## Test base case empty database responses for each statistic endpoint.
 
 
 def test_empty_database_statistics(client):
-    response = client.get("/api/v1/statistics/target/accession/accession")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/target/accession/assembly")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/target/accession/gene")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/target/sequence/sequence")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/target/sequence/sequence-type")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/target/gene/category")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/target/gene/organism")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/target/gene/reference")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/target/gene/ensembl-identifier")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/target/gene/refseq-identifier")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/target/gene/uniprot-identifier")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/record/experiment/publication-identifiers")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/record/experiment/keywords")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/record/experiment/doi-identifiers")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/record/experiment/raw-read-identifiers")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/record/score-set/publication-identifiers")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/record/score-set/keywords")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/record/score-set/doi-identifiers")
-    assert response.status_code == 200
-    assert response.json() == {}
-
-    response = client.get("/api/v1/statistics/record/score-set/raw-read-identifiers")
-    assert response.status_code == 200
-    assert response.json() == {}
+    stats_endpoints = (
+        "target/accession/accession",
+        "target/accession/assembly",
+        "target/accession/gene",
+        "target/sequence/sequence",
+        "target/sequence/sequence-type",
+        "target/gene/category",
+        "target/gene/organism",
+        "target/gene/reference",
+        "target/gene/ensembl-identifier",
+        "target/gene/uniprot-identifier",
+        "target/gene/refseq-identifier",
+        "record/experiment/publication-identifiers",
+        "record/experiment/keywords",
+        "record/experiment/doi-identifiers",
+        "record/experiment/raw-read-identifiers",
+        "record/experiment/created-by",
+        "record/score-set/publication-identifiers",
+        "record/score-set/keywords",
+        "record/score-set/doi-identifiers",
+        "record/score-set/raw-read-identifiers",
+        "record/score-set/created-by",
+    )
+    for endpoint in stats_endpoints:
+        response = client.get(f"/api/v1/statistics/{endpoint}")
+        assert response.status_code == 200, f"Non-200 status code for endpoint {endpoint}."
+        assert response.json() == {}, f"Non-empty response for endpoint {endpoint}."
 
 
 ## Test target accession statistics
@@ -112,14 +80,9 @@ def test_empty_database_statistics(client):
     "field_value",
     TARGET_ACCESSION_FIELDS,
 )
-def test_target_accession_statistics(client, setup_router_db, field_value, data_files):
+def test_target_accession_statistics(client, field_value, setup_acc_scoreset):
     """Test target accession statistics endpoint for published score sets."""
-    experiment = create_experiment(client)
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
-        score_set = create_acc_score_set_with_variants(client, experiment["urn"], data_files / "scores_acc.csv")
-
     camelized_field_value = camelize(field_value.replace("-", "_"))
-    publish_score_set(client, score_set["urn"])
     response = client.get(f"/api/v1/statistics/target/accession/{field_value}")
 
     assert response.status_code == 200
@@ -147,13 +110,9 @@ def test_target_accession_empty_field(client):
     "field_value",
     TARGET_SEQUENCE_FIELDS,
 )
-def test_target_sequence_statistics(client, setup_router_db, field_value, data_files):
+def test_target_sequence_statistics(client, field_value, setup_seq_scoreset):
     """Test target sequence statistics endpoint for published score sets."""
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
-
     camelized_field_value = camelize(field_value.replace("-", "_"))
-    publish_score_set(client, score_set["urn"])
     response = client.get(f"/api/v1/statistics/target/sequence/{field_value}")
 
     assert response.status_code == 200
@@ -179,15 +138,9 @@ def test_target_sequence_empty_field(client):
 ## Test target gene statistics.
 
 
-# NOTE: It's clearer to not parametrize target gene statistics due to non-standard behavior between target accession
-#       and target sequence subtypes.
-def test_target_gene_category_statistics_acc(client, setup_router_db, data_files):
+# NOTE: Statistics on target genes behave differently depending on if the
+def test_target_gene_category_statistics_acc(client, setup_acc_scoreset):
     """Test target gene category endpoint on accession based target for published score sets."""
-    experiment = create_experiment(client)
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
-        score_set = create_acc_score_set_with_variants(client, experiment["urn"], data_files / "scores_acc.csv")
-
-    publish_score_set(client, score_set["urn"])
     response = client.get("/api/v1/statistics/target/gene/category")
 
     assert response.status_code == 200
@@ -195,12 +148,8 @@ def test_target_gene_category_statistics_acc(client, setup_router_db, data_files
     assert response.json()[TEST_MINIMAL_ACC_SCORESET["targetGenes"][0]["category"]] == 1
 
 
-def test_target_gene_category_statistics_seq(client, setup_router_db, data_files):
+def test_target_gene_category_statistics_seq(client, setup_seq_scoreset):
     """Test target gene category endpoint on sequence based target for published score sets."""
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
-
-    publish_score_set(client, score_set["urn"])
     response = client.get("/api/v1/statistics/target/gene/category")
 
     assert response.status_code == 200
@@ -208,25 +157,16 @@ def test_target_gene_category_statistics_seq(client, setup_router_db, data_files
     assert response.json()[TEST_MINIMAL_ACC_SCORESET["targetGenes"][0]["category"]] == 1
 
 
-def test_target_gene_organism_statistics_acc(client, setup_router_db, data_files):
+def test_target_gene_organism_statistics_acc(client, setup_acc_scoreset):
     """Test target gene organism endpoint on accession based targets for published score sets."""
-    experiment = create_experiment(client)
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
-        score_set = create_acc_score_set_with_variants(client, experiment["urn"], data_files / "scores_acc.csv")
-
-    publish_score_set(client, score_set["urn"])
     response = client.get("/api/v1/statistics/target/gene/organism")
 
     assert "Homo sapiens" in response.json()
     assert response.json()["Homo sapiens"] == 1
 
 
-def test_target_gene_organism_statistics_seq(client, setup_router_db, data_files):
+def test_target_gene_organism_statistics_seq(client, setup_seq_scoreset):
     """Test target gene organism statistics on sequence based targets for published score sets."""
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
-
-    publish_score_set(client, score_set["urn"])
     response = client.get("/api/v1/statistics/target/gene/organism")
 
     assert response.status_code == 200
@@ -236,13 +176,8 @@ def test_target_gene_organism_statistics_seq(client, setup_router_db, data_files
     )
 
 
-def test_target_gene_reference_statistics_acc(client, setup_router_db, data_files):
+def test_target_gene_reference_statistics_acc(client, setup_acc_scoreset):
     """Test target gene reference statistics on accession based targets for published score sets."""
-    experiment = create_experiment(client)
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
-        score_set = create_acc_score_set_with_variants(client, experiment["urn"], data_files / "scores_acc.csv")
-
-    publish_score_set(client, score_set["urn"])
     response = client.get("/api/v1/statistics/target/gene/reference")
 
     assert response.status_code == 200
@@ -250,12 +185,8 @@ def test_target_gene_reference_statistics_acc(client, setup_router_db, data_file
     assert response.json()[TEST_MINIMAL_ACC_SCORESET["targetGenes"][0]["targetAccession"]["assembly"]] == 1
 
 
-def test_target_gene_reference_statistics_seq(client, setup_router_db, data_files):
+def test_target_gene_reference_statistics_seq(client, setup_seq_scoreset):
     """Test target gene reference statistics on sequence based targets for published score sets."""
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
-
-    publish_score_set(client, score_set["urn"])
     response = client.get("/api/v1/statistics/target/gene/reference")
 
     assert response.status_code == 200
@@ -265,7 +196,7 @@ def test_target_gene_reference_statistics_seq(client, setup_router_db, data_file
 
 # Target gene identifier based statistics behave similarly enough to parametrize.
 @pytest.mark.parametrize("field_value", TARGET_GENE_IDENTIFIER_FIELDS)
-def test_target_gene_identifier_statistiscs(client, setup_router_db, field_value, data_files):
+def test_target_gene_identifier_statistiscs(client, setup_acc_scoreset, setup_seq_scoreset, data_files, field_value):
     """Test target gene identifier statistics endpoint for published score sets."""
     # Helper map that simplifies parametrization.
     test_mapper = {
@@ -273,18 +204,18 @@ def test_target_gene_identifier_statistiscs(client, setup_router_db, field_value
         "refseq-identifier": {"offset": 0, "identifier": {"dbName": "RefSeq", "identifier": "NM_003345"}},
         "uniprot-identifier": {"offset": 0, "identifier": {"dbName": "UniProt", "identifier": "Q9Y617"}},
     }
-
+    record_update = {"externalIdentifiers": [v for v in test_mapper.values()]}
     experiment = create_experiment(client)
 
     # Update each of the score set target genes to include our test external identifiers.
     seq_target = TEST_MINIMAL_SEQ_SCORESET["targetGenes"][0].copy()
-    seq_target.update({"externalIdentifiers": [v for v in test_mapper.values()]})
+    seq_target.update(record_update)
     seq_score_set = create_seq_score_set_with_variants(
         client, experiment["urn"], data_files / "scores.csv", {"targetGenes": [seq_target]}
     )
 
     acc_target = TEST_MINIMAL_ACC_SCORESET["targetGenes"][0].copy()
-    acc_target.update({"externalIdentifiers": [v for v in test_mapper.values()]})
+    acc_target.update(record_update)
     with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
         acc_score_set = create_acc_score_set_with_variants(
             client, experiment["urn"], data_files / "scores_acc.csv", {"targetGenes": [acc_target]}
