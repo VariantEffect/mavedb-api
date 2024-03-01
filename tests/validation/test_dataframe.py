@@ -5,6 +5,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from unittest.mock import patch
+import hgvs.validator
+
 from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
     hgvs_pro_column,
@@ -918,16 +921,20 @@ class TestValidateHgvsGenomicColumn(DfTestCase):
         ]
 
     def test_valid_variant(self):
-        validate_hgvs_genomic_column(self.valid_hgvs_column, is_index=False, targets=[self.accession_test_case])  # type: ignore
+        with patch.object(hgvs.validator.Validator, 'validate', return_value=True):
+            validate_hgvs_genomic_column(self.valid_hgvs_column, is_index=False, targets=[self.accession_test_case])  # type: ignore
 
     def test_valid_variant_valid_missing(self):
-        validate_hgvs_genomic_column(self.missing_data, is_index=False, targets=[self.accession_test_case])  # type: ignore
+        with patch.object(hgvs.validator.Validator, 'validate', return_value=True):
+            validate_hgvs_genomic_column(self.missing_data, is_index=False, targets=[self.accession_test_case])  # type: ignore
 
     def test_valid_variant_valid_duplicate(self):
-        validate_hgvs_genomic_column(self.missing_data, is_index=False, targets=[self.accession_test_case])  # type: ignore
+        with patch.object(hgvs.validator.Validator, 'validate', return_value=True):
+            validate_hgvs_genomic_column(self.missing_data, is_index=False, targets=[self.accession_test_case])  # type: ignore
 
     def test_valid_variant_index(self):
-        validate_hgvs_genomic_column(self.valid_hgvs_column, is_index=True, targets=[self.accession_test_case])  # type: ignore
+        with patch.object(hgvs.validator.Validator, 'validate', return_value=True):
+            validate_hgvs_genomic_column(self.valid_hgvs_column, is_index=True, targets=[self.accession_test_case])  # type: ignore
 
     def test_valid_variant_invalid_missing_index(self):
         with self.assertRaises(ValidationError):

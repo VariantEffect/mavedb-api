@@ -1,10 +1,8 @@
 # import os
-import sys
 from typing import Generator
 
 from cdot.hgvs.dataproviders import RESTDataProvider, ChainedSeqFetcher, FastaSeqFetcher, SeqFetcher
-from sqlalchemy.dialects.postgresql import JSONB as POSTGRES_JSONB
-from sqlalchemy.types import JSON
+from sqlalchemy.dialects.postgresql import JSONB
 
 from mavedb.db.session import SessionLocal
 
@@ -39,10 +37,3 @@ def hgvs_data_provider() -> RESTDataProvider:
         pass
 
     return RESTDataProvider(seqfetcher=seqfetcher)
-
-
-# if 'PYTEST_RUN_CONFIG' in os.environ:
-if "pytest" in sys.modules:
-    JSONB = JSON
-else:
-    JSONB = POSTGRES_JSONB
