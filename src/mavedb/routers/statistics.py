@@ -98,10 +98,11 @@ def _target_from_field_and_model(
 
     # getattr obscures MyPy errors by coercing return type to Any
     model_field = field.value.replace("-", "_")
+    column_field = getattr(model, model_field)
     query = (
-        select(getattr(model, model_field), func.count(getattr(model, model_field)))
+        select(column_field, func.count(column_field))
         .join(TargetGene)
-        .group_by(getattr(model, model_field))
+        .group_by(column_field)
         .join_from(TargetGene, published_score_sets_stmt)
     )
 
@@ -289,24 +290,22 @@ def _record_from_field_and_model(
     # created-by field does not operate on association tables and is defined directly on score set / experiment
     # records, so we operate directly on those records.
     # getattr obscures MyPy errors by coercing return type to Any
+    model_created_by_field = getattr(queried_model, "created_by_id")
+    model_published_data_field = getattr(queried_model, "published_date")
     if field is RecordFields.createdBy:
         query = (
             select(User.username, func.count(User.id))
-            .join(queried_model, getattr(queried_model, "created_by_id") == User.id)
-            .where(getattr(queried_model, "published_date").is_not(None))
+            .join(queried_model, model_created_by_field == User.id)
+            .where(model_published_data_field.is_not(None))
             .group_by(User.id)
         )
 
         return db.execute(query).all()
     else:
         # All assc table identifiers which are linked to a published model.
-        # getattr obscures MyPy errors by coercing return type to Any
         queried_assc_table = association_tables[model][field]
         published_score_sets_statement = (
-            select(queried_assc_table)
-            .join(queried_model)
-            .where(getattr(queried_model, "published_date").is_not(None))
-            .subquery()
+            select(queried_assc_table).join(queried_model).where(model_published_data_field.is_not(None)).subquery()
         )
 
     # Assumes any identifiers / keywords may not be duplicated within a record.
