@@ -53,13 +53,13 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
         lower_search_text = search.text.lower()
         query = query.filter(
             or_(
-                ScoreSet.urn.icontains(lower_search_text),
-                ScoreSet.title.icontains(lower_search_text),
-                ScoreSet.short_description.icontains(lower_search_text),
-                ScoreSet.abstract_text.icontains(lower_search_text),
-                ScoreSet.target_genes.any(func.lower(TargetGene.name).icontains(lower_search_text)),
-                ScoreSet.target_genes.any(func.lower(TargetGene.category).icontains(lower_search_text)),
-                ScoreSet.keyword_objs.any(func.lower(Keyword.text).icontains(lower_search_text)),
+                ScoreSet.urn.contains(lower_search_text),
+                ScoreSet.title.contains(lower_search_text),
+                ScoreSet.short_description.contains(lower_search_text),
+                ScoreSet.abstract_text.contains(lower_search_text),
+                ScoreSet.target_genes.any(func.lower(TargetGene.name).contains(lower_search_text)),
+                ScoreSet.target_genes.any(func.lower(TargetGene.category).contains(lower_search_text)),
+                ScoreSet.keyword_objs.any(func.lower(Keyword.text).contains(lower_search_text)),
                 ScoreSet.target_genes.any(
                     TargetGene.target_sequence.has(
                         TargetSequence.taxonomy.has(
