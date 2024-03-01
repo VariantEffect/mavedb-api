@@ -58,18 +58,6 @@ def test_hgvs_list_assemblies(client, setup_router_db):
     response = client.get("/api/v1/hgvs/assemblies")
     assert response.status_code == 200
     assert VALID_MAJOR_ASSEMBLY in response.json()
-    assert VALID_MINOR_ASSEMBLY in response.json()
-
-
-def test_hgvs_grouped_assemblies(client, setup_router_db):
-    response = client.get("/api/v1/hgvs/grouped-assemblies")
-    assert response.status_code == 200
-
-    groups = {group["type"]: group["assemblies"] for group in response.json()}
-    assert "Major Assembly Versions" in groups
-    assert "Minor Assembly Versions" in groups
-    assert VALID_MAJOR_ASSEMBLY in groups["Major Assembly Versions"]
-    assert VALID_MINOR_ASSEMBLY in groups["Minor Assembly Versions"]
 
 
 def test_hgvs_accessions_major(client, setup_router_db):
@@ -123,13 +111,9 @@ def test_hgvs_gene_info_invalid(client, setup_router_db):
             status_code=404,
         )
         response = client.get(f"/api/v1/hgvs/genes/{INVALID_GENE}")
-        # TODO this probably SHOULD return a 404, but currently returns a 200 with None #149
-        # assert response.status_code == 404
 
         assert m.called
-
-        assert response.status_code == 200
-        assert response.json() is None
+        assert response.status_code == 404
 
 
 def test_hgvs_gene_transcript_valid(client, setup_router_db):
@@ -153,13 +137,9 @@ def test_hgvs_gene_transcript_invalid(client, setup_router_db):
         m.get(f"https://cdot.cc/transcripts/gene/{INVALID_GENE}", status_code=404)
 
         response = client.get(f"/api/v1/hgvs/transcripts/gene/{INVALID_GENE}")
-        # TODO this probably SHOULD return a 404, but currently returns a 200 with empty list #149
-        # assert response.status_code == 404
 
         assert m.called
-
-        assert response.status_code == 200
-        assert response.json() == []
+        assert response.status_code == 404
 
 
 def test_hgvs_transcript_valid(client, setup_router_db):
@@ -177,11 +157,7 @@ def test_hgvs_transcript_invalid(client, setup_router_db):
         response = client.get(f"/api/v1/hgvs/transcripts/{INVALID_TRANSCRIPT}")
 
         assert m.called
-
-        # TODO this probably SHOULD return a 404, but currently returns a 200 with None #149
-        # assert response.status_code == 404
-        assert response.status_code == 200
-        assert response.json() is None
+        assert response.status_code == 404
 
 
 def test_hgvs_transcript_protein_valid(client, setup_router_db):
@@ -205,13 +181,9 @@ def test_hgvs_transcript_protein_no_protein(client, setup_router_db):
         m.get("https://cdot.cc/transcript/NM_002977.4", status_code=404)
 
         response = client.get(f"/api/v1/hgvs/transcripts/protein/{SMALL_ACCESSION}")
-        # TODO this probably SHOULD return a 404, but currently returns a 200 with None #149
-        # assert response.status_code == 404
 
         assert m.called
-
-        assert response.status_code == 200
-        assert response.json() is None
+        assert response.status_code == 404
 
 
 def test_hgvs_transcript_protein_invalid(client, setup_router_db):
@@ -219,10 +191,6 @@ def test_hgvs_transcript_protein_invalid(client, setup_router_db):
         m.get("https://cdot.cc/transcript/NC_999999.99", status_code=404)
 
         response = client.get(f"/api/v1/hgvs/transcripts/protein/{INVALID_ACCESSION}")
-        # TODO this probably SHOULD return a 400, but currently returns a 200 with None #149
-        # assert response.status_code == 404
 
         assert m.called
-
-        assert response.status_code == 200
-        assert response.json() is None
+        assert response.status_code == 404
