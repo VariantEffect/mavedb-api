@@ -298,33 +298,27 @@ def _record_from_field_and_model(
         )
 
         return db.execute(query).all()
-
-    # All assc table identifiers which are linked to a published model.
-    # getattr obscures MyPy errors by coercing return type to Any
-    queried_assc_table = association_tables[model][field]
-    published_score_sets_statement = (
-        select(queried_assc_table)
-        .join(queried_model)
-        .where(getattr(queried_model, "published_date").is_not(None))
-        .subquery()
-    )
+    else:
+        # All assc table identifiers which are linked to a published model.
+        # getattr obscures MyPy errors by coercing return type to Any
+        queried_assc_table = association_tables[model][field]
+        published_score_sets_statement = (
+            select(queried_assc_table)
+            .join(queried_model)
+            .where(getattr(queried_model, "published_date").is_not(None))
+            .subquery()
+        )
 
     # Assumes any identifiers / keywords may not be duplicated within a record.
     if field is RecordFields.doiIdentifiers:
-        query = (
-            select(DoiIdentifier.identifier, func.count(DoiIdentifier.identifier))
-            .join(published_score_sets_statement)
-            .group_by(DoiIdentifier.identifier)
+        query = select(DoiIdentifier.identifier, func.count(DoiIdentifier.identifier)).group_by(
+            DoiIdentifier.identifier
         )
     elif field is RecordFields.keywords:
-        query = (
-            select(Keyword.text, func.count(Keyword.text)).join(published_score_sets_statement).group_by(Keyword.text)
-        )
+        query = select(Keyword.text, func.count(Keyword.text)).group_by(Keyword.text)
     elif field is RecordFields.rawReadIdentifiers:
-        query = (
-            select(RawReadIdentifier.identifier, func.count(RawReadIdentifier.identifier))
-            .join(published_score_sets_statement)
-            .group_by(RawReadIdentifier.identifier)
+        query = select(RawReadIdentifier.identifier, func.count(RawReadIdentifier.identifier)).group_by(
+            RawReadIdentifier.identifier
         )
 
     # Handle publication identifiers separately since they may have duplicated identifiers
@@ -355,7 +349,7 @@ def _record_from_field_and_model(
     else:
         return []
 
-    return db.execute(query).all()
+    return db.execute(query.join(published_score_sets_statement)).all()
 
 
 # Model based statistics for shared fields.
