@@ -1,11 +1,13 @@
 # import os
 
-from typing import Generator
+from typing import AsyncGenerator, Generator
 
+from arq import create_pool
 from cdot.hgvs.dataproviders import RESTDataProvider, ChainedSeqFetcher, FastaSeqFetcher
 from sqlalchemy.dialects.postgresql import JSONB
 
 from mavedb.db.session import SessionLocal
+from mavedb.worker.settings import RedisWorker
 
 
 def get_db() -> Generator:
@@ -15,6 +17,14 @@ def get_db() -> Generator:
         yield db
     finally:
         db.close()
+
+
+async def get_worker() -> AsyncGenerator:
+    queue = await create_pool(RedisWorker)
+    try:
+        yield queue
+    finally:
+        await queue.close()
 
 
 def hgvs_data_provider() -> RESTDataProvider:

@@ -52,9 +52,9 @@ dev = [
 ]
 server = [
     "alembic~=1.7.6",
+    "arq~=0.25.0",
     "authlib~=0.15.5",
     "cryptography~=41.0.6",
-    "celery~=5.2.3",
     "fastapi~=0.95.0",
     "orcid~=1.0.3",
     "psycopg2~=2.9.3",

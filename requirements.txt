@@ -1,8 +1,8 @@
 alembic~=1.7.6
+arq==0.25.0
 authlib~=0.15.5
 biocommons~=0.0.0
 cdot~=0.2.21
-celery~=5.2.3
 cryptography~=37.0.4
 eutils~=0.6.0
 fastapi~=0.71.0
