@@ -10,7 +10,6 @@ fastapi~=0.71.0
 fqfa~=1.2.3
 IDUtils~=1.2.0
 hgvs~=1.5.4
-httpx~=0.24.1
 jsonschema~=4.17.3
 mavehgvs~=0.6.0
 numpy~=1.22.3
