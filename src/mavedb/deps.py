@@ -1,16 +1,17 @@
 # import os
 
-from typing import AsyncGenerator, Generator
+from typing import Any, AsyncGenerator, Generator
 
-from arq import create_pool
-from cdot.hgvs.dataproviders import RESTDataProvider, ChainedSeqFetcher, FastaSeqFetcher
-from sqlalchemy.dialects.postgresql import JSONB
+from arq import create_pool, ArqRedis
+from cdot.hgvs.dataproviders import RESTDataProvider
+from sqlalchemy.orm import Session
 
 from mavedb.db.session import SessionLocal
 from mavedb.worker.settings import RedisWorkerSettings
+from mavedb.data_providers.services import cdot_rest
 
 
-def get_db() -> Generator:
+def get_db() -> Generator[Session, Any, None]:
     db = SessionLocal()
     db.current_user_id = None  # type: ignore
     try:
@@ -19,18 +20,13 @@ def get_db() -> Generator:
         db.close()
 
 
-async def get_worker() -> AsyncGenerator:
-    queue = await create_pool(RedisWorkerSettings)
+async def get_worker() -> AsyncGenerator[ArqRedis, Any]:
+    redis = await create_pool(RedisWorkerSettings)
     try:
-        yield queue
+        yield redis
     finally:
-        await queue.close()
+        await redis.close()
 
 
 def hgvs_data_provider() -> RESTDataProvider:
-    # Prioritize fetching from GRCh38, then GRCh37.
-    seqfetcher = ChainedSeqFetcher(
-        FastaSeqFetcher("/data/GCF_000001405.39_GRCh38.p13_genomic.fna.gz"),
-        FastaSeqFetcher("/data/GCF_000001405.25_GRCh37.p13_genomic.fna.gz"),
-    )
-    return RESTDataProvider(seqfetcher=seqfetcher)
+    return cdot_rest()
