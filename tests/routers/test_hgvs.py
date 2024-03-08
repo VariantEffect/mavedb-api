@@ -1,4 +1,5 @@
 import requests_mock
+import pytest
 
 import cdot.hgvs.dataproviders
 from hgvs.exceptions import HGVSDataNotAvailableError
@@ -22,11 +23,10 @@ PROTEIN_ACCESSION = "NP_000005.2"
 
 
 def test_hgvs_fetch_valid(client, setup_router_db):
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
-        response = client.get(f"/api/v1/hgvs/fetch/{VALID_ACCESSION}")
+    response = client.get(f"/api/v1/hgvs/fetch/{VALID_ACCESSION}")
 
-        assert response.status_code == 200
-        assert response.text == '"GATTACAGATTACAGATTACAGATTACAGATTACAGATTACAGATTACA"'
+    assert response.status_code == 200
+    assert response.text == '"GATTACAGATTACAGATTACAGATTACAGATTACAGATTACAGATTACA"'
 
 
 def test_hgvs_fetch_invalid(client, setup_router_db):
@@ -117,10 +117,7 @@ def test_hgvs_gene_info_invalid(client, setup_router_db):
 
 
 def test_hgvs_gene_transcript_valid(client, setup_router_db):
-    with (
-        requests_mock.mock() as m,
-        patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT),
-    ):
+    with requests_mock.mock() as m:
         m.get(
             f"https://cdot.cc/transcripts/gene/{VALID_GENE}",
             headers={"Content-Type": "application/json"},
@@ -146,13 +143,13 @@ def test_hgvs_transcript_valid(client, setup_router_db):
     with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
         response = client.get(f"/api/v1/hgvs/transcripts/{VALID_TRANSCRIPT}")
 
-        assert response.status_code == 200
-        assert response.json()["hgnc"] == VALID_GENE
+    assert response.status_code == 200
+    assert response.json()["hgnc"] == VALID_GENE
 
 
 def test_hgvs_transcript_invalid(client, setup_router_db):
     with requests_mock.mock() as m:
-        m.get("https://cdot.cc/transcript/NX_99999.1", status_code=404)
+        m.get(f"https://cdot.cc/transcript/{INVALID_TRANSCRIPT}", status_code=404)
 
         response = client.get(f"/api/v1/hgvs/transcripts/{INVALID_TRANSCRIPT}")
 
@@ -163,7 +160,7 @@ def test_hgvs_transcript_invalid(client, setup_router_db):
 def test_hgvs_transcript_protein_valid(client, setup_router_db):
     with requests_mock.mock() as m:
         m.get(
-            "https://cdot.cc/transcript/NM_000014.4",
+            f"https://cdot.cc/transcript/{HAS_PROTEIN_ACCESSION}",
             headers={"Content-Type": "application/json"},
             json={"biotype": ["protein_coding"], "gene_name": "A2M", "gene_vesion": "2", "protein": "NP_000005.2"},
         )
@@ -178,7 +175,7 @@ def test_hgvs_transcript_protein_valid(client, setup_router_db):
 
 def test_hgvs_transcript_protein_no_protein(client, setup_router_db):
     with requests_mock.mock() as m:
-        m.get("https://cdot.cc/transcript/NM_002977.4", status_code=404)
+        m.get(f"https://cdot.cc/transcript/{SMALL_ACCESSION}", status_code=404)
 
         response = client.get(f"/api/v1/hgvs/transcripts/protein/{SMALL_ACCESSION}")
 
@@ -188,7 +185,7 @@ def test_hgvs_transcript_protein_no_protein(client, setup_router_db):
 
 def test_hgvs_transcript_protein_invalid(client, setup_router_db):
     with requests_mock.mock() as m:
-        m.get("https://cdot.cc/transcript/NC_999999.99", status_code=404)
+        m.get(f"https://cdot.cc/transcript/{INVALID_ACCESSION}", status_code=404)
 
         response = client.get(f"/api/v1/hgvs/transcripts/protein/{INVALID_ACCESSION}")
 

@@ -1,25 +1,29 @@
-from datetime import date
-from copy import deepcopy
-import jsonschema
 import re
+from copy import deepcopy
+from datetime import date
 
-from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
-from tests.helpers.constants import (
-    TEST_MINIMAL_EXPERIMENT,
-    TEST_MINIMAL_EXPERIMENT_RESPONSE,
-    EXTRA_USER,
-    TEST_PUBMED_IDENTIFIER,
-    TEST_BIORXIV_IDENTIFIER,
-    TEST_MEDRXIV_IDENTIFIER,
-)
-from mavedb.view_models.experiment import Experiment, ExperimentCreate
-from mavedb.models.experiment import Experiment as ExperimentDbModel
-from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
+import jsonschema
 import pytest
-from tests.helpers.util import change_ownership, create_experiment, create_seq_score_set_with_variants
-
 import requests
 import requests_mock
+
+from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
+from mavedb.models.experiment import Experiment as ExperimentDbModel
+from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
+from mavedb.view_models.experiment import Experiment, ExperimentCreate
+from tests.helpers.util import (
+    change_ownership,
+    create_experiment,
+    create_seq_score_set_with_variants,
+)
+from tests.helpers.constants import (
+    EXTRA_USER,
+    TEST_BIORXIV_IDENTIFIER,
+    TEST_MEDRXIV_IDENTIFIER,
+    TEST_MINIMAL_EXPERIMENT,
+    TEST_MINIMAL_EXPERIMENT_RESPONSE,
+    TEST_PUBMED_IDENTIFIER,
+)
 
 
 def test_test_minimal_experiment_is_valid():
@@ -97,9 +101,11 @@ def test_cannot_assign_to_other_user_private_experiment_set(session, client, set
     assert f"experiment set with URN '{experiment['experimentSetUrn']}' not found" in response_data["detail"]
 
 
-def test_can_assign_to_own_public_experiment_set(client, setup_router_db, data_files):
+def test_can_assign_to_own_public_experiment_set(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
     published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
     response_data = create_experiment(
         client,
@@ -109,9 +115,11 @@ def test_can_assign_to_own_public_experiment_set(client, setup_router_db, data_f
     assert response_data["title"] == "Second Experiment"
 
 
-def test_cannot_assign_to_other_user_public_experiment_set(session, client, setup_router_db, data_files):
+def test_cannot_assign_to_other_user_public_experiment_set(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
     published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
     published_experiment_set_urn = published_score_set["experiment"]["experimentSetUrn"]
     change_ownership(session, published_experiment_set_urn, ExperimentSetDbModel)

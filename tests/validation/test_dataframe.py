@@ -37,7 +37,18 @@ from mavedb.lib.validation.dataframe import (
 from mavedb.lib.validation.exceptions import ValidationError
 
 
+@pytest.fixture
+def data_provider_class_attr(request, data_provider):
+    """
+    Sets the `human_data_provider` attribute on the class from the requesting
+    test context to the `data_provider` fixture. This allows fixture use across
+    the `unittest.TestCase` class.
+    """
+    request.cls.human_data_provider = data_provider
+
+
 # Special DF Test Case that contains dummy data for tests below
+@pytest.mark.usefixtures("data_provider_class_attr")
 class DfTestCase(TestCase):
     def setUp(self):
         self.dataframe = pd.DataFrame(
@@ -54,19 +65,6 @@ class DfTestCase(TestCase):
                 "null_col": [None, None],
             }
         )
-
-        data_provider = cdot.hgvs.dataproviders.RESTDataProvider(
-            seqfetcher=cdot.hgvs.dataproviders.ChainedSeqFetcher(
-                cdot.hgvs.dataproviders.FastaSeqFetcher(
-                    os.path.join(
-                        (Path(__file__).absolute().parent.parent).__str__(), "helpers/data/refseq.NM_001637.3.fasta"
-                    )
-                ),
-                # Include normal seqfetcher to fall back on mocked requests (or expose test shortcomings via socket connection attempts).
-                cdot.hgvs.dataproviders.SeqFetcher(),
-            )
-        )
-        self.human_data_provider = data_provider
 
 
 class TestInferColumnType(TestCase):
