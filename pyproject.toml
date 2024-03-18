@@ -26,6 +26,7 @@ dependencies = [
     "hgvs~=1.5.4",
     "biocommons~=0.0.0",
     "cdot~=0.2.21",
+    "httpx~=0.26.0",
     "numpy~=1.22",
     "pandas~=1.4.1",
     "pydantic~=1.10",
@@ -41,7 +42,6 @@ dev = [
     "pytest~=7.0.1",
     "pytest-postgresql~=5.0.0",
     "jsonschema",
-    "httpx~=0.26.0",
     "requests-mock~=1.11.0",
     "pytest-socket~=0.6.0",
 ]
