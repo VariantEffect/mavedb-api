@@ -66,7 +66,7 @@ class ExperimentSet(Base):
         back_populates="experiment_set", cascade="all, delete-orphan"
     )
 
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     created_by: Mapped[User] = relationship("User", foreign_keys="ExperimentSet.created_by_id")
     modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     modified_by: Mapped[User] = relationship("User", foreign_keys="ExperimentSet.modified_by_id")

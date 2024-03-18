@@ -68,7 +68,7 @@ class Experiment(Base):
     num_score_sets = Column("num_scoresets", Integer, nullable=False, default=0)
     score_sets: Mapped[List["ScoreSet"]] = relationship(back_populates="experiment", cascade="all, delete-orphan")
 
-    experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), nullable=True)
+    experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), index=True, nullable=True)
     experiment_set: Mapped[Optional[ExperimentSet]] = relationship(back_populates="experiments")
 
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)

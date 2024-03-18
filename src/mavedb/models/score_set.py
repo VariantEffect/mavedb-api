@@ -88,7 +88,7 @@ class ScoreSet(Base):
     num_variants = Column(Integer, nullable=False, default=0)
     variants: Mapped[list["Variant"]] = relationship(back_populates="score_set", cascade="all, delete-orphan")
 
-    experiment_id = Column(Integer, ForeignKey("experiments.id"), nullable=False)
+    experiment_id = Column(Integer, ForeignKey("experiments.id"), index=True, nullable=False)
     experiment: Mapped["Experiment"] = relationship(back_populates="score_sets")
 
     # TODO Standardize on US or GB spelling for licenc/se.
