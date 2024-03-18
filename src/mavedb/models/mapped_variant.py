@@ -12,5 +12,5 @@ class MappedVariant(Base):
     pre_mapped = Column(JSONB, nullable=False)
     post_mapped = Column(JSONB, nullable=False)
 
-    variant_id = Column(Integer, ForeignKey("variants.id"), nullable=False)
+    variant_id = Column(Integer, ForeignKey("variants.id"), index=True, nullable=False)
     variant = relationship("Variant", backref=backref("mapped_variants", cascade="all,delete-orphan"))

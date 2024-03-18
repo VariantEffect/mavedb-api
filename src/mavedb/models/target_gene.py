@@ -24,15 +24,15 @@ class TargetGene(Base):
     # ensembl_id_id = Column(Integer, ForeignKey('ensembl_identifiers.id'), nullable=True)
     # ensembl_id = relationship('EnsemblIdentifier', backref='target_genes')
     # refseq_id_id = Column(Integer, nullable=True)  # , ForeignKey('dataset_scoreset.id'), nullable=False)
-    score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), nullable=False)
+    score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=False)
     score_set = relationship(
         "ScoreSet",
         backref=backref("target_genes", cascade="all,delete-orphan", single_parent=True, uselist=True),
         single_parent=True,
     )
     # uniprot_id_id = Column(Integer, nullable=True)  # , ForeignKey('dataset_scoreset.id'), nullable=False)
-    target_sequence_id = Column(Integer, ForeignKey("target_sequences.id"), nullable=True)
-    accession_id = Column(Integer, ForeignKey("target_accessions.id"), nullable=True)
+    target_sequence_id = Column(Integer, ForeignKey("target_sequences.id"), index=True, nullable=True)
+    accession_id = Column(Integer, ForeignKey("target_accessions.id"), index=True, nullable=True)
     target_sequence = relationship(
         "TargetSequence",
         backref=backref("target_genes", single_parent=True, uselist=True),

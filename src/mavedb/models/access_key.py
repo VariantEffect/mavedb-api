@@ -10,7 +10,7 @@ class AccessKey(Base):
     __tablename__ = "access_keys"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     user = relationship("User", backref=backref("access_keys", cascade="all,delete-orphan"))
     key_id = Column(String, unique=True, index=True, nullable=False)
     public_key = Column(String, nullable=False)
