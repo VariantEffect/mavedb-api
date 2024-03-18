@@ -59,10 +59,10 @@ class Experiment(Base):
     # TODO Remove this obsolete column.
     num_score_sets = Column("num_scoresets", Integer, nullable=False, default=0)
 
-    experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), nullable=True)
+    experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), index=True, nullable=True)
     experiment_set = relationship("ExperimentSet", backref=backref("experiments", cascade="all,delete-orphan"))
 
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     created_by = relationship("User", foreign_keys="Experiment.created_by_id")
     modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     modified_by = relationship("User", foreign_keys="Experiment.modified_by_id")

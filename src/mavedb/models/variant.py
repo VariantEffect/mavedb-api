@@ -15,7 +15,7 @@ class Variant(Base):
     urn = Column(String(64), nullable=True, unique=True, index=True)
     data = Column(JSONB, nullable=False)
 
-    score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), nullable=False)
+    score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=False)
     # TODO examine if delete-orphan is necessary, explore cascade
     score_set = relationship("ScoreSet", backref=backref("variants", cascade="all,delete-orphan"))
 

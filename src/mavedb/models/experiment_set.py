@@ -54,7 +54,7 @@ class ExperimentSet(Base):
     # TODO Refactor the way we handle child collections?
     num_experiments = Column(Integer, nullable=False, default=0)
 
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     created_by = relationship("User", foreign_keys="ExperimentSet.created_by_id")
     modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     modified_by = relationship("User", foreign_keys="ExperimentSet.modified_by_id")

@@ -14,7 +14,7 @@ class TargetSequence(Base):
     sequence_type = Column(String, nullable=False)
     sequence = Column(String, nullable=False)
     label = Column(String, nullable=True)
-    reference_id = Column("reference_id", Integer, ForeignKey("reference_genomes.id"), nullable=True)
+    reference_id = Column("reference_id", Integer, ForeignKey("reference_genomes.id"), index=True, nullable=True)
     reference = relationship(
         "ReferenceGenome",
         backref=backref("target_sequences", single_parent=True),
