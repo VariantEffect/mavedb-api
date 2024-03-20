@@ -8,6 +8,7 @@ from humps import camelize
 
 from mavedb.lib.validation import keywords, urn_re
 from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.doi_identifier import (
@@ -239,7 +240,8 @@ class ScoreSet(SavedScoreSet):
     modified_by: Optional[User]
     target_genes: Sequence[TargetGene]
     private: bool
-    # processing_state: Optional[str]
+    processing_state: Optional[ProcessingState]
+    processing_errors: Optional[dict]
 
 
 class ScoreSetWithVariants(ScoreSet):

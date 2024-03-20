@@ -1,5 +1,6 @@
 from datetime import date
 from humps import camelize
+from mavedb.models.enums.processing_state import ProcessingState
 
 TEST_PUBMED_IDENTIFIER = "20711194"
 TEST_BIORXIV_IDENTIFIER = "2021.06.21.212592"
@@ -152,6 +153,7 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
     # keys to be set after receiving response
     "urn": None,
+    "processingState": ProcessingState.incomplete.name,
 }
 
 
@@ -211,6 +213,7 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
     # keys to be set after receiving response
     "urn": None,
+    "processingState": ProcessingState.incomplete.name,
 }
 
 

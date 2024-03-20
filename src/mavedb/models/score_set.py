@@ -81,6 +81,7 @@ class ScoreSet(Base):
         Enum(ProcessingState, create_constraint=True, length=32, native_enum=False, validate_strings=True),
         nullable=True,
     )
+    processing_errors = Column(JSONB, nullable=True)
     data_usage_policy = Column(String, nullable=True)
 
     # TODO Refactor the way we track the number of variants?

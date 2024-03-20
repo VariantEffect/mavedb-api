@@ -1,22 +1,33 @@
-import jsonschema
 import re
 from copy import deepcopy
 from datetime import date
+
+import jsonschema
 import pytest
-from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
+from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
+from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
-from tests.helpers.constants import TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_SEQ_SCORESET_RESPONSE
+from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
+
+from tests.helpers.constants import (
+    TEST_MINIMAL_ACC_SCORESET,
+    TEST_MINIMAL_SEQ_SCORESET,
+    TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
+)
 from tests.helpers.util import (
+    change_ownership,
     create_experiment,
     create_seq_score_set,
-    change_ownership,
     create_seq_score_set_with_variants,
 )
-from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 
 
 def test_TEST_MINIMAL_SEQ_SCORESET_is_valid():
     jsonschema.validate(instance=TEST_MINIMAL_SEQ_SCORESET, schema=ScoreSetCreate.schema())
+
+
+def test_TEST_MINIMAL_ACC_SCORESET_is_valid():
+    jsonschema.validate(instance=TEST_MINIMAL_ACC_SCORESET, schema=ScoreSetCreate.schema())
 
 
 def test_create_minimal_score_set(client, setup_router_db):
@@ -141,6 +152,7 @@ def test_publish_score_set(client, setup_router_db, data_files):
             "numVariants": 3,
             "private": False,
             "datasetColumns": {"countColumns": [], "scoreColumns": ["score"]},
+            "processingState": ProcessingState.success.name,
         }
     )
     expected_response["experiment"].update(
