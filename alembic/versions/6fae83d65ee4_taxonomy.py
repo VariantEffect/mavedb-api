@@ -4617,6 +4617,8 @@ def upgrade():
     # These two original reference genomes are Homo Sapiens
     op.execute("""UPDATE target_sequences SET taxonomy_id = 15 WHERE id = 568""")
     op.execute("""UPDATE target_sequences SET taxonomy_id = 15 WHERE id = 2470""")
+    #In case any missing target_sequence.
+    op.execute("""UPDATE target_sequences SET taxonomy_id = 0 WHERE taxonomy_id is NULL""")
 
     op.drop_column('target_sequences', 'reference_id')
     op.drop_index('ix_reference_genomes_id', table_name='reference_genomes')
