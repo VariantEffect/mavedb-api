@@ -30,6 +30,7 @@ from mavedb.lib.score_sets import (
     search_score_sets as _search_score_sets,
     VariantData,
 )
+from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_score_set_urn
 from mavedb.lib.validation import exceptions
 from mavedb.lib.validation.constants.general import null_values_list
@@ -39,10 +40,10 @@ from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
-from mavedb.models.reference_genome import ReferenceGenome
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_accession import TargetAccession
+from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.models.target_sequence import TargetSequence
@@ -392,15 +393,15 @@ async def create_score_set(
                 raise MixedTargetError(
                     "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                 )
-            reference_genome = (
-                db.query(ReferenceGenome).filter(ReferenceGenome.id == gene.target_sequence.reference.id).one_or_none()
-            )
-            if not reference_genome:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown reference")
+            upload_taxonomy = gene.target_sequence.taxonomy
+            taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
+
+            if not taxonomy:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown taxonomy")
 
             target_sequence = TargetSequence(
-                **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"reference"}),
-                reference=reference_genome,
+                **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"taxonomy"}),
+                taxonomy=taxonomy,
             )
             target_gene = TargetGene(
                 **jsonable_encoder(
@@ -688,20 +689,18 @@ async def update_score_set(
                         "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                     )
 
-                reference_genome = (
-                    db.query(ReferenceGenome)
-                    .filter(ReferenceGenome.id == gene.target_sequence.reference.id)
-                    .one_or_none()
-                )
-                if not reference_genome:
+                upload_taxonomy = gene.target_sequence.taxonomy
+                taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
+
+                if not taxonomy:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Unknown reference {gene.target_sequence.reference.id}",
+                        detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.id}",
                     )
 
                 target_sequence = TargetSequence(
-                    **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"reference"}),
-                    reference=reference_genome,
+                    **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"taxonomy"}),
+                    taxonomy=taxonomy,
                 )
                 target_gene = TargetGene(
                     **jsonable_encoder(

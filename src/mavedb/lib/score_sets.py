@@ -23,13 +23,13 @@ from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.keyword import Keyword
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
-from mavedb.models.reference_genome import ReferenceGenome
 from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.uniprot_offset import UniprotOffset
+from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
 from mavedb.view_models.search import ScoreSetsSearch
 
@@ -62,8 +62,8 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ScoreSet.keyword_objs.any(func.lower(Keyword.text).icontains(lower_search_text)),
                 ScoreSet.target_genes.any(
                     TargetGene.target_sequence.has(
-                        TargetSequence.reference.has(
-                            func.lower(ReferenceGenome.organism_name).icontains(lower_search_text)
+                        TargetSequence.taxonomy.has(
+                            func.lower(Taxonomy.organism_name).icontains(lower_search_text)
                         )
                     )
                 ),
@@ -95,7 +95,9 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
         query = query.filter(
             ScoreSet.target_genes.any(
                 TargetGene.target_sequence.has(
-                    TargetSequence.reference.has(ReferenceGenome.organism_name.in_(search.target_organism_names))
+                    TargetSequence.taxonomy.has(
+                        Taxonomy.organism_name.in_(search.target_organism_names)
+                    )
                 )
             )
         )
@@ -154,7 +156,7 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                         joinedload(TargetGene.ensembl_offset).joinedload(EnsemblOffset.identifier),
                         joinedload(TargetGene.refseq_offset).joinedload(RefseqOffset.identifier),
                         joinedload(TargetGene.uniprot_offset).joinedload(UniprotOffset.identifier),
-                        joinedload(TargetGene.target_sequence).joinedload(TargetSequence.reference),
+                        joinedload(TargetGene.target_sequence).joinedload(TargetSequence.taxonomy),
                         joinedload(TargetGene.target_accession),
                     ),
                 ),
@@ -169,7 +171,7 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 joinedload(TargetGene.ensembl_offset).joinedload(EnsemblOffset.identifier),
                 joinedload(TargetGene.refseq_offset).joinedload(RefseqOffset.identifier),
                 joinedload(TargetGene.uniprot_offset).joinedload(UniprotOffset.identifier),
-                joinedload(TargetGene.target_sequence).joinedload(TargetSequence.reference),
+                joinedload(TargetGene.target_sequence).joinedload(TargetSequence.taxonomy),
                 joinedload(TargetGene.target_accession),
             ),
         )

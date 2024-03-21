@@ -2,7 +2,7 @@ from datetime import date
 from typing import Optional
 
 from mavedb.view_models.base.base import BaseModel, validator
-from mavedb.view_models.reference_genome import ReferenceGenome
+from mavedb.view_models.taxonomy import Taxonomy, TaxonomyCreate
 from mavedb.lib.validation import target
 from mavedb.lib.validation.exceptions import ValidationError
 
@@ -13,7 +13,8 @@ class TargetSequenceBase(BaseModel):
     sequence_type: str
     sequence: str
     label: Optional[str]
-    reference: ReferenceGenome
+    # Without this one targetGene.targetSequence?.taxonomy.organismName in front end doesn't work
+    taxonomy: Taxonomy
 
 
 class TargetSequenceModify(TargetSequenceBase):
@@ -52,7 +53,7 @@ class TargetSequenceModify(TargetSequenceBase):
 
 
 class TargetSequenceCreate(TargetSequenceModify):
-    pass
+    taxonomy: TaxonomyCreate
 
 
 class TargetSequenceUpdate(TargetSequenceModify):
