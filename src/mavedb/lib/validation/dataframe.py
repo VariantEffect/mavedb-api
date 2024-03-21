@@ -440,7 +440,7 @@ def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: 
     # format and raise an error message that contains all invalid variants
     if len(invalid_variants) > 0:
         raise ValidationError(
-            f"encountered {len(invalid_variants)} invalid variant strings: {(', '.join(invalid_variants))}"
+            f"encountered {len(invalid_variants)} invalid variant strings.", triggers=invalid_variants
         )
 
 
@@ -520,7 +520,7 @@ def validate_hgvs_genomic_column(
     # format and raise an error message that contains all invalid variants
     if len(invalid_variants) > 0:
         raise ValidationError(
-            f"encountered {len(invalid_variants)} invalid variant strings: {(', '.join(invalid_variants))}"
+            f"encountered {len(invalid_variants)} invalid variant strings.", triggers=invalid_variants
         )
 
 
