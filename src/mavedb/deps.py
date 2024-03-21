@@ -7,7 +7,7 @@ from cdot.hgvs.dataproviders import RESTDataProvider, ChainedSeqFetcher, FastaSe
 from sqlalchemy.dialects.postgresql import JSONB
 
 from mavedb.db.session import SessionLocal
-from mavedb.worker.settings import RedisWorker
+from mavedb.worker.settings import RedisWorkerSettings
 
 
 def get_db() -> Generator:
@@ -20,7 +20,7 @@ def get_db() -> Generator:
 
 
 async def get_worker() -> AsyncGenerator:
-    queue = await create_pool(RedisWorker)
+    queue = await create_pool(RedisWorkerSettings)
     try:
         yield queue
     finally:

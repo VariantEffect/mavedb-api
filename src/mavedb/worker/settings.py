@@ -14,7 +14,7 @@ REDIS_IP = os.getenv("REDIS_IP") or "localhost"
 REDIS_PORT = int(os.getenv("REDIS_PORT") or 6379)
 
 
-RedisWorker = RedisSettings(host=REDIS_IP, port=REDIS_PORT)
+RedisWorkerSettings = RedisSettings(host=REDIS_IP, port=REDIS_PORT)
 
 
 # TODO: If we need to define custom startup and shutdown behavior
@@ -27,14 +27,14 @@ async def shutdown(ctx):
     pass
 
 
-class WorkerSettings:
+class ArqWorkerSettings:
     """
     Settings for the ARQ worker.
     """
 
     on_startup = startup
     on_shutdown = shutdown
-    redis_settings = RedisWorker
+    redis_settings = RedisWorkerSettings
     functions: list = BACKGROUND_FUNCTIONS
     cron_jobs: list = BACKGROUND_CRONJOBS
 

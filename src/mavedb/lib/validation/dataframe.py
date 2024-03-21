@@ -133,10 +133,10 @@ def validate_and_standardize_dataframe_pair(
         The scores dataframe
     counts_df : Optional[pandas.DataFrame]
         The counts dataframe, can be None if not present
-    target_seq : str
-        The target sequence for the dataset
-    target_seq_type : str
-        The target sequence type, can be "infer" "dna" or "protein"
+    targets : str
+        The target genes on which to validate dataframes
+    hdp : RESTDataProvider
+        The biocommons.hgvs compatible data provider. Used to fetch sequences for hgvs validation.
 
     Returns
     -------
@@ -161,7 +161,7 @@ def validate_and_standardize_dataframe_pair(
     return new_scores_df, new_counts_df
 
 
-def validate_dataframe(df: pd.DataFrame, kind: str, targets: list[TargetGene], hdp: RESTDataProvider) -> None:
+def validate_dataframe(df: pd.DataFrame, kind: str, targets: list["TargetGene"], hdp: RESTDataProvider) -> None:
     """
     Validate that a given dataframe passes all checks.
 
@@ -338,7 +338,7 @@ def choose_dataframe_index_column(df: pd.DataFrame) -> str:
         raise ValidationError("failed to find valid HGVS variant column")
 
 
-def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: dict[str, TargetSequence]) -> None:
+def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: dict[str, "TargetSequence"]) -> None:
     """
     Validate the variants in an HGVS column from a dataframe.
 
@@ -445,7 +445,7 @@ def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: 
 
 
 def validate_hgvs_genomic_column(
-    column: pd.Series, is_index: bool, targets: list[TargetAccession], hdp: RESTDataProvider
+    column: pd.Series, is_index: bool, targets: list["TargetAccession"], hdp: RESTDataProvider
 ) -> None:
     """
     Validate the variants in an HGVS column from a dataframe.

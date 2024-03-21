@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import BinaryIO, Optional
 
 import numpy as np
 import pandas as pd
@@ -14,6 +14,7 @@ from mavedb.lib.mave.constants import (
     VARIANT_COUNT_DATA,
     VARIANT_SCORE_DATA,
 )
+from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset
@@ -34,9 +35,20 @@ from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.user import User
+from mavedb.models.variant import Variant
 from mavedb.view_models.search import ScoreSetsSearch
 
 VariantData = dict[str, Optional[dict[str, dict]]]
+
+
+class HGVSColumns:
+    NUCLEOTIDE: str = "hgvs_nt"  # dataset.constants.hgvs_nt_column
+    TRANSCRIPT: str = "hgvs_splice"  # dataset.constants.hgvs_splice_column
+    PROTEIN: str = "hgvs_pro"  # dataset.constants.hgvs_pro_column
+
+    @classmethod
+    def options(cls) -> list[str]:
+        return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
 def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
@@ -298,7 +310,8 @@ def arrays_equal(array1: np.ndarray, array2: np.ndarray):
     return array1.shape == array2.shape and all(
         # note that each of the three expressions here is a boolean ndarray
         # so combining them with bitwise `&` and `|` works:
-        (pd.isnull(array1) & pd.isnull(array2)) | (array1 == array2)
+        (pd.isnull(array1) & pd.isnull(array2))
+        | (array1 == array2)
     )
 
 
@@ -316,10 +329,8 @@ def validate_datasets_define_same_variants(scores, counts):
     """
     # TODO First, confirm that the two dataframes have the same HGVS columns.
     if any(
-        col in scores and not arrays_equal(
-            scores[col].sort_values(),
-            counts[col].sort_values()
-        ) for col in (HGVS_NT_COLUMN, HGVS_SPLICE_COLUMN, HGVS_PRO_COLUMN)
+        col in scores and not arrays_equal(scores[col].sort_values(), counts[col].sort_values())
+        for col in (HGVS_NT_COLUMN, HGVS_SPLICE_COLUMN, HGVS_PRO_COLUMN)
     ):
         raise ValidationError(
             "Your score and counts files do not define the same variants. "
@@ -422,3 +433,61 @@ def create_variants_data(scores, counts=None, index_col=None) -> list[VariantDat
             variants.append(variant)
 
     return variants
+
+
+def create_variants(db, score_set: ScoreSet, variants_data: list[VariantData], batch_size=None) -> int:
+    num_variants = len(variants_data)
+    variant_urns = bulk_create_urns(num_variants, score_set, True)
+    variants = (
+        # TODO: Is there a nicer way to handle this than passing dicts into kwargs
+        # of the class initializer?
+        Variant(urn=urn, score_set_id=score_set.id, **kwargs)  # type: ignore
+        for urn, kwargs in zip(variant_urns, variants_data)
+    )
+    db.bulk_save_objects(variants)
+    db.add(score_set)
+    return len(score_set.variants)
+
+
+def bulk_create_urns(n, score_set, reset_counter=False) -> list[str]:
+    start_value = 0 if reset_counter else score_set.num_variants
+    parent_urn = score_set.urn
+    child_urns = ["{}#{}".format(parent_urn, start_value + (i + 1)) for i in range(n)]
+    current_value = start_value + n
+    score_set.num_variants = current_value
+    return child_urns
+
+
+def csv_data_to_df(file_data: BinaryIO) -> pd.DataFrame:
+    extra_na_values = list(
+        set(
+            list(null_values_list)
+            + [str(x).lower() for x in null_values_list]
+            + [str(x).upper() for x in null_values_list]
+            + [str(x).capitalize() for x in null_values_list]
+        )
+    )
+
+    ingested_df = pd.read_csv(
+        filepath_or_buffer=file_data,
+        sep=",",
+        encoding="utf-8",
+        quotechar="'",
+        comment="#",
+        na_values=extra_na_values,
+        keep_default_na=True,
+        dtype={**{col: str for col in HGVSColumns.options()}, "scores": float},
+    )
+
+    for c in HGVSColumns.options():
+        if c not in ingested_df.columns:
+            ingested_df[c] = np.NaN
+
+    return ingested_df
+
+
+def columns_for_dataset(dataset: Optional[pd.DataFrame]) -> list[str]:
+    if dataset is None:
+        return []
+
+    return [col for col in dataset.columns if col not in HGVSColumns.options()]

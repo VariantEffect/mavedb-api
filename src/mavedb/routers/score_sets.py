@@ -30,6 +30,8 @@ from mavedb.lib.score_sets import (
     find_meta_analyses_for_experiment_sets,
     search_score_sets as _search_score_sets,
     VariantData,
+    HGVSColumns,
+    csv_data_to_df,
 )
 from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_score_set_urn
 from mavedb.lib.validation import exceptions
@@ -270,16 +272,6 @@ def get_score_set_mapped_variants(
     return mapped_variants
 
 
-class HGVSColumns:
-    NUCLEOTIDE: str = "hgvs_nt"  # dataset.constants.hgvs_nt_column
-    TRANSCRIPT: str = "hgvs_splice"  # dataset.constants.hgvs_splice_column
-    PROTEIN: str = "hgvs_pro"  # dataset.constants.hgvs_pro_column
-
-    @classmethod
-    def options(cls) -> List[str]:
-        return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
-
-
 @router.post("/score-sets/", response_model=score_set.ScoreSet, responses={422: {}}, response_model_exclude_none=True)
 async def create_score_set(
     *,
@@ -403,9 +395,14 @@ async def create_score_set(
             if not reference_genome:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown reference")
 
+            # If the target sequence has a label, use it. Otherwise, use the name from the target gene as the label.
+            # View model validation rules enforce that sequences must have a label defined if there are more than one
+            # targets defined on a score set.
+            seq_label = gene.target_sequence.label if gene.target_sequence.label is not None else gene.name
             target_sequence = TargetSequence(
-                **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"reference"}),
+                **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"reference", "label"}),
                 reference=reference_genome,
+                label=seq_label,
             )
             target_gene = TargetGene(
                 **jsonable_encoder(
@@ -508,47 +505,19 @@ async def upload_score_set_variant_data(
         return None
     assert_permission(user, item, Action.SET_SCORES)
 
-    # Delete the old variants so that uploading new scores and counts won't accumulate the old ones.
+    # Mark the score set as being processed and delete the old variants so that uploading new scores and counts won't accumulate the old ones.
+    item.processing_state = ProcessingState.processing
     db.query(Variant).filter(Variant.score_set_id == item.id).delete()
+    db.add(item)
+    db.commit()
+    db.refresh(item)
 
-    extra_na_values = list(
-        set(
-            list(null_values_list)
-            + [str(x).lower() for x in null_values_list]
-            + [str(x).upper() for x in null_values_list]
-            + [str(x).capitalize() for x in null_values_list]
-        )
-    )
-    scores_df = pd.read_csv(
-        filepath_or_buffer=scores_file.file,
-        sep=",",
-        encoding="utf-8",
-        quotechar="'",
-        comment="#",
-        na_values=extra_na_values,
-        keep_default_na=True,
-        dtype={**{col: str for col in HGVSColumns.options()}, "scores": float},
-    )  # .replace(null_values_re, np.NaN) String will be replaced to NaN value
-    for c in HGVSColumns.options():
-        if c not in scores_df.columns:
-            scores_df[c] = np.NaN
+    scores_df = csv_data_to_df(scores_file.file)
     score_columns = [col for col in scores_df.columns if col not in HGVSColumns.options()]
     counts_df = None
     count_columns = []
     if counts_file and counts_file.filename:
-        counts_df = pd.read_csv(
-            filepath_or_buffer=counts_file.file,
-            sep=",",
-            encoding="utf-8",
-            quotechar="'",
-            comment="#",
-            na_values=extra_na_values,
-            keep_default_na=True,
-            dtype={**{col: str for col in HGVSColumns.options()}, "scores": float},
-        )  # .replace(null_values_re, np.NaN)
-        for c in HGVSColumns.options():
-            if c not in counts_df.columns:
-                counts_df[c] = np.NaN
+        counts_df = csv_data_to_df(counts_file.file)
 
         count_columns = [col for col in counts_df.columns if col not in HGVSColumns.options()]
     """
@@ -709,9 +678,14 @@ async def update_score_set(
                         detail=f"Unknown reference {gene.target_sequence.reference.id}",
                     )
 
+                # If the target sequence has a label, use it. Otherwise, use the name from the target gene as the label.
+                # View model validation rules enforce that sequences must have a label defined if there are more than one
+                # targets defined on a score set.
+                seq_label = gene.target_sequence.label if gene.target_sequence.label is not None else gene.name
                 target_sequence = TargetSequence(
-                    **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"reference"}),
+                    **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"reference", "label"}),
                     reference=reference_genome,
+                    label=seq_label,
                 )
                 target_gene = TargetGene(
                     **jsonable_encoder(
