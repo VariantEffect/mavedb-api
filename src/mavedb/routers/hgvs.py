@@ -108,7 +108,7 @@ def transcript_info(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_p
     if not transcript_info:
         raise HTTPException(404, f"No transcript information found for {transcript}.")
 
-    return hdp.get_tx_identity_info(transcript)
+    return transcript_info
 
 
 @router.get("/transcripts/protein/{transcript}", status_code=200, response_model=str)
