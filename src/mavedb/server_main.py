@@ -27,6 +27,7 @@ from mavedb.routers import (
     hgvs,
     licenses,
     mapped_variant,
+    orcid,
     publication_identifiers,
     target_gene_identifiers,
     raw_read_identifiers,
@@ -63,6 +64,7 @@ app.include_router(experiments.router)
 app.include_router(hgvs.router)
 app.include_router(licenses.router)
 app.include_router(mapped_variant.router)
+app.include_router(orcid.router)
 app.include_router(publication_identifiers.router)
 app.include_router(raw_read_identifiers.router)
 app.include_router(reference_genomes.router)
