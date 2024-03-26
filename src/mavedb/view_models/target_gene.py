@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Any, Optional
 
-from pydantic import conlist
+from pydantic import root_validator
 from pydantic.utils import GetterDict
 
 from mavedb.view_models import external_gene_identifier_offset
@@ -56,11 +56,15 @@ class TargetGeneCreate(TargetGeneModify):
     target_accession: Optional[TargetAccessionCreate]
     external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffsetCreate]
 
-    @validator("target_accession")
-    def check_seq_or_accession(cls, target_accession, values):
-        if "target_sequence" not in values and not target_accession:
-            raise ValueError("either a `target_sequence` or `target_accession` is required")
-        return target_accession
+    @root_validator()
+    def sequence_or_accession_required_and_mutually_exclusive(cls, values: dict[str, Any]) -> dict[str, Any]:
+        target_seq, target_acc = values.get("target_sequence"), values.get("target_accession")
+        if target_seq is not None and target_acc is not None:
+            raise ValueError("Expected either a `target_sequence` or a `target_accession`, not both.")
+        if target_seq is None and target_acc is None:
+            raise ValueError("Expected either a `target_sequence` or a `target_accession`, not neither.")
+
+        return values
 
 
 class TargetGeneUpdate(TargetGeneModify):
