@@ -10,6 +10,7 @@ from mavedb.lib.score_sets import (
     create_variants,
     create_variants_data,
 )
+from mavedb.lib.slack import send_slack_message
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.dataframe import (
     validate_and_standardize_dataframe_pair,
@@ -75,14 +76,13 @@ async def create_variants_for_score_set(
         logger.error(f"Validation error while processing variants for {score_set.urn}", exc_info=e)
         score_set.processing_errors = {"exception": str(e), "detail": e.triggering_exceptions}
 
-    # TODO: Other errors likely represent internal failures. Since there is minimal visibility into worker processes, it might
-    #       make sense for those to get logged to #mavedb-alerts.
     # NOTE: Since these are likely to be internal errors, it makes less sense to add them to the DB and surface them to the end user.
-    # Catch all non-system exiting exceptions
+    # Catch all non-system exiting exceptions.
     except Exception as e:
         db.rollback()
         score_set.processing_state = ProcessingState.failed
         logger.error(f"Encountered an exception while processing variants for {score_set.urn}", exc_info=e)
+        send_slack_message(err=e)
 
     # Catch all other exceptions and raise them. The exceptions caught here will be system exiting.
     except BaseException as e:
