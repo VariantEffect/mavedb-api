@@ -16,7 +16,7 @@ REDIS_IP = os.getenv("REDIS_IP") or "localhost"
 REDIS_PORT = int(os.getenv("REDIS_PORT") or 6379)
 
 
-RedisWorkerSettings = RedisSettings(host=REDIS_IP, port=REDIS_PORT)
+RedisWorkerSettings = RedisSettings(host=REDIS_IP, port=REDIS_PORT, ssl=True)
 
 
 async def startup(ctx):
