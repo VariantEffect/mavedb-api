@@ -8,6 +8,8 @@ from humps import camelize
 
 from mavedb.lib.validation import keywords, urn_re
 from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.models.target_sequence import TargetSequence
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.doi_identifier import (
@@ -85,7 +87,8 @@ class ScoreSetModify(ScoreSetBase):
     # Validate nested label fields are not identical
     @validator("target_genes")
     def target_labels_are_unique(cls, field_value, values):
-        if len(field_value) > 1:
+        # Labels are only used on target sequence instances.
+        if len(field_value) > 1 and all([isinstance(target, TargetSequence) for target in field_value]):
             labels = [target.target_sequence.label for target in field_value]
             dup_indices = [idx for idx, item in enumerate(labels) if item in labels[:idx]]
             if dup_indices:
@@ -239,7 +242,8 @@ class ScoreSet(SavedScoreSet):
     modified_by: Optional[User]
     target_genes: Sequence[TargetGene]
     private: bool
-    # processing_state: Optional[str]
+    processing_state: Optional[ProcessingState]
+    processing_errors: Optional[dict]
 
 
 class ScoreSetWithVariants(ScoreSet):

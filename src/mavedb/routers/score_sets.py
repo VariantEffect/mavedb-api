@@ -7,6 +7,7 @@ from typing import Any, List, Optional
 
 import numpy as np
 import pandas as pd
+from arq import ArqRedis
 from cdot.hgvs.dataproviders import RESTDataProvider
 from fastapi import APIRouter, Depends, File, status, UploadFile, Query
 from fastapi.encoders import jsonable_encoder
@@ -18,7 +19,6 @@ from sqlalchemy.exc import MultipleResultsFound
 
 from mavedb import deps
 from mavedb.lib.authorization import get_current_user, require_current_user
-from mavedb.lib.validation.constants.general import hgvs_columns
 from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
     find_or_create_doi_identifier,
@@ -26,15 +26,12 @@ from mavedb.lib.identifiers import (
 )
 from mavedb.lib.permissions import Action, assert_permission
 from mavedb.lib.score_sets import (
-    create_variants_data,
     find_meta_analyses_for_experiment_sets,
     search_score_sets as _search_score_sets,
-    VariantData,
+    HGVSColumns,
+    csv_data_to_df,
 )
 from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_score_set_urn
-from mavedb.lib.validation import exceptions
-from mavedb.lib.validation.constants.general import null_values_list
-from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_pair
 from mavedb.lib.exceptions import MixedTargetError
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
@@ -270,16 +267,6 @@ def get_score_set_mapped_variants(
     return mapped_variants
 
 
-class HGVSColumns:
-    NUCLEOTIDE: str = "hgvs_nt"  # dataset.constants.hgvs_nt_column
-    TRANSCRIPT: str = "hgvs_splice"  # dataset.constants.hgvs_splice_column
-    PROTEIN: str = "hgvs_pro"  # dataset.constants.hgvs_pro_column
-
-    @classmethod
-    def options(cls) -> List[str]:
-        return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
-
-
 @router.post("/score-sets/", response_model=score_set.ScoreSet, responses={422: {}}, response_model_exclude_none=True)
 async def create_score_set(
     *,
@@ -403,9 +390,14 @@ async def create_score_set(
             if not reference_genome:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown reference")
 
+            # If the target sequence has a label, use it. Otherwise, use the name from the target gene as the label.
+            # View model validation rules enforce that sequences must have a label defined if there are more than one
+            # targets defined on a score set.
+            seq_label = gene.target_sequence.label if gene.target_sequence.label is not None else gene.name
             target_sequence = TargetSequence(
-                **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"reference"}),
+                **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"reference", "label"}),
                 reference=reference_genome,
+                label=seq_label,
             )
             target_gene = TargetGene(
                 **jsonable_encoder(
@@ -493,7 +485,7 @@ async def upload_score_set_variant_data(
     scores_file: UploadFile = File(...),
     db: Session = Depends(deps.get_db),
     user: User = Depends(require_current_user),
-    hdp: RESTDataProvider = Depends(deps.hgvs_data_provider),
+    worker: ArqRedis = Depends(deps.get_worker),
 ) -> Any:
     """
     Upload scores and variant count files for a score set, and initiate processing these files to
@@ -508,111 +500,23 @@ async def upload_score_set_variant_data(
         return None
     assert_permission(user, item, Action.SET_SCORES)
 
-    # Delete the old variants so that uploading new scores and counts won't accumulate the old ones.
+    # Mark the score set as being processed and delete the old variants so that uploading new scores and counts won't accumulate the old ones.
+    item.processing_state = ProcessingState.processing
     db.query(Variant).filter(Variant.score_set_id == item.id).delete()
-
-    extra_na_values = list(
-        set(
-            list(null_values_list)
-            + [str(x).lower() for x in null_values_list]
-            + [str(x).upper() for x in null_values_list]
-            + [str(x).capitalize() for x in null_values_list]
-        )
-    )
-    scores_df = pd.read_csv(
-        filepath_or_buffer=scores_file.file,
-        sep=",",
-        encoding="utf-8",
-        quotechar="'",
-        comment="#",
-        na_values=extra_na_values,
-        keep_default_na=True,
-        dtype={**{col: str for col in HGVSColumns.options()}, "scores": float},
-    )  # .replace(null_values_re, np.NaN) String will be replaced to NaN value
-    for c in HGVSColumns.options():
-        if c not in scores_df.columns:
-            scores_df[c] = np.NaN
-    score_columns = [col for col in scores_df.columns if col not in HGVSColumns.options()]
-    counts_df = None
-    count_columns = []
-    if counts_file and counts_file.filename:
-        counts_df = pd.read_csv(
-            filepath_or_buffer=counts_file.file,
-            sep=",",
-            encoding="utf-8",
-            quotechar="'",
-            comment="#",
-            na_values=extra_na_values,
-            keep_default_na=True,
-            dtype={**{col: str for col in HGVSColumns.options()}, "scores": float},
-        )  # .replace(null_values_re, np.NaN)
-        for c in HGVSColumns.options():
-            if c not in counts_df.columns:
-                counts_df[c] = np.NaN
-
-        count_columns = [col for col in counts_df.columns if col not in HGVSColumns.options()]
-    """
-    if counts_file:
-        try:
-            validate_column_names(counts_df)
-        except exceptions.ValidationError as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    """
-    if scores_file:
-        if item.target_genes:
-            try:
-                validate_and_standardize_dataframe_pair(scores_df, counts_df, item.target_genes, hdp)
-            except exceptions.ValidationError as e:
-                logger.error(f"Validation error: {e}")
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-    variants_data = create_variants_data(scores_df, counts_df, None)  # , index_col)
-
-    item.num_variants = create_variants(db, item, variants_data)
-    logger.info(f"saving variants for {item.urn}")
-
-    item.dataset_columns = {"count_columns": list(count_columns), "score_columns": list(score_columns)}
-    item.modified_by = user
     db.add(item)
-
-    # create_variants_task.submit_task(kwargs={
-    #    'user_id': None,
-    #    'score_set_urn': item.urn,
-    #    'scores': None
-    #    # 'counts',
-    #    # 'index_col',
-    #    # 'dataset_columns'
-    # })
-
     db.commit()
     db.refresh(item)
+
+    scores_df = csv_data_to_df(scores_file.file)
+    counts_df = None
+    if counts_file and counts_file.filename:
+        counts_df = csv_data_to_df(counts_file.file)
+
+    if scores_file:
+        # await the insertion of this job into the worker queue, not the job itself.
+        await worker.enqueue_job("create_variants_for_score_set", item.urn, user.id, scores_df, counts_df)
+
     return item
-
-
-# @classmethod
-# @transaction.atomic
-def create_variants(db, score_set: ScoreSet, variants_data: list[VariantData], batch_size=None) -> int:
-    num_variants = len(variants_data)
-    variant_urns = bulk_create_urns(num_variants, score_set, True)
-    variants = (
-        # TODO: Is there a nicer way to handle this than passing dicts into kwargs
-        # of the class initializer?
-        Variant(urn=urn, score_set_id=score_set.id, **kwargs)  # type: ignore
-        for urn, kwargs in zip(variant_urns, variants_data)
-    )
-    db.bulk_save_objects(variants)
-    db.add(score_set)
-    return len(score_set.variants)
-
-
-# @staticmethod
-def bulk_create_urns(n, score_set, reset_counter=False) -> List[str]:
-    start_value = 0 if reset_counter else score_set.num_variants
-    parent_urn = score_set.urn
-    child_urns = ["{}#{}".format(parent_urn, start_value + (i + 1)) for i in range(n)]
-    current_value = start_value + n
-    score_set.num_variants = current_value
-    return child_urns
 
 
 @router.put("/score-sets/{urn}", response_model=score_set.ScoreSet, responses={422: {}})
@@ -622,7 +526,8 @@ async def update_score_set(
     item_update: score_set.ScoreSetUpdate,
     db: Session = Depends(deps.get_db),
     user: User = Depends(require_current_user),
-    hdp: RESTDataProvider = Depends(deps.hgvs_data_provider),
+    hdp: RESTDataProvider = Depends(deps.hgvs_data_provider),  # TODO - remove.
+    worker: ArqRedis = Depends(deps.get_worker),
 ) -> Any:
     """
     Update a score set.
@@ -709,9 +614,14 @@ async def update_score_set(
                         detail=f"Unknown reference {gene.target_sequence.reference.id}",
                     )
 
+                # If the target sequence has a label, use it. Otherwise, use the name from the target gene as the label.
+                # View model validation rules enforce that sequences must have a label defined if there are more than one
+                # targets defined on a score set.
+                seq_label = gene.target_sequence.label if gene.target_sequence.label is not None else gene.name
                 target_sequence = TargetSequence(
-                    **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"reference"}),
+                    **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"reference", "label"}),
                     reference=reference_genome,
+                    label=seq_label,
                 )
                 target_gene = TargetGene(
                     **jsonable_encoder(
@@ -763,18 +673,8 @@ async def update_score_set(
                 get_csv_rows_data(item.variants, columns=count_columns, dtype="count_data")
             ).replace("NA", pd.NA)
 
-            try:
-                # if our count data only has hgvs columns, we can assume we weren't provided with count data.
-                if set([col.lower() for col in count_data.columns]).issubset(set(hgvs_columns)):
-                    validate_and_standardize_dataframe_pair(scores_data, None, item.target_genes, hdp)
-                else:
-                    validate_and_standardize_dataframe_pair(scores_data, count_data, item.target_genes, hdp)
-            except exceptions.ValidationError as e:
-                db.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Encountered an exception while re-validating variants: {e}. This update will be discarded.",
-                )
+            # await the insertion of this job into the worker queue, not the job itself.
+            await worker.enqueue_job("create_variants_for_score_set", item.urn, user.id, scores_data, count_data)
 
         for var, value in vars(item_update).items():
             if var not in [

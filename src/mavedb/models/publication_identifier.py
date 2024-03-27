@@ -1,9 +1,10 @@
 from datetime import date
 
 from sqlalchemy import Column, Date, Integer, String
-from mavedb.deps import JSONB
+from sqlalchemy.dialects.postgresql import JSONB
 
 from mavedb.db.base import Base
+
 
 class PublicationIdentifier(Base):
     __tablename__ = "publication_identifiers"
