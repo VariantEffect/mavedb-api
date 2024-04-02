@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
+from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
 
 from mavedb import deps
@@ -117,9 +118,14 @@ def get_experiment_score_sets(
     if not experiment:
         raise HTTPException(status_code=404, detail=f"experiment with URN '{urn}' not found")
     assert_permission(user, experiment, Action.READ)
-    # Only get published score sets. Unpublished score sets won't be shown on experiment page.
-    # score_sets = db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(not ScoreSet.private).all()
-    score_sets = db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(ScoreSet.private.is_(False)).all()
+    # If there is a current user with score sets associated with this experiment, return all of them. Otherwise, only show
+    # the public / published score sets.
+    score_sets = (
+        db.query(ScoreSet)
+        .filter(ScoreSet.experiment_id == experiment.id)
+        .filter(or_(ScoreSet.private.is_(False), and_(ScoreSet.private.is_(True), ScoreSet.created_by == user)))
+        .all()
+    )
     if not score_sets:
         raise HTTPException(status_code=404, detail="no associated score sets")
     else:

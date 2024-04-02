@@ -12,8 +12,9 @@ from tests.helpers.constants import (
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
+from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 import pytest
-from tests.helpers.util import change_ownership, create_experiment, create_score_set_with_variants
+from tests.helpers.util import change_ownership, create_experiment, create_score_set, create_score_set_with_variants
 
 import requests
 import requests_mock
@@ -159,7 +160,6 @@ def test_required_fields(client, setup_router_db, test_field):
 
 
 def test_create_experiment_with_new_primary_pubmed_publication(client, setup_router_db, requests_mock):
-
     # minimal xml to pass validation
     requests_mock.post(
         "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
@@ -189,13 +189,11 @@ def test_create_experiment_with_new_primary_pubmed_publication(client, setup_rou
                 </PubmedData>
               </PubmedArticle>
             </PubmedArticleSet>
-        """)
+        """,
+    )
 
     # code checks that this isn't also a valid bioxriv ID, so we return nothing
-    requests_mock.get(
-        "https://api.biorxiv.org/details/medrxiv/10.1101/20711194/na/json",
-        json={"collection": []}
-    )
+    requests_mock.get("https://api.biorxiv.org/details/medrxiv/10.1101/20711194/na/json", json={"collection": []})
 
     response_data = create_experiment(client, {"primaryPublicationIdentifiers": [{"identifier": "20711194"}]})
     assert len(response_data["primaryPublicationIdentifiers"]) == 1
@@ -218,25 +216,28 @@ def test_create_experiment_with_new_primary_pubmed_publication(client, setup_rou
 
 
 def test_create_experiment_with_new_primary_biorxiv_publication(client, setup_router_db, requests_mock):
-
     requests_mock.get(
         "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.21.21259225/na/json",
-        json={"collection": [{
-            "title": "test1",
-            "doi": "test2",
-            "category": "test3",
-            "authors": "test4; test5",
-            "author_corresponding": "test6",
-            "author_corresponding_institution": "test7",
-            "date": "1999-12-31",
-            "version": "test8",
-            "type": "test9",
-            "license": "test10",
-            "jatsxml": "test11",
-            "abstract": "test12",
-            "published": "test13",
-            "server": "test14",
-        }]}
+        json={
+            "collection": [
+                {
+                    "title": "test1",
+                    "doi": "test2",
+                    "category": "test3",
+                    "authors": "test4; test5",
+                    "author_corresponding": "test6",
+                    "author_corresponding_institution": "test7",
+                    "date": "1999-12-31",
+                    "version": "test8",
+                    "type": "test9",
+                    "license": "test10",
+                    "jatsxml": "test11",
+                    "abstract": "test12",
+                    "published": "test13",
+                    "server": "test14",
+                }
+            ]
+        },
     )
 
     response_data = create_experiment(
@@ -263,16 +264,13 @@ def test_create_experiment_with_new_primary_biorxiv_publication(client, setup_ro
 
 
 def test_create_experiment_biorxiv_not_found(client, setup_router_db):
-
     with requests_mock.mock() as m:
         m.get(
             "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.22.21259225/na/json",
-            json={"messages": [{"status": "no posts found"}], "collection": []}
+            json={"messages": [{"status": "no posts found"}], "collection": []},
         )
         payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
-        payload['primaryPublicationIdentifiers'] = [
-            {'identifier': '2021.06.22.21259225'}
-        ]
+        payload["primaryPublicationIdentifiers"] = [{"identifier": "2021.06.22.21259225"}]
         r = client.post("/api/v1/experiments/", json=payload)
 
         assert m.called
@@ -281,16 +279,13 @@ def test_create_experiment_biorxiv_not_found(client, setup_router_db):
 
 
 def test_create_experiment_biorxiv_timeout(client, setup_router_db):
-
     with requests_mock.mock() as m:
         m.get(
             "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.21.21259225/na/json",
-            exc=requests.exceptions.ConnectTimeout
+            exc=requests.exceptions.ConnectTimeout,
         )
         payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
-        payload['primaryPublicationIdentifiers'] = [
-            {'identifier': '2021.06.21.21259225'}
-        ]
+        payload["primaryPublicationIdentifiers"] = [{"identifier": "2021.06.21.21259225"}]
         r = client.post("/api/v1/experiments/", json=payload)
 
         assert m.called
@@ -298,16 +293,10 @@ def test_create_experiment_biorxiv_timeout(client, setup_router_db):
 
 
 def test_create_experiment_biorxiv_unavailable(client, setup_router_db):
-
     with requests_mock.mock() as m:
-        m.get(
-            "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.21.21259225/na/json",
-            status_code=503
-        )
+        m.get("https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.21.21259225/na/json", status_code=503)
         payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
-        payload['primaryPublicationIdentifiers'] = [
-            {'identifier': '2021.06.21.21259225'}
-        ]
+        payload["primaryPublicationIdentifiers"] = [{"identifier": "2021.06.21.21259225"}]
         r = client.post("/api/v1/experiments/", json=payload)
 
         assert m.called
@@ -338,7 +327,6 @@ def test_create_experiment_with_invalid_primary_publication(client, setup_router
     )
 
 
-
 def test_get_own_private_experiment(client, setup_router_db):
     experiment = create_experiment(client)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
@@ -364,36 +352,69 @@ def test_cannot_get_other_user_private_experiment(session, client, setup_router_
 
 def test_search_experiments(session, client, setup_router_db):
     experiment = create_experiment(client)
-    search_payload = {'text': experiment['shortDescription']}
+    search_payload = {"text": experiment["shortDescription"]}
     response = client.post("/api/v1/experiments/search", json=search_payload)
     assert response.status_code == 200
-    assert response.json()[0]['title'] == experiment['title']
+    assert response.json()[0]["title"] == experiment["title"]
 
 
 def test_search_my_experiments(session, client, setup_router_db):
     experiment = create_experiment(client)
-    search_payload = {'text': experiment['shortDescription']}
+    search_payload = {"text": experiment["shortDescription"]}
     response = client.post("/api/v1/me/experiments/search", json=search_payload)
     assert response.status_code == 200
-    assert response.json()[0]['title'] == experiment['title']
+    assert response.json()[0]["title"] == experiment["title"]
+
+
+def test_search_score_sets_for_experiments(session, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set_pub = create_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    # make the unpublished score set owned by some other user. This shouldn't appear in the results.
+    score_set_unpub = create_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
+    published_score_set = client.post(f"/api/v1/score-sets/{score_set_pub['urn']}/publish").json()
+    change_ownership(session, score_set_unpub["urn"], ScoreSetDbModel)
+
+    # On score set publication, the experiment will get a new urn
+    experiment_urn = published_score_set["experiment"]["urn"]
+    response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["urn"] == published_score_set["urn"]
+
+
+def test_search_score_sets_for_my_experiments(session, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set_pub = create_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    # The unpublished score set is for the current user, so it should show up in results.
+    score_set_unpub = create_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
+    published_score_set = client.post(f"/api/v1/score-sets/{score_set_pub['urn']}/publish").json()
+
+    # On score set publication, the experiment will get a new urn
+    experiment_urn = published_score_set["experiment"]["urn"]
+    response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+    assert response.status_code == 200
+    assert len(response.json()) == 2
+    assert set(score_set["urn"] for score_set in response.json()) == set(
+        (published_score_set["urn"], score_set_unpub["urn"])
+    )
 
 
 def test_search_their_experiments(session, client, setup_router_db):
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
     change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
-    search_payload = {'text': experiment['shortDescription']}
+    search_payload = {"text": experiment["shortDescription"]}
     response = client.post("/api/v1/experiments/search", json=search_payload)
     assert response.status_code == 200
-    assert response.json()[0]['createdBy']['orcidId'] == EXTRA_USER["username"]
-    assert response.json()[0]['createdBy']['firstName'] == EXTRA_USER["first_name"]
+    assert response.json()[0]["createdBy"]["orcidId"] == EXTRA_USER["username"]
+    assert response.json()[0]["createdBy"]["firstName"] == EXTRA_USER["first_name"]
 
 
 def test_search_not_my_experiments(session, client, setup_router_db):
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
     change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
-    search_payload = {'text': experiment['shortDescription']}
+    search_payload = {"text": experiment["shortDescription"]}
     response = client.post("/api/v1/me/experiments/search", json=search_payload)
     assert response.status_code == 200
     assert len(response.json()) == 0
