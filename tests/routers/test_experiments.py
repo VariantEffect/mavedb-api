@@ -342,9 +342,11 @@ def test_search_my_experiments(session, client, setup_router_db):
     assert response.json()[0]["title"] == experiment["title"]
 
 
-def test_search_score_sets_for_experiments(session, client, setup_router_db, data_files):
+def test_search_score_sets_for_experiments(session, client, setup_router_db, data_files, data_provider):
     experiment = create_experiment(client)
-    score_set_pub = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    score_set_pub = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
     # make the unpublished score set owned by some other user. This shouldn't appear in the results.
     score_set_unpub = create_seq_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
     published_score_set = client.post(f"/api/v1/score-sets/{score_set_pub['urn']}/publish").json()
@@ -358,9 +360,11 @@ def test_search_score_sets_for_experiments(session, client, setup_router_db, dat
     assert response.json()[0]["urn"] == published_score_set["urn"]
 
 
-def test_search_score_sets_for_my_experiments(session, client, setup_router_db, data_files):
+def test_search_score_sets_for_my_experiments(session, client, setup_router_db, data_files, data_provider):
     experiment = create_experiment(client)
-    score_set_pub = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    score_set_pub = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
     # The unpublished score set is for the current user, so it should show up in results.
     score_set_unpub = create_seq_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
     published_score_set = client.post(f"/api/v1/score-sets/{score_set_pub['urn']}/publish").json()
