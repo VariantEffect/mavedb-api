@@ -8,6 +8,9 @@ from tests.helpers.constants import (
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_EXPERIMENT_RESPONSE,
     EXTRA_USER,
+    TEST_PUBMED_IDENTIFIER,
+    TEST_BIORXIV_IDENTIFIER,
+    TEST_MEDRXIV_IDENTIFIER,
 )
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.models.experiment import Experiment as ExperimentDbModel
@@ -97,7 +100,7 @@ def test_cannot_assign_to_other_user_private_experiment_set(session, client, set
 
 def test_can_assign_to_own_public_experiment_set(client, setup_router_db, data_files):
     experiment = create_experiment(client)
-    score_set = create_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
     published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
     response_data = create_experiment(
         client,
@@ -109,7 +112,7 @@ def test_can_assign_to_own_public_experiment_set(client, setup_router_db, data_f
 
 def test_cannot_assign_to_other_user_public_experiment_set(session, client, setup_router_db, data_files):
     experiment = create_experiment(client)
-    score_set = create_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
     published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
     published_experiment_set_urn = published_score_set["experiment"]["experimentSetUrn"]
     change_ownership(session, published_experiment_set_urn, ExperimentSetDbModel)
@@ -159,43 +162,15 @@ def test_required_fields(client, setup_router_db, test_field):
     assert "field required" in response_data["detail"][0]["msg"]
 
 
-def test_create_experiment_with_new_primary_pubmed_publication(client, setup_router_db, requests_mock):
-    # minimal xml to pass validation
-    requests_mock.post(
-        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
-        text="""<?xml version="1.0"?>
-            <PubmedArticleSet>
-              <PubmedArticle>
-                <MedlineCitation>
-                  <PMID Version="1">20711194</PMID>
-                  <Article>
-                    <Journal>
-                      <Title>test</Title>
-                      <JournalIssue>
-                        <PubDate>
-                          <Year>1999</Year>
-                        </PubDate>
-                      </JournalIssue>
-                    </Journal>
-                    <Abstract>
-                      <AbstractText>test</AbstractText>
-                    </Abstract>
-                  </Article>
-                </MedlineCitation>
-                <PubmedData>
-                  <ArticleIdList>
-                    <ArticleId IdType="doi">test</ArticleId>
-                  </ArticleIdList>
-                </PubmedData>
-              </PubmedArticle>
-            </PubmedArticleSet>
-        """,
-    )
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_create_experiment_with_new_primary_pubmed_publication(client, setup_router_db, mock_publication_fetch):
+    mocked_publication = mock_publication_fetch
+    response_data = create_experiment(client, {"primaryPublicationIdentifiers": [mocked_publication]})
 
-    # code checks that this isn't also a valid bioxriv ID, so we return nothing
-    requests_mock.get("https://api.biorxiv.org/details/medrxiv/10.1101/20711194/na/json", json={"collection": []})
-
-    response_data = create_experiment(client, {"primaryPublicationIdentifiers": [{"identifier": "20711194"}]})
     assert len(response_data["primaryPublicationIdentifiers"]) == 1
     assert sorted(response_data["primaryPublicationIdentifiers"][0]) == sorted(
         [
@@ -215,34 +190,17 @@ def test_create_experiment_with_new_primary_pubmed_publication(client, setup_rou
     # TODO: add separate tests for generating the publication url and referenceHtml
 
 
-def test_create_experiment_with_new_primary_biorxiv_publication(client, setup_router_db, requests_mock):
-    requests_mock.get(
-        "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.21.21259225/na/json",
-        json={
-            "collection": [
-                {
-                    "title": "test1",
-                    "doi": "test2",
-                    "category": "test3",
-                    "authors": "test4; test5",
-                    "author_corresponding": "test6",
-                    "author_corresponding_institution": "test7",
-                    "date": "1999-12-31",
-                    "version": "test8",
-                    "type": "test9",
-                    "license": "test10",
-                    "jatsxml": "test11",
-                    "abstract": "test12",
-                    "published": "test13",
-                    "server": "test14",
-                }
-            ]
-        },
-    )
-
-    response_data = create_experiment(
-        client, {"primaryPublicationIdentifiers": [{"identifier": "2021.06.21.21259225"}]}
-    )
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        ({"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"}),
+        ({"dbName": "medRxiv", "identifier": f"{TEST_MEDRXIV_IDENTIFIER}"}),
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_create_experiment_with_new_primary_preprint_publication(client, setup_router_db, mock_publication_fetch):
+    mocked_publication = mock_publication_fetch
+    response_data = create_experiment(client, {"primaryPublicationIdentifiers": [mocked_publication]})
 
     assert len(response_data["primaryPublicationIdentifiers"]) == 1
     assert sorted(response_data["primaryPublicationIdentifiers"][0]) == sorted(
@@ -263,14 +221,18 @@ def test_create_experiment_with_new_primary_biorxiv_publication(client, setup_ro
     # TODO: add separate tests for generating the publication url and referenceHtml
 
 
-def test_create_experiment_biorxiv_not_found(client, setup_router_db):
+
+@pytest.mark.parametrize(
+    "db_name, identifier", [("biorxiv", TEST_BIORXIV_IDENTIFIER), ("medrxiv", TEST_MEDRXIV_IDENTIFIER)]
+)
+def test_create_experiment_rxiv_not_found(client, setup_router_db, db_name, identifier):
     with requests_mock.mock() as m:
         m.get(
-            "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.22.21259225/na/json",
+            f"https://api.biorxiv.org/details/{db_name}/10.1101/{identifier}/na/json",
             json={"messages": [{"status": "no posts found"}], "collection": []},
         )
         payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
-        payload["primaryPublicationIdentifiers"] = [{"identifier": "2021.06.22.21259225"}]
+        payload["primaryPublicationIdentifiers"] = [{"identifier": f"{identifier}"}]
         r = client.post("/api/v1/experiments/", json=payload)
 
         assert m.called
@@ -278,25 +240,31 @@ def test_create_experiment_biorxiv_not_found(client, setup_router_db):
         assert r.status_code == 404
 
 
-def test_create_experiment_biorxiv_timeout(client, setup_router_db):
+@pytest.mark.parametrize(
+    "db_name, identifier", [("biorxiv", TEST_BIORXIV_IDENTIFIER), ("medrxiv", TEST_MEDRXIV_IDENTIFIER)]
+)
+def test_create_experiment_rxiv_timeout(client, setup_router_db, db_name, identifier):
     with requests_mock.mock() as m:
         m.get(
-            "https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.21.21259225/na/json",
+            f"https://api.biorxiv.org/details/{db_name}/10.1101/{identifier}/na/json",
             exc=requests.exceptions.ConnectTimeout,
         )
         payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
-        payload["primaryPublicationIdentifiers"] = [{"identifier": "2021.06.21.21259225"}]
+        payload["primaryPublicationIdentifiers"] = [{"identifier": f"{identifier}"}]
         r = client.post("/api/v1/experiments/", json=payload)
 
         assert m.called
         assert r.status_code == 504
 
 
-def test_create_experiment_biorxiv_unavailable(client, setup_router_db):
+@pytest.mark.parametrize(
+    "db_name, identifier", [("biorxiv", TEST_BIORXIV_IDENTIFIER), ("medrxiv", TEST_MEDRXIV_IDENTIFIER)]
+)
+def test_create_experiment_rxiv_unavailable(client, setup_router_db, db_name, identifier):
     with requests_mock.mock() as m:
-        m.get("https://api.biorxiv.org/details/medrxiv/10.1101/2021.06.21.21259225/na/json", status_code=503)
+        m.get(f"https://api.biorxiv.org/details/{db_name}/10.1101/{identifier}/na/json", status_code=503)
         payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
-        payload["primaryPublicationIdentifiers"] = [{"identifier": "2021.06.21.21259225"}]
+        payload["primaryPublicationIdentifiers"] = [{"identifier": f"{identifier}"}]
         r = client.post("/api/v1/experiments/", json=payload)
 
         assert m.called
