@@ -23,7 +23,7 @@ from mavedb.lib.identifiers import (
     find_or_create_doi_identifier,
     find_or_create_publication_identifier,
 )
-from mavedb.lib.permissions import Action, has_permission
+from mavedb.lib.permissions import Action, assert_permission
 from mavedb.lib.score_sets import (
     create_variants_data,
     find_meta_analyses_for_experiment_sets,
@@ -67,12 +67,13 @@ async def fetch_score_set_by_urn(db, urn: str, owner: Optional[User]) -> Optiona
         user.
     """
     try:
-        permission_filter = ScoreSet.private.is_(False)
         if owner is not None:
             permission_filter = or_(
-                permission_filter,
+                ScoreSet.private.is_(False),
                 ScoreSet.created_by_id == owner.id,
             )
+        else:
+            permission_filter = ScoreSet.private.is_(False)
         item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(permission_filter).one_or_none()
     except MultipleResultsFound:
         raise HTTPException(status_code=500, detail=f"multiple score sets with URN '{urn}' were found")
@@ -162,11 +163,11 @@ def get_score_set_scores_csv(
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
-    permission = has_permission(user, score_set, Action.READ)
-    if not permission.permitted:
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, score_set, Action.READ)
 
-    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_set.dataset_columns["score_columns"]
+    assert type(score_set.dataset_columns) is dict
+    score_columns = [str(x) for x in list(score_set.dataset_columns["score_columns"])]
+    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_columns
     type_column = "score_data"
     variants = score_set.variants
 
@@ -218,11 +219,11 @@ async def get_score_set_counts_csv(
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
-    permission = has_permission(user, score_set, Action.READ)
-    if not permission.permitted:
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, score_set, Action.READ)
 
-    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_set.dataset_columns["count_columns"]
+    assert type(score_set.dataset_columns) is dict
+    count_columns = [str(x) for x in list(score_set.dataset_columns["count_columns"])]
+    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + count_columns
     type_column = "count_data"
     variants = score_set.variants
 
@@ -252,9 +253,7 @@ def get_score_set_mapped_variants(
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
-    permission = has_permission(user, score_set, Action.READ)
-    if not permission.permitted:
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, score_set, Action.READ)
 
     mapped_variants = (
         db.query(MappedVariant)
@@ -296,14 +295,12 @@ async def create_score_set(
     if item_create is None:
         return None
 
-    experiment: Experiment = None
+    experiment: Optional[Experiment] = None
     if item_create.experiment_urn is not None:
         experiment = db.query(Experiment).filter(Experiment.urn == item_create.experiment_urn).one_or_none()
         if not experiment:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
-        permission = has_permission(user, experiment, Action.ADD_SCORE_SET)
-        if not permission.permitted:
-            raise HTTPException(status_code=permission.http_code, detail=permission.message)
+        assert_permission(user, experiment, Action.ADD_SCORE_SET)
 
     license_ = db.query(License).filter(License.id == item_create.license_id).one_or_none()
     if not license_:
@@ -317,9 +314,10 @@ async def create_score_set(
         superseded_score_set = None
 
     distinct_meta_analyzes_score_set_urns = list(set(item_create.meta_analyzes_score_set_urns or []))
-    meta_analyzes_score_sets = [
+    meta_analyzes_score_sets = [ss for ss in [
         await fetch_score_set_by_urn(db, urn, None) for urn in distinct_meta_analyzes_score_set_urns
-    ]
+    ] if ss is not None]
+
     for i, meta_analyzes_score_set in enumerate(meta_analyzes_score_sets):
         if meta_analyzes_score_set is None:
             raise HTTPException(
@@ -330,12 +328,8 @@ async def create_score_set(
     if len(meta_analyzes_score_sets) > 0:
         # If any existing score set is a meta-analysis for score sets in the same collection of exepriment sets, use its
         # experiment as the parent of our new meta-analysis. Otherwise, create a new experiment.
-        meta_analyzes_experiment_sets = list(
-            set(map(lambda ss: ss.experiment.experiment_set, meta_analyzes_score_sets))
-        )
-        meta_analyzes_experiment_set_urns = list(
-            set(map(lambda ss: ss.experiment.experiment_set.urn, meta_analyzes_score_sets))
-        )
+        meta_analyzes_experiment_sets = list(set((ss.experiment.experiment_set for ss in meta_analyzes_score_sets if ss.experiment.experiment_set is not None)))
+        meta_analyzes_experiment_set_urns = [es.urn for es in meta_analyzes_experiment_sets if es.urn is not None]
         existing_meta_analyses = find_meta_analyses_for_experiment_sets(db, meta_analyzes_experiment_set_urns)
 
         if len(existing_meta_analyses) > 0:
@@ -384,7 +378,7 @@ async def create_score_set(
     for publication in publication_identifiers:
         setattr(publication, "primary", publication.identifier in primary_identifiers)
 
-    targets = []
+    targets : list[TargetGene] = []
     accessions = False
     for gene in item_create.target_genes:
         if gene.target_sequence:
@@ -438,6 +432,8 @@ async def create_score_set(
 
         targets.append(target_gene)
 
+    assert experiment is not None
+
     item = ScoreSet(
         **jsonable_encoder(
             item_create,
@@ -464,8 +460,9 @@ async def create_score_set(
         processing_state=ProcessingState.incomplete,
         created_by=user,
         modified_by=user,
-    )
-    await item.set_keywords(db, item_create.keywords)
+    )  # type: ignore
+    if item_create.keywords is not None:
+        await item.set_keywords(db, item_create.keywords)
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -495,11 +492,9 @@ async def upload_score_set_variant_data(
 
     # item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(ScoreSet.private.is_(False)).one_or_none()
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
-    if not item.urn or not scores_file:
+    if not item or not item.urn or not scores_file:
         return None
-    permission = has_permission(user, item, Action.SET_SCORES)
-    if not permission.permitted:
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, item, Action.SET_SCORES)
 
     # Delete the old variants so that uploading new scores and counts won't accumulate the old ones.
     db.query(Variant).filter(Variant.score_set_id == item.id).delete()
@@ -588,7 +583,9 @@ def create_variants(db, score_set: ScoreSet, variants_data: list[VariantData], b
     num_variants = len(variants_data)
     variant_urns = bulk_create_urns(num_variants, score_set, True)
     variants = (
-        Variant(urn=urn, score_set_id=score_set.id, **kwargs) for urn, kwargs in zip(variant_urns, variants_data)
+        # TODO: Is there a nicer way to handle this than passing dicts into kwargs
+        # of the class initializer?
+        Variant(urn=urn, score_set_id=score_set.id, **kwargs) for urn, kwargs in zip(variant_urns, variants_data)  # type: ignore
     )
     db.bulk_save_objects(variants)
     db.add(score_set)
@@ -623,9 +620,7 @@ async def update_score_set(
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
-    permission = has_permission(user, item, Action.UPDATE)
-    if not permission.permitted:
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, item, Action.UPDATE)
 
     # Editing unpublished score set
     if item.private is True:
@@ -667,7 +662,8 @@ async def update_score_set(
             setattr(publication, "primary", publication.identifier in primary_identifiers)
 
         item.publication_identifiers = publication_identifiers
-        await item.set_keywords(db, item_update.keywords)
+        if item_update.keywords is not None:
+            await item.set_keywords(db, item_update.keywords)
 
         # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the score set's
         # target_gene to None, because we have set cascade='all,delete-orphan' on ScoreSet.target_gene. (Since the
@@ -679,7 +675,7 @@ async def update_score_set(
         item.target_genes = []
         db.flush()
 
-        targets = []
+        targets : List[TargetGene] = []
         accessions = False
         for gene in item_update.target_genes:
             if gene.target_sequence:
@@ -743,6 +739,7 @@ async def update_score_set(
 
         # re-validate existing variants and clear them if they do not pass validation
         if item.variants:
+            assert item.dataset_columns is not None
             score_columns = ["hgvs_nt", "hgvs_splice", "hgvs_pro"] + item.dataset_columns["score_columns"]
             count_columns = ["hgvs_nt", "hgvs_splice", "hgvs_pro"] + item.dataset_columns["count_columns"]
             scores_data = pd.DataFrame(
@@ -752,12 +749,12 @@ async def update_score_set(
                 get_csv_rows_data(item.variants, columns=count_columns, dtype="count_data")
             ).replace("NA", pd.NA)
 
-            # if our count data only has hgvs columns, we can assume we weren't provided with count data.
-            if set([col.lower() for col in count_data.columns]).issubset(set(hgvs_columns)):
-                count_data = None
-
             try:
-                validate_and_standardize_dataframe_pair(scores_data, count_data, item.target_genes)
+                # if our count data only has hgvs columns, we can assume we weren't provided with count data.
+                if set([col.lower() for col in count_data.columns]).issubset(set(hgvs_columns)):
+                    validate_and_standardize_dataframe_pair(scores_data, None, item.target_genes)
+                else:
+                    validate_and_standardize_dataframe_pair(scores_data, count_data, item.target_genes)
             except exceptions.ValidationError as e:
                 db.rollback()
                 raise HTTPException(
@@ -808,9 +805,7 @@ async def delete_score_set(
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
-    permission = has_permission(user, item, Action.DELETE)
-    if not permission.permitted:
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, item, Action.DELETE)
     db.delete(item)
     db.commit()
 
@@ -824,12 +819,10 @@ def publish_score_set(
     """
     Publish a score set.
     """
-    item: ScoreSet = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
+    item: Optional[ScoreSet] = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
-    permission = has_permission(user, item, Action.UPDATE)
-    if not permission.permitted:
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, item, Action.UPDATE)
 
     if not item.experiment:
         raise HTTPException(

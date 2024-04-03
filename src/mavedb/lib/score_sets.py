@@ -6,7 +6,6 @@ from pandas.testing import assert_index_equal
 from sqlalchemy import func, or_
 from sqlalchemy.orm import aliased, contains_eager, joinedload, selectinload, Session
 
-from mavedb.lib.array_comparison import assert_array_equal
 from mavedb.lib.exceptions import ValidationError
 from mavedb.lib.mave.constants import (
     HGVS_NT_COLUMN,
@@ -45,9 +44,9 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
 
     if search.published is not None:
         if search.published:
-            query = query.filter(ScoreSet.published_date is not None)
+            query = query.filter(ScoreSet.published_date.isnot(None))
         else:
-            query = query.filter(ScoreSet.published_date is None)
+            query = query.filter(ScoreSet.published_date.is_(None))
 
     if search.text:
         lower_search_text = search.text.lower()
@@ -249,7 +248,7 @@ def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[Scor
         db.query(ScoreSet)
         .join(ScoreSet.meta_analyzes_score_sets.of_type(analyzed_score_set))
         .filter(*urn_filters)
-        .group_by(ScoreSet)
+        .group_by(ScoreSet.id)
         .having(func.count(analyzed_score_set.id) == len(urns))
         .all()
     )
@@ -258,6 +257,17 @@ def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[Scor
 def filter_visible_score_sets(items: list[ScoreSet]):
     # TODO Take the user into account.
     return filter(lambda item: not item.private, items or [])
+
+
+def arrays_equal(array1: np.ndarray, array2: np.ndarray):
+    # if the shape isn't the same the arrays are different.
+    # otherwise for each value make sure either both values are null
+    # or the values are equal.
+    return array1.shape == array2.shape and all(
+        # note that each of the three expressions here is a boolean ndarray
+        # so combining them with bitwise `&` and `|` works:
+        (pd.isnull(array1) & pd.isnull(array2)) | (array1 == array2)
+    )
 
 
 def validate_datasets_define_same_variants(scores, counts):
@@ -273,23 +283,12 @@ def validate_datasets_define_same_variants(scores, counts):
         Scores dataframe parsed from an uploaded counts file.
     """
     # TODO First, confirm that the two dataframes have the same HGVS columns.
-    try:
-        if HGVS_NT_COLUMN in scores:
-            assert_array_equal(
-                scores[HGVS_NT_COLUMN].sort_values().values,
-                counts[HGVS_NT_COLUMN].sort_values().values,
-            )
-        if HGVS_SPLICE_COLUMN in scores:
-            assert_array_equal(
-                scores[HGVS_SPLICE_COLUMN].sort_values().values,
-                counts[HGVS_SPLICE_COLUMN].sort_values().values,
-            )
-        if HGVS_PRO_COLUMN in scores:
-            assert_array_equal(
-                scores[HGVS_PRO_COLUMN].sort_values().values,
-                counts[HGVS_PRO_COLUMN].sort_values().values,
-            )
-    except AssertionError:
+    if any(
+        col in scores and not arrays_equal(
+            scores[col].sort_values(),
+            counts[col].sort_values()
+        ) for col in (HGVS_NT_COLUMN, HGVS_SPLICE_COLUMN, HGVS_PRO_COLUMN)
+    ):
         raise ValidationError(
             "Your score and counts files do not define the same variants. "
             "Check that the hgvs columns in both files match."

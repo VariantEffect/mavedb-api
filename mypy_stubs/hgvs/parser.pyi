@@ -1,0 +1,6 @@
+import hgvs.sequencevariant
+from typing import Optional
+
+class Parser:
+    def __init__(self, grammar_fn: Optional[str] = None, export_all_rules: bool = False) -> None: ...
+    def parse(self, v: str) -> hgvs.sequencevariant.SequenceVariant: ...

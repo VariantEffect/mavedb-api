@@ -7,7 +7,7 @@ import bioutils.assemblies
 from cdot.hgvs.dataproviders import RESTDataProvider
 from fastapi import APIRouter, Depends, HTTPException
 from hgvs import parser, validator
-from hgvs.exceptions import HGVSDataNotAvailableError
+from hgvs.exceptions import HGVSDataNotAvailableError, HGVSInvalidVariantError
 
 from mavedb.deps import hgvs_data_provider
 
@@ -35,11 +35,11 @@ def hgvs_validate(variant: dict[str, str], hdp: RESTDataProvider = Depends(hgvs_
     Validate a provided variant
     """
     hp = parser.Parser()
-    variant = hp.parse(variant["variant"])
+    variant_hgvs = hp.parse(variant["variant"])
 
     try:
-        valid = validator.Validator(hdp=hdp).validate(variant, strict=False)
-    except validator.HGVSInvalidVariantError as e:
+        valid = validator.Validator(hdp=hdp).validate(variant_hgvs, strict=False)
+    except HGVSInvalidVariantError as e:
         raise HTTPException(400, str(e))
     else:
         return valid

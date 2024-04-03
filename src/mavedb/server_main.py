@@ -15,7 +15,7 @@ from slack_sdk.webhook import WebhookClient
 from sqlalchemy.orm import configure_mappers
 from starlette import status
 from starlette.responses import JSONResponse
-from eutils._internal.exceptions import EutilsRequestError
+from eutils._internal.exceptions import EutilsRequestError  # type: ignore
 
 from mavedb.models import *
 
@@ -38,6 +38,7 @@ from mavedb.routers import (
     users,
 )
 from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError, MixedTargetError
+from mavedb.lib.permissions import PermissionException
 
 logging.basicConfig()
 # Un-comment this line to log all database queries:
@@ -72,6 +73,14 @@ app.include_router(score_sets.router)
 app.include_router(target_gene_identifiers.router)
 app.include_router(target_genes.router)
 app.include_router(users.router)
+
+
+@app.exception_handler(PermissionException)
+async def permission_exception_handler(request: Request, exc: PermissionException):
+    return JSONResponse(
+        {"detail": exc.message},
+        status_code=exc.http_code,
+    )
 
 
 @app.exception_handler(RequestValidationError)

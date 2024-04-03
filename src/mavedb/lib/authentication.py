@@ -45,6 +45,7 @@ def decode_jwt(token: str) -> dict:
             options={"verify_at_hash": False},
         )
         return decoded_token
+    # TODO: should catch specific exceptions, and should log them more usefully.
     except Exception as ex:
         print(ex)
         return {}
@@ -55,7 +56,7 @@ class JWTBearer(HTTPBearer):
         super(JWTBearer, self).__init__(auto_error=auto_error)
 
     async def __call__(self, request: Request):
-        credentials: HTTPAuthorizationCredentials
+        credentials: Optional[HTTPAuthorizationCredentials]
         try:
             credentials = await super(JWTBearer, self).__call__(request)
         except HTTPException:
@@ -71,12 +72,8 @@ class JWTBearer(HTTPBearer):
             return None
 
     @staticmethod
-    def verify_jwt(token: str) -> bool:
-        try:
-            payload = decode_jwt(token)
-        except:
-            payload = None
-        return payload
+    def verify_jwt(token: str) -> dict:
+        return decode_jwt(token)
 
 
 ####################################################################################################
