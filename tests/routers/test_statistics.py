@@ -1,20 +1,22 @@
-import pytest
 from unittest.mock import patch
-from humps import camelize
+
 import cdot.hgvs.dataproviders
-from tests.helpers.util import (
-    create_experiment,
-    create_seq_score_set_with_variants,
-    create_acc_score_set_with_variants,
-    publish_score_set,
-)
+import pytest
+from humps import camelize
+
 from tests.helpers.constants import (
+    TEST_BIORXIV_IDENTIFIER,
+    TEST_CDOT_TRANSCRIPT,
+    TEST_MEDRXIV_IDENTIFIER,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_PUBMED_IDENTIFIER,
-    TEST_BIORXIV_IDENTIFIER,
-    TEST_MEDRXIV_IDENTIFIER,
-    TEST_CDOT_TRANSCRIPT,
+)
+from tests.helpers.util import (
+    create_acc_score_set_with_variants,
+    create_experiment,
+    create_seq_score_set_with_variants,
+    publish_score_set,
 )
 
 TARGET_ACCESSION_FIELDS = ["accession", "assembly", "gene"]
@@ -30,23 +32,6 @@ EXTERNAL_IDENTIFIERS = {
     "refseq-identifier": {"offset": 0, "identifier": {"dbName": "RefSeq", "identifier": "NM_003345"}},
     "uniprot-identifier": {"offset": 0, "identifier": {"dbName": "UniProt", "identifier": "Q9Y617"}},
 }
-
-
-# Fixtures for setting up score sets on which to calculate statistics.
-# Adds an experiment and score set to the database, then publishes the score set.
-@pytest.fixture()
-def setup_acc_scoreset(setup_router_db, client, data_files):
-    experiment = create_experiment(client)
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
-        score_set = create_acc_score_set_with_variants(client, experiment["urn"], data_files / "scores_acc.csv")
-    publish_score_set(client, score_set["urn"])
-
-
-@pytest.fixture()
-def setup_seq_scoreset(setup_router_db, client, data_files):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
-    publish_score_set(client, score_set["urn"])
 
 
 def assert_statistic(desired_field_value, response):
@@ -68,6 +53,8 @@ def assert_statistic(desired_field_value, response):
 
 
 # Test base case empty database responses for each statistic endpoint.
+
+
 def test_empty_database_statistics(client):
     stats_endpoints = (
         "target/accession/accession",
@@ -160,28 +147,29 @@ def test_target_sequence_empty_field(client):
 # Desired values live in different spots for fields on target genes because of the differing target sequence
 # and target accession sub types. Set up each desired field separately due to this potential issue.
 @pytest.mark.parametrize(
-    "field,desired_field_value,setup_fixture",
+    "field,desired_field_value",
     [
-        ("category", TEST_MINIMAL_ACC_SCORESET["targetGenes"][0]["category"], "setup_acc_scoreset"),
-        ("category", TEST_MINIMAL_SEQ_SCORESET["targetGenes"][0]["category"], "setup_seq_scoreset"),
-        ("organism", "Homo sapiens", "setup_acc_scoreset"),
-        (
-            "organism",
-            TEST_MINIMAL_SEQ_SCORESET["targetGenes"][0]["targetSequence"]["reference"]["organismName"],
-            "setup_seq_scoreset",
-        ),
-        ("reference", TEST_MINIMAL_ACC_SCORESET["targetGenes"][0]["targetAccession"]["assembly"], "setup_acc_scoreset"),
-        (
-            "reference",
-            TEST_MINIMAL_SEQ_SCORESET["targetGenes"][0]["targetSequence"]["reference"]["shortName"],
-            "setup_seq_scoreset",
-        ),
+        ("category", TEST_MINIMAL_ACC_SCORESET["targetGenes"][0]["category"]),
+        ("organism", "Homo sapiens"),
+        ("reference", TEST_MINIMAL_ACC_SCORESET["targetGenes"][0]["targetAccession"]["assembly"]),
     ],
 )
-def test_target_gene_field_statistics(client, field, desired_field_value, setup_fixture, request):
+def test_target_gene_field_statistics_acc(client, field, desired_field_value, setup_acc_scoreset, request):
     """Test target gene category endpoint on accession based target for published score sets."""
-    # Parametrized fixtures must be explicitly invoked
-    request.getfixturevalue(setup_fixture)
+    response = client.get(f"/api/v1/statistics/target/gene/{field}")
+    assert_statistic(desired_field_value, response)
+
+
+@pytest.mark.parametrize(
+    "field,desired_field_value",
+    [
+        ("category", TEST_MINIMAL_SEQ_SCORESET["targetGenes"][0]["category"]),
+        ("organism", TEST_MINIMAL_SEQ_SCORESET["targetGenes"][0]["targetSequence"]["reference"]["organismName"]),
+        ("reference", TEST_MINIMAL_SEQ_SCORESET["targetGenes"][0]["targetSequence"]["reference"]["shortName"]),
+    ],
+)
+def test_target_gene_field_statistics_seq(client, field, desired_field_value, setup_seq_scoreset, request):
+    """Test target gene category endpoint on accession based target for published score sets."""
     response = client.get(f"/api/v1/statistics/target/gene/{field}")
     assert_statistic(desired_field_value, response)
 
@@ -191,7 +179,9 @@ def test_target_gene_field_statistics(client, field, desired_field_value, setup_
 @pytest.mark.parametrize(
     "target", (TEST_MINIMAL_ACC_SCORESET["targetGenes"][0], TEST_MINIMAL_SEQ_SCORESET["targetGenes"][0])
 )
-def test_target_gene_identifier_statistiscs(client, setup_router_db, data_files, field_value, target):
+def test_target_gene_identifier_statistiscs(
+    session, data_provider, client, setup_router_db, data_files, field_value, target
+):
     """Test target gene identifier statistics endpoint for published score sets."""
     record_update = {"externalIdentifiers": [v for v in EXTERNAL_IDENTIFIERS.values()]}
     target.update(record_update)
@@ -203,12 +193,19 @@ def test_target_gene_identifier_statistiscs(client, setup_router_db, data_files,
             cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
         ):
             score_set = create_acc_score_set_with_variants(
-                client, experiment["urn"], data_files / "scores_acc.csv", {"targetGenes": [target]}
+                client,
+                session,
+                data_provider,
+                experiment["urn"],
+                data_files / "scores_acc.csv",
+                {"targetGenes": [target]},
             )
+
     elif "targetSequence" in target:
         score_set = create_seq_score_set_with_variants(
-            client, experiment["urn"], data_files / "scores.csv", {"targetGenes": [target]}
+            client, session, data_provider, experiment["urn"], data_files / "scores.csv", {"targetGenes": [target]}
         )
+
     publish_score_set(client, score_set["urn"])
 
     response = client.get(f"/api/v1/statistics/target/gene/{field_value}")
@@ -243,7 +240,7 @@ def test_target_gene_empty_field(client):
     indirect=["mock_publication_fetch"],
 )
 def test_record_publication_identifier_statistics(
-    client, setup_router_db, model_value, data_files, mock_publication_fetch
+    session, data_provider, client, setup_router_db, model_value, data_files, mock_publication_fetch
 ):
     """Test record model statistics for publication identifiers endpoint for published experiments and score sets."""
     mocked_publication = mock_publication_fetch
@@ -252,7 +249,10 @@ def test_record_publication_identifier_statistics(
     # updates. Folding these more complex setup steps into a fixture is more trouble than it's worth.
     record_update = {"primaryPublicationIdentifiers": [mocked_publication]}
     experiment = create_experiment(client, record_update)
-    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv", record_update)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv", record_update
+    )
+
     publish_score_set(client, score_set["urn"])
 
     response = client.get(f"/api/v1/statistics/record/{model_value}/publication-identifiers")
@@ -269,14 +269,17 @@ def test_record_publication_identifier_statistics(
 
 
 @pytest.mark.parametrize("model_value", RECORD_MODELS)
-def test_record_keyword_statistics(client, setup_router_db, model_value, data_files):
+def test_record_keyword_statistics(session, data_provider, client, setup_router_db, model_value, data_files):
     """Test record model statistics for keywords endpoint for published experiments and score sets."""
     record_update = {"keywords": ["test_keyword"]}
 
     # Create experiment and score set resources. The fixtures are more useful for the simple cases that don't need scoreset / experiment
     # updates. Folding these more complex setup steps into a fixture is more trouble than it's worth.
     experiment = create_experiment(client, record_update)
-    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv", record_update)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv", record_update
+    )
+
     publish_score_set(client, score_set["urn"])
 
     response = client.get(f"/api/v1/statistics/record/{model_value}/keywords")
@@ -285,7 +288,7 @@ def test_record_keyword_statistics(client, setup_router_db, model_value, data_fi
 
 
 @pytest.mark.parametrize("model_value", RECORD_MODELS)
-def test_record_doi_identifier_statistics(client, setup_router_db, model_value, data_files):
+def test_record_doi_identifier_statistics(session, data_provider, client, setup_router_db, model_value, data_files):
     """Test record model statistics for DOI identifiers for published experiments and score sets."""
     record_update = {
         "doiIdentifiers": [{"identifier": "10.17605/OSF.IO/75B2M", "url": "https://doi.org/10.17605/OSF.IO/75B2M"}]
@@ -294,7 +297,10 @@ def test_record_doi_identifier_statistics(client, setup_router_db, model_value, 
     # Create experiment and score set resources. The fixtures are more useful for the simple cases that don't need scoreset / experiment
     # updates. Folding these more complex setup steps into a fixture is more trouble than it's worth.
     experiment = create_experiment(client, record_update)
-    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv", record_update)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv", record_update
+    )
+
     publish_score_set(client, score_set["urn"])
 
     response = client.get(f"/api/v1/statistics/record/{model_value}/doi-identifiers")
@@ -303,7 +309,9 @@ def test_record_doi_identifier_statistics(client, setup_router_db, model_value, 
 
 
 @pytest.mark.parametrize("model_value", RECORD_MODELS)
-def test_record_raw_read_identifier_statistics(client, setup_router_db, model_value, data_files):
+def test_record_raw_read_identifier_statistics(
+    session, data_provider, client, setup_router_db, model_value, data_files
+):
     """Test record model statistics for raw read identifiers for published experiments and score sets."""
     record_update = {
         "rawReadIdentifiers": [{"identifier": "SRP002725", "url": "http://www.ebi.ac.uk/ena/data/view/SRP002725"}]
@@ -312,7 +320,10 @@ def test_record_raw_read_identifier_statistics(client, setup_router_db, model_va
     # Create experiment and score set resources. The fixtures are more useful for the simple cases that don't need scoreset / experiment
     # updates. Folding these more complex setup steps into a fixture is more trouble than it's worth.
     experiment = create_experiment(client, record_update)
-    score_set = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv", record_update)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv", record_update
+    )
+
     publish_score_set(client, score_set["urn"])
 
     response = client.get(f"/api/v1/statistics/record/{model_value}/raw-read-identifiers")

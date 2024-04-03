@@ -41,6 +41,9 @@ dev = [
     "pre-commit",
     "pytest~=7.0.1",
     "pytest-postgresql~=5.0.0",
+    "pytest-asyncio==0.23.5",
+    "redis==5.0.2",
+    "fakeredis==2.21.1",
     "jsonschema",
     "SQLAlchemy[mypy]~=2.0.0",
     "httpx~=0.26.0",
@@ -52,9 +55,9 @@ dev = [
 ]
 server = [
     "alembic~=1.7.6",
+    "arq~=0.25.0",
     "authlib~=0.15.5",
     "cryptography~=41.0.6",
-    "celery~=5.2.3",
     "fastapi~=0.95.0",
     "orcid~=1.0.3",
     "psycopg2~=2.9.3",
@@ -98,7 +101,8 @@ plugins = [
 mypy_path = "mypy_stubs"
 
 [tool.pytest.ini_options]
-addopts = "-v -rP --import-mode=importlib --disable-socket --allow-hosts localhost"
+addopts = "-v -rP --import-mode=importlib --disable-socket --allow-hosts localhost,::1,127.0.0.1"
+asyncio_mode = 'strict'
 testpaths = "tests/"
 norecursedirs = "tests/helpers/"
 # Uncomment the following lines to include application log output in Pytest logs.

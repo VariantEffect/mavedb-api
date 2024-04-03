@@ -1,5 +1,6 @@
 from datetime import date
 from humps import camelize
+from mavedb.models.enums.processing_state import ProcessingState
 
 TEST_PUBMED_IDENTIFIER = "20711194"
 TEST_BIORXIV_IDENTIFIER = "2021.06.21.212592"
@@ -24,6 +25,13 @@ EXTRA_USER = {
     "is_active": True,
     "is_staff": False,
     "is_superuser": False,
+}
+
+TEST_EXPERIMENT = {
+    "title": "Test Title",
+    "short_description": "Test experiment",
+    "abstract_text": "Abstract",
+    "method_text": "Methods",
 }
 
 TEST_MINIMAL_EXPERIMENT = {
@@ -75,6 +83,33 @@ TEST_LICENSE = {
     "link": "localhost",
     "version": "1.0",
 }
+
+TEST_SEQ_SCORESET = {
+    "title": "Test Score Set Title",
+    "short_description": "Test score set",
+    "abstract_text": "Abstract",
+    "method_text": "Methods",
+    "target_genes": [
+        {
+            "name": "TEST1",
+            "category": "Protein coding",
+            "external_identifiers": [],
+            "reference_maps": [{"genome_id": TEST_REFERENCE_GENOME["id"]}],
+            "target_sequence": {
+                "sequence_type": "dna",
+                "sequence": "ACGTTT",
+                "reference": {
+                    "id": 1,
+                    "short_name": "Name",
+                    "organism_name": "Organism",
+                    "creation_date": date.today().isoformat(),
+                    "modification_date": date.today().isoformat(),
+                },
+            },
+        }
+    ],
+}
+
 
 TEST_MINIMAL_SEQ_SCORESET = {
     "title": "Test Score Set Title",
@@ -131,6 +166,7 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
             "targetSequence": {
                 "sequenceType": "dna",
                 "sequence": "ACGTTT",
+                "label": "TEST1",
                 "reference": {
                     "id": 1,
                     "shortName": "Name",
@@ -152,6 +188,7 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
     # keys to be set after receiving response
     "urn": None,
+    "processingState": ProcessingState.incomplete.name,
 }
 
 
@@ -168,6 +205,23 @@ TEST_MINIMAL_ACC_SCORESET = {
             "externalIdentifiers": [],
             "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
             "targetAccession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
+        }
+    ],
+}
+
+
+TEST_ACC_SCORESET = {
+    "title": "Test Score Set Acc Title",
+    "short_description": "Test accession score set",
+    "abstract_text": "Abstract",
+    "method_text": "Methods",
+    "target_genes": [
+        {
+            "name": "TEST2",
+            "category": "Protein coding",
+            "external_identifiers": [],
+            "reference_maps": [{"genome_id": TEST_REFERENCE_GENOME["id"]}],
+            "target_accession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
         }
     ],
 }
@@ -211,6 +265,7 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
     # keys to be set after receiving response
     "urn": None,
+    "processingState": ProcessingState.incomplete.name,
 }
 
 
