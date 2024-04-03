@@ -38,9 +38,14 @@ COPY --from=downloader /data /data
 
 WORKDIR /code
 
+ENV POETRY_NO_INTERACTION=1 \
+    POETRY_CACHE_DIR=/tmp/poetry_cache
+
 # Install Python packages.
-COPY ./requirements.txt /code/requirements.txt
-RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
+COPY pyproject.toml poetry.lock /code/
+RUN pip3 install poetry
+RUN poetry config virtualenvs.create false
+RUN poetry install --without dev --extras server --no-root && rm -rf $POETRY_CACHE_DIR
 
 # Generate a self-signed certificate. This Docker image is for use behind a load balancer or other reverse proxy, so it
 # can be self-signed and does not need a real domain name.
