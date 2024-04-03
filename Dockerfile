@@ -1,4 +1,37 @@
-FROM python:3.9 AS downloader
+################################
+# python-base
+# Set up shared environment variables
+################################
+FROM python:3.9 as python-base
+
+    # Poetry
+    # https://python-poetry.org/docs/configuration/#using-environment-variables
+ENV POETRY_VERSION=1.7.0 \
+    # make poetry install to this location
+    POETRY_HOME="/opt/poetry" \
+    # do not ask any interactive question
+    POETRY_NO_INTERACTION=1 \
+    # never create virtual environments, only use the venv prepared by us
+    POETRY_VIRTUALENVS_CREATE=false \
+    \
+    # this is where our requirements + virtual environment will live
+    VIRTUAL_ENV="/venv"
+
+# prepend poetry and venv to path
+ENV PATH="$POETRY_HOME/bin:$VIRTUAL_ENV/bin:$PATH"
+
+# prepare virtual env
+RUN python3 -m venv $VIRTUAL_ENV
+
+# Python path
+ENV PYTHONPATH="$PYTHONPATH:/code/src"
+
+
+################################
+# downloader
+# Set up large downloaded files
+################################
+FROM python-base AS downloader
 
 WORKDIR /data
 
@@ -33,19 +66,35 @@ RUN wget -O - https://ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/H
 RUN samtools faidx GCF_000001405.25_GRCh37.p13_genomic.fna.gz
 RUN samtools faidx GCF_000001405.39_GRCh38.p13_genomic.fna.gz
 
-FROM python:3.9
-COPY --from=downloader /data /data
+################################
+# builder
+# Builds application dependencies and creates venv
+################################
+FROM python-base as builder
 
 WORKDIR /code
 
-ENV POETRY_NO_INTERACTION=1 \
-    POETRY_CACHE_DIR=/tmp/poetry_cache
+# install poetry - respects $POETRY_VERSION & $POETRY_HOME
+RUN curl -sSL https://install.python-poetry.org | python3 -
 
-# Install Python packages.
-COPY pyproject.toml poetry.lock /code/
-RUN pip3 install poetry
-RUN poetry config virtualenvs.create false
-RUN poetry install --without dev --extras server --no-root && rm -rf $POETRY_CACHE_DIR
+# initialize dependencies
+COPY poetry.lock pyproject.toml ./
+
+# installs runtime dependencies to $VIRTUAL_ENV
+RUN poetry install --no-root --extras server
+COPY src /code/src
+COPY src/mavedb/server_main.py /code/main.py
+
+################################
+# application
+# Application image
+################################
+FROM builder as application
+COPY --from=downloader /data /data
+
+# copy pre-built poetry + venv
+COPY --from=builder $POETRY_HOME $POETRY_HOME
+COPY --from=builder $VIRTUAL_ENV $VIRTUAL_ENV
 
 # Generate a self-signed certificate. This Docker image is for use behind a load balancer or other reverse proxy, so it
 # can be self-signed and does not need a real domain name.
@@ -58,17 +107,21 @@ RUN openssl req -nodes -x509 \
     -out /code/ssl/server.cert \
     -subj "/C=US/ST=Washington/L=Seattle/O=University of Washington/OU=Brotman Baty Institute/CN=mavedb-api"
 
-# Install the application code.
-COPY alembic /code/alembic
-COPY alembic.ini /code/alembic.ini
-COPY src /code/src
-COPY src/mavedb/server_main.py /code/main.py
-
 # Tell Docker that we will listen on port 8000.
 EXPOSE 8000
 
-# Set up the path Python will use to find modules.
-ENV PYTHONPATH "${PYTHONPATH}:/code/src"
-
 # At container startup, run the application using uvicorn.
 CMD ["uvicorn", "mavedb.server_main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+################################
+# worker
+# Worker image
+################################
+FROM builder as worker
+COPY --from=downloader /data /data
+
+# copy pre-built poetry + venv
+COPY --from=builder $POETRY_HOME $POETRY_HOME
+COPY --from=builder $VIRTUAL_ENV $VIRTUAL_ENV
+
+CMD ["arq", "mavedb.worker.WorkerSettings"]
