@@ -1,12 +1,21 @@
 from pathlib import Path
-import pytest
 from shutil import copytree
-from mavedb.models.reference_genome import ReferenceGenome
-from mavedb.models.license import License
-from mavedb.models.user import User
-from tests.helpers.constants import TEST_USER, EXTRA_USER, TEST_REFERENCE_GENOME, TEST_LICENSE
+from unittest.mock import patch
 
+import cdot.hgvs.dataproviders
+import pytest
 import requests_mock
+
+from mavedb.models.license import License
+from mavedb.models.reference_genome import ReferenceGenome
+from mavedb.models.user import User
+from tests.helpers.constants import EXTRA_USER, TEST_CDOT_TRANSCRIPT, TEST_LICENSE, TEST_REFERENCE_GENOME, TEST_USER
+from tests.helpers.util import (
+    create_acc_score_set_with_variants,
+    create_experiment,
+    create_seq_score_set_with_variants,
+    publish_score_set,
+)
 
 
 @pytest.fixture
@@ -28,6 +37,27 @@ def setup_router_db(session):
 def data_files(tmp_path):
     copytree(Path(__file__).absolute().parent / "data", tmp_path / "data")
     return tmp_path / "data"
+
+
+# Fixtures for setting up score sets on which to calculate statistics.
+# Adds an experiment and score set to the database, then publishes the score set.
+@pytest.fixture
+def setup_acc_scoreset(setup_router_db, session, data_provider, client, data_files):
+    experiment = create_experiment(client)
+    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+        score_set = create_acc_score_set_with_variants(
+            client, session, data_provider, experiment["urn"], data_files / "scores_acc.csv"
+        )
+        publish_score_set(client, score_set["urn"])
+
+
+@pytest.fixture
+def setup_seq_scoreset(setup_router_db, session, data_provider, client, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    publish_score_set(client, score_set["urn"])
 
 
 @pytest.fixture

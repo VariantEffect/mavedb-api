@@ -7,9 +7,9 @@ from sqlalchemy.event import listens_for
 from sqlalchemy.ext.associationproxy import association_proxy, AssociationProxy
 from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.schema import Table
+from sqlalchemy.dialects.postgresql import JSONB
 
 from mavedb.db.base import Base
-from mavedb.deps import JSONB
 from mavedb.lib.temp_urns import generate_temp_urn
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.keyword import Keyword
@@ -66,33 +66,35 @@ class Experiment(Base):
 
     # TODO Remove this obsolete column.
     num_score_sets = Column("num_scoresets", Integer, nullable=False, default=0)
-    score_sets : Mapped[List["ScoreSet"]] = relationship(back_populates="experiment", cascade="all, delete-orphan")
+    score_sets: Mapped[List["ScoreSet"]] = relationship(back_populates="experiment", cascade="all, delete-orphan")
 
     experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), nullable=True)
-    experiment_set : Mapped[Optional[ExperimentSet]] = relationship(back_populates="experiments")
+    experiment_set: Mapped[Optional[ExperimentSet]] = relationship(back_populates="experiments")
 
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_by : Mapped[User] = relationship("User", foreign_keys="Experiment.created_by_id")
+    created_by: Mapped[User] = relationship("User", foreign_keys="Experiment.created_by_id")
     modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    modified_by : Mapped[User] = relationship("User", foreign_keys="Experiment.modified_by_id")
+    modified_by: Mapped[User] = relationship("User", foreign_keys="Experiment.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    keyword_objs : Mapped[list[Keyword]] = relationship("Keyword", secondary=experiments_keywords_association_table, backref="experiments")
-    doi_identifiers : Mapped[list[DoiIdentifier]] = relationship(
+    keyword_objs: Mapped[list[Keyword]] = relationship(
+        "Keyword", secondary=experiments_keywords_association_table, backref="experiments"
+    )
+    doi_identifiers: Mapped[list[DoiIdentifier]] = relationship(
         "DoiIdentifier", secondary=experiments_doi_identifiers_association_table, backref="experiments"
     )
-    publication_identifier_associations : Mapped[list[ExperimentPublicationIdentifierAssociation]] = relationship(
+    publication_identifier_associations: Mapped[list[ExperimentPublicationIdentifierAssociation]] = relationship(
         "ExperimentPublicationIdentifierAssociation", back_populates="experiment", cascade="all, delete-orphan"
     )
-    publication_identifiers : AssociationProxy[List[PublicationIdentifier]] = association_proxy(
+    publication_identifiers: AssociationProxy[List[PublicationIdentifier]] = association_proxy(
         "publication_identifier_associations",
         "publication",
         creator=lambda p: ExperimentPublicationIdentifierAssociation(publication=p, primary=p.primary),
     )
 
     # sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
-    raw_read_identifiers : Mapped[list[RawReadIdentifier]] = relationship(
+    raw_read_identifiers: Mapped[list[RawReadIdentifier]] = relationship(
         "RawReadIdentifier", secondary=experiments_raw_read_identifiers_association_table, backref="experiments"
     )
 

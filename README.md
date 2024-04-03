@@ -1,8 +1,8 @@
 # mavedb-api
 
 API for MaveDB. MaveDB is a biological database for Multiplex Assays of Variant Effect (MAVE) datasets.
-The API powers the MaveDB website at [mavedb.org](https://www.mavedb.org) and can also be called separately (see 
-instructions [below](#using-mavedb-api)). 
+The API powers the MaveDB website at [mavedb.org](https://www.mavedb.org) and can also be called separately (see
+instructions [below](#using-mavedb-api)).
 
 
 For more information about MaveDB or to cite MaveDB please refer to the
@@ -44,7 +44,7 @@ The distribution can be uploaded to PyPI using [twine](https://twine.readthedocs
 For use as a server, this distribution includes an optional set of dependencies, which are only invoked if the package
 is installed with `pip install mavedb[server]`.
 
-### Running the API server in Docker on production and test systems
+### Running a local version of the API server
 
 First build the application's Docker image:
 ```
@@ -52,22 +52,24 @@ docker build --tag mavedb-api/mavedb-api .
 ```
 Then start the application and its database:
 ```
-docker-compose -f docker-compose-prod.yml up -d
+docker-compose -f docker-compose-local.yml up -d
 ```
 Omit `-d` (daemon) if you want to run the application in your terminal session, for instance to see startup errors without having
 to inspect the Docker container's log.
 
 To stop the application when it is running as a daemon, run
 ```
-docker-compose -f docker-compose-prod.yml down
+docker-compose -f docker-compose-local.yml down
 ```
 
-`docker-compose-prod.yml` configures two containers: one for the API server and one for the PostgreSQL database. The
-The database stores data in a Docker volume named `mavedb-data`, which will persist after running `docker-compose down`.
+`docker-compose-local.yml` configures four containers: one for the API server, one for the PostgreSQL database, one for the
+worker node and one for the Redis cache which acts as the job queue for the worker node. The worker node stores data in a Docker
+volume named `mavedb-redis` and the database stores data in a Docker volume named `mavedb-data`. Both these volumes will persist
+after running `docker-compose down`.
 
 **Notes**
 1. The `mavedb-api` container requires the following environment variables, which are configured in
-  `docker-compose-prod.yml`:
+  `docker-compose-local.yml`:
 
     - DB_HOST
     - DB_PORT
@@ -75,24 +77,11 @@ The database stores data in a Docker volume named `mavedb-data`, which will pers
     - DB_USERNAME
     - DB_PASSWORD
     - NCBI_API_KEY
+    - REDIS_IP
+    - REDIS_PORT
 
     The database username and password should be edited for production deployments. `NCBI_API_KEY` will be removed in
     the future. **TODO** Move these to an .env file.
-
-2. In the procedure given above, we do not push the Docker image to a repository like Docker Hub; we simply build the
-  image on the machine where it will be used. But to deploy the API server on the AWS-hosted test site, first tag the
-  image appropriately and push it to Elastic Container Repository. (These commands require )
-  ```
-  export ECRPASSWORD=$(aws ecr get-login-password --region us-west-2 --profile mavedb-test)
-  echo $ECRPASSWORD | docker login --username AWS --password-stdin {aws_account_id}.dkr.ecr.us-west-2.amazonaws.com
-  docker tag mavedb-api:latest {aws_account_id}.dkr.ecr.us-west-2.amazonaws.com/mavedb-api
-  docker push {aws_account_id}.dkr.ecr.us-west-2.amazonaws.com/mavedb-api
-  ```
-  These commands presuppose that you have the [AWS CLI](https://aws.amazon.com/cli/) installed and have created a named
-  profile, `mavedb-test`, with your AWS credentials.
-
-  With the Docker image pushed to ECR, you can now deploy the application. **TODO** Add instructions if we want to
-  document this.
 
 ### Running the API server in Docker for development
 
@@ -134,3 +123,10 @@ Before using either of these methods, configure the environment variables descri
 
 If you use PyCharm, the first method can be used in a Python run configuration, but the second method supports PyCharm's
 FastAPI run configuration.
+
+### Running the API server for production
+
+We maintain deployment configuration options and steps within a [private repository](https://github.com/VariantEffect/mavedb-deployment) used for deploying this source code to
+the production MaveDB environment. The main difference between the production setup and these local setups is that
+the worker and api services are split into distinct environments, allowing them to scale up or down individually
+dependent on need.
