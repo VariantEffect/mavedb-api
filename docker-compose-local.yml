@@ -5,9 +5,11 @@ services:
     image: mavedb-api/mavedb-api:latest
     build:
       context: .
+      target: application
     command: bash -c "uvicorn mavedb.server_main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=./ssl/server.key --ssl-certfile=./ssl/server.cert"
     depends_on:
       - db
+      - redis
     env_file:
       - settings/.env.prod
     environment:
@@ -21,7 +23,7 @@ services:
     image: mavedb-api-worker/mavedb-api-worker:latest
     build:
       context: .
-      dockerfile: Dockerfile.worker
+      target: worker
     command: bash -c "arq src.mavedb.worker.WorkerSettings"
     env_file:
       - settings/.env.prod
