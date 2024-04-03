@@ -15,7 +15,9 @@ from mavedb.lib.mave.constants import (
     VARIANT_SCORE_DATA,
 )
 from mavedb.lib.mave.utils import is_csv_null
+from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset
+from mavedb.models.ensembl_identifier import EnsemblIdentifier
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
@@ -24,11 +26,13 @@ from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.reference_genome import ReferenceGenome
 from mavedb.models.refseq_offset import RefseqOffset
+from mavedb.models.refseq_identifier import RefseqIdentifier
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.uniprot_offset import UniprotOffset
+from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.user import User
 from mavedb.view_models.search import ScoreSetsSearch
 
@@ -66,7 +70,15 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                         )
                     )
                 ),
-                # TODO(#94): add UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
+                ScoreSet.target_genes.any(
+                    TargetGene.target_sequence.has(
+                        TargetSequence.reference.has(func.lower(ReferenceGenome.short_name).contains(lower_search_text))
+                    )
+                ),
+                ScoreSet.target_genes.any(
+                    TargetGene.target_accession.has(func.lower(TargetAccession.assembly).contains(lower_search_text))
+                ),
+                # TODO(#94): add LICENSE, plus TAX_ID if numeric
                 ScoreSet.publication_identifiers.any(
                     func.lower(PublicationIdentifier.identifier).icontains(lower_search_text)
                 ),
@@ -82,6 +94,26 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ScoreSet.publication_identifiers.any(
                     func.jsonb_path_exists(
                         PublicationIdentifier.authors, f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")"""
+                    )
+                ),
+                ScoreSet.doi_identifiers.any(func.lower(DoiIdentifier.identifier).contains(lower_search_text)),
+                ScoreSet.target_genes.any(
+                    TargetGene.uniprot_offset.has(
+                        UniprotOffset.identifier.has(
+                            func.lower(UniprotIdentifier.identifier).contains(lower_search_text)
+                        )
+                    )
+                ),
+                ScoreSet.target_genes.any(
+                    TargetGene.refseq_offset.has(
+                        RefseqOffset.identifier.has(func.lower(RefseqIdentifier.identifier).contains(lower_search_text))
+                    )
+                ),
+                ScoreSet.target_genes.any(
+                    TargetGene.ensembl_offset.has(
+                        EnsemblOffset.identifier.has(
+                            func.lower(EnsemblIdentifier.identifier).contains(lower_search_text)
+                        )
                     )
                 ),
             )
