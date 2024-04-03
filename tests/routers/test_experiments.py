@@ -10,10 +10,12 @@ import requests_mock
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
+from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from tests.helpers.util import (
     change_ownership,
     create_experiment,
+    create_seq_score_set,
     create_seq_score_set_with_variants,
 )
 from tests.helpers.constants import (
@@ -338,6 +340,43 @@ def test_search_my_experiments(session, client, setup_router_db):
     response = client.post("/api/v1/me/experiments/search", json=search_payload)
     assert response.status_code == 200
     assert response.json()[0]["title"] == experiment["title"]
+
+
+def test_search_score_sets_for_experiments(session, client, setup_router_db, data_files, data_provider):
+    experiment = create_experiment(client)
+    score_set_pub = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    # make the unpublished score set owned by some other user. This shouldn't appear in the results.
+    score_set_unpub = create_seq_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
+    published_score_set = client.post(f"/api/v1/score-sets/{score_set_pub['urn']}/publish").json()
+    change_ownership(session, score_set_unpub["urn"], ScoreSetDbModel)
+
+    # On score set publication, the experiment will get a new urn
+    experiment_urn = published_score_set["experiment"]["urn"]
+    response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["urn"] == published_score_set["urn"]
+
+
+def test_search_score_sets_for_my_experiments(session, client, setup_router_db, data_files, data_provider):
+    experiment = create_experiment(client)
+    score_set_pub = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    # The unpublished score set is for the current user, so it should show up in results.
+    score_set_unpub = create_seq_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
+    published_score_set = client.post(f"/api/v1/score-sets/{score_set_pub['urn']}/publish").json()
+
+    # On score set publication, the experiment will get a new urn
+    experiment_urn = published_score_set["experiment"]["urn"]
+    response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+    assert response.status_code == 200
+    assert len(response.json()) == 2
+    assert set(score_set["urn"] for score_set in response.json()) == set(
+        (published_score_set["urn"], score_set_unpub["urn"])
+    )
 
 
 def test_search_their_experiments(session, client, setup_router_db):
