@@ -17,7 +17,12 @@ from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 import pytest
-from tests.helpers.util import change_ownership, create_experiment, create_score_set, create_score_set_with_variants
+from tests.helpers.util import (
+    change_ownership,
+    create_experiment,
+    create_seq_score_set,
+    create_seq_score_set_with_variants,
+)
 
 import requests
 import requests_mock
@@ -221,7 +226,6 @@ def test_create_experiment_with_new_primary_preprint_publication(client, setup_r
     # TODO: add separate tests for generating the publication url and referenceHtml
 
 
-
 @pytest.mark.parametrize(
     "db_name, identifier", [("biorxiv", TEST_BIORXIV_IDENTIFIER), ("medrxiv", TEST_MEDRXIV_IDENTIFIER)]
 )
@@ -336,9 +340,9 @@ def test_search_my_experiments(session, client, setup_router_db):
 
 def test_search_score_sets_for_experiments(session, client, setup_router_db, data_files):
     experiment = create_experiment(client)
-    score_set_pub = create_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    score_set_pub = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
     # make the unpublished score set owned by some other user. This shouldn't appear in the results.
-    score_set_unpub = create_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
+    score_set_unpub = create_seq_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
     published_score_set = client.post(f"/api/v1/score-sets/{score_set_pub['urn']}/publish").json()
     change_ownership(session, score_set_unpub["urn"], ScoreSetDbModel)
 
@@ -352,9 +356,9 @@ def test_search_score_sets_for_experiments(session, client, setup_router_db, dat
 
 def test_search_score_sets_for_my_experiments(session, client, setup_router_db, data_files):
     experiment = create_experiment(client)
-    score_set_pub = create_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
+    score_set_pub = create_seq_score_set_with_variants(client, experiment["urn"], data_files / "scores.csv")
     # The unpublished score set is for the current user, so it should show up in results.
-    score_set_unpub = create_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
+    score_set_unpub = create_seq_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
     published_score_set = client.post(f"/api/v1/score-sets/{score_set_pub['urn']}/publish").json()
 
     # On score set publication, the experiment will get a new urn
