@@ -110,7 +110,7 @@ def transcript_info(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_p
 
     return transcript_info
 
-
+  
 @router.get("/transcripts/protein/{transcript}", status_code=200, response_model=str)
 def convert_to_protein(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> str:
     """
