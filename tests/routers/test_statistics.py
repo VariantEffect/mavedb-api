@@ -21,7 +21,7 @@ from tests.helpers.util import (
 
 TARGET_ACCESSION_FIELDS = ["accession", "assembly", "gene"]
 TARGET_SEQUENCE_FIELDS = ["sequence", "sequence-type"]
-TARGET_GENE_FIELDS = ["category", "organism", "reference"]
+TARGET_GENE_FIELDS = ["category", "organism"]
 TARGET_GENE_IDENTIFIER_FIELDS = ["ensembl-identifier", "refseq-identifier", "uniprot-identifier"]
 
 RECORD_MODELS = ["experiment", "score-set"]
