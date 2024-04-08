@@ -3,7 +3,8 @@ from fastapi.exceptions import HTTPException
 from sqlalchemy.orm import Session
 from typing import Any
 
-from mavedb.models.taxonomy import Taxonomy, TaxonomyCreate
+from mavedb.models.taxonomy import Taxonomy
+from mavedb.view_models.taxonomy import TaxonomyCreate
 
 
 async def find_or_create_taxonomy(db: Session, taxonomy: TaxonomyCreate):
