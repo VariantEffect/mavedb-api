@@ -100,7 +100,6 @@ TEST_SEQ_SCORESET = {
             "name": "TEST1",
             "category": "Protein coding",
             "external_identifiers": [],
-            "reference_maps": [{"genome_id": TEST_REFERENCE_GENOME["id"]}],
             "target_sequence": {
                 "sequence_type": "dna",
                 "sequence": "ACGTTT",
@@ -127,7 +126,6 @@ TEST_MINIMAL_SEQ_SCORESET = {
         "name": "TEST1",
         "category": "Protein coding",
         "externalIdentifiers": [],
-        "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
         "targetSequence": {
             "sequenceType": "dna",
             "sequence": "ACGTTT",

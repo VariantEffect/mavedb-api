@@ -18,7 +18,7 @@ class TargetSequence(Base):
     sequence = Column(String, nullable=False)
     label = Column(String, nullable=True)
     taxonomy_id = Column("taxonomy_id", Integer, ForeignKey("taxonomies.id"), nullable=True)
-    reference : Mapped[Taxonomy] = relationship(
+    taxonomy : Mapped[Taxonomy] = relationship(
         "Taxonomy",
         backref=backref("target_sequences", single_parent=True),
     )
