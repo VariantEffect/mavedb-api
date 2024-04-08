@@ -170,6 +170,7 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
         "targetSequence": {
             "sequenceType": "dna",
             "sequence": "ACGTTT",
+            "label": "TEST1",
             "taxonomy": {
                 "taxId": TEST_TAXONOMY["tax_id"],
                 "organismName": TEST_TAXONOMY["organism_name"],
