@@ -57,7 +57,6 @@ class TargetAccessionFields(str, Enum):
     accession = "accession"
     assembly = "assembly"
     gene = "gene"
-    reference = "reference"
 
 
 class TargetSequenceFields(str, Enum):
@@ -210,35 +209,6 @@ def target_genes_by_field(field: TargetGeneFields, db: Session = Depends(get_db)
             organisms["Homo sapiens"] = accession_count
 
         return organisms
-
-    elif field is TargetGeneFields.reference:
-        sequence_references_by_id_query = (
-            select(TargetSequence.taxonomy_id, func.count(TargetSequence.taxonomy_id))
-            .join(published_score_sets_stmt)
-            .group_by(TargetSequence.taxonomy_id)
-        )
-        accession_references_by_id_query = (
-            select(TargetAccession.assembly, func.count(TargetAccession.assembly))
-            .join(published_score_sets_stmt)
-            .group_by(TargetAccession.assembly)
-        )
-
-        # Would prefer to use db.execute(...).scalar_one() here, but MyPy complains about Nonetypes.
-        sequence_references: dict[str, Any] = {
-            db.execute(select(Taxonomy.common_name).filter(Taxonomy.id == taxonomy_id)).one()[0]: count
-            for taxonomy_id, count in db.execute(sequence_references_by_id_query).all()
-            if taxonomy_id is not None
-        }
-        accession_references: dict[str, Any] = {
-            assembly: count
-            for assembly, count in db.execute(accession_references_by_id_query).all()
-            if assembly is not None
-        }
-
-        return {
-            reference: accession_references.get(reference, 0) + sequence_references.get(reference, 0)
-            for reference in set(accession_references) | set(sequence_references)
-        }
 
     # Protection from this case occurs via FastApi/pydantic Enum validation.
     else:
