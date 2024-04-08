@@ -182,7 +182,7 @@ def target_genes_by_field(field: TargetGeneFields, db: Session = Depends(get_db)
 
         return {category: count for category, count in db.execute(query).all() if category is not None}
 
-    # Target gene organism and reference need special handling: These fields are stored differently between accession and sequence Targets.
+    # Target gene organism needs special handling: it is stored differently between accession and sequence Targets.
     elif field is TargetGeneFields.organism:
         sequence_based_targets_query = (
             select(Taxonomy.organism_name, func.count(Taxonomy.organism_name))
