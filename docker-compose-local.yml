@@ -17,6 +17,24 @@ services:
       - "8444:8000"
     restart: unless-stopped
 
+  worker:
+    image: mavedb-api-worker/mavedb-api-worker:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: bash -c "arq src.mavedb.worker.WorkerSettings"
+    env_file:
+      - settings/.env.prod
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_IP: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
   db:
     image: postgres:14
     env_file:
@@ -27,6 +45,15 @@ services:
     volumes:
       - mavedb-data:/var/lib/postgresql/data
 
+  redis:
+    image: redis:7.2.3
+    env_file:
+      - settings/.env.prod
+    ports:
+      - "6381:6379"
+    volumes:
+      - mavedb-redis:/data
+
 #  rabbitmq:
 #    image: rabbitmq:3.8.3
 #    ports:
@@ -34,3 +61,4 @@ services:
 
 volumes:
   mavedb-data:
+  mavedb-redis:

@@ -1,12 +1,15 @@
 import itertools
 from unittest import TestCase
 
+import os.path
 import numpy as np
 import pandas as pd
 import pytest
+import cdot.hgvs.dataproviders
+from pathlib import Path
 
 from unittest.mock import patch
-import hgvs.validator
+from tests.helpers.constants import VALID_ACCESSION, TEST_CDOT_TRANSCRIPT
 
 from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
@@ -34,7 +37,18 @@ from mavedb.lib.validation.dataframe import (
 from mavedb.lib.validation.exceptions import ValidationError
 
 
+@pytest.fixture
+def data_provider_class_attr(request, data_provider):
+    """
+    Sets the `human_data_provider` attribute on the class from the requesting
+    test context to the `data_provider` fixture. This allows fixture use across
+    the `unittest.TestCase` class.
+    """
+    request.cls.human_data_provider = data_provider
+
+
 # Special DF Test Case that contains dummy data for tests below
+@pytest.mark.usefixtures("data_provider_class_attr")
 class DfTestCase(TestCase):
     def setUp(self):
         self.dataframe = pd.DataFrame(
@@ -210,7 +224,9 @@ class TestStandardizeDataframe(DfTestCase):
 class TestValidateStandardizeDataFramePair(DfTestCase):
     def test_no_targets(self):
         with self.assertRaises(ValueError):
-            validate_and_standardize_dataframe_pair(self.dataframe, counts_df=None, targets=[])
+            validate_and_standardize_dataframe_pair(
+                self.dataframe, counts_df=None, targets=[], hdp=self.human_data_provider
+            )
 
     # TODO: Add additional DataFrames. Realistically, if other unit tests pass this function is ok
 
@@ -885,7 +901,7 @@ class TestValidateTransgenicColumn(DfTestCase):
 # Spoof the accession type
 class AccessionTestCase:
     def __init__(self):
-        self.accession = "NG_021272.2"
+        self.accession = VALID_ACCESSION
 
 
 class TestValidateHgvsGenomicColumn(DfTestCase):
@@ -894,9 +910,9 @@ class TestValidateHgvsGenomicColumn(DfTestCase):
 
         self.accession_test_case = AccessionTestCase()
 
-        self.valid_hgvs_column = pd.Series(["g.1C>A", "g.2C>A"], name=hgvs_nt_column)
-        self.missing_data = pd.Series(["g.3T>G", None], name=hgvs_nt_column)
-        self.duplicate_data = pd.Series(["g.4A>G", "g.4A>G"], name=hgvs_nt_column)
+        self.valid_hgvs_column = pd.Series(["c.1G>A", "c.2A>T"], name=hgvs_nt_column)
+        self.missing_data = pd.Series(["c.3T>G", None], name=hgvs_nt_column)
+        self.duplicate_data = pd.Series(["c.4A>G", "c.4A>G"], name=hgvs_nt_column)
 
         self.invalid_hgvs_columns_by_name = [
             pd.Series(["g.1A>G", "g.1A>T"], name=hgvs_splice_column),
@@ -921,55 +937,113 @@ class TestValidateHgvsGenomicColumn(DfTestCase):
         ]
 
     def test_valid_variant(self):
-        with patch.object(hgvs.validator.Validator, 'validate', return_value=True):
-            validate_hgvs_genomic_column(self.valid_hgvs_column, is_index=False, targets=[self.accession_test_case])  # type: ignore
+        with patch.object(
+            cdot.hgvs.dataproviders.RESTDataProvider,
+            "_get_transcript",
+            return_value=TEST_CDOT_TRANSCRIPT,
+        ):
+            validate_hgvs_genomic_column(self.valid_hgvs_column, is_index=False, targets=[self.accession_test_case], hdp=self.human_data_provider)  # type: ignore
 
     def test_valid_variant_valid_missing(self):
-        with patch.object(hgvs.validator.Validator, 'validate', return_value=True):
-            validate_hgvs_genomic_column(self.missing_data, is_index=False, targets=[self.accession_test_case])  # type: ignore
+        with patch.object(
+            cdot.hgvs.dataproviders.RESTDataProvider,
+            "_get_transcript",
+            return_value=TEST_CDOT_TRANSCRIPT,
+        ):
+            validate_hgvs_genomic_column(self.missing_data, is_index=False, targets=[self.accession_test_case], hdp=self.human_data_provider)  # type: ignore
 
     def test_valid_variant_valid_duplicate(self):
-        with patch.object(hgvs.validator.Validator, 'validate', return_value=True):
-            validate_hgvs_genomic_column(self.missing_data, is_index=False, targets=[self.accession_test_case])  # type: ignore
+        with patch.object(
+            cdot.hgvs.dataproviders.RESTDataProvider,
+            "_get_transcript",
+            return_value=TEST_CDOT_TRANSCRIPT,
+        ):
+            validate_hgvs_genomic_column(self.missing_data, is_index=False, targets=[self.accession_test_case], hdp=self.human_data_provider)  # type: ignore
 
     def test_valid_variant_index(self):
-        with patch.object(hgvs.validator.Validator, 'validate', return_value=True):
-            validate_hgvs_genomic_column(self.valid_hgvs_column, is_index=True, targets=[self.accession_test_case])  # type: ignore
+        with patch.object(
+            cdot.hgvs.dataproviders.RESTDataProvider,
+            "_get_transcript",
+            return_value=TEST_CDOT_TRANSCRIPT,
+        ):
+            validate_hgvs_genomic_column(self.valid_hgvs_column, is_index=True, targets=[self.accession_test_case], hdp=self.human_data_provider)  # type: ignore
 
     def test_valid_variant_invalid_missing_index(self):
-        with self.assertRaises(ValidationError):
-            validate_hgvs_genomic_column(self.missing_data, is_index=True, targets=[self.accession_test_case])  # type: ignore
+        with (
+            self.assertRaises(ValidationError),
+            patch.object(
+                cdot.hgvs.dataproviders.RESTDataProvider,
+                "_get_transcript",
+                return_value=TEST_CDOT_TRANSCRIPT,
+            ),
+        ):
+            validate_hgvs_genomic_column(self.missing_data, is_index=True, targets=[self.accession_test_case], hdp=self.human_data_provider)  # type: ignore
 
     def test_valid_variant_invalid_duplicate_index(self):
-        with self.assertRaises(ValidationError):
-            validate_hgvs_genomic_column(self.duplicate_data, is_index=True, targets=[self.accession_test_case])  # type: ignore
+        with (
+            self.assertRaises(ValidationError),
+            patch.object(
+                cdot.hgvs.dataproviders.RESTDataProvider,
+                "_get_transcript",
+                return_value=TEST_CDOT_TRANSCRIPT,
+            ),
+        ):
+            validate_hgvs_genomic_column(self.duplicate_data, is_index=True, targets=[self.accession_test_case], hdp=self.human_data_provider)  # type: ignore
 
     def test_invalid_column_values(self):
         for column in self.invalid_hgvs_columns_by_contents:
-            with self.subTest(column=column):
-                with self.assertRaises(ValidationError):
-                    validate_hgvs_genomic_column(
-                        column, is_index=False, targets=[self.accession_test_case]  # type: ignore
-                    )
+            with (
+                self.subTest(column=column),
+                self.assertRaises(ValidationError),
+                patch.object(
+                    cdot.hgvs.dataproviders.RESTDataProvider,
+                    "_get_transcript",
+                    return_value=TEST_CDOT_TRANSCRIPT,
+                ),
+            ):
+                validate_hgvs_genomic_column(
+                    column, is_index=False, targets=[self.accession_test_case], hdp=self.human_data_provider  # type: ignore
+                )
         for column in self.invalid_hgvs_columns_by_contents:
-            with self.subTest(column=column):
-                with self.assertRaises(ValidationError):
-                    validate_hgvs_genomic_column(
-                        column, is_index=True, targets=[self.accession_test_case]  # type: ignore
-                    )
+            with (
+                self.subTest(column=column),
+                self.assertRaises(ValidationError),
+                patch.object(
+                    cdot.hgvs.dataproviders.RESTDataProvider,
+                    "_get_transcript",
+                    return_value=TEST_CDOT_TRANSCRIPT,
+                ),
+            ):
+                validate_hgvs_genomic_column(
+                    column, is_index=True, targets=[self.accession_test_case], hdp=self.human_data_provider  # type: ignore
+                )
 
     def test_valid_column_values_wrong_column_name(self):
         for column in self.invalid_hgvs_columns_by_name:
-            with self.subTest(column=column):
-                with self.assertRaises(ValidationError):
-                    validate_hgvs_genomic_column(
-                        column, is_index=False, targets=[self.accession_test_case]  # type: ignore
-                    )
+            with (
+                self.subTest(column=column),
+                self.assertRaises(ValidationError),
+                patch.object(
+                    cdot.hgvs.dataproviders.RESTDataProvider,
+                    "_get_transcript",
+                    return_value=TEST_CDOT_TRANSCRIPT,
+                ),
+            ):
+                validate_hgvs_genomic_column(
+                    column, is_index=False, targets=[self.accession_test_case], hdp=self.human_data_provider  # type: ignore
+                )
         for column in self.invalid_hgvs_columns_by_name:
-            with self.subTest(column=column):
-                with self.assertRaises(ValidationError):
-                    validate_hgvs_genomic_column(
-                        column, is_index=True, targets=[self.accession_test_case]  # type: ignore
-                    )
+            with (
+                self.subTest(column=column),
+                self.assertRaises(ValidationError),
+                patch.object(
+                    cdot.hgvs.dataproviders.RESTDataProvider,
+                    "_get_transcript",
+                    return_value=TEST_CDOT_TRANSCRIPT,
+                ),
+            ):
+                validate_hgvs_genomic_column(
+                    column, is_index=True, targets=[self.accession_test_case], hdp=self.human_data_provider  # type: ignore
+                )
 
     # TODO: Test multiple targets

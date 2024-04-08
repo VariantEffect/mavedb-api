@@ -1,5 +1,13 @@
 from datetime import date
 from humps import camelize
+from mavedb.models.enums.processing_state import ProcessingState
+
+TEST_PUBMED_IDENTIFIER = "20711194"
+TEST_BIORXIV_IDENTIFIER = "2021.06.21.212592"
+TEST_MEDRXIV_IDENTIFIER = "2021.06.22.21259265"
+
+VALID_ACCESSION = "NM_001637.3"
+VALID_GENE = "BRCA1"
 
 TEST_USER = {
     "username": "0000-1111-2222-3333",
@@ -17,6 +25,13 @@ EXTRA_USER = {
     "is_active": True,
     "is_staff": False,
     "is_superuser": False,
+}
+
+TEST_EXPERIMENT = {
+    "title": "Test Title",
+    "short_description": "Test experiment",
+    "abstract_text": "Abstract",
+    "method_text": "Methods",
 }
 
 TEST_MINIMAL_EXPERIMENT = {
@@ -75,7 +90,34 @@ TEST_LICENSE = {
     "version": "1.0",
 }
 
-TEST_MINIMAL_SCORE_SET = {
+TEST_SEQ_SCORESET = {
+    "title": "Test Score Set Title",
+    "short_description": "Test score set",
+    "abstract_text": "Abstract",
+    "method_text": "Methods",
+    "target_genes": [
+        {
+            "name": "TEST1",
+            "category": "Protein coding",
+            "external_identifiers": [],
+            "reference_maps": [{"genome_id": TEST_REFERENCE_GENOME["id"]}],
+            "target_sequence": {
+                "sequence_type": "dna",
+                "sequence": "ACGTTT",
+                "reference": {
+                    "id": 1,
+                    "short_name": "Name",
+                    "organism_name": "Organism",
+                    "creation_date": date.today().isoformat(),
+                    "modification_date": date.today().isoformat(),
+                },
+            },
+        }
+    ],
+}
+
+
+TEST_MINIMAL_SEQ_SCORESET = {
     "title": "Test Score Set Title",
     "shortDescription": "Test score set",
     "abstractText": "Abstract",
@@ -85,24 +127,25 @@ TEST_MINIMAL_SCORE_SET = {
         "name": "TEST1",
         "category": "Protein coding",
         "externalIdentifiers": [],
+        "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
         "targetSequence": {
             "sequenceType": "dna",
             "sequence": "ACGTTT",
             "taxonomy": {
-                      "taxId": TEST_TAXONOMY["tax_id"],
-                      "organismName": TEST_TAXONOMY["organism_name"],
-                      "commonName": TEST_TAXONOMY["common_name"],
-                      "rank": TEST_TAXONOMY["rank"],
-                      "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                      "articleReference": TEST_TAXONOMY["article_reference"],
-                      "id": TEST_TAXONOMY["id"],
-                      "url": TEST_TAXONOMY["url"]
+                "taxId": TEST_TAXONOMY["tax_id"],
+                "organismName": TEST_TAXONOMY["organism_name"],
+                "commonName": TEST_TAXONOMY["common_name"],
+                "rank": TEST_TAXONOMY["rank"],
+                "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                "articleReference": TEST_TAXONOMY["article_reference"],
+                "id": TEST_TAXONOMY["id"],
+                "url": TEST_TAXONOMY["url"]
             }
         },
     } ],
 }
 
-TEST_MINIMAL_SCORE_SET_RESPONSE = {
+TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "title": "Test Score Set Title",
     "shortDescription": "Test score set",
     "abstractText": "Abstract",
@@ -130,14 +173,14 @@ TEST_MINIMAL_SCORE_SET_RESPONSE = {
             "sequenceType": "dna",
             "sequence": "ACGTTT",
             "taxonomy": {
-                      "taxId": TEST_TAXONOMY["tax_id"],
-                      "organismName": TEST_TAXONOMY["organism_name"],
-                      "commonName": TEST_TAXONOMY["common_name"],
-                      "rank": TEST_TAXONOMY["rank"],
-                      "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                      "articleReference": TEST_TAXONOMY["article_reference"],
-                      "id": TEST_TAXONOMY["id"],
-                      "url": TEST_TAXONOMY["url"]
+                "taxId": TEST_TAXONOMY["tax_id"],
+                "organismName": TEST_TAXONOMY["organism_name"],
+                "commonName": TEST_TAXONOMY["common_name"],
+                "rank": TEST_TAXONOMY["rank"],
+                "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                "articleReference": TEST_TAXONOMY["article_reference"],
+                "id": TEST_TAXONOMY["id"],
+                "url": TEST_TAXONOMY["url"]
             }
         },
     } ],
@@ -152,4 +195,28 @@ TEST_MINIMAL_SCORE_SET_RESPONSE = {
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
     # keys to be set after receiving response
     "urn": None,
+    "processingState": ProcessingState.incomplete.name,
+}
+
+
+TEST_CDOT_TRANSCRIPT = {
+    "start_codon": 0,
+    "stop_codon": 18,
+    "id": VALID_ACCESSION,
+    "gene_version": "313",
+    "gene_name": VALID_GENE,
+    "biotype": ["protein_coding"],
+    "protein": "NP_001628.1",
+    "genome_builds": {
+        "GRCh37": {
+            "cds_end": 1,
+            "cds_start": 18,
+            "contig": "NC_000007.13",
+            # The exons are non-sense but it doesn't really matter for the tests.
+            "exons": [[1, 12, 20, 2001, 2440, "M196 I1 M61 I1 M181"], [12, 18, 19, 1924, 2000, None]],
+            "start": 1,
+            "stop": 18,
+            "strand": "+",
+        }
+    },
 }

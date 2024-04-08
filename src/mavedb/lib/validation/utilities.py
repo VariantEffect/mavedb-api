@@ -1,5 +1,5 @@
 from random import choice
-from typing import Optional
+from typing import Optional, SupportsIndex
 
 from mavedb.lib.validation.constants.conversion import codon_dict_DNA
 from mavedb.lib.validation.constants.conversion import aa_dict_key_1
@@ -152,9 +152,9 @@ def convert_hgvs_nt_to_hgvs_pro(hgvs_nt: str, target_seq: str):
         # instantiate Variant object
         variant = Variant(hgvs_nt)
         # get variant position and convert to int
-        if type(variant.positions) == list:  # multiple positions values exist
+        if type(variant.positions) is list:  # multiple positions values exist
             variant_position = int(str(variant.positions[0]))
-        elif type(variant.positions) == tuple:
+        elif type(variant.positions) is tuple:
             variant_position = int(str(variant.positions[0]))
         else:  # only one value for positions
             variant_position = int(str(variant.positions))
@@ -184,6 +184,7 @@ def convert_hgvs_nt_to_hgvs_pro(hgvs_nt: str, target_seq: str):
         variant_codon = None
         sub_one = None  # no nucleotide substitutions
     elif _is_substitution_one_base(hgvs_nt):  # variant_codon has one nucleotide substitution
+        assert isinstance(variant.sequence, SupportsIndex)
         # instantiate Variant object
         variant = Variant(hgvs_nt)
         # get index of nucleotide substitution
@@ -196,6 +197,8 @@ def convert_hgvs_nt_to_hgvs_pro(hgvs_nt: str, target_seq: str):
     elif _is_substitution_two_bases_nonadjacent(hgvs_nt):  # variant has two nucleotide substitutions, non-adjacent
         # instantiate Variant object
         variant = Variant(hgvs_nt)
+        assert isinstance(variant.sequence, SupportsIndex)
+        assert isinstance(variant.positions, SupportsIndex)
         # get indices of nucleotide substitutions
         sub_one = int(str(variant.positions[0])) % 3 - 1
         sub_two = int(str(variant.positions[1])) % 3 - 1
@@ -207,6 +210,8 @@ def convert_hgvs_nt_to_hgvs_pro(hgvs_nt: str, target_seq: str):
     else:  # variant_codon has two or three adjacent nucleotide substitutions
         # instantiate Variant object
         variant = Variant(hgvs_nt)
+        assert isinstance(variant.sequence, str)
+        assert isinstance(variant.positions, SupportsIndex)
         variant_codon = variant.sequence
         # get index of first codon substitution
         sub_one = int(str(variant.positions[0])) % 3 - 1
@@ -258,12 +263,14 @@ def convert_hgvs_nt_to_hgvs_pro(hgvs_nt: str, target_seq: str):
             variant_codon = variant_codon + target_codon[2]
 
     # convert to 3 letter amino acid code
+    assert target_codon is not None
     target_aa = codon_dict_DNA[target_codon]
-    if variant_codon:
-        variant_aa = codon_dict_DNA[variant_codon]
-    else:
-        variant_aa = None
+    if not variant_codon:
+        return "p.="
 
+    variant_aa = codon_dict_DNA[variant_codon]
+
+    assert codon_number is not None
     return construct_hgvs_pro(wt=target_aa, mutant=variant_aa, position=codon_number, target_seq=target_seq)
 
 

@@ -14,7 +14,7 @@ class PublicationIdentifiersGetter(GetterDict):
     publication is primary or not into two separate lists with that same information.
     """
 
-    def get(self, key: str, default: Any) -> Any:
+    def get(self, key: Any, default: Any = ...) -> Any:
         if key == "secondary_publication_identifiers":
             pub_assc = getattr(self._obj, "publication_identifier_associations")
             return [assc.publication for assc in pub_assc if not assc.primary]

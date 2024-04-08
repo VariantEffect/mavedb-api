@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import BinaryIO, Optional
 
 import numpy as np
 import pandas as pd
@@ -6,7 +6,6 @@ from pandas.testing import assert_index_equal
 from sqlalchemy import func, or_
 from sqlalchemy.orm import aliased, contains_eager, joinedload, selectinload, Session
 
-from mavedb.lib.array_comparison import assert_array_equal
 from mavedb.lib.exceptions import ValidationError
 from mavedb.lib.mave.constants import (
     HGVS_NT_COLUMN,
@@ -15,25 +14,42 @@ from mavedb.lib.mave.constants import (
     VARIANT_COUNT_DATA,
     VARIANT_SCORE_DATA,
 )
+from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.mave.utils import is_csv_null
+from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset
+from mavedb.models.ensembl_identifier import EnsemblIdentifier
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.keyword import Keyword
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
+from mavedb.models.reference_genome import ReferenceGenome
 from mavedb.models.refseq_offset import RefseqOffset
+from mavedb.models.refseq_identifier import RefseqIdentifier
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.taxonomy import Taxonomy
+from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.user import User
+from mavedb.models.variant import Variant
 from mavedb.view_models.search import ScoreSetsSearch
 
 VariantData = dict[str, Optional[dict[str, dict]]]
+
+
+class HGVSColumns:
+    NUCLEOTIDE: str = "hgvs_nt"  # dataset.constants.hgvs_nt_column
+    TRANSCRIPT: str = "hgvs_splice"  # dataset.constants.hgvs_splice_column
+    PROTEIN: str = "hgvs_pro"  # dataset.constants.hgvs_pro_column
+
+    @classmethod
+    def options(cls) -> list[str]:
+        return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
 def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
@@ -45,9 +61,9 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
 
     if search.published is not None:
         if search.published:
-            query = query.filter(ScoreSet.published_date is not None)
+            query = query.filter(ScoreSet.published_date.isnot(None))
         else:
-            query = query.filter(ScoreSet.published_date is None)
+            query = query.filter(ScoreSet.published_date.is_(None))
 
     if search.text:
         lower_search_text = search.text.lower()
@@ -67,7 +83,15 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                         )
                     )
                 ),
-                # TODO(#94): add UNIPROT, ENSEMBL, REFSEQ, LICENSE, plus TAX_ID if numeric
+                ScoreSet.target_genes.any(
+                    TargetGene.target_sequence.has(
+                        TargetSequence.reference.has(func.lower(ReferenceGenome.short_name).contains(lower_search_text))
+                    )
+                ),
+                ScoreSet.target_genes.any(
+                    TargetGene.target_accession.has(func.lower(TargetAccession.assembly).contains(lower_search_text))
+                ),
+                # TODO(#94): add LICENSE, plus TAX_ID if numeric
                 ScoreSet.publication_identifiers.any(
                     func.lower(PublicationIdentifier.identifier).icontains(lower_search_text)
                 ),
@@ -83,6 +107,26 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ScoreSet.publication_identifiers.any(
                     func.jsonb_path_exists(
                         PublicationIdentifier.authors, f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")"""
+                    )
+                ),
+                ScoreSet.doi_identifiers.any(func.lower(DoiIdentifier.identifier).contains(lower_search_text)),
+                ScoreSet.target_genes.any(
+                    TargetGene.uniprot_offset.has(
+                        UniprotOffset.identifier.has(
+                            func.lower(UniprotIdentifier.identifier).contains(lower_search_text)
+                        )
+                    )
+                ),
+                ScoreSet.target_genes.any(
+                    TargetGene.refseq_offset.has(
+                        RefseqOffset.identifier.has(func.lower(RefseqIdentifier.identifier).contains(lower_search_text))
+                    )
+                ),
+                ScoreSet.target_genes.any(
+                    TargetGene.ensembl_offset.has(
+                        EnsemblOffset.identifier.has(
+                            func.lower(EnsemblIdentifier.identifier).contains(lower_search_text)
+                        )
                     )
                 ),
             )
@@ -251,7 +295,7 @@ def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[Scor
         db.query(ScoreSet)
         .join(ScoreSet.meta_analyzes_score_sets.of_type(analyzed_score_set))
         .filter(*urn_filters)
-        .group_by(ScoreSet)
+        .group_by(ScoreSet.id)
         .having(func.count(analyzed_score_set.id) == len(urns))
         .all()
     )
@@ -260,6 +304,18 @@ def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[Scor
 def filter_visible_score_sets(items: list[ScoreSet]):
     # TODO Take the user into account.
     return filter(lambda item: not item.private, items or [])
+
+
+def arrays_equal(array1: np.ndarray, array2: np.ndarray):
+    # if the shape isn't the same the arrays are different.
+    # otherwise for each value make sure either both values are null
+    # or the values are equal.
+    return array1.shape == array2.shape and all(
+        # note that each of the three expressions here is a boolean ndarray
+        # so combining them with bitwise `&` and `|` works:
+        (pd.isnull(array1) & pd.isnull(array2))
+        | (array1 == array2)
+    )
 
 
 def validate_datasets_define_same_variants(scores, counts):
@@ -275,23 +331,10 @@ def validate_datasets_define_same_variants(scores, counts):
         Scores dataframe parsed from an uploaded counts file.
     """
     # TODO First, confirm that the two dataframes have the same HGVS columns.
-    try:
-        if HGVS_NT_COLUMN in scores:
-            assert_array_equal(
-                scores[HGVS_NT_COLUMN].sort_values().values,
-                counts[HGVS_NT_COLUMN].sort_values().values,
-            )
-        if HGVS_SPLICE_COLUMN in scores:
-            assert_array_equal(
-                scores[HGVS_SPLICE_COLUMN].sort_values().values,
-                counts[HGVS_SPLICE_COLUMN].sort_values().values,
-            )
-        if HGVS_PRO_COLUMN in scores:
-            assert_array_equal(
-                scores[HGVS_PRO_COLUMN].sort_values().values,
-                counts[HGVS_PRO_COLUMN].sort_values().values,
-            )
-    except AssertionError:
+    if any(
+        col in scores and not arrays_equal(scores[col].sort_values(), counts[col].sort_values())
+        for col in (HGVS_NT_COLUMN, HGVS_SPLICE_COLUMN, HGVS_PRO_COLUMN)
+    ):
         raise ValidationError(
             "Your score and counts files do not define the same variants. "
             "Check that the hgvs columns in both files match."
@@ -393,3 +436,61 @@ def create_variants_data(scores, counts=None, index_col=None) -> list[VariantDat
             variants.append(variant)
 
     return variants
+
+
+def create_variants(db, score_set: ScoreSet, variants_data: list[VariantData], batch_size=None) -> int:
+    num_variants = len(variants_data)
+    variant_urns = bulk_create_urns(num_variants, score_set, True)
+    variants = (
+        # TODO: Is there a nicer way to handle this than passing dicts into kwargs
+        # of the class initializer?
+        Variant(urn=urn, score_set_id=score_set.id, **kwargs)  # type: ignore
+        for urn, kwargs in zip(variant_urns, variants_data)
+    )
+    db.bulk_save_objects(variants)
+    db.add(score_set)
+    return len(score_set.variants)
+
+
+def bulk_create_urns(n, score_set, reset_counter=False) -> list[str]:
+    start_value = 0 if reset_counter else score_set.num_variants
+    parent_urn = score_set.urn
+    child_urns = ["{}#{}".format(parent_urn, start_value + (i + 1)) for i in range(n)]
+    current_value = start_value + n
+    score_set.num_variants = current_value
+    return child_urns
+
+
+def csv_data_to_df(file_data: BinaryIO) -> pd.DataFrame:
+    extra_na_values = list(
+        set(
+            list(null_values_list)
+            + [str(x).lower() for x in null_values_list]
+            + [str(x).upper() for x in null_values_list]
+            + [str(x).capitalize() for x in null_values_list]
+        )
+    )
+
+    ingested_df = pd.read_csv(
+        filepath_or_buffer=file_data,
+        sep=",",
+        encoding="utf-8",
+        quotechar="'",
+        comment="#",
+        na_values=extra_na_values,
+        keep_default_na=True,
+        dtype={**{col: str for col in HGVSColumns.options()}, "scores": float},
+    )
+
+    for c in HGVSColumns.options():
+        if c not in ingested_df.columns:
+            ingested_df[c] = np.NaN
+
+    return ingested_df
+
+
+def columns_for_dataset(dataset: Optional[pd.DataFrame]) -> list[str]:
+    if dataset is None:
+        return []
+
+    return [col for col in dataset.columns if col not in HGVSColumns.options()]

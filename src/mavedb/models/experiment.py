@@ -1,18 +1,26 @@
 from datetime import date
 
-from typing import Optional
+from typing import Optional, List, TYPE_CHECKING
+
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.event import listens_for
-from sqlalchemy.ext.associationproxy import association_proxy
-from sqlalchemy.orm import relationship, backref
+from sqlalchemy.ext.associationproxy import association_proxy, AssociationProxy
+from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.schema import Table
+from sqlalchemy.dialects.postgresql import JSONB
 
 from mavedb.db.base import Base
-from mavedb.deps import JSONB
 from mavedb.lib.temp_urns import generate_temp_urn
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.keyword import Keyword
+from mavedb.models.doi_identifier import DoiIdentifier
+from mavedb.models.raw_read_identifier import RawReadIdentifier
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
+from mavedb.models.user import User
+from mavedb.models.publication_identifier import PublicationIdentifier
+
+if TYPE_CHECKING:
+    from mavedb.models.score_set import ScoreSet
 
 experiments_doi_identifiers_association_table = Table(
     "experiment_doi_identifiers",
@@ -58,32 +66,35 @@ class Experiment(Base):
 
     # TODO Remove this obsolete column.
     num_score_sets = Column("num_scoresets", Integer, nullable=False, default=0)
+    score_sets: Mapped[List["ScoreSet"]] = relationship(back_populates="experiment", cascade="all, delete-orphan")
 
     experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), nullable=True)
-    experiment_set = relationship("ExperimentSet", backref=backref("experiments", cascade="all,delete-orphan"))
+    experiment_set: Mapped[Optional[ExperimentSet]] = relationship(back_populates="experiments")
 
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_by = relationship("User", foreign_keys="Experiment.created_by_id")
+    created_by: Mapped[User] = relationship("User", foreign_keys="Experiment.created_by_id")
     modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    modified_by = relationship("User", foreign_keys="Experiment.modified_by_id")
+    modified_by: Mapped[User] = relationship("User", foreign_keys="Experiment.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    keyword_objs = relationship("Keyword", secondary=experiments_keywords_association_table, backref="experiments")
-    doi_identifiers = relationship(
+    keyword_objs: Mapped[list[Keyword]] = relationship(
+        "Keyword", secondary=experiments_keywords_association_table, backref="experiments"
+    )
+    doi_identifiers: Mapped[list[DoiIdentifier]] = relationship(
         "DoiIdentifier", secondary=experiments_doi_identifiers_association_table, backref="experiments"
     )
-    publication_identifier_associations = relationship(
+    publication_identifier_associations: Mapped[list[ExperimentPublicationIdentifierAssociation]] = relationship(
         "ExperimentPublicationIdentifierAssociation", back_populates="experiment", cascade="all, delete-orphan"
     )
-    publication_identifiers = association_proxy(
+    publication_identifiers: AssociationProxy[List[PublicationIdentifier]] = association_proxy(
         "publication_identifier_associations",
         "publication",
         creator=lambda p: ExperimentPublicationIdentifierAssociation(publication=p, primary=p.primary),
     )
 
     # sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
-    raw_read_identifiers = relationship(
+    raw_read_identifiers: Mapped[list[RawReadIdentifier]] = relationship(
         "RawReadIdentifier", secondary=experiments_raw_read_identifiers_association_table, backref="experiments"
     )
 
@@ -100,7 +111,7 @@ class Experiment(Base):
         #     return self._updated_keywords
         # else:
         keyword_objs = self.keyword_objs or []  # getattr(self, 'keyword_objs', [])
-        return list(map(lambda keyword_obj: keyword_obj.text, keyword_objs))
+        return [keyword_obj.text for keyword_obj in keyword_objs if keyword_obj.text is not None]
 
     async def set_keywords(self, db, keywords: Optional[list[str]]):
         if keywords is None:

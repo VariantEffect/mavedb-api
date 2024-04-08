@@ -2,8 +2,9 @@ import logging
 from operator import attrgetter
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
+from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
 
 from mavedb import deps
@@ -15,7 +16,7 @@ from mavedb.lib.identifiers import (
     find_or_create_publication_identifier,
     find_or_create_raw_read_identifier,
 )
-from mavedb.lib.permissions import has_permission, Action
+from mavedb.lib.permissions import assert_permission, Action
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
@@ -93,9 +94,7 @@ def fetch_experiment(
     item = db.query(Experiment).filter(Experiment.urn == urn).first()
     if not item:
         raise HTTPException(status_code=404, detail=f"Experiment with URN {urn} not found")
-    permission = has_permission(user, item, Action.READ)
-    if not permission.permitted:
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, item, Action.READ)
     return item
 
 
@@ -118,12 +117,15 @@ def get_experiment_score_sets(
     experiment = db.query(Experiment).filter(Experiment.urn == urn).first()
     if not experiment:
         raise HTTPException(status_code=404, detail=f"experiment with URN '{urn}' not found")
-    permission = has_permission(user, experiment, Action.READ)
-    if not permission.permitted:
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
-    # Only get published score sets. Unpublished score sets won't be shown on experiment page.
-    # score_sets = db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(not ScoreSet.private).all()
-    score_sets = db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(ScoreSet.private.is_(False)).all()
+    assert_permission(user, experiment, Action.READ)
+    # If there is a current user with score sets associated with this experiment, return all of them. Otherwise, only show
+    # the public / published score sets.
+    score_sets = (
+        db.query(ScoreSet)
+        .filter(ScoreSet.experiment_id == experiment.id)
+        .filter(or_(ScoreSet.private.is_(False), and_(ScoreSet.private.is_(True), ScoreSet.created_by == user)))
+        .all()
+    )
     if not score_sets:
         raise HTTPException(status_code=404, detail="no associated score sets")
     else:
@@ -154,9 +156,7 @@ async def create_experiment(
             raise HTTPException(
                 status_code=404, detail=f"experiment set with URN '{item_create.experiment_set_urn}' not found."
             )
-        permission = has_permission(user, experiment_set, Action.ADD_EXPERIMENT)
-        if not permission.permitted:
-            raise HTTPException(status_code=permission.http_code, detail=permission.message)
+        assert_permission(user, experiment_set, Action.ADD_EXPERIMENT)
     try:
         doi_identifiers = [
             await find_or_create_doi_identifier(db, identifier.identifier)
@@ -204,7 +204,7 @@ async def create_experiment(
         raw_read_identifiers=raw_read_identifiers,
         created_by=user,
         modified_by=user,
-    )
+    )  # type: ignore
     await item.set_keywords(db, item_create.keywords)
     db.add(item)
     db.commit()
@@ -231,9 +231,7 @@ async def update_experiment(
     item = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
     if item is None:
         raise HTTPException(status_code=404, detail=f"experiment with URN {urn} not found")
-    permission = has_permission(user, item, Action.UPDATE)
-    if not permission.permitted:
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, item, Action.UPDATE)
 
     pairs = {
         k: v
@@ -308,9 +306,7 @@ async def delete_experiment(
     item = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"experiment with URN '{urn}' not found.")
-    permission = has_permission(user, item, Action.DELETE)
-    if not permission.permitted:
-        raise HTTPException(status_code=permission.http_code, detail=permission.message)
+    assert_permission(user, item, Action.DELETE)
 
     db.delete(item)
     db.commit()

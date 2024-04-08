@@ -1,7 +1,7 @@
 from datetime import date
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
-from pydantic import conlist
+from pydantic import root_validator
 from pydantic.utils import GetterDict
 
 from mavedb.view_models import external_gene_identifier_offset
@@ -21,7 +21,7 @@ class ExternalIdentifiersGetter(GetterDict):
     and UniProt identifiers into an array of external identifiers.
     """
 
-    def get(self, key: str, default: Any) -> Any:
+    def get(self, key: Any, default: Any = ...) -> Any:
         if key == "external_identifiers":
             ensembl_offset = getattr(self._obj, "ensembl_offset")
             refseq_offset = getattr(self._obj, "refseq_offset")
@@ -36,7 +36,7 @@ class TargetGeneBase(BaseModel):
 
     name: str
     category: str
-    external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffsetBase]
+    external_identifiers: Sequence[external_gene_identifier_offset.ExternalGeneIdentifierOffsetBase]
 
     class Config:
         getter_dict: ExternalIdentifiersGetter
@@ -54,13 +54,17 @@ class TargetGeneCreate(TargetGeneModify):
 
     target_sequence: Optional[TargetSequenceCreate]
     target_accession: Optional[TargetAccessionCreate]
-    external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffsetCreate]
+    external_identifiers: Sequence[external_gene_identifier_offset.ExternalGeneIdentifierOffsetCreate]
 
-    @validator("target_accession")
-    def check_seq_or_accession(cls, target_accession, values):
-        if "target_sequence" not in values and not target_accession:
-            raise ValueError("either a `target_sequence` or `target_accession` is required")
-        return target_accession
+    @root_validator()
+    def sequence_or_accession_required_and_mutually_exclusive(cls, values: dict[str, Any]) -> dict[str, Any]:
+        target_seq, target_acc = values.get("target_sequence"), values.get("target_accession")
+        if target_seq is not None and target_acc is not None:
+            raise ValueError("Expected either a `target_sequence` or a `target_accession`, not both.")
+        if target_seq is None and target_acc is None:
+            raise ValueError("Expected either a `target_sequence` or a `target_accession`, not neither.")
+
+        return values
 
 
 class TargetGeneUpdate(TargetGeneModify):
@@ -75,7 +79,7 @@ class SavedTargetGene(TargetGeneBase):
     id: int
     target_sequence: Optional[SavedTargetSequence]
     target_accession: Optional[SavedTargetAccession]
-    external_identifiers: list[external_gene_identifier_offset.SavedExternalGeneIdentifierOffset]
+    external_identifiers: Sequence[external_gene_identifier_offset.SavedExternalGeneIdentifierOffset]
 
     class Config:
         orm_mode = True
@@ -87,7 +91,7 @@ class TargetGene(SavedTargetGene):
 
     target_sequence: Optional[TargetSequence]
     target_accession: Optional[TargetAccession]
-    external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
+    external_identifiers: Sequence[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
 
     class Config:
         getter_dict = ExternalIdentifiersGetter
@@ -113,9 +117,9 @@ class AdminTargetGene(SavedTargetGene):
 
     creation_date: date
     modification_date: date
-    target_sequence: Optional[list[TargetSequence]]
-    target_accession: Optional[list[TargetAccession]]
-    external_identifiers: list[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
+    target_sequence: Optional[TargetSequence]
+    target_accession: Optional[TargetAccession]
+    external_identifiers: Sequence[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
 
     class Config:
         getter_dict = ExternalIdentifiersGetter
