@@ -89,6 +89,7 @@ async def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_d
     Search Taxonomy.
     If no search text, return the whole taxonomy list so that front end Taxonomy component can get data to show in dropdown button.
     """
+    items = []
     query = db.query(Taxonomy)
 
     if search.text and len(search.text.strip()) > 0:
@@ -102,13 +103,11 @@ async def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_d
             )
         else:
             query = query.filter(Taxonomy.tax_id == int(search.text))
-
     items = query.order_by(Taxonomy.organism_name).all()
-    if not items:
+
+    if not items and search.text:
         search_taxonomy = await search_NCBI_taxonomy(db, search.text)
         if search_taxonomy:
             items = [search_taxonomy]
-        else:
-            items = []
 
     return items
