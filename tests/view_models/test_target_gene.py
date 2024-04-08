@@ -179,12 +179,14 @@ def test_cant_create_target_gene_with_both_sequence_and_accession():
         "CTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGTTTAT"
         "TGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGA"
         "CGGGGAGTCAGGCAACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA",
-        "reference": {
-            "id": 1,
-            "shortName": "Name",
-            "organismName": "Organism",
-            "creationDate": datetime.datetime.now(),
-            "modificationDate": datetime.datetime.now(),
+        "taxonomy": {
+                "taxId": 9606,
+                "organismName": "Homo sapiens",
+                "commonName": "human",
+                "rank": "SPECIES",
+                "hasDescribedSpeciesName": True,
+                "articleReference": "NCBI:txid9606",
+                "genomeId": None,
         },
     }
     with pytest.raises(ValueError) as exc_info:
