@@ -26,11 +26,11 @@ from mavedb.models.score_set import (
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_sequence import TargetSequence
-from mavedb.models.reference_genome import ReferenceGenome
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset
 from mavedb.models.refseq_identifier import RefseqIdentifier
 from mavedb.models.refseq_offset import RefseqOffset
+from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.user import User
@@ -47,7 +47,6 @@ router = APIRouter(
 class TargetGeneFields(str, Enum):
     category = "category"
     organism = "organism"
-    reference = "reference"
 
     ensemblIdentifier = "ensembl-identifier"
     refseqIdentifier = "refseq-identifier"
@@ -58,6 +57,7 @@ class TargetAccessionFields(str, Enum):
     accession = "accession"
     assembly = "assembly"
     gene = "gene"
+    reference = "reference"
 
 
 class TargetSequenceFields(str, Enum):
@@ -186,10 +186,10 @@ def target_genes_by_field(field: TargetGeneFields, db: Session = Depends(get_db)
     # Target gene organism and reference need special handling: These fields are stored differently between accession and sequence Targets.
     elif field is TargetGeneFields.organism:
         sequence_based_targets_query = (
-            select(ReferenceGenome.organism_name, func.count(ReferenceGenome.organism_name))
+            select(Taxonomy.organism_name, func.count(Taxonomy.organism_name))
             .join(TargetSequence)
             .join(published_score_sets_stmt)
-            .group_by(ReferenceGenome.organism_name)
+            .group_by(Taxonomy.organism_name)
         )
         accession_based_targets_query = (
             select(func.count(TargetAccession.id)).join(published_score_sets_stmt).group_by(TargetAccession.id)
@@ -213,9 +213,9 @@ def target_genes_by_field(field: TargetGeneFields, db: Session = Depends(get_db)
 
     elif field is TargetGeneFields.reference:
         sequence_references_by_id_query = (
-            select(TargetSequence.reference_id, func.count(TargetSequence.reference_id))
+            select(TargetSequence.taxonomy_id, func.count(TargetSequence.taxonomy_id))
             .join(published_score_sets_stmt)
-            .group_by(TargetSequence.reference_id)
+            .group_by(TargetSequence.taxonomy_id)
         )
         accession_references_by_id_query = (
             select(TargetAccession.assembly, func.count(TargetAccession.assembly))
@@ -225,9 +225,9 @@ def target_genes_by_field(field: TargetGeneFields, db: Session = Depends(get_db)
 
         # Would prefer to use db.execute(...).scalar_one() here, but MyPy complains about Nonetypes.
         sequence_references: dict[str, Any] = {
-            db.execute(select(ReferenceGenome.short_name).filter(ReferenceGenome.id == reference_id)).one()[0]: count
-            for reference_id, count in db.execute(sequence_references_by_id_query).all()
-            if reference_id is not None
+            db.execute(select(Taxonomy.common_name).filter(Taxonomy.id == taxonomy_id)).one()[0]: count
+            for taxonomy_id, count in db.execute(sequence_references_by_id_query).all()
+            if taxonomy_id is not None
         }
         accession_references: dict[str, Any] = {
             assembly: count

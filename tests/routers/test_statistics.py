@@ -64,7 +64,6 @@ def test_empty_database_statistics(client):
         "target/sequence/sequence-type",
         "target/gene/category",
         "target/gene/organism",
-        "target/gene/reference",
         "target/gene/ensembl-identifier",
         "target/gene/uniprot-identifier",
         "target/gene/refseq-identifier",
@@ -151,7 +150,6 @@ def test_target_sequence_empty_field(client):
     [
         ("category", TEST_MINIMAL_ACC_SCORESET["targetGenes"][0]["category"]),
         ("organism", "Homo sapiens"),
-        ("reference", TEST_MINIMAL_ACC_SCORESET["targetGenes"][0]["targetAccession"]["assembly"]),
     ],
 )
 def test_target_gene_field_statistics_acc(client, field, desired_field_value, setup_acc_scoreset, request):
@@ -164,8 +162,7 @@ def test_target_gene_field_statistics_acc(client, field, desired_field_value, se
     "field,desired_field_value",
     [
         ("category", TEST_MINIMAL_SEQ_SCORESET["targetGenes"][0]["category"]),
-        ("organism", TEST_MINIMAL_SEQ_SCORESET["targetGenes"][0]["targetSequence"]["reference"]["organismName"]),
-        ("reference", TEST_MINIMAL_SEQ_SCORESET["targetGenes"][0]["targetSequence"]["reference"]["shortName"]),
+        ("organism", TEST_MINIMAL_SEQ_SCORESET["targetGenes"][0]["targetSequence"]["taxonomy"]["organismName"]),
     ],
 )
 def test_target_gene_field_statistics_seq(client, field, desired_field_value, setup_seq_scoreset, request):
