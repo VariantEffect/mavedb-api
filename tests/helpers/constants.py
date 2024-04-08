@@ -197,6 +197,80 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
 }
 
 
+TEST_MINIMAL_ACC_SCORESET = {
+    "title": "Test Score Set Acc Title",
+    "shortDescription": "Test accession score set",
+    "abstractText": "Abstract",
+    "methodText": "Methods",
+    "licenseId": 1,
+    "targetGenes": [
+        {
+            "name": "TEST2",
+            "category": "Protein coding",
+            "externalIdentifiers": [],
+            "targetAccession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
+        }
+    ],
+}
+
+
+TEST_ACC_SCORESET = {
+    "title": "Test Score Set Acc Title",
+    "short_description": "Test accession score set",
+    "abstract_text": "Abstract",
+    "method_text": "Methods",
+    "target_genes": [
+        {
+            "name": "TEST2",
+            "category": "Protein coding",
+            "external_identifiers": [],
+            "target_accession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
+        }
+    ],
+}
+
+TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
+    "title": "Test Score Set Acc Title",
+    "shortDescription": "Test accession score set",
+    "abstractText": "Abstract",
+    "methodText": "Methods",
+    "createdBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "modifiedBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
+    "license": {camelize(k): v for k, v in TEST_LICENSE.items() if k not in ("text",)},
+    "numVariants": 0,
+    "targetGenes": [
+        {
+            "name": "TEST2",
+            "category": "Protein coding",
+            "externalIdentifiers": [],
+            "targetAccession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
+        }
+    ],
+    "metaAnalyzesScoreSetUrns": [],
+    "metaAnalyzedByScoreSetUrns": [],
+    "keywords": [],
+    "doiIdentifiers": [],
+    "primaryPublicationIdentifiers": [],
+    "secondaryPublicationIdentifiers": [],
+    "datasetColumns": {},
+    "private": True,
+    "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
+    # keys to be set after receiving response
+    "urn": None,
+    "processingState": ProcessingState.incomplete.name,
+}
+
+
 TEST_CDOT_TRANSCRIPT = {
     "start_codon": 0,
     "stop_codon": 18,
