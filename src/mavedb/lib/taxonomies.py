@@ -3,10 +3,10 @@ from fastapi.exceptions import HTTPException
 from sqlalchemy.orm import Session
 from typing import Any
 
-from mavedb.models.taxonomy import Taxonomy
+from mavedb.models.taxonomy import Taxonomy, TaxonomyCreate
 
 
-async def find_or_create_taxonomy(db: Session, taxonomy: Taxonomy):
+async def find_or_create_taxonomy(db: Session, taxonomy: TaxonomyCreate):
     """
     Find an existing taxonomy ID record with the specified tax_id int, or create a new one.
 
@@ -16,7 +16,7 @@ async def find_or_create_taxonomy(db: Session, taxonomy: Taxonomy):
     """
     taxonomy_record = db.query(Taxonomy).filter(Taxonomy.tax_id == taxonomy.tax_id).one_or_none()
     if not taxonomy_record:
-        taxonomy_record = await search_NCBI_taxonomy(db, taxonomy.tax_id)
+        taxonomy_record = await search_NCBI_taxonomy(db, str(taxonomy.tax_id))
     return taxonomy_record
 
 

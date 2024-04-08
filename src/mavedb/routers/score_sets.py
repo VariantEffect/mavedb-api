@@ -610,7 +610,7 @@ async def update_score_set(
                 if not taxonomy:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.id}",
+                        detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.tax_id}",
                     )
 
                 # If the target sequence has a label, use it. Otherwise, use the name from the target gene as the label.

@@ -22,22 +22,18 @@ class TaxonomyUpdate(TaxonomyBase):
 
 
 # Properties shared by models stored in DB
-class TaxonomyInDbBase(TaxonomyBase):
+class SavedTaxonomy(TaxonomyBase):
     id: int
     url: str
 
     class Config:
         orm_mode = True
 
-# Properties stored in DB
-class TaxonomyInDbBase(TaxonomyInDbBase):
-    pass
-
 # Properties to return to non-admin clients
-class Taxonomy(TaxonomyInDbBase):
+class Taxonomy(SavedTaxonomy):
     pass
 
 # Properties to return to admin clients
-class AdminTaxonomy(TaxonomyInDbBase):
+class AdminTaxonomy(SavedTaxonomy):
     creation_date: date
     modification_date: date
