@@ -164,7 +164,7 @@ def get_score_set_scores_csv(
     assert_permission(user, score_set, Action.READ)
 
     assert type(score_set.dataset_columns) is dict
-    score_columns = [str(x) for x in list(score_set.dataset_columns["score_columns"])]
+    score_columns = [str(x) for x in list(score_set.dataset_columns.get("score_columns", []))]
     columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_columns
     type_column = "score_data"
     variants = score_set.variants
@@ -220,7 +220,7 @@ async def get_score_set_counts_csv(
     assert_permission(user, score_set, Action.READ)
 
     assert type(score_set.dataset_columns) is dict
-    count_columns = [str(x) for x in list(score_set.dataset_columns["count_columns"])]
+    count_columns = [str(x) for x in list(score_set.dataset_columns.get("count_columns", []))]
     columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + count_columns
     type_column = "count_data"
     variants = score_set.variants
