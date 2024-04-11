@@ -30,6 +30,8 @@ from mavedb.lib.score_sets import (
     search_score_sets as _search_score_sets,
     HGVSColumns,
     csv_data_to_df,
+    create_variants,
+    create_variants_data,
 )
 from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_score_set_urn
 from mavedb.lib.exceptions import MixedTargetError
@@ -503,9 +505,6 @@ async def upload_score_set_variant_data(
     # Mark the score set as being processed and delete the old variants so that uploading new scores and counts won't accumulate the old ones.
     item.processing_state = ProcessingState.processing
     db.query(Variant).filter(Variant.score_set_id == item.id).delete()
-    db.add(item)
-    db.commit()
-    db.refresh(item)
 
     scores_df = csv_data_to_df(scores_file.file)
     counts_df = None
@@ -515,6 +514,17 @@ async def upload_score_set_variant_data(
     if scores_file:
         # await the insertion of this job into the worker queue, not the job itself.
         await worker.enqueue_job("create_variants_for_score_set", item.urn, user.id, scores_df, counts_df)
+
+    variants_data = create_variants_data(scores_df, counts_df, None)  # , index_col)
+
+    item.num_variants = create_variants(db, item, variants_data)
+
+    item.dataset_columns = {"count_columns": list(counts_df.head()), "score_columns": list(scores_df.head())}
+
+    item.modified_by = user
+    db.add(item)
+    db.commit()
+    db.refresh(item)
 
     return item
 
