@@ -190,9 +190,7 @@ def target_genes_by_field(field: TargetGeneFields, db: Session = Depends(get_db)
             .join(published_score_sets_stmt)
             .group_by(Taxonomy.organism_name)
         )
-        accession_based_targets_query = (
-            select(func.count(TargetAccession.id)).join(published_score_sets_stmt).group_by(TargetAccession.id)
-        )
+        accession_based_targets_query = select(func.count(TargetAccession.id)).join(published_score_sets_stmt)
 
         organisms: dict[str, int] = {
             organism: count
