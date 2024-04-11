@@ -16,6 +16,7 @@ services:
       DB_PORT: 5432
       REDIS_IP: redis
       REDIS_PORT: 6379
+      REDIS_SSL: "false"
     ports:
       - "8002:8000"
     volumes:
@@ -34,6 +35,7 @@ services:
       DB_PORT: 5432
       REDIS_IP: redis
       REDIS_PORT: 6379
+      REDIS_SSL: "false"
     volumes:
       - .:/code
     depends_on:

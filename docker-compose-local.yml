@@ -9,7 +9,7 @@ services:
     depends_on:
       - db
     env_file:
-      - settings/.env.prod
+      - settings/.env.dev
     environment:
       DB_HOST: db
       DB_PORT: 5432
@@ -24,12 +24,13 @@ services:
       dockerfile: Dockerfile.worker
     command: bash -c "arq src.mavedb.worker.WorkerSettings"
     env_file:
-      - settings/.env.prod
+      - settings/.env.dev
     environment:
       DB_HOST: db
       DB_PORT: 5432
       REDIS_IP: redis
       REDIS_PORT: 6379
+      REDIS_SSL: False
     depends_on:
       - db
       - redis
@@ -38,7 +39,7 @@ services:
   db:
     image: postgres:14
     env_file:
-      - settings/.env.prod
+      - settings/.env.dev
     restart: unless-stopped
     ports:
       - "5434:5432"
@@ -48,7 +49,7 @@ services:
   redis:
     image: redis:7.2.3
     env_file:
-      - settings/.env.prod
+      - settings/.env.dev
     ports:
       - "6381:6379"
     volumes:
