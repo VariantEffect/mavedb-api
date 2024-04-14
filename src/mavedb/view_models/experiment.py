@@ -127,3 +127,12 @@ class ShortExperiment(SavedExperiment):
 # Properties to return to admin clients
 class AdminExperiment(SavedExperiment):
     approved: bool
+
+
+# Properties to include in a dump of all published data.
+class ExperimentPublicDump(SavedExperiment):
+    score_sets: "Sequence[ScoreSet]"
+
+
+from mavedb.view_models.score_set import ScoreSet
+ExperimentPublicDump.update_forward_refs()
