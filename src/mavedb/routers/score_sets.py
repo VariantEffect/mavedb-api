@@ -156,7 +156,7 @@ def get_score_set_scores_csv(
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
     assert_permission(user, score_set, Action.READ)
 
-    csv_str = get_score_set_scores_as_csv(score_set, start, limit)
+    csv_str = get_score_set_scores_as_csv(db, score_set, start, limit)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
@@ -197,7 +197,7 @@ async def get_score_set_counts_csv(
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
     assert_permission(user, score_set, Action.READ)
 
-    csv_str = get_score_set_counts_as_csv(score_set, start, limit)
+    csv_str = get_score_set_counts_as_csv(db, score_set, start, limit)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 

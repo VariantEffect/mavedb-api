@@ -1,12 +1,12 @@
 import csv
 import io
 import re
-from typing import Any, BinaryIO, Optional, Sequence
-
+from typing import Any, BinaryIO, Iterable, Optional, Sequence
+ 
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
-from sqlalchemy import func, or_
+from sqlalchemy import cast, func, Integer, or_, select
 from sqlalchemy.orm import aliased, contains_eager, joinedload, selectinload, Session
 
 from mavedb.lib.exceptions import ValidationError
@@ -275,17 +275,24 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
     )
 
 
-def get_score_set_counts_as_csv(score_set: ScoreSet, start: Optional[int] = None, limit: Optional[int] = None) -> str:
+def get_score_set_counts_as_csv(
+    db: Session, score_set: ScoreSet, start: Optional[int] = None, limit: Optional[int] = None
+) -> str:
     assert type(score_set.dataset_columns) is dict
     count_columns = [str(x) for x in list(score_set.dataset_columns.get("count_columns", []))]
     columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + count_columns
     type_column = "count_data"
 
-    variants = score_set.variants
+    variants_query = (
+        select(Variant)
+        .where(Variant.score_set_id == score_set.id)
+        .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
+    )
     if start:
-        variants = variants[start:]
+        variants_query = variants_query.offset(start)
     if limit:
-        variants = variants[:limit]
+        variants_query = variants_query.limit(limit)
+    variants = db.scalars(variants_query).all()
 
     rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column)
     stream = io.StringIO()
@@ -295,17 +302,24 @@ def get_score_set_counts_as_csv(score_set: ScoreSet, start: Optional[int] = None
     return stream.getvalue()
 
 
-def get_score_set_scores_as_csv(score_set: ScoreSet, start: Optional[int] = None, limit: Optional[int] = None) -> str:
+def get_score_set_scores_as_csv(
+    db: Session, score_set: ScoreSet, start: Optional[int] = None, limit: Optional[int] = None
+) -> str:
     assert type(score_set.dataset_columns) is dict
     score_columns = [str(x) for x in list(score_set.dataset_columns.get("score_columns", []))]
     columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_columns
     type_column = "score_data"
 
-    variants = score_set.variants
+    variants_query = (
+        select(Variant)
+        .where(Variant.score_set_id == score_set.id)
+        .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
+    )
     if start:
-        variants = variants[start:]
+        variants_query = variants_query.offset(start)
     if limit:
-        variants = variants[:limit]
+        variants_query = variants_query.limit(limit)
+    variants = db.scalars(variants_query).all()
 
     rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column)
     stream = io.StringIO()
@@ -324,9 +338,46 @@ def is_null(value):
     return null_values_re.fullmatch(value) or not value
 
 
+def variant_to_csv_row(variant: Variant, columns: list[str], dtype: str, na_rep="NA") -> dict[str, Any]:
+    """
+    Format a variant into a containing the keys specified in `columns`.
+
+    Parameters
+    ----------
+    variant : variant.models.Variant
+        List of variants.
+    columns : list[str]
+        Columns to serialize.
+    dtype : str, {'scores', 'counts'}
+        The type of data requested. Either the 'score_data' or 'count_data'.
+    na_rep : str
+        String to represent null values.
+
+    Returns
+    -------
+    dict[str, Any]
+    """
+    row = {}
+    for column_key in columns:
+        if column_key == "hgvs_nt":
+            value = str(variant.hgvs_nt)
+        elif column_key == "hgvs_pro":
+            value = str(variant.hgvs_pro)
+        elif column_key == "hgvs_splice":
+            value = str(variant.hgvs_splice)
+        elif column_key == "accession":
+            value = str(variant.urn)
+        else:
+            value = str(variant.data[dtype][column_key])
+        if is_null(value):
+            value = na_rep
+        row[column_key] = value
+    return row
+
+
 def variants_to_csv_rows(
     variants: Sequence[Variant], columns: list[str], dtype: str, na_rep="NA"
-) -> list[dict[str, Any]]:
+) -> Iterable[dict[str, Any]]:
     """
     Format each variant into a dictionary row containing the keys specified in `columns`.
 
@@ -345,25 +396,7 @@ def variants_to_csv_rows(
     -------
     list[dict[str, Any]]
     """
-    row_dicts = []
-    for variant in variants:
-        row = {}
-        for column_key in columns:
-            if column_key == "hgvs_nt":
-                value = str(variant.hgvs_nt)
-            elif column_key == "hgvs_pro":
-                value = str(variant.hgvs_pro)
-            elif column_key == "hgvs_splice":
-                value = str(variant.hgvs_splice)
-            elif column_key == "accession":
-                value = str(variant.urn)
-            else:
-                value = str(variant.data[dtype][column_key])
-            if is_null(value):
-                value = na_rep
-            row[column_key] = value
-        row_dicts.append(row)
-    return row_dicts
+    return map(lambda v: variant_to_csv_row(v, columns, dtype, na_rep), variants)
 
 
 def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[ScoreSet]:

@@ -45,8 +45,8 @@ db = init_script_environment()
 
 logger = logging.getLogger(__name__)
 
-S = TypeVar('S')
-T = TypeVar('T')
+S = TypeVar("S")
+T = TypeVar("T")
 
 
 def flatmap(f: Callable[[S], Iterable[T]], items: Iterable[S]) -> Iterable[T]:
@@ -55,12 +55,13 @@ def flatmap(f: Callable[[S], Iterable[T]], items: Iterable[S]) -> Iterable[T]:
 
 experiment_sets_query = db.scalars(
     select(ExperimentSet)
-        .where(ExperimentSet.published_date.is_not(None))
-        .options(
-            lazyload(ExperimentSet.experiments.and_(Experiment.published_date.is_not(None)))
-                .options(lazyload(Experiment.score_sets.and_(ScoreSet.published_date.is_not(None))))
+    .where(ExperimentSet.published_date.is_not(None))
+    .options(
+        lazyload(ExperimentSet.experiments.and_(Experiment.published_date.is_not(None))).options(
+            lazyload(Experiment.score_sets.and_(ScoreSet.published_date.is_not(None)))
         )
-        .execution_options(populate_existing=True)
+    )
+    .execution_options(populate_existing=True)
 )
 
 # TODO To support very large data sets, we may want to use custom code for JSON-encoding an iterator.
@@ -71,13 +72,7 @@ experiment_set_views = map(lambda es: ExperimentSetPublicDump.from_orm(es), expe
 
 # Get a list of IDS of all the score sets included. (There is no flat_map function...)
 score_set_ids = flatmap(
-    lambda es: flatmap(
-        lambda e: map(
-            lambda ss: ss.id, e.score_sets
-        ),
-        es.experiments
-    ),
-    experiment_sets
+    lambda es: flatmap(lambda e: map(lambda ss: ss.id, e.score_sets), es.experiments), experiment_sets
 )
 
 zip_file_name = "mavedb-dump.zip"
@@ -93,8 +88,8 @@ with ZipFile(zip_file_name, "w") as zipfile:
             logger.info(f"Exporting variants for score set {score_set.urn}")
             csv_filename_base = score_set.urn.removeprefix("urn:mavedb:").removeprefix("urn:tmp:")
 
-            csv_str = get_score_set_scores_as_csv(score_set)
+            csv_str = get_score_set_scores_as_csv(db, score_set)
             zipfile.writestr(f"variants/{csv_filename_base}.scores.csv", csv_str)
 
-            csv_str = get_score_set_counts_as_csv(score_set)
+            csv_str = get_score_set_counts_as_csv(db, score_set)
             zipfile.writestr(f"variants/{csv_filename_base}.counts.csv", csv_str)
