@@ -80,7 +80,6 @@ def search_target_genes(search: TextSearch, db: Session = Depends(deps.get_db)) 
         query = query.filter(func.lower(TargetGene.name).contains(lower_search_text))
     else:
         raise HTTPException(status_code=500, detail="Search text is required")
-
     items = query.order_by(TargetGene.name).limit(50).all()
     if not items:
         items = []

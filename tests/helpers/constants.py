@@ -69,10 +69,16 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     "experimentSetUrn": None,
 }
 
-TEST_REFERENCE_GENOME = {
+TEST_TAXONOMY = {
     "id": 1,
-    "short_name": "Name",
-    "organism_name": "Organism",
+    "tax_id": 9606,
+    "organism_name": "Organism name",
+    "common_name": "Common name",
+    "rank": "Rank",
+    "has_described_species_name": True,
+    "article_reference": "NCBI:txid9606",
+    "genome_identifier_id": None,
+    "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606"
 }
 
 TEST_LICENSE = {
@@ -94,7 +100,6 @@ TEST_SEQ_SCORESET = {
             "name": "TEST1",
             "category": "Protein coding",
             "external_identifiers": [],
-            "reference_maps": [{"genome_id": TEST_REFERENCE_GENOME["id"]}],
             "target_sequence": {
                 "sequence_type": "dna",
                 "sequence": "ACGTTT",
@@ -117,25 +122,25 @@ TEST_MINIMAL_SEQ_SCORESET = {
     "abstractText": "Abstract",
     "methodText": "Methods",
     "licenseId": 1,
-    "targetGenes": [
-        {
-            "name": "TEST1",
-            "category": "Protein coding",
-            "externalIdentifiers": [],
-            "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
-            "targetSequence": {
-                "sequenceType": "dna",
-                "sequence": "ACGTTT",
-                "reference": {
-                    "id": 1,
-                    "shortName": "Name",
-                    "organismName": "Organism",
-                    "creationDate": date.today().isoformat(),
-                    "modificationDate": date.today().isoformat(),
-                },
-            },
-        }
-    ],
+    "targetGenes":[ {
+        "name": "TEST1",
+        "category": "Protein coding",
+        "externalIdentifiers": [],
+        "targetSequence": {
+            "sequenceType": "dna",
+            "sequence": "ACGTTT",
+            "taxonomy": {
+                "taxId": TEST_TAXONOMY["tax_id"],
+                "organismName": TEST_TAXONOMY["organism_name"],
+                "commonName": TEST_TAXONOMY["common_name"],
+                "rank": TEST_TAXONOMY["rank"],
+                "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                "articleReference": TEST_TAXONOMY["article_reference"],
+                "id": TEST_TAXONOMY["id"],
+                "url": TEST_TAXONOMY["url"]
+            }
+        },
+    } ],
 }
 
 TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
@@ -157,26 +162,27 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "modificationDate": date.today().isoformat(),
     "license": {camelize(k): v for k, v in TEST_LICENSE.items() if k not in ("text",)},
     "numVariants": 0,
-    "targetGenes": [
-        {
-            "name": "TEST1",
-            "category": "Protein coding",
-            "externalIdentifiers": [],
-            "id": 1,
-            "targetSequence": {
-                "sequenceType": "dna",
-                "sequence": "ACGTTT",
-                "label": "TEST1",
-                "reference": {
-                    "id": 1,
-                    "shortName": "Name",
-                    "organismName": "Organism",
-                    "creationDate": date.today().isoformat(),
-                    "modificationDate": date.today().isoformat(),
-                },
-            },
-        }
-    ],
+    "targetGenes": [ {
+        "name": "TEST1",
+        "category": "Protein coding",
+        "externalIdentifiers": [],
+        "id": 1,
+        "targetSequence": {
+            "sequenceType": "dna",
+            "sequence": "ACGTTT",
+            "label": "TEST1",
+            "taxonomy": {
+                "taxId": TEST_TAXONOMY["tax_id"],
+                "organismName": TEST_TAXONOMY["organism_name"],
+                "commonName": TEST_TAXONOMY["common_name"],
+                "rank": TEST_TAXONOMY["rank"],
+                "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                "articleReference": TEST_TAXONOMY["article_reference"],
+                "id": TEST_TAXONOMY["id"],
+                "url": TEST_TAXONOMY["url"]
+            }
+        },
+    } ],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
     "keywords": [],
@@ -203,7 +209,6 @@ TEST_MINIMAL_ACC_SCORESET = {
             "name": "TEST2",
             "category": "Protein coding",
             "externalIdentifiers": [],
-            "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
             "targetAccession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
         }
     ],
@@ -220,7 +225,6 @@ TEST_ACC_SCORESET = {
             "name": "TEST2",
             "category": "Protein coding",
             "external_identifiers": [],
-            "reference_maps": [{"genome_id": TEST_REFERENCE_GENOME["id"]}],
             "target_accession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
         }
     ],
@@ -250,7 +254,6 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
             "name": "TEST2",
             "category": "Protein coding",
             "externalIdentifiers": [],
-            "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
             "targetAccession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
         }
     ],
