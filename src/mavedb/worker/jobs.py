@@ -82,6 +82,7 @@ async def create_variants_for_score_set(
         db.rollback()
         score_set.processing_state = ProcessingState.failed
         logger.error(f"Encountered an exception while processing variants for {score_set.urn}", exc_info=e)
+        score_set.processing_errors = {"exception": str(e), "detail": []}
         send_slack_message(err=e)
 
     # Catch all other exceptions and raise them. The exceptions caught here will be system exiting.
