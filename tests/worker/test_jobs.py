@@ -127,7 +127,7 @@ async def test_create_variants_for_score_set_with_caught_exception(
     assert score_set.num_variants == 0
     assert len(db_variants) == 0
     assert score_set.processing_state == ProcessingState.failed
-    assert score_set.processing_errors is None
+    assert score_set.processing_errors == {"detail": [], "exception": ""}
 
     # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
     # thinks we are still using the session fixture and will hang indefinitely.
