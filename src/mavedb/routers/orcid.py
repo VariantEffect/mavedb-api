@@ -27,7 +27,7 @@ def lookup_orcid_user(
     """
     Look an ORCID user up by ORCID ID.
 
-    This capability is needed when adding collaborators to an experiment or score set, who may not necessarily be MaveDB
+    This capability is needed when adding contributors to an experiment or score set, who may not necessarily be MaveDB
     users.
 
     Access is limited to signed-in users to prevent abuse.
