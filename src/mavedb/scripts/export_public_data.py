@@ -24,6 +24,7 @@ Unpublished data are not included in the dump, and user details are limited to O
 published data sets.
 """
 
+from datetime import datetime, timezone
 from itertools import chain
 import json
 import logging
@@ -62,6 +63,7 @@ experiment_sets_query = db.scalars(
         )
     )
     .execution_options(populate_existing=True)
+    .order_by(ExperimentSet.urn)
 )
 
 # TODO To support very large data sets, we may want to use custom code for JSON-encoding an iterator.
@@ -78,7 +80,11 @@ score_set_ids = flatmap(
 zip_file_name = "mavedb-dump.zip"
 
 logger.info(f"Exporting public data set metadata to {zip_file_name}/main.json")
-json_data = {"experiment_sets": list(experiment_set_views)}
+json_data = {
+    "title": "MaveDB public data",
+    "asOf": datetime.now(timezone.utc).isoformat(),
+    "experimentSets": list(experiment_set_views),
+}
 
 with ZipFile(zip_file_name, "w") as zipfile:
     zipfile.writestr("main.json", json.dumps(jsonable_encoder(json_data)))
@@ -86,7 +92,7 @@ with ZipFile(zip_file_name, "w") as zipfile:
         score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one_or_none()
         if score_set is not None and score_set.urn is not None:
             logger.info(f"Exporting variants for score set {score_set.urn}")
-            csv_filename_base = score_set.urn.removeprefix("urn:mavedb:").removeprefix("urn:tmp:")
+            csv_filename_base = score_set.urn.replace(":", "-")
 
             csv_str = get_score_set_scores_as_csv(db, score_set)
             zipfile.writestr(f"variants/{csv_filename_base}.scores.csv", csv_str)
