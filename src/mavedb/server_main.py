@@ -1,6 +1,4 @@
-import json
 import logging
-import os
 
 import uvicorn
 from fastapi import FastAPI
@@ -9,11 +7,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from requests import Request
-from slack_sdk.webhook import WebhookClient
 from sqlalchemy.orm import configure_mappers
 from starlette import status
 from starlette.responses import JSONResponse
-from eutils._internal.exceptions import EutilsRequestError
+from eutils._internal.exceptions import EutilsRequestError  # type: ignore
 
 from mavedb.models import *
 
@@ -29,13 +26,16 @@ from mavedb.routers import (
     mapped_variant,
     publication_identifiers,
     target_gene_identifiers,
+    taxonomies,
     raw_read_identifiers,
-    reference_genomes,
     score_sets,
+    statistics,
     target_genes,
     users,
 )
 from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError, MixedTargetError
+from mavedb.lib.permissions import PermissionException
+from mavedb.lib.slack import send_slack_message
 
 logging.basicConfig()
 # Un-comment this line to log all database queries:
@@ -65,11 +65,20 @@ app.include_router(licenses.router)
 app.include_router(mapped_variant.router)
 app.include_router(publication_identifiers.router)
 app.include_router(raw_read_identifiers.router)
-app.include_router(reference_genomes.router)
 app.include_router(score_sets.router)
+app.include_router(statistics.router)
 app.include_router(target_gene_identifiers.router)
 app.include_router(target_genes.router)
+app.include_router(taxonomies.router)
 app.include_router(users.router)
+
+
+@app.exception_handler(PermissionException)
+async def permission_exception_handler(request: Request, exc: PermissionException):
+    return JSONResponse(
+        {"detail": exc.message},
+        status_code=exc.http_code,
+    )
 
 
 @app.exception_handler(RequestValidationError)
@@ -122,31 +131,11 @@ def customize_validation_error(error):
     return error
 
 
-def exception_as_dict(ex):
-    return dict(
-        type=ex.__class__.__name__,
-        exception=str(ex),
-    )
-
-
 @app.exception_handler(Exception)
 async def exception_handler(request, err):
     logger.error("Uncaught exception", exc_info=err)
-    slack_webhook_url = os.getenv("SLACK_WEBHOOK_URL")
-    if slack_webhook_url is not None and len(slack_webhook_url) > 0:
-        client = WebhookClient(url=slack_webhook_url)
-        response = client.send(
-            text=json.dumps(exception_as_dict(err)),
-            blocks=[
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "plain_text",
-                        "text": json.dumps(exception_as_dict(err)),
-                    },
-                }
-            ],
-        )
+    send_slack_message(err=err, request=request)
+
     return JSONResponse(status_code=500, content={"message": "Internal server error"})
 
 

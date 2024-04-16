@@ -68,6 +68,6 @@ def delete_my_access_key(
     Delete one of the current user's access keys.
     """
     item = db.query(AccessKey).filter(AccessKey.key_id == key_id).one_or_none()
-    if item.user.id == user.id:
+    if item and item.user.id == user.id:
         db.delete(item)
     db.commit()

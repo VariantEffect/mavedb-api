@@ -18,7 +18,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "fqfa~=1.2.3",
+    "fqfa~=1.3.0",
     "pyhumps~=3.8.0",
     "IDUtils~=1.2.0",
     "mavehgvs~=0.6.0",
@@ -26,27 +26,38 @@ dependencies = [
     "hgvs~=1.5.4",
     "biocommons~=0.0.0",
     "cdot~=0.2.21",
+    "httpx~=0.26.0",
     "numpy~=1.22",
     "pandas~=1.4.1",
     "pydantic~=1.10",
     "python-dotenv~=0.20.0",
-    "SQLAlchemy~=1.4.31",
+    "SQLAlchemy~=2.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "black",
     "flake8",
+    "mypy",
     "pre-commit",
     "pytest~=7.0.1",
+    "pytest-postgresql~=5.0.0",
+    "pytest-asyncio==0.23.5",
+    "redis==5.0.2",
+    "fakeredis==2.21.1",
     "jsonschema",
-    "httpx~=0.26.0",
+    "SQLAlchemy[mypy]~=2.0.0",
+    "requests-mock~=1.11.0",
+    "pytest-socket~=0.6.0",
+    "pandas-stubs~=2.1.4",
+    "types-requests~=2.31.0",
+    "types-python-jose~=3.3.4",
 ]
 server = [
     "alembic~=1.7.6",
+    "arq~=0.25.0",
     "authlib~=0.15.5",
     "cryptography~=41.0.6",
-    "celery~=5.2.3",
     "fastapi~=0.95.0",
     "orcid~=1.0.3",
     "psycopg2~=2.9.3",
@@ -82,11 +93,18 @@ exclude = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/mavedb"]
 
-[tool.pytest.ini_options]
-addopts = [
-    "--import-mode=importlib",
+[tool.mypy]
+plugins = [
+    "sqlalchemy.ext.mypy.plugin",
+    "numpy.typing.mypy_plugin",
 ]
-norecursedirs = "tests/helpers"
+mypy_path = "mypy_stubs"
+
+[tool.pytest.ini_options]
+addopts = "-v -rP --import-mode=importlib --disable-socket --allow-hosts localhost,::1,127.0.0.1"
+asyncio_mode = 'strict'
+testpaths = "tests/"
+norecursedirs = "tests/helpers/"
 # Uncomment the following lines to include application log output in Pytest logs.
 # log_cli = true
 # log_cli_level = "DEBUG"

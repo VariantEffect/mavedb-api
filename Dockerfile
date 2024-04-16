@@ -3,7 +3,7 @@ FROM python:3.9 AS downloader
 WORKDIR /data
 
 # Install tools necessary used to install samtools and htslib so we can configure fasta files for genomic assembly.
-RUN apt-get update && apt-get install -y \
+RUN apt-get clean && apt-get update && apt-get install -y \
 	build-essential \
 	curl \
 	git \
@@ -27,7 +27,7 @@ RUN curl -L https://github.com/samtools/htslib/releases/download/${htsversion}/h
     curl -L https://github.com/samtools/bcftools/releases/download/${htsversion}/bcftools-${htsversion}.tar.bz2 | tar xj && \
     (cd bcftools-${htsversion} && ./configure --enable-libgsl --enable-perl-filters --with-htslib=system && make install)
 
-# Fetch and index GRCh37 and GRCh38 assemblies. These will augment seqrepo transcript sequences.
+# Fetch and index GRCh37 and GRCh38 assemblies.
 RUN wget -O - https://ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/all_assembly_versions/GCF_000001405.25_GRCh37.p13/GCF_000001405.25_GRCh37.p13_genomic.fna.gz | gzip -d | bgzip >  GCF_000001405.25_GRCh37.p13_genomic.fna.gz
 RUN wget -O - https://ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/all_assembly_versions/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.fna.gz | gzip -d | bgzip > GCF_000001405.39_GRCh38.p13_genomic.fna.gz
 RUN samtools faidx GCF_000001405.25_GRCh37.p13_genomic.fna.gz

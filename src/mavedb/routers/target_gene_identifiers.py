@@ -23,6 +23,8 @@ def search_target_gene_identifiers(db_name: str, search: TextSearch, db: Session
     """
 
     identifier_class = EXTERNAL_GENE_IDENTIFIER_CLASSES[db_name]
+    assert hasattr(identifier_class, "identifier")
+
     query = db.query(identifier_class)
 
     if search.text and len(search.text.strip()) > 0:

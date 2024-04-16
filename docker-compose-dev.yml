@@ -8,17 +8,39 @@ services:
     command: bash -c "uvicorn mavedb.server_main:app --host 0.0.0.0 --port 8000 --reload"
     depends_on:
       - db
-      - seqrepo
+      - redis
     env_file:
       - settings/.env.dev
     environment:
       DB_HOST: db
       DB_PORT: 5432
+      REDIS_IP: redis
+      REDIS_PORT: 6379
+      REDIS_SSL: "false"
     ports:
       - "8002:8000"
     volumes:
       - .:/code
-      - mavedb-seqrepo-dev:/usr/local/share/seqrepo
+
+  worker:
+    image: mavedb-api-worker/mavedb-api-worker:dev
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: bash -c "arq mavedb.worker.WorkerSettings --watch ./src"
+    env_file:
+      - settings/.env.dev
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_IP: redis
+      REDIS_PORT: 6379
+      REDIS_SSL: "false"
+    volumes:
+      - .:/code
+    depends_on:
+      - db
+      - redis
 
   db:
     image: postgres:14
@@ -29,10 +51,14 @@ services:
     volumes:
       - mavedb-data-dev:/var/lib/postgresql/data
 
-  seqrepo:
-    image: biocommons/seqrepo:latest
+  redis:
+    image: redis:7.2.3
+    env_file:
+      - settings/.env.dev
+    ports:
+      - "6381:6379"
     volumes:
-      - mavedb-seqrepo-dev:/usr/local/share/seqrepo
+      - mavedb-redis-dev:/data
 
 #  rabbitmq:
 #    image: rabbitmq:3.8.3
@@ -41,4 +67,4 @@ services:
 
 volumes:
   mavedb-data-dev:
-  mavedb-seqrepo-dev:
+  mavedb-redis-dev:

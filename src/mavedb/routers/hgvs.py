@@ -1,13 +1,11 @@
+from typing import Any
 from itertools import chain
-from typing import Any, Union
 
 import hgvs.dataproviders.uta
-import bioutils.assemblies
-
 from cdot.hgvs.dataproviders import RESTDataProvider
 from fastapi import APIRouter, Depends, HTTPException
 from hgvs import parser, validator
-from hgvs.exceptions import HGVSDataNotAvailableError
+from hgvs.exceptions import HGVSDataNotAvailableError, HGVSInvalidVariantError
 
 from mavedb.deps import hgvs_data_provider
 
@@ -18,8 +16,8 @@ router = APIRouter(
 )
 
 
-@router.get("/fetch/{accession}", status_code=200, response_model=Any)
-def hgvs_fetch(accession: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> Any:
+@router.get("/fetch/{accession}", status_code=200, response_model=str)
+def hgvs_fetch(accession: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> str:
     """
     List stored sequences
     """
@@ -29,53 +27,32 @@ def hgvs_fetch(accession: str, hdp: RESTDataProvider = Depends(hgvs_data_provide
         raise HTTPException(404, str(e))
 
 
-@router.post("/validate", status_code=200, response_model=Any)
-def hgvs_validate(variant: dict[str, str], hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> Any:
+@router.post("/validate", status_code=200, response_model=bool)
+def hgvs_validate(variant: dict[str, str], hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> bool:
     """
     Validate a provided variant
     """
     hp = parser.Parser()
-    variant = hp.parse(variant["variant"])
+    variant_hgvs = hp.parse(variant["variant"])
 
     try:
-        valid = validator.Validator(hdp=hdp).validate(variant, strict=False)
-    except validator.HGVSInvalidVariantError as e:
+        valid = validator.Validator(hdp=hdp).validate(variant_hgvs, strict=False)
+    except HGVSInvalidVariantError as e:
         raise HTTPException(400, str(e))
     else:
         return valid
 
 
 @router.get("/assemblies", status_code=200, response_model=list[str])
-def list_assemblies() -> Any:
+def list_assemblies(hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> list[str]:
     """
     List stored assemblies
     """
-    return bioutils.assemblies.get_assembly_names()
+    return list(hdp.assembly_maps.keys())
 
 
-@router.get("/grouped-assemblies", status_code=200, response_model=list[dict[str, Union[str, list[str]]]])
-def list_assemblies_grouped() -> Any:
-    """
-    List stored assemblies in groups of major/minor versions
-    """
-    assemblies = list_assemblies()
-
-    major = []
-    minor = []
-    for assembly in assemblies:
-        if "." in assembly:
-            minor.append(assembly)
-        else:
-            major.append(assembly)
-
-    return [
-        {"type": "Major Assembly Versions", "assemblies": major},
-        {"type": "Minor Assembly Versions", "assemblies": minor},
-    ]
-
-
-@router.get("/{assembly}/accessions", status_code=200, response_model=list)
-def list_accessions(assembly: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> Any:
+@router.get("/{assembly}/accessions", status_code=200, response_model=list[str])
+def list_accessions(assembly: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> list[str]:
     """
     List stored accessions
     """
@@ -95,33 +72,53 @@ def list_genes():
     return list(chain.from_iterable(hgvs.dataproviders.uta.connect()._fetchall("select hgnc from gene")))
 
 
-@router.get("/genes/{gene}", status_code=200)
-def gene_info(gene: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)):
+@router.get("/genes/{gene}", status_code=200, response_model=dict[str, Any])
+def gene_info(gene: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> dict[str, Any]:
     """
     List stored gene information for a specified gene
     """
-    return hdp.get_gene_info(gene)
+    gene_info = hdp.get_gene_info(gene)
+
+    if not gene_info:
+        raise HTTPException(404, f"No gene info found for {gene}.")
+
+    return gene_info
 
 
-@router.get("/transcripts/gene/{gene}", status_code=200, response_model=list)
-def list_transcripts_for_gene(gene: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)):
+@router.get("/transcripts/gene/{gene}", status_code=200, response_model=list[str])
+def list_transcripts_for_gene(gene: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> list[str]:
     """
     List transcripts associated with a particular gene
     """
-    return set([tx_info["tx_ac"] for tx_info in hdp.get_tx_for_gene(gene)])
+    transcripts = set([tx_info["tx_ac"] for tx_info in hdp.get_tx_for_gene(gene)])
+
+    if not transcripts:
+        raise HTTPException(404, f"No associated transcripts found for {gene}.")
+
+    return list(transcripts)
 
 
-@router.get("/transcripts/{transcript}", status_code=200)
-def transcript_info(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)):
+@router.get("/transcripts/{transcript}", status_code=200, response_model=dict[str, Any])
+def transcript_info(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> dict[str, Any]:
     """
     List transcript information for a particular transcript
     """
-    return hdp.get_tx_identity_info(transcript)
+    transcript_info = hdp.get_tx_identity_info(transcript)
 
+    if not transcript_info:
+        raise HTTPException(404, f"No transcript information found for {transcript}.")
 
-@router.get("/transcripts/protein/{transcript}", status_code=200)
-def convert_to_protein(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)):
+    return transcript_info
+
+  
+@router.get("/transcripts/protein/{transcript}", status_code=200, response_model=str)
+def convert_to_protein(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> str:
     """
     Convert a provided transcript from it's nucleotide accession identifier to its protein accession identifier
     """
-    return hdp.get_pro_ac_for_tx_ac(transcript)
+    protein_transcript = hdp.get_pro_ac_for_tx_ac(transcript)
+
+    if not protein_transcript:
+        raise HTTPException(404, f"No protein transcript found for {transcript}.")
+
+    return protein_transcript

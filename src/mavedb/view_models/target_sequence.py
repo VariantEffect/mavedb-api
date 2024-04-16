@@ -2,7 +2,7 @@ from datetime import date
 from typing import Optional
 
 from mavedb.view_models.base.base import BaseModel, validator
-from mavedb.view_models.reference_genome import ReferenceGenome
+from mavedb.view_models.taxonomy import AdminTaxonomy, SavedTaxonomy, Taxonomy, TaxonomyCreate
 from mavedb.lib.validation import target
 from mavedb.lib.validation.exceptions import ValidationError
 
@@ -13,7 +13,6 @@ class TargetSequenceBase(BaseModel):
     sequence_type: str
     sequence: str
     label: Optional[str]
-    reference: ReferenceGenome
 
 
 class TargetSequenceModify(TargetSequenceBase):
@@ -52,7 +51,7 @@ class TargetSequenceModify(TargetSequenceBase):
 
 
 class TargetSequenceCreate(TargetSequenceModify):
-    pass
+    taxonomy: TaxonomyCreate
 
 
 class TargetSequenceUpdate(TargetSequenceModify):
@@ -61,6 +60,8 @@ class TargetSequenceUpdate(TargetSequenceModify):
 
 # Properties shared by models stored in DB
 class SavedTargetSequence(TargetSequenceBase):
+    taxonomy: SavedTaxonomy
+
     class Config:
         orm_mode = True
         arbitrary_types_allowed = True
@@ -68,10 +69,11 @@ class SavedTargetSequence(TargetSequenceBase):
 
 # Properties to return to non-admin clients
 class TargetSequence(SavedTargetSequence):
-    pass
+    taxonomy: Taxonomy
 
 
 # Properties to return to admin clients
 class AdminTargetSequence(SavedTargetSequence):
     creation_date: date
     modification_date: date
+    taxonomy: AdminTaxonomy

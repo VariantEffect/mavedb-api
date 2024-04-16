@@ -3,6 +3,7 @@ from typing import Optional, Tuple, Union
 import hgvs.exceptions
 import hgvs.parser
 import hgvs.validator
+from cdot.hgvs.dataproviders import RESTDataProvider
 import numpy as np
 import pandas as pd
 
@@ -10,7 +11,6 @@ from fqfa.util.translate import translate_dna
 from mavehgvs.exceptions import MaveHgvsParseError
 from mavehgvs.variant import Variant
 
-from mavedb.deps import hgvs_data_provider
 from mavedb.lib.exceptions import MixedTargetError
 from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
@@ -19,9 +19,9 @@ from mavedb.lib.validation.constants.general import (
     required_score_column,
 )
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.view_models.target_accession import TargetAccession
-from mavedb.view_models.target_gene import TargetGene
-from mavedb.view_models.target_sequence import TargetSequence
+from mavedb.models.target_accession import TargetAccession
+from mavedb.models.target_gene import TargetGene
+from mavedb.models.target_sequence import TargetSequence
 
 # handle with pandas all null strings
 # provide a csv or a pandas dataframe
@@ -114,14 +114,15 @@ def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     pandas.DataFrame
         The standardized dataframe
     """
-    new_columns = [x.lower() if x.lower() in STANDARD_COLUMNS else x for x in df.columns]
-    df.columns = new_columns
+    column_mapper = {x: x.lower() for x in df.columns if x.lower() in STANDARD_COLUMNS}
+
+    df.rename(columns=column_mapper, inplace=True)
 
     return sort_dataframe_columns(df)
 
 
 def validate_and_standardize_dataframe_pair(
-    scores_df: pd.DataFrame, counts_df: Optional[pd.DataFrame], targets: list[TargetGene]
+    scores_df: pd.DataFrame, counts_df: Optional[pd.DataFrame], targets: list[TargetGene], hdp: RESTDataProvider
 ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
     """
     Perform validation and standardization on a pair of score and count dataframes.
@@ -132,10 +133,10 @@ def validate_and_standardize_dataframe_pair(
         The scores dataframe
     counts_df : Optional[pandas.DataFrame]
         The counts dataframe, can be None if not present
-    target_seq : str
-        The target sequence for the dataset
-    target_seq_type : str
-        The target sequence type, can be "infer" "dna" or "protein"
+    targets : str
+        The target genes on which to validate dataframes
+    hdp : RESTDataProvider
+        The biocommons.hgvs compatible data provider. Used to fetch sequences for hgvs validation.
 
     Returns
     -------
@@ -150,9 +151,9 @@ def validate_and_standardize_dataframe_pair(
     if not targets:
         raise ValueError("Can't validate provided file with no targets.")
 
-    validate_dataframe(scores_df, "scores", targets)
+    validate_dataframe(scores_df, "scores", targets, hdp)
     if counts_df is not None:
-        validate_dataframe(counts_df, "counts", targets)
+        validate_dataframe(counts_df, "counts", targets, hdp)
         validate_variant_columns_match(scores_df, counts_df)
 
     new_scores_df = standardize_dataframe(scores_df)
@@ -160,7 +161,7 @@ def validate_and_standardize_dataframe_pair(
     return new_scores_df, new_counts_df
 
 
-def validate_dataframe(df: pd.DataFrame, kind: str, targets: list[TargetGene]) -> None:
+def validate_dataframe(df: pd.DataFrame, kind: str, targets: list["TargetGene"], hdp: RESTDataProvider) -> None:
     """
     Validate that a given dataframe passes all checks.
 
@@ -191,7 +192,7 @@ def validate_dataframe(df: pd.DataFrame, kind: str, targets: list[TargetGene]) -
     column_mapping = {c.lower(): c for c in df.columns}
     index_column = choose_dataframe_index_column(df)
 
-    prefixes = dict()
+    prefixes: dict[str, Optional[str]] = dict()
     for c in column_mapping:
         if c in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
             is_index = column_mapping[c] == index_column
@@ -204,7 +205,7 @@ def validate_dataframe(df: pd.DataFrame, kind: str, targets: list[TargetGene]) -
             # This is typesafe, despite Pylance's claims otherwise
             if all(target.target_accession for target in targets):
                 validate_hgvs_genomic_column(
-                    df[column_mapping[c]], is_index, [target.target_accession for target in targets]  # type: ignore
+                    df[column_mapping[c]], is_index, [target.target_accession for target in targets], hdp  # type: ignore
                 )
             elif all(target.target_sequence for target in targets):
                 validate_hgvs_transgenic_column(
@@ -337,7 +338,7 @@ def choose_dataframe_index_column(df: pd.DataFrame) -> str:
         raise ValidationError("failed to find valid HGVS variant column")
 
 
-def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: dict[str, TargetSequence]) -> None:
+def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: dict[str, "TargetSequence"]) -> None:
     """
     Validate the variants in an HGVS column from a dataframe.
 
@@ -370,37 +371,51 @@ def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: 
     ValidationError
         If one of the variants fails validation
     """
+    valid_sequence_types = ("dna", "protein")
     validate_variant_column(column, is_index)
     prefixes = generate_variant_prefixes(column)
     validate_variant_formatting(column, prefixes, list(targets.keys()))
 
-    # validate the individual variant strings
-    # prepare the target sequences for validation
+    observed_sequence_types = [target.sequence_type for target in targets.values()]
+    invalid_sequence_types = set(observed_sequence_types) - set(valid_sequence_types)
+    if invalid_sequence_types:
+        raise ValueError(
+            f"Some targets are invalid sequence types: {invalid_sequence_types}. Sequence types shoud be one of: {valid_sequence_types}"
+        )
+
+    # If this is the `hgvs_nt` column, at least one target should be of type `dna`.
+    if str(column.name).lower() == hgvs_nt_column:
+        if "dna" not in observed_sequence_types:
+            raise ValueError(
+                f"invalid target sequence type(s) for '{column.name}'. At least one target should be of type `dna`. Observed types: {observed_sequence_types}"
+            )
+
+    # Make sure this column is either the splice column or protein column.
+    elif str(column.name).lower() != hgvs_splice_column and str(column.name).lower() != hgvs_pro_column:
+        raise ValueError(f"unrecognized hgvs column name '{column.name}'")
+
+    # Build dictionary of target sequences based on the column we are validating.
     target_seqs: dict[str, Union[str, None]] = {}
     for name, target in targets.items():
-        if target.sequence_type not in ("dna", "protein"):
-            raise ValueError("invalid target sequence type")
         if str(column.name).lower() == hgvs_nt_column:
-            if target.sequence_type != "dna":
-                raise ValueError(f"invalid target sequence type for '{column.name}'")
             target_seqs[name] = target.sequence
 
+        # don't validate splice columns against provided sequences.
         elif str(column.name).lower() == hgvs_splice_column:
-            target_seqs[name] = None  # don't validate splice variants against a target sequence
+            target_seqs[name] = None
 
+        # translate the target sequence if needed.
         elif str(column.name).lower() == hgvs_pro_column:
-            if target.sequence_type == "dna":
-                target_seqs[name] = translate_dna(target.sequence)[0]  # translate the target sequence if needed
+            if target.sequence_type == "dna" and target.sequence is not None:
+                target_seqs[name] = translate_dna(target.sequence)[0]
             else:
                 target_seqs[name] = target.sequence
-
-        else:
-            raise ValueError(f"unrecognized hgvs column name '{column.name}'")
 
     # get a list of all invalid variants
     invalid_variants = list()
     for i, s in column.items():
-        if not s: continue
+        if not s:
+            continue
 
         # variants can exist on the same line separated by a space
         for variant in s.split(" "):
@@ -425,11 +440,13 @@ def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: 
     # format and raise an error message that contains all invalid variants
     if len(invalid_variants) > 0:
         raise ValidationError(
-            f"encountered {len(invalid_variants)} invalid variant strings: {(', '.join(invalid_variants))}"
+            f"encountered {len(invalid_variants)} invalid variant strings.", triggers=invalid_variants
         )
 
 
-def validate_hgvs_genomic_column(column: pd.Series, is_index: bool, targets: list[TargetAccession]) -> None:
+def validate_hgvs_genomic_column(
+    column: pd.Series, is_index: bool, targets: list["TargetAccession"], hdp: RESTDataProvider
+) -> None:
     """
     Validate the variants in an HGVS column from a dataframe.
 
@@ -464,12 +481,15 @@ def validate_hgvs_genomic_column(column: pd.Series, is_index: bool, targets: lis
     """
     validate_variant_column(column, is_index)
     prefixes = generate_variant_prefixes(column)
-    validate_variant_formatting(column, prefixes, [target.accession for target in targets])
+    validate_variant_formatting(
+        column, prefixes, [target.accession for target in targets if target.accession is not None]
+    )
 
     # validate the individual variant strings
     # prepare the target sequences for validation
     target_seqs: dict[str, Union[str, None]] = {}
     for target in targets:
+        assert target.accession is not None
         # We shouldn't have to worry about translating protein sequences when we deal with accession based variants
         if str(column.name).lower() == hgvs_nt_column or str(column.name).lower() == hgvs_pro_column:
             target_seqs[target.accession] = target.accession
@@ -482,7 +502,6 @@ def validate_hgvs_genomic_column(column: pd.Series, is_index: bool, targets: lis
             raise ValueError(f"unrecognized hgvs column name '{column.name}'")
 
     hp = hgvs.parser.Parser()
-    hdp = hgvs_data_provider()
     vr = hgvs.validator.Validator(hdp=hdp)
 
     invalid_variants = list()
@@ -501,7 +520,7 @@ def validate_hgvs_genomic_column(column: pd.Series, is_index: bool, targets: lis
     # format and raise an error message that contains all invalid variants
     if len(invalid_variants) > 0:
         raise ValidationError(
-            f"encountered {len(invalid_variants)} invalid variant strings: {(', '.join(invalid_variants))}"
+            f"encountered {len(invalid_variants)} invalid variant strings.", triggers=invalid_variants
         )
 
 
