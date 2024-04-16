@@ -1,0 +1,1 @@
+This directory contains database migrations run manually for which there is no simple upgrade/downgrade path. They are not runnable as is and will need to be either manually added to an existing alembic migration or transformed into raw SQL statements and executed directly. 
