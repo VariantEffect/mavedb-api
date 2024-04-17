@@ -30,7 +30,6 @@ def decode_jwt(token: str) -> dict:
     try:
         decoded_token = jwt.decode(
             token,
-            ORCID_JWT_SIGNING_PUBLIC_KEY,
             algorithms=["RS256"],
             audience=ORCID_JWT_AUDIENCE,
             # ORCID sends an at_hash when using the OpenID Connect implicit flow, even though there is no auth_token.
