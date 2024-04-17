@@ -34,11 +34,16 @@ async def get_token_from_code(*, request: orcid.OrcidAuthTokenRequest) -> Any:
         response = await client.post(url, data=data)
         if response.status_code == 200:
             data = response.json()
-            print(json.dumps(data))
-            token_type = data["token_type"] # Fixed. Should be "Bearer"
+            token_type = data["token_type"]
             access_token = data["access_token"]
             expires_in = data["expires_in"]
             id_token = data["id_token"]
+
+            if token_type != "Bearer":
+                logger.warning(
+                    f"Unexpected token type " "{token_type}" " received from ORCID when exchanging code for token."
+                )
+
             return {
                 "access_token": access_token,
                 "expires_in": expires_in,
@@ -47,5 +52,4 @@ async def get_token_from_code(*, request: orcid.OrcidAuthTokenRequest) -> Any:
             }
         else:
             data = response.json()
-            print(json.dumps(data))
             raise HTTPException(status_code=401, detail=f"Authentication error")
