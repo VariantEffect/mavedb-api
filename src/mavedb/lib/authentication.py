@@ -30,6 +30,7 @@ def decode_jwt(token: str) -> dict:
     try:
         decoded_token = jwt.decode(
             token,
+            ORCID_JWT_SIGNING_PUBLIC_KEY or "",
             algorithms=["RS256"],
             audience=ORCID_JWT_AUDIENCE,
             # ORCID sends an at_hash when using the OpenID Connect implicit flow, even though there is no auth_token.
@@ -77,15 +78,15 @@ access_token_cookie = APIKeyCookie(name=ACCESS_TOKEN_NAME, auto_error=False)
 
 
 async def get_access_token(
-        # access_token_query: str = Security(access_token_query),
-        access_token_header: Optional[str] = Security(access_token_header),
-        access_token_cookie: Optional[str] = Security(access_token_cookie),
+    # access_token_query: str = Security(access_token_query),
+    access_token_header: Optional[str] = Security(access_token_header),
+    access_token_cookie: Optional[str] = Security(access_token_cookie),
 ) -> Optional[str]:
     return access_token_header or access_token_cookie
 
 
 async def get_current_user_from_api_key(
-        db: Session = Depends(deps.get_db), access_token: str = Depends(get_access_token)
+    db: Session = Depends(deps.get_db), access_token: str = Depends(get_access_token)
 ) -> Optional[User]:
     user = None
     if access_token is not None:
@@ -101,9 +102,9 @@ async def get_current_user_from_api_key(
 
 
 async def get_current_user(
-        api_key_user: Optional[User] = Depends(get_current_user_from_api_key),
-        token_payload: dict = Depends(JWTBearer()),
-        db: Session = Depends(deps.get_db),
+    api_key_user: Optional[User] = Depends(get_current_user_from_api_key),
+    token_payload: dict = Depends(JWTBearer()),
+    db: Session = Depends(deps.get_db),
 ) -> Optional[User]:
     user = api_key_user
     if user is None and token_payload is not None:
