@@ -20,7 +20,7 @@ class AccessKey(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     user: Mapped[User] = relationship(back_populates="access_keys")
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=True)
-    role_obj: Mapped[Role] = relationship()
+    role_obj: Mapped[Role] = relationship(Role)
     key_id = Column(String, unique=True, index=True, nullable=False)
     public_key = Column(String, nullable=False)
     name = Column(String, nullable=True)

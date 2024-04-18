@@ -32,7 +32,7 @@ class User(Base):
     role_objs: Mapped[list[Role]] = relationship("Role", secondary=users_roles_association_table, backref="users")
     last_login = Column(DateTime, nullable=True)
 
-    access_keys: Mapped[List["AccessKey"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    access_keys: Mapped[list["AccessKey"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
     @property
     def roles(self) -> list[UserRole]:
