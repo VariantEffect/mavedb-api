@@ -21,14 +21,15 @@ from sqlalchemy.pool import NullPool
 
 from mavedb.db.base import Base
 from mavedb.deps import get_db, get_worker, hgvs_data_provider
-from mavedb.lib.authentication import get_current_user
+from mavedb.lib.authorization import require_current_user
+from mavedb.lib.authentication import get_current_user, UserData
 from mavedb.models.user import User
 from mavedb.server_main import app
 from mavedb.worker.jobs import create_variants_for_score_set
 
 sys.path.append(".")
 
-from tests.helpers.constants import TEST_USER
+from tests.helpers.constants import TEST_USER, ADMIN_USER
 
 # needs the pytest_postgresql plugin installed
 assert pytest_postgresql.factories
@@ -172,7 +173,11 @@ def app_(session, data_provider, arq_redis):
 
     def override_current_user():
         default_user = session.query(User).filter(User.username == TEST_USER["username"]).one_or_none()
-        yield default_user
+        yield UserData(default_user, default_user.roles)
+
+    def override_require_user():
+        default_user = session.query(User).filter(User.username == TEST_USER["username"]).one_or_none()
+        yield UserData(default_user, default_user.roles)
 
     def override_hgvs_data_provider():
         yield data_provider
@@ -180,9 +185,71 @@ def app_(session, data_provider, arq_redis):
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_worker] = override_get_worker
     app.dependency_overrides[get_current_user] = override_current_user
+    app.dependency_overrides[require_current_user] = override_require_user
     app.dependency_overrides[hgvs_data_provider] = override_hgvs_data_provider
 
     yield app
+
+
+@pytest.fixture()
+def anonymous_app_overrides(session, data_provider, arq_redis):
+    def override_get_db():
+        try:
+            yield session
+        finally:
+            session.close()
+
+    async def override_get_worker():
+        yield arq_redis
+
+    def override_current_user():
+        yield None
+
+    def override_hgvs_data_provider():
+        yield data_provider
+
+    anonymous_overrides = {
+        get_db: override_get_db,
+        get_worker: override_get_worker,
+        get_current_user: override_current_user,
+        require_current_user: require_current_user,
+        hgvs_data_provider: override_hgvs_data_provider,
+    }
+
+    yield anonymous_overrides
+
+
+@pytest.fixture()
+def admin_app_overrides(session, data_provider, arq_redis):
+    def override_get_db():
+        try:
+            yield session
+        finally:
+            session.close()
+
+    async def override_get_worker():
+        yield arq_redis
+
+    def override_current_user():
+        admin_user = session.query(User).filter(User.username == ADMIN_USER["username"]).one_or_none()
+        yield UserData(admin_user, admin_user.roles)
+
+    def override_require_user():
+        admin_user = session.query(User).filter(User.username == ADMIN_USER["username"]).one_or_none()
+        yield UserData(admin_user, admin_user.roles)
+
+    def override_hgvs_data_provider():
+        yield data_provider
+
+    admin_overrides = {
+        get_db: override_get_db,
+        get_worker: override_get_worker,
+        get_current_user: override_current_user,
+        require_current_user: override_require_user,
+        hgvs_data_provider: override_hgvs_data_provider,
+    }
+
+    yield admin_overrides
 
 
 @pytest.fixture

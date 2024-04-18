@@ -27,6 +27,15 @@ EXTRA_USER = {
     "is_superuser": False,
 }
 
+ADMIN_USER = {
+    "username": "9999-9999-9999-9999",
+    "first_name": "Admin",
+    "last_name": "User",
+    "is_active": True,
+    "is_staff": False,
+    "is_superuser": False,
+}
+
 TEST_EXPERIMENT = {
     "title": "Test Title",
     "short_description": "Test experiment",
@@ -78,7 +87,7 @@ TEST_TAXONOMY = {
     "has_described_species_name": True,
     "article_reference": "NCBI:txid9606",
     "genome_identifier_id": None,
-    "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606"
+    "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606",
 }
 
 TEST_LICENSE = {
@@ -122,25 +131,27 @@ TEST_MINIMAL_SEQ_SCORESET = {
     "abstractText": "Abstract",
     "methodText": "Methods",
     "licenseId": 1,
-    "targetGenes":[ {
-        "name": "TEST1",
-        "category": "Protein coding",
-        "externalIdentifiers": [],
-        "targetSequence": {
-            "sequenceType": "dna",
-            "sequence": "ACGTTT",
-            "taxonomy": {
-                "taxId": TEST_TAXONOMY["tax_id"],
-                "organismName": TEST_TAXONOMY["organism_name"],
-                "commonName": TEST_TAXONOMY["common_name"],
-                "rank": TEST_TAXONOMY["rank"],
-                "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                "articleReference": TEST_TAXONOMY["article_reference"],
-                "id": TEST_TAXONOMY["id"],
-                "url": TEST_TAXONOMY["url"]
-            }
-        },
-    } ],
+    "targetGenes": [
+        {
+            "name": "TEST1",
+            "category": "Protein coding",
+            "externalIdentifiers": [],
+            "targetSequence": {
+                "sequenceType": "dna",
+                "sequence": "ACGTTT",
+                "taxonomy": {
+                    "taxId": TEST_TAXONOMY["tax_id"],
+                    "organismName": TEST_TAXONOMY["organism_name"],
+                    "commonName": TEST_TAXONOMY["common_name"],
+                    "rank": TEST_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_TAXONOMY["article_reference"],
+                    "id": TEST_TAXONOMY["id"],
+                    "url": TEST_TAXONOMY["url"],
+                },
+            },
+        }
+    ],
 }
 
 TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
@@ -162,27 +173,29 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "modificationDate": date.today().isoformat(),
     "license": {camelize(k): v for k, v in TEST_LICENSE.items() if k not in ("text",)},
     "numVariants": 0,
-    "targetGenes": [ {
-        "name": "TEST1",
-        "category": "Protein coding",
-        "externalIdentifiers": [],
-        "id": 1,
-        "targetSequence": {
-            "sequenceType": "dna",
-            "sequence": "ACGTTT",
-            "label": "TEST1",
-            "taxonomy": {
-                "taxId": TEST_TAXONOMY["tax_id"],
-                "organismName": TEST_TAXONOMY["organism_name"],
-                "commonName": TEST_TAXONOMY["common_name"],
-                "rank": TEST_TAXONOMY["rank"],
-                "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                "articleReference": TEST_TAXONOMY["article_reference"],
-                "id": TEST_TAXONOMY["id"],
-                "url": TEST_TAXONOMY["url"]
-            }
-        },
-    } ],
+    "targetGenes": [
+        {
+            "name": "TEST1",
+            "category": "Protein coding",
+            "externalIdentifiers": [],
+            "id": 1,
+            "targetSequence": {
+                "sequenceType": "dna",
+                "sequence": "ACGTTT",
+                "label": "TEST1",
+                "taxonomy": {
+                    "taxId": TEST_TAXONOMY["tax_id"],
+                    "organismName": TEST_TAXONOMY["organism_name"],
+                    "commonName": TEST_TAXONOMY["common_name"],
+                    "rank": TEST_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_TAXONOMY["article_reference"],
+                    "id": TEST_TAXONOMY["id"],
+                    "url": TEST_TAXONOMY["url"],
+                },
+            },
+        }
+    ],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
     "keywords": [],
