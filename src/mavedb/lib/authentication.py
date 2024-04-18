@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import logging
 from datetime import datetime
 from typing import Optional
@@ -8,6 +9,7 @@ from jose import jwt
 from sqlalchemy.orm import Session
 
 from mavedb import deps
+from mavedb.models.enums.user_role import UserRole
 from mavedb.models.access_key import AccessKey
 from mavedb.models.user import User
 
@@ -27,6 +29,12 @@ ORCID_JWT_AUDIENCE = "APP-GXFVWWJT8H0F50WD"
 ACCESS_TOKEN_NAME = "X-API-key"
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class UserData:
+    user: User
+    active_roles: list[UserRole]
 
 
 ####################################################################################################
@@ -93,15 +101,18 @@ async def get_access_token(
     return access_token_header or access_token_cookie
 
 
-async def get_current_user_from_api_key(
-        db: Session = Depends(deps.get_db), access_token: str = Depends(get_access_token)
-) -> Optional[User]:
+async def get_current_user_data_from_api_key(
+    db: Session = Depends(deps.get_db), access_token: str = Depends(get_access_token)
+) -> Optional[UserData]:
     user = None
+    roles: list[UserRole] = []
     if access_token is not None:
         access_key = db.query(AccessKey).filter(AccessKey.key_id == access_token).one_or_none()
         if access_key:
             user = access_key.user
-    return user
+            roles = [access_key.role] if access_key.role is not None else []
+
+    return UserData(user, roles) if user else None
 
 
 ####################################################################################################
@@ -110,12 +121,13 @@ async def get_current_user_from_api_key(
 
 
 async def get_current_user(
-        api_key_user: Optional[User] = Depends(get_current_user_from_api_key),
-        token_payload: dict = Depends(JWTBearer()),
-        db: Session = Depends(deps.get_db),
-) -> Optional[User]:
-    user = api_key_user
-    if user is None and token_payload is not None:
+    api_key_user_data: Optional[UserData] = Depends(get_current_user_data_from_api_key),
+    token_payload: dict = Depends(JWTBearer()),
+    db: Session = Depends(deps.get_db),
+) -> Optional[UserData]:
+    user_data = api_key_user_data
+
+    if user_data is None and token_payload is not None:
         username: str = token_payload["sub"]
         if username is not None:
             user = db.query(User).filter(User.username == username).one_or_none()
@@ -136,4 +148,7 @@ async def get_current_user(
                 db.refresh(user)
             elif not user.is_active:
                 user = None
-    return user
+
+            user_data = UserData(user, user.roles) if user else None
+
+    return user_data

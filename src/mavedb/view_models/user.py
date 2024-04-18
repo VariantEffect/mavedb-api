@@ -1,8 +1,9 @@
-from typing import Optional, Literal
+from typing import Optional
 
 from pydantic import Field
 
 from mavedb.view_models.base.base import BaseModel
+from mavedb.models.enums.user_role import UserRole
 
 
 class UserBase(BaseModel):
@@ -22,15 +23,13 @@ class CurrentUserUpdate(BaseModel):
     email: Optional[str]
 
 
-class AdminUserUpdate(BaseModel):
-    """View model for updating current user, for admin clients."""
+class UserUpdate(BaseModel):
+    """View model for updating users."""
 
     first_name: Optional[str]
     last_name: Optional[str]
     email: Optional[str]
-    # TODO Change the type back to list[Literal["admin"]]. Currently this causes a startup error.
-    # roles: list[Literal["admin"]]
-    roles: list[str]
+    roles: Optional[list[UserRole]]
 
 
 class SavedUser(UserBase):
@@ -50,11 +49,10 @@ class CurrentUser(SavedUser):
     """User view model for information about the current user."""
 
     email: Optional[str]
-    roles: list[str]
+    roles: list[UserRole]
 
 
-class AdminUser(SavedUser):
+class AdminUser(CurrentUser):
     """User view model containing properties to return to admin clients."""
 
     id: int
-    roles: list[str]

@@ -3,10 +3,8 @@ from typing import Optional
 from fastapi import Depends, HTTPException
 from starlette import status
 
-from mavedb.lib.authentication import get_current_user
-from mavedb.models.user import User
-
-ROLES = {"admin": "admin"}
+from mavedb.lib.authentication import get_current_user, UserData
+from mavedb.models.enums.user_role import UserRole
 
 
 ####################################################################################################
@@ -14,28 +12,30 @@ ROLES = {"admin": "admin"}
 ####################################################################################################
 
 
-async def require_current_user(user: Optional[User] = Depends(get_current_user)) -> User:
-    if user is None:
+async def require_current_user(user_data: Optional[UserData] = Depends(get_current_user)) -> UserData:
+    if user_data is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
-    user_value: User = user
-    return user_value
+
+    return user_data
 
 
 class RoleRequirer:
-    def __init__(self, roles: list[str]):
+    def __init__(self, roles: list[UserRole]):
         self.roles = roles
 
-    async def __call__(self, user: User = Depends(require_current_user)):
-        if not any(x in user.roles for x in self.roles):
+    async def __call__(self, user_data: UserData = Depends(require_current_user)) -> UserData:
+        if not any(role in self.roles for role in user_data.active_roles):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not authorized to use this feature"
             )
-        return user
+
+        return user_data
 
 
-async def require_role(roles: list[str], user: User = Depends(require_current_user)) -> User:
-    if not any(x in user.roles for x in roles):
+async def require_role(roles: list[UserRole], user_data: UserData = Depends(require_current_user)) -> UserData:
+    if not any(role.name in roles for role in user_data.active_roles):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="You are not authorized to use this feature"
         )
-    return user
+
+    return user_data
