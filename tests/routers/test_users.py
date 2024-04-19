@@ -1,5 +1,12 @@
 import pytest
 
+from fastapi import Header
+
+from mavedb.models.enums.user_role import UserRole
+from mavedb.lib.authentication import get_current_user
+from mavedb.lib.authorization import require_current_user
+from unittest import mock
+
 from tests.helpers.constants import TEST_USER, ADMIN_USER, EXTRA_USER, camelize
 from tests.helpers.dependency_overrider import DependencyOverrider
 
@@ -63,6 +70,27 @@ def test_get_current_admin_user(client, admin_app_overrides, setup_router_db, se
     response_value = response.json()
     assert response_value["orcidId"] == ADMIN_USER["username"]
     assert response_value["roles"] == ["admin"]
+
+    # Some lingering db transaction holds this test open unless it is explicitly closed.
+    session.commit()
+
+
+def test_cannot_impersonate_admin_user_as_default_user(client, setup_router_db, session):
+    # NOTE: We can't mock JWTBearer directly because the object is created when the `get_current_user` function is called.
+    #       Instead, mock the function that decodes the JWT and present a fake `Bearer test` string that
+    #       lets us reach the `decode_jwt` function call without raising exceptions.
+    with DependencyOverrider(
+        {
+            get_current_user: get_current_user,
+            require_current_user: require_current_user,
+        }
+    ), mock.patch("mavedb.lib.authentication.decode_jwt", lambda _: {"sub": TEST_USER["username"]}):
+        response = client.get(
+            "/api/v1/users/me", headers={"Authorization": "Bearer test", "X-Active-Role": UserRole.admin.name}
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] in "This user is not a member of the requested acting role."
 
     # Some lingering db transaction holds this test open unless it is explicitly closed.
     session.commit()

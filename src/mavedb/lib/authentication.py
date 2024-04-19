@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import Depends, HTTPException, Request, Security
+from fastapi import Depends, HTTPException, Request, Security, Header
 from fastapi.security import APIKeyCookie, APIKeyHeader, APIKeyQuery, HTTPAuthorizationCredentials, HTTPBearer
 from jose import jwt
 from sqlalchemy.orm import Session
@@ -124,6 +124,7 @@ async def get_current_user(
     api_key_user_data: Optional[UserData] = Depends(get_current_user_data_from_api_key),
     token_payload: dict = Depends(JWTBearer()),
     db: Session = Depends(deps.get_db),
+    x_active_role: Optional[Union[UserRole, Literal["default"]]] = Header(default=None),
 ) -> Optional[UserData]:
     user_data = api_key_user_data
 
@@ -149,6 +150,22 @@ async def get_current_user(
             elif not user.is_active:
                 user = None
 
-            user_data = UserData(user, user.roles) if user else None
+            if user is not None:
+                user_roles = user.roles
+                if x_active_role is None:
+                    active_roles = user.roles
+                elif x_active_role == "default":
+                    active_roles = []
+                else:
+                    if x_active_role not in user_roles:
+                        raise HTTPException(
+                            status_code=403, detail="This user is not a member of the requested acting role."
+                        )
+
+                    active_roles = [x_active_role]
+
+                user_data = UserData(user, active_roles)
+            else:
+                user_data = None
 
     return user_data
