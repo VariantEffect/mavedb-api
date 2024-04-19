@@ -108,6 +108,8 @@ class ScoreSetModify(ScoreSetBase):
         if len(field_value) < 1:
             raise ValidationError("Score sets should define at least one target gene.")
 
+        return field_value
+
     @validator("keywords")
     def validate_keywords(cls, v):
         keywords.validate_keywords(v)
