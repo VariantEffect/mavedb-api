@@ -88,7 +88,7 @@ class ScoreSetModify(ScoreSetBase):
     @validator("target_genes")
     def target_labels_are_unique(cls, field_value, values):
         # Labels are only used on target sequence instances.
-        if len(field_value) > 1 and all([isinstance(target, TargetSequence) for target in field_value]):
+        if len(field_value) > 1 and all([target.target_sequence is not None for target in field_value]):
             labels = [target.target_sequence.label for target in field_value]
             dup_indices = [idx for idx, item in enumerate(labels) if item in labels[:idx]]
             if dup_indices:
