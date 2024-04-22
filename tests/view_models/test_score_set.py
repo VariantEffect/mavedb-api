@@ -57,8 +57,9 @@ def test_cannot_create_score_set_with_non_unique_target_labels():
     target_gene_one = TargetGeneCreate(**jsonable_encoder(score_set_test["targetGenes"][0]))
     target_gene_two = TargetGeneCreate(**jsonable_encoder(score_set_test["targetGenes"][0]))
 
-    target_gene_one.target_sequence.label = "non_unique"
-    target_gene_two.target_sequence.label = "non_unique"
+    non_unique = "BRCA1"
+    target_gene_one.target_sequence.label = non_unique
+    target_gene_two.target_sequence.label = non_unique
 
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(
