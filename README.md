@@ -36,18 +36,18 @@ To build the source distribution and wheel, run
 poetry build
 ```
 
-The build utility will look at `pyproject.toml` and invoke Poetry to build the distributions.
+The build utility will look at `pyproject.toml` and invoke Poetry to build the distributions. Note that it will output build artifacts to `./dist` by default.
 
-The distribution can be uploaded to PyPI using Poetry as well. Simply invoke
+The distribution can be uploaded to PyPI using Poetry as well. After building the packaged, simply invoke
 
 ```
-poetry publish
+poetry publish -r pypi -u <username> -p <password>
 ```
 
-Note that publishing the package will likely require additional options. For a list of available arguments, see the [Poetry documentation](https://python-poetry.org/docs/cli/#publish).
+To build and publish the package in one go, just pass the `--build` flag to the publish command.
 
 For use as a server, this distribution includes an optional set of dependencies, which are only invoked if the package
-is installed with `pip install mavedb[server]`.
+is installed with `poetry install mavedb --extras server`.
 
 ### Running a local version of the API server
 
