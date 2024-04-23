@@ -5,6 +5,7 @@ from os.path import abspath
 from unittest.mock import patch
 
 import cdot.hgvs.dataproviders
+import email_validator
 import pytest
 import pytest_postgresql
 import pytest_asyncio
@@ -33,6 +34,9 @@ from tests.helpers.constants import TEST_USER, ADMIN_USER
 
 # needs the pytest_postgresql plugin installed
 assert pytest_postgresql.factories
+
+# Allow the @test domain name through our email validator.
+email_validator.SPECIAL_USE_DOMAIN_NAMES.remove("test")
 
 
 @pytest.fixture()
