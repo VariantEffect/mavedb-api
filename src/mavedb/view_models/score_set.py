@@ -106,7 +106,7 @@ class ScoreSetModify(ScoreSetBase):
     @validator("target_genes")
     def at_least_one_target_gene_exists(cls, field_value, values):
         if len(field_value) < 1:
-            raise ValidationError("Score sets should define at least one target gene.")
+            raise ValidationError("Score sets should define at least one target.")
 
         return field_value
 

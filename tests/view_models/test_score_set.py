@@ -17,7 +17,7 @@ def test_cannot_create_score_set_without_a_target():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test, exclude={"targetGenes"}), target_genes=[])
 
-    assert "Score sets should define at least one target gene." in str(exc_info.value)
+    assert "Score sets should define at least one target." in str(exc_info.value)
 
 
 def test_cannot_create_score_set_with_multiple_primary_publications():
