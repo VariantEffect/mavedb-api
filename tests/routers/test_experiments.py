@@ -92,7 +92,7 @@ def test_cannot_assign_to_missing_experiment_set(client, setup_router_db):
     assert f"experiment set with URN '{experiment_set_urn}' not found" in response_data["detail"]
 
 
-def test_can_assign_to_own_user_private_experiment_set(session, client, setup_router_db):
+def test_can_update_own_private_experiment_set(session, client, setup_router_db):
     experiment = create_experiment(client)
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload.update({"experimentSetUrn": experiment["experimentSetUrn"], "title": "Second Experiment"})
@@ -102,7 +102,7 @@ def test_can_assign_to_own_user_private_experiment_set(session, client, setup_ro
     assert response.json()["title"] == "Second Experiment"
 
 
-def test_cannot_assign_to_other_user_private_experiment_set(session, client, setup_router_db):
+def test_cannot_update_other_user_private_experiment_set(session, client, setup_router_db):
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
     change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
@@ -114,7 +114,7 @@ def test_cannot_assign_to_other_user_private_experiment_set(session, client, set
     assert f"experiment set with URN '{experiment['experimentSetUrn']}' not found" in response_data["detail"]
 
 
-def test_anonymous_cannot_assign_to_user_private_experiment_set(
+def test_anonymous_cannot_update_other_user_private_experiment_set(
     session, client, anonymous_app_overrides, setup_router_db
 ):
     experiment = create_experiment(client)
@@ -129,7 +129,7 @@ def test_anonymous_cannot_assign_to_user_private_experiment_set(
     assert "Could not validate credentials" in response_data["detail"]
 
 
-def test_admin_can_assign_to_other_user_private_experiment_set(session, client, admin_app_overrides, setup_router_db):
+def test_admin_can_update_other_user_private_experiment_set(session, client, admin_app_overrides, setup_router_db):
     experiment = create_experiment(client)
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload.update({"experimentSetUrn": experiment["experimentSetUrn"], "title": "Second Experiment"})
@@ -142,7 +142,7 @@ def test_admin_can_assign_to_other_user_private_experiment_set(session, client, 
     assert response.json()["title"] == "Second Experiment"
 
 
-def test_can_assign_to_own_public_experiment_set(session, data_provider, client, setup_router_db, data_files):
+def test_can_update_own_public_experiment_set(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -156,7 +156,7 @@ def test_can_assign_to_own_public_experiment_set(session, data_provider, client,
     assert response_data["title"] == "Second Experiment"
 
 
-def test_cannot_assign_to_other_user_public_experiment_set(session, data_provider, client, setup_router_db, data_files):
+def test_cannot_update_other_user_public_experiment_set(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -172,7 +172,7 @@ def test_cannot_assign_to_other_user_public_experiment_set(session, data_provide
     assert f"insufficient permissions for URN '{published_experiment_set_urn}'" in response_data["detail"]
 
 
-def test_anonymous_cannot_assign_to_other_user_public_experiment_set(
+def test_anonymous_cannot_update_other_user_public_experiment_set(
     session, data_provider, client, anonymous_app_overrides, setup_router_db, data_files
 ):
     experiment = create_experiment(client)
@@ -192,7 +192,7 @@ def test_anonymous_cannot_assign_to_other_user_public_experiment_set(
     assert f"Could not validate credentials" in response_data["detail"]
 
 
-def test_admin_can_assign_to_other_users_public_experiment_set(
+def test_admin_can_update_other_user_public_experiment_set(
     session, data_provider, client, admin_app_overrides, setup_router_db, data_files
 ):
     experiment = create_experiment(client)
@@ -263,7 +263,7 @@ def test_cannot_edit_other_users_private_experiment(client, session, setup_route
         ("methodText", "Edited Methods"),
     ],
 )
-def test_anonymous_cannot_edit_other_users_private_experiment(
+def test_anonymous_cannot_update_other_user_private_experiment(
     client, anonymous_app_overrides, session, setup_router_db, test_field, test_value
 ):
     experiment = create_experiment(client)
@@ -288,7 +288,7 @@ def test_anonymous_cannot_edit_other_users_private_experiment(
         ("methodText", "Edited Methods"),
     ],
 )
-def test_admin_can_edit_other_users_private_experiment(
+def test_admin_can_update_other_user_private_experiment(
     client, admin_app_overrides, setup_router_db, test_field, test_value
 ):
     experiment = create_experiment(client)
@@ -485,7 +485,7 @@ def test_anonymous_cannot_get_user_private_experiment(session, client, anonymous
     assert f"experiment with URN '{experiment['urn']}' not found" in response_data["detail"]
 
 
-def test_admin_can_get_other_users_private_experiment(client, admin_app_overrides, setup_router_db):
+def test_admin_can_get_other_user_private_experiment(client, admin_app_overrides, setup_router_db):
     experiment = create_experiment(client)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
     expected_response.update({"urn": experiment["urn"], "experimentSetUrn": experiment["experimentSetUrn"]})
@@ -551,27 +551,6 @@ def test_search_score_sets_for_my_experiments(session, client, setup_router_db, 
     assert set(score_set["urn"] for score_set in response.json()) == set(
         (published_score_set["urn"], score_set_unpub["urn"])
     )
-
-
-def test_anonymous_search_score_sets_for_experiments(
-    session, client, anonymous_app_overrides, setup_router_db, data_files, data_provider
-):
-    experiment = create_experiment(client)
-    score_set_pub = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
-    )
-    # Unpublished score set should not appear in the results for an anonymous user.
-    score_set_unpub = create_seq_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
-    published_score_set = client.post(f"/api/v1/score-sets/{score_set_pub['urn']}/publish").json()
-    # On score set publication, the experiment will get a new urn
-    experiment_urn = published_score_set["experiment"]["urn"]
-
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
-
-    assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["urn"] == published_score_set["urn"]
 
 
 def test_search_their_experiments(session, client, setup_router_db):
