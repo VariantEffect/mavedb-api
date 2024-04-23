@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union, Literal
 
 from fastapi import Depends, HTTPException, Request, Security, Header
 from fastapi.security import APIKeyCookie, APIKeyHeader, APIKeyQuery, HTTPAuthorizationCredentials, HTTPBearer
@@ -124,48 +124,47 @@ async def get_current_user(
     api_key_user_data: Optional[UserData] = Depends(get_current_user_data_from_api_key),
     token_payload: dict = Depends(JWTBearer()),
     db: Session = Depends(deps.get_db),
+    # Custom header for the role the authenticated user would like to assume.
+    # Namespaced with x_ to indicate this is a custom application header.
     x_active_role: Optional[Union[UserRole, Literal["default"]]] = Header(default=None),
 ) -> Optional[UserData]:
-    user_data = api_key_user_data
+    if api_key_user_data is not None:
+        return api_key_user_data
 
-    if user_data is None and token_payload is not None:
-        username: str = token_payload["sub"]
-        if username is not None:
-            user = db.query(User).filter(User.username == username).one_or_none()
-            if user is None:
-                # A new user has just connected an ORCID iD. Create the user account.
-                user = User(
-                    username=username,
-                    is_active=True,
-                    # TODO When we decouple from the old database, change first_name and last_name to be nullable, and
-                    # stop filling them with empty strings.
-                    first_name=token_payload["given_name"] if "given_name" in token_payload else "",
-                    last_name=token_payload["family_name"] if "family_name" in token_payload else "",
-                    date_joined=datetime.now(),
-                )
-                logger.info(f"Creating new user with username {user.username}")
-                db.add(user)
-                db.commit()
-                db.refresh(user)
-            elif not user.is_active:
-                user = None
+    if token_payload is None:
+        return None
 
-            if user is not None:
-                user_roles = user.roles
-                if x_active_role is None:
-                    active_roles = user.roles
-                elif x_active_role == "default":
-                    active_roles = []
-                else:
-                    if x_active_role not in user_roles:
-                        raise HTTPException(
-                            status_code=403, detail="This user is not a member of the requested acting role."
-                        )
+    username: Optional[str] = token_payload.get("sub")
+    if username is None:
+        return None
 
-                    active_roles = [x_active_role]
+    user = db.query(User).filter(User.username == username).one_or_none()
 
-                user_data = UserData(user, active_roles)
-            else:
-                user_data = None
+    # A new user has just connected an ORCID iD. Create the user account.
+    if user is None:
+        user = User(
+            username=username,
+            is_active=True,
+            # TODO When we decouple from the old database, change first_name and last_name to be nullable, and
+            # stop filling them with empty strings.
+            first_name=token_payload["given_name"] if "given_name" in token_payload else "",
+            last_name=token_payload["family_name"] if "family_name" in token_payload else "",
+            date_joined=datetime.now(),
+        )
+        logger.info(f"Creating new user with username {user.username}")
 
-    return user_data
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    elif not user.is_active:
+        return None
+
+    if x_active_role is None:
+        return UserData(user, user.roles)
+    elif x_active_role == "default":
+        return UserData(user, [])
+
+    if x_active_role not in user.roles:
+        raise HTTPException(status_code=403, detail="This user is not a member of the requested acting role.")
+
+    return UserData(user, [x_active_role])
