@@ -380,7 +380,7 @@ def test_anonymous_cannot_publish_user_private_score_set(
     assert "Could not validate credentials" in response_data["detail"]
 
 
-def test_admin_can_publish_other_user_private_score_set(
+def test_admin_cannot_publish_other_user_private_score_set(
     session, data_provider, client, admin_app_overrides, setup_router_db, data_files
 ):
     experiment = create_experiment(client)

@@ -18,6 +18,7 @@ class Action(Enum):
     ADD_SCORE_SET = 5
     SET_SCORES = 6
     ADD_ROLE = 7
+    PUBLISH = 8
 
 
 class PermissionResponse:
@@ -144,6 +145,17 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(True)
             # Roles which may perform this operation.
             elif roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            elif private:
+                # Do not acknowledge the existence of a private entity.
+                return PermissionResponse(False, 404, f"score set with URN '{item.urn}' not found")
+            else:
+                return PermissionResponse(False)
+        # Only the owner may publish a private score set.
+        elif action == Action.PUBLISH:
+            if user_is_owner:
+                return PermissionResponse(True)
+            elif roles_permitted(active_roles, []):
                 return PermissionResponse(True)
             elif private:
                 # Do not acknowledge the existence of a private entity.

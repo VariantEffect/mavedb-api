@@ -734,7 +734,7 @@ def publish_score_set(
     item: Optional[ScoreSet] = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
-    assert_permission(user_data, item, Action.UPDATE)
+    assert_permission(user_data, item, Action.PUBLISH)
 
     if not item.experiment:
         raise HTTPException(
