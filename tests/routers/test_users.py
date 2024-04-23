@@ -86,7 +86,8 @@ def test_cannot_impersonate_admin_user_as_default_user(client, setup_router_db, 
         }
     ), mock.patch("mavedb.lib.authentication.decode_jwt", lambda _: {"sub": TEST_USER["username"]}):
         response = client.get(
-            "/api/v1/users/me", headers={"Authorization": "Bearer test", "X-Active-Role": UserRole.admin.name}
+            "/api/v1/users/me",
+            headers={"Authorization": "Bearer test", "X-Active-Roles": f"{UserRole.admin.name},ordinary user"},
         )
 
     assert response.status_code == 403

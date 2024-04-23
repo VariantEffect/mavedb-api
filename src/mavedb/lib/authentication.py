@@ -126,7 +126,7 @@ async def get_current_user(
     db: Session = Depends(deps.get_db),
     # Custom header for the role the authenticated user would like to assume.
     # Namespaced with x_ to indicate this is a custom application header.
-    x_active_role: Optional[Union[UserRole, Literal["default"]]] = Header(default=None),
+    x_active_roles: Optional[str] = Header(default=None),
 ) -> Optional[UserData]:
     if api_key_user_data is not None:
         return api_key_user_data
@@ -159,12 +159,27 @@ async def get_current_user(
     elif not user.is_active:
         return None
 
-    if x_active_role is None:
+    if x_active_roles is None:
         return UserData(user, user.roles)
-    elif x_active_role == "default":
-        return UserData(user, [])
 
-    if x_active_role not in user.roles:
-        raise HTTPException(status_code=403, detail="This user is not a member of the requested acting role.")
+    # FastAPI has poor support for headers of type list (really, they are just comma separated strings).
+    # Parse out any requested roles manually.
+    requested_roles = x_active_roles.split(",")
 
-    return UserData(user, [x_active_role])
+    active_roles: list[UserRole] = []
+    for requested_role in requested_roles:
+        # Disregard any requested roles if they do not correspond to one of our UserRole enumerations.
+        #
+        # NOTE that our permissions structure ensures every authenticated user has a minimum set of available actions.
+        # Collectively, these are known to the client as the 'ordinary user' role. Because these permissions are supplied
+        # by default, we do not need add the 'ordinary user' role to the list of active roles.
+        if requested_role not in UserRole._member_names_:
+            continue
+
+        enumerated_role = UserRole[requested_role]
+        if enumerated_role not in user.roles:
+            raise HTTPException(status_code=403, detail="This user is not a member of the requested acting role.")
+        else:
+            active_roles.append(enumerated_role)
+
+    return UserData(user, active_roles)
