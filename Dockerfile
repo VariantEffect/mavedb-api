@@ -13,7 +13,6 @@ ENV POETRY_VERSION=1.7.0 \
     POETRY_NO_INTERACTION=1 \
     # never create virtual environments, only use the venv prepared by us
     POETRY_VIRTUALENVS_CREATE=false \
-    \
     # this is where our requirements + virtual environment will live
     VIRTUAL_ENV="/venv"
 
