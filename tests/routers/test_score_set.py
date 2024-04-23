@@ -175,7 +175,9 @@ def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setu
     assert score_set == response_data
 
 
-# If a user cannot add scores to a data set, they won't be able to add scores and counts.
+# A user should not be able to add scores to another users' score set. Therefore, they should also not be able
+# to add scores and counts. So long as this test passes (a user cannot add scores to another users' score set),
+# they necessarily will not be able to add scores and counts-- so omit the test for adding scores + counts.
 def test_cannot_add_scores_to_other_user_score_set(session, client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -191,7 +193,9 @@ def test_cannot_add_scores_to_other_user_score_set(session, client, setup_router
     assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
 
 
-# If an anonymous user cannot add scores to a data set, they won't be able to add scores and counts.
+# A user should not be able to add scores to another users' score set. Therefore, they should also not be able
+# to add scores and counts. So long as this test passes (a user cannot add scores to another users' score set),
+# they necessarily will not be able to add scores and counts-- so omit the test for adding scores + counts.
 def test_anonymous_cannot_add_scores_to_other_user_score_set(
     session, client, setup_router_db, data_files, anonymous_app_overrides
 ):
