@@ -47,6 +47,17 @@ def test_create_minimal_experiment(client, setup_router_db):
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
+def test_cannot_create_experiment_without_email(client, setup_router_db):
+    client.put("api/v1/users/me", json={"email": None})
+    response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
+    assert response.status_code == 400
+    response_data = response.json()
+    assert (
+        response_data["detail"]
+        == "Your user must have a valid email address associated with their account to use this feature"
+    )
+
+
 @pytest.mark.parametrize(
     "test_field,test_value",
     [

@@ -58,6 +58,20 @@ def test_create_minimal_score_set(client, setup_router_db):
     assert response.status_code == 200
 
 
+def test_cannot_create_score_set_without_email(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = experiment["urn"]
+    client.put("api/v1/users/me", json={"email": None})
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 400
+    response_data = response.json()
+    assert (
+        response_data["detail"]
+        in "Your user must have a valid email address associated with their account to use this feature"
+    )
+
+
 def test_get_own_private_score_set(client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -173,6 +187,24 @@ def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setu
     # fact that it would have succeeded.
     score_set.update({"processingState": "processing"})
     assert score_set == response_data
+
+
+def test_cannot_add_scores_to_score_set_without_email(session, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    client.put("api/v1/users/me", json={"email": None})
+    scores_csv_path = data_files / "scores.csv"
+    with open(scores_csv_path, "rb") as scores_file:
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+    assert response.status_code == 400
+    response_data = response.json()
+    assert (
+        response_data["detail"]
+        in "Your user must have a valid email address associated with their account to use this feature"
+    )
 
 
 # A user should not be able to add scores to another users' score set. Therefore, they should also not be able
