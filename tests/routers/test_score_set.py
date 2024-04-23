@@ -391,36 +391,9 @@ def test_admin_cannot_publish_other_user_private_score_set(
     with DependencyOverrider(admin_app_overrides):
         response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
 
-    assert response.status_code == 200
+    assert response.status_code == 404
     response_data = response.json()
-    assert response_data["urn"] == "urn:mavedb:00000001-a-1"
-    assert response_data["experiment"]["urn"] == "urn:mavedb:00000001-a"
-
-    expected_response = deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE)
-    expected_response.update(
-        {
-            "urn": response_data["urn"],
-            "publishedDate": date.today().isoformat(),
-            "numVariants": 3,
-            "private": False,
-            "datasetColumns": {"countColumns": [], "scoreColumns": ["score"]},
-            "processingState": ProcessingState.success.name,
-        }
-    )
-    expected_response["experiment"].update(
-        {
-            "urn": response_data["experiment"]["urn"],
-            "experimentSetUrn": response_data["experiment"]["experimentSetUrn"],
-            "scoreSetUrns": [response_data["urn"]],
-            "publishedDate": date.today().isoformat(),
-        }
-    )
-    assert sorted(expected_response.keys()) == sorted(response_data.keys())
-
-    # refresh score set to post worker state
-    score_set = (client.get(f"/api/v1/score-sets/{response_data['urn']}")).json()
-    for key in expected_response:
-        assert (key, expected_response[key]) == (key, score_set[key])
+    assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
 
 
 def test_create_single_score_set_meta_analysis(session, data_provider, client, setup_router_db, data_files):
