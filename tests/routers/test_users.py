@@ -180,7 +180,7 @@ def test_admin_can_update_self(client, setup_router_db, admin_app_overrides):
         ("roles", ["admin"]),
     ],
 )
-def test_anonymous_user_cannot_make_user_updates(
+def test_anonymous_user_cannot_update_other_users(
     client, setup_router_db, field_name, field_value, anonymous_app_overrides
 ):
     user_update = EXTRA_USER.copy()
@@ -202,7 +202,7 @@ def test_anonymous_user_cannot_make_user_updates(
         ("roles", ["admin"]),
     ],
 )
-def test_user_cannot_make_user_updates(client, setup_router_db, field_name, field_value):
+def test_user_cannot_update_other_users(client, setup_router_db, field_name, field_value):
     user_update = EXTRA_USER.copy()
     user_update.update({field_name: field_value})
     response = client.put("/api/v1/users//2", json=user_update)
@@ -220,7 +220,7 @@ def test_user_cannot_make_user_updates(client, setup_router_db, field_name, fiel
         ("roles", ["admin"]),
     ],
 )
-def test_admin_user_can_make_user_updates(client, setup_router_db, field_name, field_value, admin_app_overrides):
+def test_admin_user_can_update_other_users(client, setup_router_db, field_name, field_value, admin_app_overrides):
     user_update = TEST_USER.copy()
     user_update.update({field_name: field_value})
     with DependencyOverrider(admin_app_overrides):
