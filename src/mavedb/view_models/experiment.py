@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Any, Collection, Optional, Sequence
+from typing import Any, Collection, Dict, Optional, Sequence
 
 from mavedb.lib.validation import keywords
 from mavedb.lib.validation.exceptions import ValidationError
@@ -10,6 +10,7 @@ from mavedb.view_models.doi_identifier import (
     DoiIdentifierCreate,
     SavedDoiIdentifier,
 )
+from mavedb.view_models.keyword import Keyword, KeywordBase
 from mavedb.view_models.publication_identifier import (
     PublicationIdentifier,
     PublicationIdentifierCreate,
@@ -54,7 +55,7 @@ class ExperimentBase(BaseModel):
 class ExperimentModify(ExperimentBase):
     abstract_text: str
     method_text: str
-    keywords: Optional[list[str]]
+    keywords: Optional[Dict[str, KeywordBase]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
@@ -96,7 +97,7 @@ class SavedExperiment(ExperimentBase):
     secondary_publication_identifiers: Sequence[SavedPublicationIdentifier]
     raw_read_identifiers: Sequence[SavedRawReadIdentifier]
     processing_state: Optional[str]
-    keywords: list[str]
+    keywords: Optional[Dict[str, Keyword]]
 
     class Config:
         orm_mode = True
@@ -115,6 +116,7 @@ class Experiment(SavedExperiment):
     doi_identifiers: Sequence[DoiIdentifier]
     primary_publication_identifiers: Sequence[PublicationIdentifier]
     secondary_publication_identifiers: Sequence[PublicationIdentifier]
+    keywords: Optional[Dict[str, Keyword]]
     raw_read_identifiers: Sequence[RawReadIdentifier]
     created_by: User
     modified_by: User

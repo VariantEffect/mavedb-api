@@ -39,6 +39,24 @@ TEST_MINIMAL_EXPERIMENT = {
     "shortDescription": "Test experiment",
     "abstractText": "Abstract",
     "methodText": "Methods",
+    "keywords": {
+      "Endogenous Locus Library Method": {
+        "key": "Endogenous Locus Library Method",
+        "value": "AsCas12a",
+      },
+      "In Vitro Construct Library Method": {
+        "key": "In Vitro Construct Library Method",
+        "value": "Episomal delivery",
+      },
+      "Phenotypic Assay": {
+        "key": "Phenotypic Assay",
+        "value": "Bacteriophage",
+      },
+      "Variant Library": {
+        "key": "Variant Library",
+        "value": "Adeno-associated virus transduction",
+      }
+    },
 }
 
 TEST_MINIMAL_EXPERIMENT_RESPONSE = {
@@ -59,7 +77,7 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
     "scoreSetUrns": [],
-    "keywords": [],
+    "keywords": {},
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
@@ -185,7 +203,7 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     } ],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
-    "keywords": [],
+    #"keywords": {},
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
@@ -259,7 +277,7 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     ],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
-    "keywords": [],
+    #"keywords": {},
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],

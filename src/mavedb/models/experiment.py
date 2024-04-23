@@ -1,6 +1,7 @@
+from collections import defaultdict
 from datetime import date
 
-from typing import Optional, List, TYPE_CHECKING
+from typing import Dict, Optional, List, TYPE_CHECKING
 
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.event import listens_for
@@ -12,7 +13,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from mavedb.db.base import Base
 from mavedb.lib.temp_urns import generate_temp_urn
 from mavedb.models.experiment_set import ExperimentSet
-from mavedb.models.keyword import Keyword
+from mavedb.models.controlled_keyword import ControlledKeyword
+from mavedb.models.legacy_keyword import LegacyKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.raw_read_identifier import RawReadIdentifier
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
@@ -22,6 +24,14 @@ from mavedb.models.publication_identifier import PublicationIdentifier
 if TYPE_CHECKING:
     from mavedb.models.score_set import ScoreSet
 
+experiments_controlled_keywords_association_table = Table(
+    'experiment_controlled_keywords',
+    Base.metadata,
+    Column('experiment_id', ForeignKey('experiments.id'), primary_key=True),
+    Column('controlled_keyword_id', ForeignKey('controlled_keywords.id'), primary_key=True)
+)
+
+
 experiments_doi_identifiers_association_table = Table(
     "experiment_doi_identifiers",
     Base.metadata,
@@ -30,7 +40,7 @@ experiments_doi_identifiers_association_table = Table(
 )
 
 
-experiments_keywords_association_table = Table(
+experiments_legacy_keywords_association_table = Table(
     "experiment_keywords",
     Base.metadata,
     Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
@@ -77,10 +87,11 @@ class Experiment(Base):
     modified_by: Mapped[User] = relationship("User", foreign_keys="Experiment.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
-
-    keyword_objs: Mapped[list[Keyword]] = relationship(
-        "Keyword", secondary=experiments_keywords_association_table, backref="experiments"
+    keyword_objs: Mapped[list[ControlledKeyword]] = relationship(
+        "ControlledKeyword", secondary=experiments_controlled_keywords_association_table, backref="experiments"
     )
+    legacy_keyword_objs: Mapped[list[LegacyKeyword]] = relationship(
+        "LegacyKeyword", secondary=experiments_legacy_keywords_association_table, backref="experiments")
     doi_identifiers: Mapped[list[DoiIdentifier]] = relationship(
         "DoiIdentifier", secondary=experiments_doi_identifiers_association_table, backref="experiments"
     )
@@ -106,30 +117,51 @@ class Experiment(Base):
     # _updated_doi_identifiers: list[str] = None
 
     @property
-    def keywords(self) -> list[str]:
-        # if self._updated_keywords:
-        #     return self._updated_keywords
-        # else:
-        keyword_objs = self.keyword_objs or []  # getattr(self, 'keyword_objs', [])
-        return [keyword_obj.text for keyword_obj in keyword_objs if keyword_obj.text is not None]
+    def keywords(self) -> Dict[str, ControlledKeyword]:
+        keyword_objs = self.keyword_objs or []
+        keywords = defaultdict(dict)
+        for keyword in keyword_objs:
+            keywords[keyword.key] = keyword
+        return sorted(keywords.items())
 
-    async def set_keywords(self, db, keywords: Optional[list[str]]):
-        if keywords is None:
-            self.keyword_objs = []
-        else:
-            self.keyword_objs = [await self._find_or_create_keyword(db, text) for text in keywords]
+
+    @property
+    def legacy_keywords(self) -> list[str]:
+        legacy_keyword_objs = self.legacy_keyword_objs or []
+        #return list(map(lambda keyword_obj: keyword_obj.text, legacy_keyword_objs))
+        return [keyword_obj.text for keyword_obj in legacy_keyword_objs if keyword_obj.text is not None]
+
+
+    async def set_legacy_keywords(self, db, keywords: Optional[list[str]]):
+        self.keyword_objs = [await self._find_or_create_legacy_keyword(db, text) for text in keywords]
+
+
+    async def set_keywords(self, db, keywords: dict):
+        self.keyword_objs = []
+        for keyword_obj in keywords.values():
+            keyword = await self._find_or_create_keyword(db, keyword_obj.key, keyword_obj.value, keyword_obj.vocabulary)
+            self.keyword_objs.append(keyword)
 
     # See https://gist.github.com/tachyondecay/e0fe90c074d6b6707d8f1b0b1dcc8e3a
     # @keywords.setter
     # async def set_keywords(self, db, keywords: list[str]):
     #     self._keyword_objs = [await self._find_or_create_keyword(text) for text in keywords]
 
-    async def _find_or_create_keyword(self, db, keyword_text):
-        keyword_obj = db.query(Keyword).filter(Keyword.text == keyword_text).one_or_none()
+    async def _find_or_create_legacy_keyword(self, db, keyword_text):
+        keyword_obj = db.query(LegacyKeyword).filter(LegacyKeyword.text == keyword_text).one_or_none()
         if not keyword_obj:
-            keyword_obj = Keyword(text=keyword_text)
-            # object_session.add(keyword_obj)
+            keyword_obj = LegacyKeyword(text=keyword_text)
         return keyword_obj
+
+
+    async def _find_or_create_keyword(self, db, key: str, value: str, vocabulary: Optional[str]):
+        query = db.query(ControlledKeyword).filter(ControlledKeyword.key == key).filter(ControlledKeyword.value == value)
+        if vocabulary is not None:
+            query = query.filter(ControlledKeyword.vocabulary == vocabulary)
+        controlled_keyword_obj = query.one_or_none()
+        if controlled_keyword_obj is None:
+            raise ValueError(f'Unknown keyword {key}:{value}')
+        return controlled_keyword_obj
 
 
 @listens_for(Experiment, "before_insert")

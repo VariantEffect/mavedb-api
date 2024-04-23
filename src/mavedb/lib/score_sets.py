@@ -22,7 +22,7 @@ from mavedb.models.ensembl_identifier import EnsemblIdentifier
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
-from mavedb.models.keyword import Keyword
+from mavedb.models.legacy_keyword import LegacyKeyword
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.refseq_offset import RefseqOffset
@@ -74,7 +74,6 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ScoreSet.abstract_text.icontains(lower_search_text),
                 ScoreSet.target_genes.any(func.lower(TargetGene.name).icontains(lower_search_text)),
                 ScoreSet.target_genes.any(func.lower(TargetGene.category).icontains(lower_search_text)),
-                ScoreSet.keyword_objs.any(func.lower(Keyword.text).icontains(lower_search_text)),
                 ScoreSet.target_genes.any(
                     TargetGene.target_sequence.has(
                         TargetSequence.taxonomy.has(
@@ -192,7 +191,6 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ),
                 joinedload(Experiment.raw_read_identifiers),
                 selectinload(Experiment.score_sets).options(
-                    joinedload(ScoreSet.keyword_objs),
                     joinedload(ScoreSet.doi_identifiers),
                     joinedload(ScoreSet.publication_identifier_associations).joinedload(
                         ScoreSetPublicationIdentifierAssociation.publication
@@ -206,7 +204,6 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                     ),
                 ),
             ),
-            joinedload(ScoreSet.keyword_objs),
             joinedload(ScoreSet.license),
             joinedload(ScoreSet.doi_identifiers),
             joinedload(ScoreSet.publication_identifier_associations).joinedload(

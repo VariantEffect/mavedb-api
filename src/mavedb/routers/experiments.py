@@ -17,6 +17,7 @@ from mavedb.lib.identifiers import (
     find_or_create_raw_read_identifier,
 )
 from mavedb.lib.permissions import assert_permission, Action
+from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
@@ -205,7 +206,11 @@ async def create_experiment(
         created_by=user,
         modified_by=user,
     )  # type: ignore
-    await item.set_keywords(db, item_create.keywords)
+    keywords = item_create.keywords
+    try:
+        await item.set_keywords(db, keywords)
+    except Exception:
+        raise HTTPException(status_code=500, detail='Invalid keywords')
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -275,7 +280,13 @@ async def update_experiment(
     item.publication_identifiers = publication_identifiers
     item.raw_read_identifiers = raw_read_identifiers
 
-    await item.set_keywords(db, item_update.keywords)
+    # await item.set_keywords(db, item_update.keywords)
+    keywords = item_update.keywords
+    try:
+        await item.set_keywords(db, keywords)
+    except Exception:
+        raise HTTPException(status_code=500, detail='Invalid keywords')
+
     item.modified_by = user
 
     db.add(item)

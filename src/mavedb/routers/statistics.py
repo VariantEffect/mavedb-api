@@ -6,12 +6,12 @@ from typing import Any, Union
 
 from mavedb.deps import get_db
 from mavedb.models.doi_identifier import DoiIdentifier
-from mavedb.models.keyword import Keyword
+from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.raw_read_identifier import RawReadIdentifier
 from mavedb.models.experiment import (
     Experiment,
     experiments_doi_identifiers_association_table,
-    experiments_keywords_association_table,
+    experiments_controlled_keywords_association_table,
     experiments_raw_read_identifiers_association_table,
 )
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
@@ -20,7 +20,7 @@ from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set import (
     ScoreSet,
     score_sets_doi_identifiers_association_table,
-    score_sets_keywords_association_table,
+    #score_sets_keywords_association_table,
     score_sets_raw_read_identifiers_association_table,
 )
 from mavedb.models.target_gene import TargetGene
@@ -238,13 +238,13 @@ def _record_from_field_and_model(
             RecordFields.doiIdentifiers: experiments_doi_identifiers_association_table,
             RecordFields.publicationIdentifiers: ExperimentPublicationIdentifierAssociation,
             RecordFields.rawReadIdentifiers: experiments_raw_read_identifiers_association_table,
-            RecordFields.keywords: experiments_keywords_association_table,
+            RecordFields.keywords: experiments_controlled_keywords_association_table,
         },
         RecordNames.scoreSet: {
             RecordFields.doiIdentifiers: score_sets_doi_identifiers_association_table,
             RecordFields.publicationIdentifiers: ScoreSetPublicationIdentifierAssociation,
             RecordFields.rawReadIdentifiers: score_sets_raw_read_identifiers_association_table,
-            RecordFields.keywords: score_sets_keywords_association_table,
+            #RecordFields.keywords: score_sets_keywords_association_table,
         },
     }
 
@@ -282,7 +282,7 @@ def _record_from_field_and_model(
             DoiIdentifier.identifier
         )
     elif field is RecordFields.keywords:
-        query = select(Keyword.text, func.count(Keyword.text)).group_by(Keyword.text)
+        query = select(ControlledKeyword.text, func.count(ControlledKeyword.text)).group_by(ControlledKeyword.text)
     elif field is RecordFields.rawReadIdentifiers:
         query = select(RawReadIdentifier.identifier, func.count(RawReadIdentifier.identifier)).group_by(
             RawReadIdentifier.identifier

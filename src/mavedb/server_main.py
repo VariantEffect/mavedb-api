@@ -18,6 +18,7 @@ from mavedb import __version__
 from mavedb.routers import (
     access_keys,
     api_information,
+    controlled_keywords,
     doi_identifiers,
     experiment_sets,
     experiments,
@@ -57,6 +58,7 @@ app.add_middleware(
 )
 app.include_router(access_keys.router)
 app.include_router(api_information.router)
+app.include_router(controlled_keywords.router)
 app.include_router(doi_identifiers.router)
 app.include_router(experiment_sets.router)
 app.include_router(experiments.router)
