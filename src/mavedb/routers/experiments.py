@@ -290,15 +290,13 @@ async def update_experiment(
     return item
 
 
-@router.delete(
-    "/experiments/{urn}", response_model=experiment.Experiment, responses={422: {}}, response_model_exclude_none=True
-)
+@router.delete("/experiments/{urn}", response_model=None, responses={422: {}})
 async def delete_experiment(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
-) -> Any:
+) -> None:
     """
     Delete a experiment .
 
