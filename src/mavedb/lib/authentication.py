@@ -9,10 +9,10 @@ from jose import jwt
 from sqlalchemy.orm import Session
 
 from mavedb import deps
+from mavedb.lib.orcid import fetch_orcid_user_email
 from mavedb.models.access_key import AccessKey
 from mavedb.models.user import User
 
-# See https://8gwifi.org/jwkconvertfunctions.jsp
 ORCID_JWT_SIGNING_PUBLIC_KEY = os.getenv("ORCID_JWT_SIGNING_PUBLIC_KEY")
 ORCID_JWT_AUDIENCE = os.getenv("ORCID_CLIENT_ID")
 
@@ -112,7 +112,9 @@ async def get_current_user(
         if username is not None:
             user = db.query(User).filter(User.username == username).one_or_none()
             if user is None:
-                # A new user has just connected an ORCID iD. Create the user account.
+                # A new user has just connected an ORCID iD. Fetch their email address if it's visible, and create the
+                # user account.
+                email = fetch_orcid_user_email(username)
                 user = User(
                     username=username,
                     is_active=True,
@@ -120,6 +122,7 @@ async def get_current_user(
                     # stop filling them with empty strings.
                     first_name=token_payload["given_name"] if "given_name" in token_payload else "",
                     last_name=token_payload["family_name"] if "family_name" in token_payload else "",
+                    email=email,
                     date_joined=datetime.now(),
                 )
                 logger.info(f"Creating new user with username {user.username}")
@@ -128,4 +131,5 @@ async def get_current_user(
                 db.refresh(user)
             elif not user.is_active:
                 user = None
+
     return user
