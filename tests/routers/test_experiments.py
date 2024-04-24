@@ -46,6 +46,14 @@ def test_create_minimal_experiment(client, setup_router_db):
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
+def test_can_delete_experiment(client, setup_router_db):
+    experiment = create_experiment(client)
+    response = client.delete(f"api/v1/experiments/{experiment['urn']}")
+    assert response.status_code == 200
+    get_response = client.get(f"api/v1/experiments/{experiment['urn']}")
+    assert get_response.status_code == 404
+
+
 @pytest.mark.parametrize(
     "test_field,test_value",
     [
