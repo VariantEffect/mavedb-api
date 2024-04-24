@@ -85,6 +85,19 @@ COPY src /code/src
 COPY src/mavedb/server_main.py /code/main.py
 
 ################################
+# worker
+# Worker image
+################################
+FROM builder as worker
+COPY --from=downloader /data /data
+
+# copy pre-built poetry + venv
+COPY --from=builder $POETRY_HOME $POETRY_HOME
+COPY --from=builder $VIRTUAL_ENV $VIRTUAL_ENV
+
+CMD ["arq", "mavedb.worker.WorkerSettings"]
+
+################################
 # application
 # Application image
 ################################
@@ -111,16 +124,3 @@ EXPOSE 8000
 
 # At container startup, run the application using uvicorn.
 CMD ["uvicorn", "mavedb.server_main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-################################
-# worker
-# Worker image
-################################
-FROM builder as worker
-COPY --from=downloader /data /data
-
-# copy pre-built poetry + venv
-COPY --from=builder $POETRY_HOME $POETRY_HOME
-COPY --from=builder $VIRTUAL_ENV $VIRTUAL_ENV
-
-CMD ["arq", "mavedb.worker.WorkerSettings"]
