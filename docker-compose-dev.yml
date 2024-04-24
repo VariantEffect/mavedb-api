@@ -5,6 +5,7 @@ services:
     image: mavedb-api/mavedb-api:dev
     build:
       context: .
+      target: application
     command: bash -c "uvicorn mavedb.server_main:app --host 0.0.0.0 --port 8000 --reload"
     depends_on:
       - db
@@ -23,10 +24,10 @@ services:
       - .:/code
 
   worker:
-    image: mavedb-api-worker/mavedb-api-worker:dev
+    image: mavedb-api/mavedb-worker:dev
     build:
       context: .
-      dockerfile: Dockerfile.worker
+      target: worker
     command: bash -c "arq mavedb.worker.WorkerSettings --watch ./src"
     env_file:
       - settings/.env.dev

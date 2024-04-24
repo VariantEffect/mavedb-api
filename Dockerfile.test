@@ -1,17 +1,42 @@
 FROM ubuntu:latest
 RUN apt-get update
 RUN DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip python3-psycopg2 postgresql libpq-dev
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y curl python3 python3-pip python3-psycopg2 python3-venv postgresql libpq-dev
+
+    # Poetry
+    # https://python-poetry.org/docs/configuration/#using-environment-variables
+ENV POETRY_VERSION=1.7.0 \
+    # make poetry install to this location
+    POETRY_HOME="/opt/poetry" \
+    # do not ask any interactive question
+    POETRY_NO_INTERACTION=1 \
+    # never create virtual environments, only use the venv prepared by us
+    POETRY_VIRTUALENVS_CREATE=false \
+    \
+    # this is where our requirements + virtual environment will live
+    VIRTUAL_ENV="/venv"
+
+# prepend poetry and venv to path. Add src to python path.
+ENV PATH="$POETRY_HOME/bin:$VIRTUAL_ENV/bin:$PATH"
+ENV PYTHONPATH="$PYTHONPATH:/code/src"
+
+# prepare virtual env
+RUN python3 -m venv $VIRTUAL_ENV
+
+# install poetry - respects $POETRY_VERSION & $POETRY_HOME
+RUN curl -sSL https://install.python-poetry.org | python3 -
+
 WORKDIR /code
 
-# Install Python packages.
-COPY LICENSE README.md pyproject.toml ./
-COPY src/ ./src/
+# initialize dependencies
+COPY poetry.lock pyproject.toml LICENSE README.md ./
+
+# installs runtime dependencies to $VIRTUAL_ENV
+RUN poetry install --with dev --extras server
+COPY src ./src
 COPY tests/ ./tests/
 COPY mypy_stubs ./mypy_stubs/
 
-RUN pip install --no-cache-dir --upgrade pip
-RUN pip install --no-cache-dir --upgrade .[dev,server]
-RUN useradd testuser -d /code 
-
-RUN --network=none su testuser -c pytest
+RUN useradd testuser -d /code
+USER testuser
+RUN --network=none poetry run pytest

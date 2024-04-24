@@ -13,8 +13,9 @@ jobs:
         python-version: "3.9"
         cache: 'pip'
     - run: pip install --upgrade pip
-    - run: pip install .[dev,server]
-    - run: pytest tests/
+    - run: pip install poetry
+    - run: poetry install --with dev --extras server
+    - run: poetry run pytest tests/
 
   run-tests-3_10:
     runs-on: ubuntu-latest
@@ -26,8 +27,9 @@ jobs:
         python-version: "3.10"
         cache: 'pip'
     - run: pip install --upgrade pip
-    - run: pip install .[dev,server]
-    - run: pytest tests/
+    - run: pip install poetry
+    - run: poetry install --with dev --extras server
+    - run: poetry run pytest tests/
 
   run-tests-3_11:
     runs-on: ubuntu-latest
@@ -39,8 +41,9 @@ jobs:
         python-version: "3.11"
         cache: 'pip'
     - run: pip install --upgrade pip
-    - run: pip install .[dev,server]
-    - run: pytest tests/
+    - run: pip install poetry
+    - run: poetry install --with dev --extras server
+    - run: poetry run pytest tests/
 
   run-mypy-3_10:
     runs-on: ubuntu-latest
@@ -52,6 +55,6 @@ jobs:
         python-version: "3.10"
         cache: 'pip'
     - run: pip install --upgrade pip
-    - run: pip install .[dev,server]
-    - run: mypy src/
-
+    - run: pip install poetry
+    - run: poetry install --with dev --extras server
+    - run: poetry run mypy src/
