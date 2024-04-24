@@ -44,9 +44,9 @@ async def get_token_from_code(*, request: orcid.OrcidAuthTokenRequest) -> Any:
             expires_in = data["expires_in"]
             id_token = data["id_token"]
 
-            if token_type != "Bearer":
+            if token_type is None or token_type.lower() != "bearer":
                 logger.warning(
-                    f"Unexpected token type " "{token_type}" " received from ORCID when exchanging code for token."
+                    f"Unexpected token type \"{token_type}\" received from ORCID when exchanging code for token."
                 )
 
             return {
