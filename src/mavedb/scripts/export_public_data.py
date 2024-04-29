@@ -67,6 +67,7 @@ experiment_sets_query = db.scalars(
 )
 
 # TODO To support very large data sets, we may want to use custom code for JSON-encoding an iterator.
+# Issue: https://github.com/VariantEffect/mavedb-api/issues/192
 # See, for instance, https://stackoverflow.com/questions/12670395/json-encoding-very-long-iterators.
 
 experiment_sets = experiment_sets_query.all()
