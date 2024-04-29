@@ -4,6 +4,7 @@ from typing import Optional
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from mavedb.models.contributor import Contributor
 from mavedb.models.experiment import Experiment
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
@@ -20,7 +21,12 @@ def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSe
     # .filter(ScoreSet.private.is_(False))
 
     if owner is not None:
-        query = query.filter(Experiment.created_by_id == owner.id)
+        query = query.filter(
+            or_(
+                Experiment.created_by_id == owner.id,
+                Experiment.contributors.has(Contributor.orcid_id == owner.username),
+            )
+        )
 
     if search.published is not None:
         if search.published:

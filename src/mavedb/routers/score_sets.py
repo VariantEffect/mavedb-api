@@ -66,7 +66,15 @@ async def fetch_score_set_by_urn(db, urn: str, owner: Optional[UserData]) -> Opt
         user.
     """
     try:
-        item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
+        if owner is not None:
+            permission_filter = or_(
+                ScoreSet.private.is_(False),
+                ScoreSet.created_by_id == owner.id,
+                ScoreSet.contributors.has(Contributor.orcid_id == owner.username),
+            )
+        else:
+            permission_filter = ScoreSet.private.is_(False)
+        item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(permission_filter).one_or_none()
     except MultipleResultsFound:
         raise HTTPException(status_code=500, detail=f"multiple score sets with URN '{urn}' were found")
 
