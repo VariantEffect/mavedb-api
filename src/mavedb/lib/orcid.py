@@ -21,11 +21,10 @@ def fetch_orcid_user(orcid_id: str) -> Optional[OrcidUser]:
     search_token = api.get_search_token_from_orcid()
     try:
         record = api.read_record_public(orcid_id, "record", search_token)
-        print(record)
         return OrcidUser(
             orcid_id=record["orcid-identifier"]["path"],
-            first_name=record["person"]["name"]["given-names"]["value"],
-            last_name=record["person"]["name"]["family-name"]["value"],
+            given_name=record["person"]["name"]["given-names"]["value"],
+            family_name=record["person"]["name"]["family-name"]["value"],
         )
     except Exception as e:
         logger.warn("Error while looking up an ORCID user (ORCID ID: %s): %s", orcid_id, e)

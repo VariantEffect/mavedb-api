@@ -12,6 +12,7 @@ from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models.contributor import Contributor, ContributorCreate
 from mavedb.view_models.doi_identifier import (
     DoiIdentifier,
     DoiIdentifierCreate,
@@ -58,6 +59,7 @@ class ScoreSetBase(BaseModel):
 
 
 class ScoreSetModify(ScoreSetBase):
+    contributors: Optional[list[ContributorCreate]]
     keywords: Optional[list[str]]
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
@@ -212,6 +214,7 @@ class SavedScoreSet(ScoreSetBase):
     modified_by: Optional[SavedUser]
     target_genes: Sequence[SavedTargetGene]
     dataset_columns: Dict
+    contributors: Optional[list[Contributor]]
     keywords: list[str]
 
     class Config:

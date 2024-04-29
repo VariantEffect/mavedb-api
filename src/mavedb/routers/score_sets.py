@@ -5,7 +5,6 @@ import re
 from datetime import date
 from typing import Any, List, Optional
 
-import numpy as np
 import pandas as pd
 from arq import ArqRedis
 from cdot.hgvs.dataproviders import RESTDataProvider
@@ -13,12 +12,15 @@ from fastapi import APIRouter, Depends, File, status, UploadFile, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
+import pydantic
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import MultipleResultsFound
 
 from mavedb import deps
 from mavedb.lib.authorization import get_current_user, require_current_user
+from mavedb.lib.contributors import find_or_create_contributor
+from mavedb.lib.exceptions import NonexistentOrcidUserError, ValidationError
 from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
     find_or_create_doi_identifier,
@@ -34,6 +36,7 @@ from mavedb.lib.score_sets import (
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_score_set_urn
 from mavedb.lib.exceptions import MixedTargetError
+from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
@@ -359,6 +362,17 @@ async def create_score_set(
                 modified_by=user,
             )
 
+    contributors: list[Contributor] = []
+    try:
+        contributors = [
+            await find_or_create_contributor(db, contributor.orcid_id) for contributor in item_create.contributors or []
+        ]
+    except NonexistentOrcidUserError as e:
+        raise pydantic.ValidationError(
+            [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
+            model=score_set.ScoreSetCreate,
+        )
+
     doi_identifiers = [
         await find_or_create_doi_identifier(db, identifier.identifier)
         for identifier in item_create.doi_identifiers or []
@@ -459,6 +473,7 @@ async def create_score_set(
         superseded_score_set=superseded_score_set,
         meta_analyzes_score_sets=meta_analyzes_score_sets,
         target_genes=targets,
+        contributors=contributors,
         doi_identifiers=doi_identifiers,
         publication_identifiers=publication_identifiers,
         processing_state=ProcessingState.incomplete,
@@ -553,6 +568,7 @@ async def update_score_set(
 
         for var, value in vars(item_update).items():
             if var not in [
+                "contributors",
                 "keywords",
                 "doi_identifiers",
                 "experiment_urn",
@@ -562,6 +578,17 @@ async def update_score_set(
                 "target_genes",
             ]:
                 setattr(item, var, value) if value else None
+
+        try:
+            item.contributors = [
+                await find_or_create_contributor(db, contributor.orcid_id)
+                for contributor in item_update.contributors or []
+            ]
+        except NonexistentOrcidUserError as e:
+            raise pydantic.ValidationError(
+                [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
+                model=score_set.ScoreSetUpdate,
+            )
 
         item.doi_identifiers = [
             await find_or_create_doi_identifier(db, identifier.identifier)

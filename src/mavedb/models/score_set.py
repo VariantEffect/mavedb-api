@@ -11,6 +11,7 @@ from mavedb.db.base import Base
 from mavedb.models.enums.processing_state import ProcessingState
 import mavedb.models.score_set_publication_identifier
 
+from mavedb.models.contributor import Contributor
 from mavedb.models.experiment import Experiment
 from mavedb.models.user import User
 from mavedb.models.license import License
@@ -26,6 +27,14 @@ if TYPE_CHECKING:
 from mavedb.lib.temp_urns import generate_temp_urn
 
 # TODO Reformat code without removing dependencies whose use is not detected.
+
+score_sets_contributors_association_table = Table(
+    "scoreset_contributors",
+    Base.metadata,
+    Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
+    Column("contributor_id", ForeignKey("contributors.id"), primary_key=True),
+)
+
 
 score_sets_doi_identifiers_association_table = Table(
     "scoreset_doi_identifiers",
@@ -106,6 +115,9 @@ class ScoreSet(Base):
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
+    contributors: Mapped[list["Contributor"]] = relationship(
+        "Contributor", secondary=score_sets_contributors_association_table, backref="score_sets"
+    )
     keyword_objs: Mapped[list["Keyword"]] = relationship(
         "Keyword", secondary=score_sets_keywords_association_table, backref="score_sets"
     )

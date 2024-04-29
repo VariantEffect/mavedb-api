@@ -26,5 +26,6 @@ python-multipart~=0.0.5
 requests~=2.31
 slack-sdk~=3.21.3
 SQLAlchemy~=2.0.0
+SQLAlchemy[mypy]~=2.0.0
 starlette~=0.27.0
 uvicorn[standard]

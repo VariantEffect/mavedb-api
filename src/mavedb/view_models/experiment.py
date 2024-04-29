@@ -5,6 +5,7 @@ from mavedb.lib.validation import keywords
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models.contributor import Contributor, ContributorCreate
 from mavedb.view_models.doi_identifier import (
     DoiIdentifier,
     DoiIdentifierCreate,
@@ -54,6 +55,7 @@ class ExperimentBase(BaseModel):
 class ExperimentModify(ExperimentBase):
     abstract_text: str
     method_text: str
+    contributors: Optional[list[ContributorCreate]]
     keywords: Optional[list[str]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
@@ -96,6 +98,7 @@ class SavedExperiment(ExperimentBase):
     secondary_publication_identifiers: Sequence[SavedPublicationIdentifier]
     raw_read_identifiers: Sequence[SavedRawReadIdentifier]
     processing_state: Optional[str]
+    contributors: Optional[list[Contributor]]
     keywords: list[str]
 
     class Config:

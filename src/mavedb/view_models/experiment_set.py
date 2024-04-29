@@ -4,6 +4,7 @@ from typing import List, Sequence
 from pydantic.types import Optional
 
 from mavedb.view_models.base.base import BaseModel
+from mavedb.view_models.contributor import Contributor
 from mavedb.view_models.experiment import Experiment, SavedExperiment
 from mavedb.view_models.user import SavedUser, User
 
@@ -29,6 +30,7 @@ class SavedExperimentSet(ExperimentSetBase):
     modified_by: Optional[SavedUser]
     creation_date: date
     modification_date: date
+    contributors: Optional[list[Contributor]]
 
     class Config:
         orm_mode = True

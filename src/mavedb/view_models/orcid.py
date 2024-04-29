@@ -17,5 +17,5 @@ class OrcidAuthTokenResponse(BaseModel):
 
 class OrcidUser(BaseModel):
     orcid_id: str
-    first_name: Optional[str]
-    last_name: Optional[str]
+    given_name: Optional[str]
+    family_name: Optional[str]
