@@ -154,3 +154,9 @@ class MixedTargetError(ValueError):
     """Raised when a user tries to create a score-set against a set of mixed targets"""
 
     pass
+
+
+class NonexistentOrcidUserError(ValueError):
+    """Raised when a user tries to create a contributor with a non-existent ORCID ID"""
+
+    pass
