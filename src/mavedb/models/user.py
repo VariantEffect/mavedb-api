@@ -30,6 +30,7 @@ class User(Base):
     date_joined = Column(DateTime, nullable=True)
     email = Column(String, nullable=True)
     role_objs: Mapped[list[Role]] = relationship("Role", secondary=users_roles_association_table, backref="users")
+    is_first_login: Mapped[bool] = Column(Boolean, nullable=False, default=True)
     last_login = Column(DateTime, nullable=True)
 
     access_keys: Mapped[list["AccessKey"]] = relationship(back_populates="user", cascade="all, delete-orphan")

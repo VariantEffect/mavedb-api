@@ -19,14 +19,14 @@ async def require_current_user(user_data: Optional[UserData] = Depends(get_curre
     return user_data
 
 
-async def require_current_user_with_email(user: User = Depends(require_current_user)) -> User:
+async def require_current_user_with_email(user_data: UserData = Depends(require_current_user)) -> UserData:
     # Both empty strings and NoneType values should raise an exception.
-    if not user.email:
+    if not user_data.user.email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Your user must have a valid email address associated with their account to use this feature",
         )
-    return user
+    return user_data
 
 
 class RoleRequirer:
