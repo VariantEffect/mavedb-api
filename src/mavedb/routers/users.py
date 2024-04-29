@@ -72,7 +72,7 @@ async def update_me(
 async def update_user(
     *,
     id: int,
-    item_update: user.UserUpdate,
+    item_update: user.AdminUserUpdate,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
 ) -> Any:
