@@ -30,7 +30,7 @@ class SavedExperimentSet(ExperimentSetBase):
     modified_by: Optional[SavedUser]
     creation_date: date
     modification_date: date
-    contributors: Optional[list[Contributor]]
+    contributors: list[Contributor]
 
     class Config:
         orm_mode = True

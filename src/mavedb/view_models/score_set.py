@@ -237,7 +237,7 @@ class SavedScoreSet(ScoreSetBase):
     target_genes: Sequence[SavedTargetGene]
     dataset_columns: Dict
     external_links: Dict[str, ExternalLink]
-    contributors: Optional[list[Contributor]]
+    contributors: list[Contributor]
 
     class Config:
         orm_mode = True

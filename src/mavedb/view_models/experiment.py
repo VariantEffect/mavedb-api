@@ -102,7 +102,7 @@ class SavedExperiment(ExperimentBase):
     primary_publication_identifiers: Sequence[SavedPublicationIdentifier]
     secondary_publication_identifiers: Sequence[SavedPublicationIdentifier]
     raw_read_identifiers: Sequence[SavedRawReadIdentifier]
-    contributors: Optional[list[Contributor]]
+    contributors: list[Contributor]
     keywords: Sequence[SavedExperimentControlledKeyword]
 
     class Config:
