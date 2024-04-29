@@ -22,7 +22,7 @@ def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSe
         query = query.filter(
             or_(
                 Experiment.created_by_id == owner.id,
-                Experiment.contributors.has(Contributor.orcid_id == owner.username),
+                Experiment.contributors.any(Contributor.orcid_id == owner.username),
             )
         )
 
