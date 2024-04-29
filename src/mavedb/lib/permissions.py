@@ -32,16 +32,17 @@ class PermissionException(Exception):
 
 def has_permission(user: User, item: Base, action: Action) -> PermissionResponse:
     private = False
-    user_is_owner = False
+    user_may_edit = False
     if isinstance(item, ExperimentSet) or isinstance(item, Experiment) or isinstance(item, ScoreSet):
         assert item.private is not None
         private = item.private
 
         user_is_owner = user is not None and item.created_by_id == user.id
+        user_may_edit = user_is_owner or (user is not None and user.username in [c.orcid_id for c in item.contributors])
 
     if isinstance(item, ExperimentSet):
         if action == Action.READ:
-            if user_is_owner or not private:
+            if user_may_edit or not private:
                 return PermissionResponse(True)
             elif private:
                 # Do not acknowledge the existence of a private entity.
@@ -49,7 +50,7 @@ def has_permission(user: User, item: Base, action: Action) -> PermissionResponse
             else:
                 return PermissionResponse(False)
         elif action == Action.UPDATE or action == Action.DELETE:
-            if user_is_owner:
+            if user_may_edit:
                 return PermissionResponse(True)
             elif private:
                 # Do not acknowledge the existence of a private entity.
@@ -58,17 +59,19 @@ def has_permission(user: User, item: Base, action: Action) -> PermissionResponse
                 return PermissionResponse(False)
         elif action == Action.ADD_EXPERIMENT:
             return PermissionResponse(
-                user_is_owner,
+                user_may_edit,
                 404 if private else 403,
-                f"experiment set with URN '{item.urn}' not found"
-                if private
-                else f"insufficient permissions for URN '{item.urn}'",
+                (
+                    f"experiment set with URN '{item.urn}' not found"
+                    if private
+                    else f"insufficient permissions for URN '{item.urn}'"
+                ),
             )
         else:
             raise NotImplementedError(f"has_permission(User, ExperimentSet, {action})")
     elif isinstance(item, Experiment):
         if action == Action.READ:
-            if user_is_owner or not private:
+            if user_may_edit or not private:
                 return PermissionResponse(True)
             elif private:
                 # Do not acknowledge the existence of a private entity.
@@ -76,7 +79,7 @@ def has_permission(user: User, item: Base, action: Action) -> PermissionResponse
             else:
                 return PermissionResponse(False)
         elif action == Action.UPDATE or action == Action.DELETE:
-            if user_is_owner:
+            if user_may_edit:
                 return PermissionResponse(True)
             elif private:
                 # Do not acknowledge the existence of a private entity.
@@ -85,18 +88,20 @@ def has_permission(user: User, item: Base, action: Action) -> PermissionResponse
                 return PermissionResponse(False)
         elif action == Action.ADD_SCORE_SET:
             return PermissionResponse(
-                user_is_owner,
+                user_may_edit,
                 404 if private else 403,
-                f"experiment with URN '{item.urn}' not found"
-                if private
-                else f"insufficient permissions for URN '{item.urn}'",
+                (
+                    f"experiment with URN '{item.urn}' not found"
+                    if private
+                    else f"insufficient permissions for URN '{item.urn}'"
+                ),
             )
         else:
             raise NotImplementedError(f"has_permission(User, Experiment, {action})")
 
     elif isinstance(item, ScoreSet):
         if action == Action.READ:
-            if user_is_owner or not private:
+            if user_may_edit or not private:
                 return PermissionResponse(True)
             elif private:
                 # Do not acknowledge the existence of a private entity.
@@ -104,7 +109,7 @@ def has_permission(user: User, item: Base, action: Action) -> PermissionResponse
             else:
                 return PermissionResponse(False)
         elif action == Action.UPDATE or action == Action.DELETE:
-            if user_is_owner:
+            if user_may_edit:
                 return PermissionResponse(True)
             elif private:
                 # Do not acknowledge the existence of a private entity.
@@ -113,11 +118,13 @@ def has_permission(user: User, item: Base, action: Action) -> PermissionResponse
                 return PermissionResponse(False)
         elif action == Action.SET_SCORES:
             return PermissionResponse(
-                user_is_owner,
+                user_may_edit,
                 404 if private else 403,
-                f"score set with URN '{item.urn}' not found"
-                if private
-                else f"insufficient permissions for URN '{item.urn}'",
+                (
+                    f"score set with URN '{item.urn}' not found"
+                    if private
+                    else f"insufficient permissions for URN '{item.urn}'"
+                ),
             )
         else:
             raise NotImplementedError(f"has_permission(User, ScoreSet, {action})")

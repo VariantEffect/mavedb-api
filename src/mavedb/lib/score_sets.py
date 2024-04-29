@@ -16,6 +16,7 @@ from mavedb.lib.mave.constants import (
 )
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.mave.utils import is_csv_null
+from mavedb.models.contributor import Contributor
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
@@ -56,7 +57,12 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
     # .filter(ScoreSet.private.is_(False))
 
     if owner is not None:
-        query = query.filter(ScoreSet.created_by_id == owner.id)
+        query = query.filter(
+            or_(
+                ScoreSet.created_by_id == owner.id,
+                ScoreSet.contributors.has(Contributor.orcid_id == owner.username),
+            )
+        )
 
     if search.published is not None:
         if search.published:
@@ -77,16 +83,12 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ScoreSet.keyword_objs.any(func.lower(Keyword.text).icontains(lower_search_text)),
                 ScoreSet.target_genes.any(
                     TargetGene.target_sequence.has(
-                        TargetSequence.taxonomy.has(
-                            func.lower(Taxonomy.organism_name).icontains(lower_search_text)
-                        )
+                        TargetSequence.taxonomy.has(func.lower(Taxonomy.organism_name).icontains(lower_search_text))
                     )
                 ),
                 ScoreSet.target_genes.any(
                     TargetGene.target_sequence.has(
-                        TargetSequence.taxonomy.has(
-                            func.lower(Taxonomy.common_name).icontains(lower_search_text)
-                        )
+                        TargetSequence.taxonomy.has(func.lower(Taxonomy.common_name).icontains(lower_search_text))
                     )
                 ),
                 ScoreSet.target_genes.any(
@@ -120,7 +122,9 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ),
                 ScoreSet.target_genes.any(
                     TargetGene.refseq_offset.has(
-                        RefseqOffset.identifier.has(func.lower(RefseqIdentifier.identifier).icontains(lower_search_text))
+                        RefseqOffset.identifier.has(
+                            func.lower(RefseqIdentifier.identifier).icontains(lower_search_text)
+                        )
                     )
                 ),
                 ScoreSet.target_genes.any(
@@ -140,9 +144,7 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
         query = query.filter(
             ScoreSet.target_genes.any(
                 TargetGene.target_sequence.has(
-                    TargetSequence.taxonomy.has(
-                        Taxonomy.organism_name.in_(search.target_organism_names)
-                    )
+                    TargetSequence.taxonomy.has(Taxonomy.organism_name.in_(search.target_organism_names))
                 )
             )
         )
