@@ -24,6 +24,7 @@ from mavedb.lib.identifiers import (
     find_or_create_doi_identifier,
     find_or_create_publication_identifier,
 )
+from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.permissions import Action, assert_permission
 from mavedb.lib.score_sets import (
     find_meta_analyses_for_experiment_sets,
@@ -87,7 +88,7 @@ def is_null(value):
     return null_values_re.fullmatch(value) or not value
 
 
-router = APIRouter(prefix="/api/v1", tags=["score sets"], responses={404: {"description": "not found"}})
+router = APIRouter(prefix="/api/v1", tags=["score sets"], responses={404: {"description": "not found"}}, route_class=LoggedRoute)
 
 
 @router.post("/score-sets/search", status_code=200, response_model=list[score_set.ShortScoreSet])
