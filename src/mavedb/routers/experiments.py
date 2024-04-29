@@ -206,6 +206,7 @@ async def create_experiment(
             item_create,
             by_alias=False,
             exclude={
+                "contributors",
                 "doi_identifiers",
                 "experiment_set_urn",
                 "keywords",
@@ -255,6 +256,7 @@ async def update_experiment(
         for k, v in vars(item_update).items()
         if k
         not in [
+            "contributors",
             "doi_identifiers",
             "keywords",
             "secondary_publication_identifiers",
