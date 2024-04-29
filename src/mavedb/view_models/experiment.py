@@ -98,7 +98,7 @@ class SavedExperiment(ExperimentBase):
     secondary_publication_identifiers: Sequence[SavedPublicationIdentifier]
     raw_read_identifiers: Sequence[SavedRawReadIdentifier]
     processing_state: Optional[str]
-    contributors: Optional[list[Contributor]]
+    contributors: list[Contributor]
     keywords: list[str]
 
     class Config:

@@ -214,7 +214,7 @@ class SavedScoreSet(ScoreSetBase):
     modified_by: Optional[SavedUser]
     target_genes: Sequence[SavedTargetGene]
     dataset_columns: Dict
-    contributors: Optional[list[Contributor]]
+    contributors: list[Contributor]
     keywords: list[str]
 
     class Config:
