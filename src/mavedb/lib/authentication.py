@@ -13,7 +13,7 @@ from mavedb.lib.orcid import fetch_orcid_user_email
 from mavedb.models.access_key import AccessKey
 from mavedb.models.user import User
 
-ORCID_JWT_SIGNING_PUBLIC_KEY = os.getenv("ORCID_JWT_SIGNING_PUBLIC_KEY")
+ORCID_JWT_SIGNING_PUBLIC_KEY = os.getenv("ORCID_JWT_SIGNING_PUBLIC_KEY", "")
 ORCID_JWT_AUDIENCE = os.getenv("ORCID_CLIENT_ID")
 
 ACCESS_TOKEN_NAME = "X-API-key"
@@ -30,7 +30,7 @@ def decode_jwt(token: str) -> dict:
     try:
         decoded_token = jwt.decode(
             token,
-            ORCID_JWT_SIGNING_PUBLIC_KEY or "",
+            ORCID_JWT_SIGNING_PUBLIC_KEY,
             algorithms=["RS256"],
             audience=ORCID_JWT_AUDIENCE,
             # ORCID sends an at_hash when using the OpenID Connect implicit flow, even though there is no auth_token.
