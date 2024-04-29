@@ -120,7 +120,8 @@ score_set_ids = list(
     flatmap(lambda es: flatmap(lambda e: map(lambda ss: ss.id, e.score_sets), es.experiments), experiment_sets)
 )
 
-zip_file_name = "mavedb-dump.zip"
+timestamp_format = "%Y%m%d%H%M%S"
+zip_file_name = f"mavedb-dump.{datetime.now().strftime(timestamp_format)}.zip"
 
 logger.info(f"Exporting public data set metadata to {zip_file_name}/main.json")
 json_data = {
