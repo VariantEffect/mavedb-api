@@ -416,6 +416,7 @@ async def create_score_set(
             item_create,
             by_alias=False,
             exclude={
+                "contributors",
                 "doi_identifiers",
                 "experiment_urn",
                 "license_id",
@@ -659,6 +660,7 @@ async def update_score_set(
 
         for var, value in vars(item_update).items():
             if var not in [
+                "contributors",
                 "doi_identifiers",
                 "experiment_urn",
                 "primary_publication_identifiers",
@@ -672,6 +674,16 @@ async def update_score_set(
         for var, value in vars(item_update).items():
             if var in ["title", "method_text", "abstract_text", "short_description"]:
                 setattr(item, var, value) if value else None
+        try:
+            item.contributors = [
+                await find_or_create_contributor(db, contributor.orcid_id)
+                for contributor in item_update.contributors or []
+            ]
+        except NonexistentOrcidUserError as e:
+            raise pydantic.ValidationError(
+                [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
+                model=score_set.ScoreSetUpdate,
+            )
 
     db.add(item)
     db.commit()
