@@ -60,6 +60,7 @@ async def update_me(
     current_user = user_data.user
     assert_permission(user_data, current_user, Action.UPDATE)
     current_user.email = user_update.email
+    current_user.is_first_login = False
     db.add(current_user)
     db.commit()
     db.refresh(current_user)
