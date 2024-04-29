@@ -368,7 +368,8 @@ def variant_to_csv_row(variant: Variant, columns: list[str], dtype: str, na_rep=
         elif column_key == "accession":
             value = str(variant.urn)
         else:
-            value = str(variant.data[dtype][column_key])
+            parent = variant.data.get(dtype) if variant.data else None
+            value = str(parent.get(column_key)) if parent else na_rep
         if is_null(value):
             value = na_rep
         row[column_key] = value
