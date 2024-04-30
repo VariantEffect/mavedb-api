@@ -107,15 +107,15 @@ experiment_sets_query = db.scalars(
 
 # Filter the stream of experiment sets to exclude experiments and experiment sets with no public, CC0-licensed score
 # sets.
-experiment_sets = filter_experiment_sets(experiment_sets_query.all())
+experiment_sets = list(filter_experiment_sets(experiment_sets_query.all()))
 
 # TODO To support very large data sets, we may want to use custom code for JSON-encoding an iterator.
 # Issue: https://github.com/VariantEffect/mavedb-api/issues/192
 # See, for instance, https://stackoverflow.com/questions/12670395/json-encoding-very-long-iterators.
 
-experiment_set_views = map(lambda es: ExperimentSetPublicDump.from_orm(es), experiment_sets)
+experiment_set_views = list(map(lambda es: ExperimentSetPublicDump.from_orm(es), experiment_sets))
 
-# Get a list of IDS of all the score sets included. (There is no flat_map function...)
+# Get a list of IDS of all the score sets included.
 score_set_ids = list(
     flatmap(lambda es: flatmap(lambda e: map(lambda ss: ss.id, e.score_sets), es.experiments), experiment_sets)
 )
@@ -127,7 +127,7 @@ logger.info(f"Exporting public data set metadata to {zip_file_name}/main.json")
 json_data = {
     "title": "MaveDB public data",
     "asOf": datetime.now(timezone.utc).isoformat(),
-    "experimentSets": list(experiment_set_views),
+    "experimentSets": experiment_set_views,
 }
 
 with ZipFile(zip_file_name, "w") as zipfile:
@@ -138,10 +138,11 @@ with ZipFile(zip_file_name, "w") as zipfile:
     zipfile.write(os.path.join(os.path.dirname(__file__), "resources/CC0_license.txt"), "LICENSE.txt")
 
     # Write score and count files for each score set.
-    for score_set_id in score_set_ids:
+    num_score_sets = len(score_set_ids)
+    for i, score_set_id in enumerate(score_set_ids):
         score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one_or_none()
         if score_set is not None and score_set.urn is not None:
-            logger.info(f"Exporting variants for score set {score_set.urn}")
+            logger.info(f"{i + 1}/{num_score_sets}Exporting variants for score set {score_set.urn}")
             csv_filename_base = score_set.urn.replace(":", "-")
 
             csv_str = get_score_set_scores_as_csv(db, score_set)
