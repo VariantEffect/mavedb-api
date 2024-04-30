@@ -24,7 +24,7 @@ def fetch_keywords_by_key(
     *,
     key: str,
     db: Session = Depends(deps.get_db),
-) -> ControlledKeyword:
+) -> list[ControlledKeyword]:
     """
     Fetch keywords by category.
     """

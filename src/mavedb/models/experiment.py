@@ -1,7 +1,7 @@
 from collections import defaultdict
 from datetime import date
 
-from typing import Dict, Optional, List, TYPE_CHECKING
+from typing import Any, Optional, List, TYPE_CHECKING
 
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.event import listens_for
@@ -117,9 +117,12 @@ class Experiment(Base):
     # _updated_doi_identifiers: list[str] = None
 
     @property
-    def keywords(self) -> Dict[str, ControlledKeyword]:
+    # Original codes. Not sure this part.
+    # def keywords(self) -> Dict[str, ControlledKeyword]:
+    # Dict[str, ControlledKeyword] gets error Incompatible return value type in mypy
+    def keywords(self) -> list[tuple[Any, Any]]:
         keyword_objs = self.keyword_objs or []
-        keywords = defaultdict(dict)
+        keywords = defaultdict(dict)  # type: dict
         for keyword in keyword_objs:
             keywords[keyword.key] = keyword
         return sorted(keywords.items())
@@ -133,7 +136,10 @@ class Experiment(Base):
 
 
     async def set_legacy_keywords(self, db, keywords: Optional[list[str]]):
-        self.keyword_objs = [await self._find_or_create_legacy_keyword(db, text) for text in keywords]
+        if keywords:
+            self.keyword_objs = [await self._find_or_create_legacy_keyword(db, text) for text in keywords]
+        else:
+            self.keyword_objs = []
 
 
     async def set_keywords(self, db, keywords: dict):
