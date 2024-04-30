@@ -22,7 +22,6 @@ from mavedb.models.ensembl_identifier import EnsemblIdentifier
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
-from mavedb.models.legacy_keyword import LegacyKeyword
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.refseq_offset import RefseqOffset

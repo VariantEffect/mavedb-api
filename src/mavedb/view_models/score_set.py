@@ -58,7 +58,6 @@ class ScoreSetBase(BaseModel):
 
 
 class ScoreSetModify(ScoreSetBase):
-    # keywords: Optional[list[str]]
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
@@ -101,11 +100,6 @@ class ScoreSetModify(ScoreSetBase):
                 )
 
         return field_value
-
-    # @validator("keywords")
-    # def validate_keywords(cls, v):
-    #     keywords.validate_keywords(v)
-    #     return v
 
 
 class ScoreSetCreate(ScoreSetModify):
@@ -212,7 +206,6 @@ class SavedScoreSet(ScoreSetBase):
     modified_by: Optional[SavedUser]
     target_genes: Sequence[SavedTargetGene]
     dataset_columns: Dict
-    legacy_keywords: Optional[list[str]]
 
     class Config:
         orm_mode = True

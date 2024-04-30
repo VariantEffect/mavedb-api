@@ -20,7 +20,6 @@ from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set import (
     ScoreSet,
     score_sets_doi_identifiers_association_table,
-    #score_sets_keywords_association_table,
     score_sets_raw_read_identifiers_association_table,
 )
 from mavedb.models.target_gene import TargetGene
@@ -244,7 +243,6 @@ def _record_from_field_and_model(
             RecordFields.doiIdentifiers: score_sets_doi_identifiers_association_table,
             RecordFields.publicationIdentifiers: ScoreSetPublicationIdentifierAssociation,
             RecordFields.rawReadIdentifiers: score_sets_raw_read_identifiers_association_table,
-            #RecordFields.keywords: score_sets_keywords_association_table,
         },
     }
 
@@ -282,7 +280,7 @@ def _record_from_field_and_model(
             DoiIdentifier.identifier
         )
     elif field is RecordFields.keywords:
-        query = select(ControlledKeyword.text, func.count(ControlledKeyword.text)).group_by(ControlledKeyword.text)
+        query = select(ControlledKeyword.value, func.count(ControlledKeyword.value)).group_by(ControlledKeyword.value)
     elif field is RecordFields.rawReadIdentifiers:
         query = select(RawReadIdentifier.identifier, func.count(RawReadIdentifier.identifier)).group_by(
             RawReadIdentifier.identifier

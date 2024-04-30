@@ -139,7 +139,7 @@ class Experiment(Base):
     async def set_keywords(self, db, keywords: dict):
         self.keyword_objs = []
         for keyword_obj in keywords.values():
-            keyword = await self._find_or_create_keyword(db, keyword_obj.key, keyword_obj.value, keyword_obj.vocabulary)
+            keyword = await self._find_keyword(db, keyword_obj.key, keyword_obj.value, keyword_obj.vocabulary)
             self.keyword_objs.append(keyword)
 
     # See https://gist.github.com/tachyondecay/e0fe90c074d6b6707d8f1b0b1dcc8e3a
@@ -154,9 +154,9 @@ class Experiment(Base):
         return keyword_obj
 
 
-    async def _find_or_create_keyword(self, db, key: str, value: str, vocabulary: Optional[str]):
+    async def _find_keyword(self, db, key: str, value: str, vocabulary: Optional[str]):
         query = db.query(ControlledKeyword).filter(ControlledKeyword.key == key).filter(ControlledKeyword.value == value)
-        if vocabulary is not None:
+        if vocabulary:
             query = query.filter(ControlledKeyword.vocabulary == vocabulary)
         controlled_keyword_obj = query.one_or_none()
         if controlled_keyword_obj is None:

@@ -34,29 +34,38 @@ TEST_EXPERIMENT = {
     "method_text": "Methods",
 }
 
+TEST_KEYWORDS = {
+    "endogenousKeyword": {
+      "key": "Endogenous Locus Library Method",
+      "value": "SaCas9",
+      "special": False,
+      "description": "Description 1"
+    },
+    "invitroKeyword": {
+      "key": "In Vitro Construct Library Method",
+      "value": "Episomal delivery",
+      "special": False,
+      "description": "Description 2"
+    },
+    "phenotypicKeyword": {
+      "key": "Phenotypic Assay",
+      "value": "Molecular display",
+      "special": False,
+      "description": "Description 3"
+    },
+    "variantKeyword": {
+      "key": "Variant Library",
+      "value": "Lentivirus transduction",
+      "special": False,
+      "description": "Description 4"
+    }
+}
+
 TEST_MINIMAL_EXPERIMENT = {
     "title": "Test Experiment Title",
     "shortDescription": "Test experiment",
     "abstractText": "Abstract",
     "methodText": "Methods",
-    "keywords": {
-      "Endogenous Locus Library Method": {
-        "key": "Endogenous Locus Library Method",
-        "value": "AsCas12a",
-      },
-      "In Vitro Construct Library Method": {
-        "key": "In Vitro Construct Library Method",
-        "value": "Episomal delivery",
-      },
-      "Phenotypic Assay": {
-        "key": "Phenotypic Assay",
-        "value": "Bacteriophage",
-      },
-      "Variant Library": {
-        "key": "Variant Library",
-        "value": "Adeno-associated virus transduction",
-      }
-    },
 }
 
 TEST_MINIMAL_EXPERIMENT_RESPONSE = {
@@ -203,7 +212,6 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     } ],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
-    #"keywords": {},
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
@@ -277,7 +285,6 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     ],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
-    #"keywords": {},
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],

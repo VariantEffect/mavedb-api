@@ -206,11 +206,12 @@ async def create_experiment(
         created_by=user,
         modified_by=user,
     )  # type: ignore
-    keywords = item_create.keywords
-    try:
-        await item.set_keywords(db, keywords)
-    except Exception:
-        raise HTTPException(status_code=500, detail='Invalid keywords')
+    if item_create.keywords:
+        keywords = item_create.keywords
+        try:
+            await item.set_keywords(db, keywords)
+        except Exception:
+            raise HTTPException(status_code=500, detail='Invalid keywords')
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -281,11 +282,12 @@ async def update_experiment(
     item.raw_read_identifiers = raw_read_identifiers
 
     # await item.set_keywords(db, item_update.keywords)
-    keywords = item_update.keywords
-    try:
-        await item.set_keywords(db, keywords)
-    except Exception:
-        raise HTTPException(status_code=500, detail='Invalid keywords')
+    if item_update.keywords:
+        keywords = item_update.keywords
+        try:
+            await item.set_keywords(db, keywords)
+        except Exception:
+            raise HTTPException(status_code=500, detail='Invalid keywords')
 
     item.modified_by = user
 
