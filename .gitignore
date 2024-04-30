@@ -101,7 +101,6 @@ __pypackages__/
 .env
 .env.*
 !.env.template
-!.env.dev
 .venv
 env/
 venv/
