@@ -146,6 +146,7 @@ async def get_current_user(
             last_name=token_payload["family_name"] if "family_name" in token_payload else "",
             date_joined=datetime.now(),
             email=email,
+            is_first_login=True,
         )
         logger.info(f"Creating new user with username {user.username}")
 
@@ -155,6 +156,13 @@ async def get_current_user(
 
     elif not user.is_active:
         return None
+    else:
+        user.last_login = datetime.now()
+        user.is_first_login = False
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
 
     if x_active_roles is None:
         return UserData(user, user.roles)
