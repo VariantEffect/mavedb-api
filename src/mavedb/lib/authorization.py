@@ -24,7 +24,7 @@ async def require_current_user_with_email(user_data: UserData = Depends(require_
     if not user_data.user.email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Your user must have a valid email address associated with their account to use this feature",
+            detail="There must be an email address associated with your account to use this feature.",
         )
     return user_data
 

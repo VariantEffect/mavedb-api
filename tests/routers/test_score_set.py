@@ -66,10 +66,7 @@ def test_cannot_create_score_set_without_email(client, setup_router_db):
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     assert response.status_code == 400
     response_data = response.json()
-    assert (
-        response_data["detail"]
-        in "Your user must have a valid email address associated with their account to use this feature"
-    )
+    assert response_data["detail"] in "There must be an email address associated with your account to use this feature."
 
 
 def test_get_own_private_score_set(client, setup_router_db):
@@ -201,10 +198,7 @@ def test_cannot_add_scores_to_score_set_without_email(session, client, setup_rou
         )
     assert response.status_code == 400
     response_data = response.json()
-    assert (
-        response_data["detail"]
-        in "Your user must have a valid email address associated with their account to use this feature"
-    )
+    assert response_data["detail"] in "There must be an email address associated with your account to use this feature."
 
 
 # A user should not be able to add scores to another users' score set. Therefore, they should also not be able
