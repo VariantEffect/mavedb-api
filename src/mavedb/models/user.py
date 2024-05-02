@@ -1,8 +1,9 @@
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table
 from sqlalchemy.orm import relationship, Mapped
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from mavedb.db.base import Base
 from mavedb.models.role import Role
+from mavedb.models.enums.user_role import UserRole
 
 users_roles_association_table = Table(
     "users_roles",
@@ -28,17 +29,17 @@ class User(Base):
     is_active = Column(Boolean, nullable=False)
     date_joined = Column(DateTime, nullable=True)
     email = Column(String, nullable=True)
-    role_objs : Mapped[List[Role]] = relationship("Role", secondary=users_roles_association_table, backref="users")
+    role_objs: Mapped[list[Role]] = relationship("Role", secondary=users_roles_association_table, backref="users")
     last_login = Column(DateTime, nullable=True)
 
-    access_keys : Mapped[List["AccessKey"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    access_keys: Mapped[list["AccessKey"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
     @property
-    def roles(self) -> list[str]:
+    def roles(self) -> list[UserRole]:
         role_objs = self.role_objs or []
         return [role_obj.name for role_obj in role_objs if role_obj.name is not None]
 
-    async def set_roles(self, db, roles: list[str]):
+    async def set_roles(self, db, roles: list[UserRole]):
         self.role_objs = [await self._find_or_create_role(db, name) for name in roles]
 
     @staticmethod

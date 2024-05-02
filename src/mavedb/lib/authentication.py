@@ -1,14 +1,17 @@
+from dataclasses import dataclass
 from datetime import datetime
 import logging
 import os
 from typing import Optional
+import os
 
-from fastapi import Depends, HTTPException, Request, Security
+from fastapi import Depends, HTTPException, Request, Security, Header
 from fastapi.security import APIKeyCookie, APIKeyHeader, APIKeyQuery, HTTPAuthorizationCredentials, HTTPBearer
 from jose import jwt
 from sqlalchemy.orm import Session
 
 from mavedb import deps
+from mavedb.models.enums.user_role import UserRole
 from mavedb.lib.orcid import fetch_orcid_user_email
 from mavedb.models.access_key import AccessKey
 from mavedb.models.user import User
@@ -19,6 +22,12 @@ ORCID_JWT_AUDIENCE = os.getenv("ORCID_CLIENT_ID")
 ACCESS_TOKEN_NAME = "X-API-key"
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class UserData:
+    user: User
+    active_roles: list[UserRole]
 
 
 ####################################################################################################
@@ -85,15 +94,18 @@ async def get_access_token(
     return access_token_header or access_token_cookie
 
 
-async def get_current_user_from_api_key(
+async def get_current_user_data_from_api_key(
     db: Session = Depends(deps.get_db), access_token: str = Depends(get_access_token)
-) -> Optional[User]:
+) -> Optional[UserData]:
     user = None
+    roles: list[UserRole] = []
     if access_token is not None:
         access_key = db.query(AccessKey).filter(AccessKey.key_id == access_token).one_or_none()
         if access_key:
             user = access_key.user
-    return user
+            roles = [access_key.role] if access_key.role is not None else []
+
+    return UserData(user, roles) if user else None
 
 
 ####################################################################################################
@@ -102,34 +114,70 @@ async def get_current_user_from_api_key(
 
 
 async def get_current_user(
-    api_key_user: Optional[User] = Depends(get_current_user_from_api_key),
+    api_key_user_data: Optional[UserData] = Depends(get_current_user_data_from_api_key),
     token_payload: dict = Depends(JWTBearer()),
     db: Session = Depends(deps.get_db),
-) -> Optional[User]:
-    user = api_key_user
-    if user is None and token_payload is not None:
-        username: str = token_payload["sub"]
-        if username is not None:
-            user = db.query(User).filter(User.username == username).one_or_none()
-            if user is None:
-                # A new user has just connected an ORCID iD. Fetch their email address if it's visible, and create the
-                # user account.
-                email = fetch_orcid_user_email(username)
-                user = User(
-                    username=username,
-                    is_active=True,
-                    # TODO When we decouple from the old database, change first_name and last_name to be nullable, and
-                    # stop filling them with empty strings.
-                    first_name=token_payload["given_name"] if "given_name" in token_payload else "",
-                    last_name=token_payload["family_name"] if "family_name" in token_payload else "",
-                    email=email,
-                    date_joined=datetime.now(),
-                )
-                logger.info(f"Creating new user with username {user.username}")
-                db.add(user)
-                db.commit()
-                db.refresh(user)
-            elif not user.is_active:
-                user = None
+    # Custom header for the role the authenticated user would like to assume.
+    # Namespaced with x_ to indicate this is a custom application header.
+    x_active_roles: Optional[str] = Header(default=None),
+) -> Optional[UserData]:
+    if api_key_user_data is not None:
+        return api_key_user_data
 
-    return user
+    if token_payload is None:
+        return None
+
+    username: Optional[str] = token_payload.get("sub")
+    if username is None:
+        return None
+
+    user = db.query(User).filter(User.username == username).one_or_none()
+
+    # A new user has just connected an ORCID iD. Create the user account.
+    if user is None:
+        # A new user has just connected an ORCID iD. Fetch their email address if it's visible, and create the
+        # user account.
+        email = fetch_orcid_user_email(username)
+        user = User(
+            username=username,
+            is_active=True,
+            # TODO When we decouple from the old database, change first_name and last_name to be nullable, and
+            # stop filling them with empty strings.
+            first_name=token_payload["given_name"] if "given_name" in token_payload else "",
+            last_name=token_payload["family_name"] if "family_name" in token_payload else "",
+            date_joined=datetime.now(),
+            email=email,
+        )
+        logger.info(f"Creating new user with username {user.username}")
+
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    elif not user.is_active:
+        return None
+
+    if x_active_roles is None:
+        return UserData(user, user.roles)
+
+    # FastAPI has poor support for headers of type list (really, they are just comma separated strings).
+    # Parse out any requested roles manually.
+    requested_roles = x_active_roles.split(",")
+
+    active_roles: list[UserRole] = []
+    for requested_role in requested_roles:
+        # Disregard any requested roles if they do not correspond to one of our UserRole enumerations.
+        #
+        # NOTE that our permissions structure ensures every authenticated user has a minimum set of available actions.
+        # Collectively, these are known to the client as the 'ordinary user' role. Because these permissions are supplied
+        # by default, we do not need add the 'ordinary user' role to the list of active roles.
+        if requested_role not in UserRole._member_names_:
+            continue
+
+        enumerated_role = UserRole[requested_role]
+        if enumerated_role not in user.roles:
+            raise HTTPException(status_code=403, detail="This user is not a member of the requested acting role.")
+        else:
+            active_roles.append(enumerated_role)
+
+    return UserData(user, active_roles)
