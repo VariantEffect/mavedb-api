@@ -40,13 +40,10 @@ class TargetSequenceModify(TargetSequenceBase):
         return field_value
 
     @validator("label")
-    def check_alphanumeric(cls, field_value, values, field, config) -> str:
+    def label_does_not_include_colon(cls, field_value, values, field, config) -> str:
         if isinstance(field_value, str):
-            is_alphanumeric = field_value.replace("_", "").isalnum()
-            if not is_alphanumeric:
-                raise ValidationError(
-                    f"Target sequence label `{field_value}` can contain only letters, numbers, and underscores."
-                )
+            if ":" in field_value:
+                raise ValidationError(f"Target sequence label `{field_value}` may not contain a colon.")
         return field_value
 
 
