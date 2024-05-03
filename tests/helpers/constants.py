@@ -17,6 +17,7 @@ TEST_USER = {
     "is_active": True,
     "is_staff": False,
     "is_superuser": False,
+    "is_first_login": True,
 }
 
 EXTRA_USER = {
@@ -27,6 +28,7 @@ EXTRA_USER = {
     "is_active": True,
     "is_staff": False,
     "is_superuser": False,
+    "is_first_login": True,
 }
 
 ADMIN_USER = {
@@ -37,6 +39,7 @@ ADMIN_USER = {
     "is_active": True,
     "is_staff": False,
     "is_superuser": False,
+    "is_first_login": True,
 }
 
 TEST_EXPERIMENT = {

@@ -172,6 +172,31 @@ def test_admin_can_update_self(client, setup_router_db, admin_app_overrides):
     assert response_value["email"] == "updated@test.com"
 
 
+def test_anonymous_user_cannot_set_logged_in_property(client, setup_router_db, anonymous_app_overrides):
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.put("/api/v1/users/me/has-logged-in")
+
+    assert response.status_code == 401
+    response_value = response.json()
+    assert response_value["detail"] == "Could not validate credentials"
+
+
+def test_user_can_set_logged_in_property_on_self(client, setup_router_db):
+    response = client.put("/api/v1/users/me/has-logged-in")
+    assert response.status_code == 200
+    response_value = response.json()
+    assert not response_value[camelize("is_first_login")]
+
+
+def test_admin_can_set_logged_in_property_on_self(client, setup_router_db, admin_app_overrides):
+    with DependencyOverrider(admin_app_overrides):
+        response = client.put("/api/v1/users/me/has-logged-in")
+
+    assert response.status_code == 200
+    response_value = response.json()
+    assert not response_value[camelize("is_first_login")]
+
+
 @pytest.mark.parametrize(
     "field_name,field_value",
     [
