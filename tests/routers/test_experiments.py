@@ -47,6 +47,14 @@ def test_create_minimal_experiment(client, setup_router_db):
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
+def test_can_delete_experiment(client, setup_router_db):
+    experiment = create_experiment(client)
+    response = client.delete(f"api/v1/experiments/{experiment['urn']}")
+    assert response.status_code == 200
+    get_response = client.get(f"api/v1/experiments/{experiment['urn']}")
+    assert get_response.status_code == 404
+
+
 @pytest.mark.parametrize(
     "test_field,test_value",
     [
@@ -590,3 +598,75 @@ def test_anonymous_cannot_search_my_experiments(session, client, anonymous_app_o
         response = client.post("/api/v1/me/experiments/search", json=search_payload)
     assert response.status_code == 401
     assert response.json()["detail"] in "Could not validate credentials"
+
+
+def test_anonymous_cannot_delete_other_users_private_experiment(
+    session, client, setup_router_db, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert response.status_code == 401
+    assert "Could not validate credentials" in response.json()["detail"]
+
+
+def test_anonymous_cannot_delete_other_users_published_experiment(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+
+    with DependencyOverrider(anonymous_app_overrides):
+        del_response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert del_response.status_code == 401
+    del_response_data = del_response.json()
+    assert "Could not validate credentials" in del_response_data["detail"]
+
+
+def test_can_delete_own_private_experiment(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert response.status_code == 200
+
+
+def test_cannot_delete_own_published_experiment(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    response_data = response.json()
+    experiment_urn = response_data["experiment"]["urn"]
+    del_response = client.delete(f"/api/v1/experiments/{experiment_urn}")
+
+    assert del_response.status_code == 403
+    del_response_data = del_response.json()
+    assert f"insufficient permissions for URN '{experiment_urn}'" in del_response_data["detail"]
+
+
+def test_admin_can_delete_other_users_private_experiment(session, client, setup_router_db, admin_app_overrides):
+    experiment = create_experiment(client)
+    with DependencyOverrider(admin_app_overrides):
+        response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert response.status_code == 200
+
+
+def test_admin_can_delete_other_users_published_experiment(
+    session, data_provider, client, setup_router_db, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    client.post(f"/api/v1/experiments/{score_set['urn']}/publish")
+    with DependencyOverrider(admin_app_overrides):
+        del_response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert del_response.status_code == 200

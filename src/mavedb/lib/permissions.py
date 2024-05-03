@@ -50,6 +50,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
     if isinstance(item, ExperimentSet) or isinstance(item, Experiment) or isinstance(item, ScoreSet):
         assert item.private is not None
         private = item.private
+        published = item.published_date is not None
 
         user_is_owner = item.created_by_id == user_data.user.id if user_data is not None else False
 
@@ -68,9 +69,21 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(False, 404, f"experiment set with URN '{item.urn}' not found")
             else:
                 return PermissionResponse(False)
-        elif action == Action.UPDATE or action == Action.DELETE:
+        elif action == Action.UPDATE:
             if user_is_owner:
                 return PermissionResponse(True)
+            # Roles which may perform this operation.
+            elif roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            elif private:
+                # Do not acknowledge the existence of a private entity.
+                return PermissionResponse(False, 404, f"experiment set with URN '{item.urn}' not found")
+            else:
+                return PermissionResponse(False)
+        elif action == Action.DELETE:
+            # Owner may only delete an experiment set if it has not already been published.
+            if user_is_owner:
+                return PermissionResponse(not published, 403, f"insufficient permissions for URN '{item.urn}'")
             # Roles which may perform this operation.
             elif roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
@@ -104,7 +117,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(False, 404, f"experiment with URN '{item.urn}' not found")
             else:
                 return PermissionResponse(False)
-        elif action == Action.UPDATE or action == Action.DELETE:
+        elif action == Action.UPDATE:
             if user_is_owner:
                 return PermissionResponse(True)
             # Roles which may perform this operation.
@@ -113,6 +126,18 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             elif private:
                 # Do not acknowledge the existence of a private entity.
                 return PermissionResponse(False, 404, f"experiment with URN '{item.urn}' not found")
+            else:
+                return PermissionResponse(False)
+        elif action == Action.DELETE:
+            # Owner may only delete an experiment if it has not already been published.
+            if user_is_owner:
+                return PermissionResponse(not published, 403, f"insufficient permissions for URN '{item.urn}'")
+            # Roles which may perform this operation.
+            elif roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            elif private:
+                # Do not acknowledge the existence of a private entity.
+                return PermissionResponse(False, 404, f"experiment set with URN '{item.urn}' not found")
             else:
                 return PermissionResponse(False)
         elif action == Action.ADD_SCORE_SET:
@@ -140,7 +165,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(False, 404, f"score set with URN '{item.urn}' not found")
             else:
                 return PermissionResponse(False)
-        elif action == Action.UPDATE or action == Action.DELETE:
+        elif action == Action.UPDATE:
             if user_is_owner:
                 return PermissionResponse(True)
             # Roles which may perform this operation.
@@ -149,6 +174,18 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             elif private:
                 # Do not acknowledge the existence of a private entity.
                 return PermissionResponse(False, 404, f"score set with URN '{item.urn}' not found")
+            else:
+                return PermissionResponse(False)
+        elif action == Action.DELETE:
+            # Owner may only delete a score set if it has not already been published.
+            if user_is_owner:
+                return PermissionResponse(not published, 403, f"insufficient permissions for URN '{item.urn}'")
+            # Roles which may perform this operation.
+            elif roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            elif private:
+                # Do not acknowledge the existence of a private entity.
+                return PermissionResponse(False, 404, f"experiment set with URN '{item.urn}' not found")
             else:
                 return PermissionResponse(False)
         # Only the owner may publish a private score set.
