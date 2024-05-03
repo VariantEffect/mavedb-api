@@ -89,6 +89,7 @@ class ScoreSetModify(ScoreSetBase):
     def target_labels_are_unique(cls, field_value, values):
         # Labels are only used on target sequence instances.
         if len(field_value) > 1 and all([isinstance(target, TargetSequence) for target in field_value]):
+            # Labels have already been sanitized by the TargetSequence validator.
             labels = [target.target_sequence.label for target in field_value]
             dup_indices = [idx for idx, item in enumerate(labels) if item in labels[:idx]]
             if dup_indices:
