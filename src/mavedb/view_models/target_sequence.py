@@ -9,6 +9,10 @@ from mavedb.lib.validation.exceptions import ValidationError
 from fqfa import infer_sequence_type
 
 
+def sanitize_target_sequence_label(label: str):
+    return label.strip().replace(" ", "_")
+
+
 class TargetSequenceBase(BaseModel):
     sequence_type: str
     sequence: str
@@ -44,7 +48,10 @@ class TargetSequenceModify(TargetSequenceBase):
         if isinstance(field_value, str):
             if ":" in field_value:
                 raise ValidationError(f"Target sequence label `{field_value}` may not contain a colon.")
-        return field_value
+
+        # Sanitize the label by stripping leading/trailing whitespace and replacing any internal whitespace with
+        # underscores. Fully qualified variants should never contain whitespace.
+        return sanitize_target_sequence_label(field_value)
 
 
 class TargetSequenceCreate(TargetSequenceModify):

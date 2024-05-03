@@ -1,4 +1,4 @@
-from mavedb.view_models.target_sequence import TargetSequenceCreate
+from mavedb.view_models.target_sequence import TargetSequenceCreate, sanitize_target_sequence_label
 
 import pytest
 import datetime
@@ -41,6 +41,21 @@ def test_create_valid_target_sequence():
     assert target_sequence.sequence_type == sequence_type
     assert target_sequence.sequence == SEQUENCE
     assert target_sequence.label == label
+
+
+def test_target_sequence_label_is_sanitized():
+    sequence_type = "dna"
+    label = "   sanitize this label      "
+    sequence = SEQUENCE
+    taxonomy = TAXONOMY
+
+    target_sequence = TargetSequenceCreate(
+        sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label
+    )
+
+    assert target_sequence.sequence_type == sequence_type
+    assert target_sequence.sequence == SEQUENCE
+    assert target_sequence.label == sanitize_target_sequence_label(label)
 
 
 def test_cannot_create_target_sequence_with_label_containing_colon():
