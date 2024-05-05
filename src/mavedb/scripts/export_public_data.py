@@ -150,7 +150,7 @@ with ZipFile(zip_file_name, "w") as zipfile:
             csv_str = get_score_set_scores_as_csv(db, score_set)
             zipfile.writestr(f"csv/{csv_filename_base}.scores.csv", csv_str)
 
-            count_columns = score_set.dataset_columns["count_columns"]
+            count_columns = score_set.dataset_columns["count_columns"] if score_set.dataset_columns else None
             if count_columns and len(count_columns) > 0:
                 csv_str = get_score_set_counts_as_csv(db, score_set)
                 zipfile.writestr(f"csv/{csv_filename_base}.counts.csv", csv_str)
