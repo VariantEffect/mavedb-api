@@ -89,6 +89,8 @@ def flatmap(f: Callable[[S], Iterable[T]], items: Iterable[S]) -> Iterable[T]:
     return chain.from_iterable(map(f, items))
 
 
+logger.info("Fetching data sets")
+
 experiment_sets_query = db.scalars(
     select(ExperimentSet)
     .where(ExperimentSet.published_date.is_not(None))
@@ -142,11 +144,13 @@ with ZipFile(zip_file_name, "w") as zipfile:
     for i, score_set_id in enumerate(score_set_ids):
         score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one_or_none()
         if score_set is not None and score_set.urn is not None:
-            logger.info(f"{i + 1}/{num_score_sets}Exporting variants for score set {score_set.urn}")
+            logger.info(f"{i + 1}/{num_score_sets} Exporting variants for score set {score_set.urn}")
             csv_filename_base = score_set.urn.replace(":", "-")
 
             csv_str = get_score_set_scores_as_csv(db, score_set)
-            zipfile.writestr(f"variants/{csv_filename_base}.scores.csv", csv_str)
+            zipfile.writestr(f"csv/{csv_filename_base}.scores.csv", csv_str)
 
-            csv_str = get_score_set_counts_as_csv(db, score_set)
-            zipfile.writestr(f"variants/{csv_filename_base}.counts.csv", csv_str)
+            count_columns = score_set.dataset_columns["count_columns"]
+            if count_columns and len(count_columns) > 0:
+                csv_str = get_score_set_counts_as_csv(db, score_set)
+                zipfile.writestr(f"csv/{csv_filename_base}.counts.csv", csv_str)
