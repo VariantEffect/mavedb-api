@@ -54,7 +54,7 @@ def test_cannot_create_experiment_without_email(client, setup_router_db):
     response_data = response.json()
     assert response_data["detail"] == "There must be an email address associated with your account to use this feature."
 
-    
+
 def test_can_delete_experiment(client, setup_router_db):
     experiment = create_experiment(client)
     response = client.delete(f"api/v1/experiments/{experiment['urn']}")
