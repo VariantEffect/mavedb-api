@@ -98,6 +98,11 @@ class ScoreSet(Base):
     superseded_score_set: Mapped[Optional["ScoreSet"]] = relationship(
         "ScoreSet", uselist=False, remote_side=[id], backref=backref("superseding_score_set", uselist=False)
     )
+    #superseding_score_set_id: Mapped[Optional["ScoreSet"]] = relationship(
+    #    "ScoreSet", foreign_keys="repalces_id"
+    #)
+    #superseding_score_set_id: Mapped[Optional["ScoreSet"]] = relationship(
+    #    relationship(back_populates="superseded_score_set_id", cascade="all, delete-orphan")
 
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_by: Mapped["User"] = relationship("User", foreign_keys="ScoreSet.created_by_id")

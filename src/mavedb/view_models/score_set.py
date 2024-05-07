@@ -199,6 +199,7 @@ class SavedScoreSet(ScoreSetBase):
     experiment: SavedExperiment
     license: ShortLicense
     superseded_score_set_id: Optional[int]
+    superseding_score_set: Optional[ShortScoreSet]
     meta_analyzes_score_set_urns: list[str]
     meta_analyzed_by_score_set_urns: list[str]
     doi_identifiers: Sequence[SavedDoiIdentifier]
