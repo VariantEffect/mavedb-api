@@ -22,6 +22,7 @@ from tests.helpers.util import (
     create_seq_score_set,
     create_seq_score_set_with_variants,
 )
+from tests.helpers.dependency_overrider import DependencyOverrider
 
 
 def test_TEST_MINIMAL_SEQ_SCORESET_is_valid():
@@ -57,6 +58,17 @@ def test_create_minimal_score_set(client, setup_router_db):
     assert response.status_code == 200
 
 
+def test_cannot_create_score_set_without_email(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = experiment["urn"]
+    client.put("api/v1/users/me", json={"email": None})
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 400
+    response_data = response.json()
+    assert response_data["detail"] in "There must be an email address associated with your account to use this feature."
+
+
 def test_get_own_private_score_set(client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -85,6 +97,40 @@ def test_cannot_get_other_user_private_score_set(session, client, setup_router_d
     assert response.status_code == 404
     response_data = response.json()
     assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
+
+
+def test_anonymous_user_cannot_get_user_private_score_set(session, client, setup_router_db, anonymous_app_overrides):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+
+    assert response.status_code == 404
+    response_data = response.json()
+    assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
+
+
+def test_admin_can_get_other_user_private_score_set(session, client, admin_app_overrides, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    expected_response = deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE)
+    expected_response.update({"urn": score_set["urn"]})
+    expected_response["experiment"].update(
+        {
+            "urn": experiment["urn"],
+            "experimentSetUrn": experiment["experimentSetUrn"],
+            "scoreSetUrns": [score_set["urn"]],
+        }
+    )
+    with DependencyOverrider(admin_app_overrides):
+        response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+
+    assert response.status_code == 200
+    response_data = response.json()
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
 
 
 def test_add_score_set_variants_scores_only_endpoint(client, setup_router_db, data_files):
@@ -140,6 +186,24 @@ def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setu
     assert score_set == response_data
 
 
+def test_cannot_add_scores_to_score_set_without_email(session, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    client.put("api/v1/users/me", json={"email": None})
+    scores_csv_path = data_files / "scores.csv"
+    with open(scores_csv_path, "rb") as scores_file:
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+    assert response.status_code == 400
+    response_data = response.json()
+    assert response_data["detail"] in "There must be an email address associated with your account to use this feature."
+
+
+# A user should not be able to add scores to another users' score set. Therefore, they should also not be able
+# to add scores and counts. So long as this test passes (a user cannot add scores to another users' score set),
+# they necessarily will not be able to add scores and counts-- so omit the test for adding scores + counts.
 def test_cannot_add_scores_to_other_user_score_set(session, client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -153,6 +217,85 @@ def test_cannot_add_scores_to_other_user_score_set(session, client, setup_router
     assert response.status_code == 404
     response_data = response.json()
     assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
+
+
+# A user should not be able to add scores to another users' score set. Therefore, they should also not be able
+# to add scores and counts. So long as this test passes (a user cannot add scores to another users' score set),
+# they necessarily will not be able to add scores and counts-- so omit the test for adding scores + counts.
+def test_anonymous_cannot_add_scores_to_other_user_score_set(
+    session, client, setup_router_db, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+    scores_csv_path = data_files / "scores.csv"
+
+    with open(scores_csv_path, "rb") as scores_file, DependencyOverrider(anonymous_app_overrides):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+
+    assert response.status_code == 401
+    response_data = response.json()
+    assert "Could not validate credentials" in response_data["detail"]
+
+
+def test_admin_can_add_scores_to_other_user_score_set(
+    session, client, setup_router_db, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        DependencyOverrider(admin_app_overrides),
+        patch.object(ArqRedis, "enqueue_job", return_value=None) as queue,
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+        queue.assert_called_once()
+
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+
+    # We test the worker process that actually adds the variant data separately. Here, we take it as
+    # fact that it would have succeeded.
+    score_set.update({"processingState": "processing"})
+    assert score_set == response_data
+
+
+def test_admin_can_add_scores_and_counts_to_other_user_score_set(session, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+    counts_csv_path = data_files / "counts.csv"
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        open(counts_csv_path, "rb") as counts_file,
+        patch.object(ArqRedis, "enqueue_job", return_value=None) as queue,
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={
+                "scores_file": (scores_csv_path.name, scores_file, "text/csv"),
+                "counts_file": (counts_csv_path.name, counts_file, "text/csv"),
+            },
+        )
+        queue.assert_called_once()
+
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+
+    # We test the worker process that actually adds the variant data separately. Here, we take it as
+    # fact that it would have succeeded.
+    score_set.update({"processingState": "processing"})
+    assert score_set == response_data
 
 
 def test_publish_score_set(session, data_provider, client, setup_router_db, data_files):
@@ -243,6 +386,37 @@ def test_cannot_publish_other_user_private_score_set(session, data_provider, cli
 
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
     response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    assert response.status_code == 404
+    response_data = response.json()
+    assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
+
+
+def test_anonymous_cannot_publish_user_private_score_set(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+
+    assert response.status_code == 401
+    response_data = response.json()
+    assert "Could not validate credentials" in response_data["detail"]
+
+
+def test_admin_cannot_publish_other_user_private_score_set(
+    session, data_provider, client, admin_app_overrides, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+
     assert response.status_code == 404
     response_data = response.json()
     assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
@@ -472,7 +646,7 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_different_sco
     assert meta_score_set_3["urn"] == "urn:mavedb:00000003-0-3"
 
 
-def test_search_core_sets_no_match(session, data_provider, client, setup_router_db, data_files):
+def test_search_score_sets_no_match(session, data_provider, client, setup_router_db, data_files):
     experiment_1 = create_experiment(client, {"title": "Experiment 1"})
     create_seq_score_set_with_variants(
         client,
@@ -489,7 +663,7 @@ def test_search_core_sets_no_match(session, data_provider, client, setup_router_
     assert len(response.json()) == 0
 
 
-def test_search_core_sets_match(session, data_provider, client, setup_router_db, data_files):
+def test_search_score_sets_match(session, data_provider, client, setup_router_db, data_files):
     experiment_1 = create_experiment(client, {"title": "Experiment 1"})
     score_set_1_1 = create_seq_score_set_with_variants(
         client,
@@ -505,3 +679,92 @@ def test_search_core_sets_match(session, data_provider, client, setup_router_db,
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["title"] == score_set_1_1["title"]
+
+
+def test_anonymous_cannot_delete_other_users_private_scoreset(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
+
+    assert response.status_code == 401
+    assert "Could not validate credentials" in response.json()["detail"]
+
+
+def test_anonymous_cannot_delete_other_users_published_scoreset(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    response_data = response.json()
+
+    with DependencyOverrider(anonymous_app_overrides):
+        del_response = client.delete(f"/api/v1/score-sets/{response_data['urn']}")
+
+    assert del_response.status_code == 401
+    del_response_data = del_response.json()
+    assert "Could not validate credentials" in del_response_data["detail"]
+
+
+def test_can_delete_own_private_scoreset(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
+
+    assert response.status_code == 200
+
+
+def test_cannot_delete_own_published_scoreset(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    response_data = response.json()
+
+    del_response = client.delete(f"/api/v1/score-sets/{response_data['urn']}")
+
+    assert del_response.status_code == 403
+    del_response_data = del_response.json()
+    assert f"insufficient permissions for URN '{response_data['urn']}'" in del_response_data["detail"]
+
+
+def test_admin_can_delete_other_users_private_scoreset(
+    session, data_provider, client, setup_router_db, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
+
+    assert response.status_code == 200
+
+
+def test_admin_can_delete_other_users_published_scoreset(
+    session, data_provider, client, setup_router_db, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    response_data = response.json()
+
+    with DependencyOverrider(admin_app_overrides):
+        del_response = client.delete(f"/api/v1/score-sets/{response_data['urn']}")
+
+    assert del_response.status_code == 200

@@ -1,10 +1,14 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, Enum
 
 from mavedb.db.base import Base
+from mavedb.models.enums.user_role import UserRole
 
 
 class Role(Base):
     __tablename__ = "roles"
 
     id = Column(Integer, primary_key=True)
-    name = Column(String, index=True, nullable=False)
+    name = Column(
+        Enum(UserRole, create_constraint=True, length=32, native_enum=False, validate_strings=True),
+        nullable=False,
+    )

@@ -1,14 +1,17 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
 
-[project]
+[tool.poetry]
 name = "mavedb"
-dynamic = ["version"]
+version = "2024.1.0"
 description = "API for MaveDB, the database of Multiplexed Assays of Variant Effect."
-readme = "README.md"
 license = "AGPL-3.0-only"
-requires-python = ">=3.9"
+readme = "README.md"
+authors = []
+homepage = "https://mavedb.org"
+repository = "https://github.com/VariantEffect/mavedb-api"
+documentation = "https://mavedb.org/docs/mavedb/"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -17,81 +20,71 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
-dependencies = [
-    "fqfa~=1.3.0",
-    "pyhumps~=3.8.0",
-    "IDUtils~=1.2.0",
-    "mavehgvs~=0.6.0",
-    "eutils~=0.6.0",
-    "hgvs~=1.5.4",
-    "biocommons~=0.0.0",
-    "cdot~=0.2.21",
-    "httpx~=0.26.0",
-    "numpy~=1.22",
-    "pandas~=1.4.1",
-    "pydantic~=1.10",
-    "python-dotenv~=0.20.0",
-    "SQLAlchemy~=2.0.0",
-]
 
-[project.optional-dependencies]
-dev = [
-    "black",
-    "flake8",
-    "mypy",
-    "pre-commit",
-    "pytest~=7.0.1",
-    "pytest-postgresql~=5.0.0",
-    "pytest-asyncio==0.23.5",
-    "redis==5.0.2",
-    "fakeredis==2.21.1",
-    "jsonschema",
-    "SQLAlchemy[mypy]~=2.0.0",
-    "requests-mock~=1.11.0",
-    "pytest-socket~=0.6.0",
-    "pandas-stubs~=2.1.4",
-    "types-requests~=2.31.0",
-    "types-python-jose~=3.3.4",
-]
-server = [
-    "alembic~=1.7.6",
-    "arq~=0.25.0",
-    "authlib~=0.15.5",
-    "cryptography~=41.0.6",
-    "fastapi~=0.95.0",
-    "orcid~=1.0.3",
-    "psycopg2~=2.9.3",
-    "python-jose[cryptography]~=3.3.0",
-    "python-multipart~=0.0.5",
-    "requests~=2.31.0",
-    "slack-sdk~=3.21.3",
-    "starlette~=0.27.0",
-    "uvicorn[standard]",
-]
+[tool.poetry.dependencies]
+python = "^3.9"
 
-[project.urls]
-repository = "https://github.com/VariantEffect/mavedb-api"
-documentation = "https://mavedb.org/docs/mavedb/"
+fqfa = "~1.3.0"
+pyhumps = "~3.8.0"
+IDUtils = "~1.2.0"
+mavehgvs = "~0.6.0"
+eutils = "~0.6.0"
+hgvs = "~1.5.4"
+biocommons = "~0.0.0"
+cdot = "~0.2.21"
+numpy = "~1.26"
+httpx = "~0.26.0"
+pandas = "~1.4.1"
+pydantic = "~1.10"
+python-dotenv = "~0.20.0"
+SQLAlchemy = "~2.0.0"
+
+# Optional dependencies for running this application as a server
+alembic = { version = "~1.7.6", optional = true }
+arq = { version = "~0.25.0", optional = true }
+authlib = { version = "~0.15.5", optional = true }
+cryptography = { version = "~41.0.6", optional = true }
+email-validator = { version = "~2.1.1", optional = true }
+fastapi = { version = "~0.95.0", optional = true }
+orcid = { version = "~1.0.3", optional = true }
+psycopg2 = { version = "~2.9.3", optional = true }
+python-jose = { extras = ["cryptography"], version = "~3.3.0", optional = true }
+python-multipart = { version = "~0.0.5", optional = true }
+requests = { version = "~2.31.0", optional = true }
+slack-sdk = { version = "~3.21.3", optional = true }
+starlette = { version = "~0.27.0", optional = true }
+uvicorn = { extras = ["standard"], version = "*", optional = true }
+
+[tool.poetry.group.dev]
+optional = true
+
+[tool.poetry.group.dev.dependencies]
+black = "*"
+flake8 = "*"
+mypy = "*"
+pre-commit = "*"
+jsonschema = "*"
+fakeredis = "~2.21.1"
+pytest = "~7.0.1"
+pytest-postgresql = "~5.0.0"
+pytest-asyncio = "~0.23.5"
+pytest-socket = "~0.6.0"
+pandas-stubs = "~2.1.4"
+types-requests = "~2.31.0"
+types-python-jose = "~3.3.4"
+redis = "~5.0.2"
+requests-mock = "~1.11.0"
+SQLAlchemy = { extras = ["mypy"], version = "~2.0.0" }
+
+
+[tool.poetry.extras]
+server = ["alembic", "arq", "authlib", "cryptography", "fastapi", "email-validator", "orcid", "psycopg2", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "uvicorn"]
+
 
 [tool.black]
 extend-exclude = "alembic/versions"
 line-length = 120
 
-[tool.hatch]
-metadata.allow-direct-references = true
-
-[tool.hatch.version]
-path = "src/mavedb/__init__.py"
-
-[tool.hatch.build.targets.sdist]
-exclude = [
-    "docker-compose-dev.yml",
-    "docker-compose-prod.yml",
-    "docs/",
-]
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/mavedb"]
 
 [tool.mypy]
 plugins = [

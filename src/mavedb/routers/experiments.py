@@ -8,8 +8,9 @@ from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
 
 from mavedb import deps
+from mavedb.lib.authentication import get_current_user, UserData
 from mavedb.lib.authentication import get_current_user
-from mavedb.lib.authorization import require_current_user
+from mavedb.lib.authorization import require_current_user, require_current_user_with_email
 from mavedb.lib.experiments import search_experiments as _search_experiments
 from mavedb.lib.identifiers import (
     find_or_create_doi_identifier,
@@ -20,7 +21,6 @@ from mavedb.lib.permissions import assert_permission, Action
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
-from mavedb.models.user import User
 from mavedb.view_models import experiment, score_set
 from mavedb.view_models.search import ExperimentsSearch
 
@@ -39,17 +39,19 @@ def list_experiments(
     editable: Optional[bool] = None,
     q: Optional[str] = None,
     db: Session = Depends(deps.get_db),
-    user: User = Depends(get_current_user),
+    user_data: UserData = Depends(get_current_user),
 ) -> list[Experiment]:
     """
     List experiments.
     """
     query = db.query(Experiment)
     if q is not None:
-        if user is None:
+        if user_data.user is None:
             return []
         if len(q) > 0:
-            query = query.filter(Experiment.created_by_id == user.id)  # .filter(Experiment.published_date is None)
+            query = query.filter(
+                Experiment.created_by_id == user_data.user.id
+            )  # .filter(Experiment.published_date is None)
         # else:
         #     query = query.filter(Experiment.created_by_id == user.id).filter(Experiment.published_date is None)
     items = query.order_by(Experiment.urn).all()
@@ -66,12 +68,12 @@ def search_experiments(search: ExperimentsSearch, db: Session = Depends(deps.get
 
 @router.post("/me/experiments/search", status_code=200, response_model=list[experiment.ShortExperiment])
 def search_my_experiments(
-    search: ExperimentsSearch, db: Session = Depends(deps.get_db), user: User = Depends(require_current_user)
+    search: ExperimentsSearch, db: Session = Depends(deps.get_db), user_data: UserData = Depends(require_current_user)
 ) -> Any:
     """
     Search experiments created by the current user..
     """
-    return _search_experiments(db, user, search)
+    return _search_experiments(db, user_data.user, search)
 
 
 @router.get(
@@ -85,7 +87,7 @@ def fetch_experiment(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
-    user: User = Depends(get_current_user),
+    user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Experiment:
     """
     Fetch a single experiment by URN.
@@ -94,7 +96,7 @@ def fetch_experiment(
     item = db.query(Experiment).filter(Experiment.urn == urn).first()
     if not item:
         raise HTTPException(status_code=404, detail=f"Experiment with URN {urn} not found")
-    assert_permission(user, item, Action.READ)
+    assert_permission(user_data, item, Action.READ)
     return item
 
 
@@ -109,7 +111,7 @@ def get_experiment_score_sets(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
-    user: User = Depends(get_current_user),
+    user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
     """
     Get all score sets belonging to an experiment.
@@ -117,20 +119,25 @@ def get_experiment_score_sets(
     experiment = db.query(Experiment).filter(Experiment.urn == urn).first()
     if not experiment:
         raise HTTPException(status_code=404, detail=f"experiment with URN '{urn}' not found")
-    assert_permission(user, experiment, Action.READ)
+    assert_permission(user_data, experiment, Action.READ)
     # If there is a current user with score sets associated with this experiment, return all of them. Otherwise, only show
     # the public / published score sets.
-    score_sets = (
-        db.query(ScoreSet)
-        .filter(ScoreSet.experiment_id == experiment.id)
-        .filter(or_(ScoreSet.private.is_(False), and_(ScoreSet.private.is_(True), ScoreSet.created_by == user)))
-        .all()
-    )
-    if not score_sets:
+    #
+    # TODO(#182): A side effect of this implementation is that only the user who has created the experiment may view all the Score sets
+    # associated with a given experiment. This could be solved with user impersonation for certain user roles.
+    score_sets = db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id)
+    if user_data is not None:
+        score_set_result = score_sets.filter(
+            or_(ScoreSet.private.is_(False), and_(ScoreSet.private.is_(True), ScoreSet.created_by == user_data.user))
+        ).all()
+    else:
+        score_set_result = score_sets.filter(ScoreSet.private.is_(False)).all()
+
+    if not score_set_result:
         raise HTTPException(status_code=404, detail="no associated score sets")
     else:
-        score_sets.sort(key=attrgetter("urn"))
-    return score_sets
+        score_set_result.sort(key=attrgetter("urn"))
+    return score_set_result
 
 
 @router.post(
@@ -140,7 +147,7 @@ async def create_experiment(
     *,
     item_create: experiment.ExperimentCreate,
     db: Session = Depends(deps.get_db),
-    user: User = Depends(require_current_user),
+    user_data: UserData = Depends(require_current_user_with_email),
 ) -> Any:
     """
     Create an experiment.
@@ -156,7 +163,7 @@ async def create_experiment(
             raise HTTPException(
                 status_code=404, detail=f"experiment set with URN '{item_create.experiment_set_urn}' not found."
             )
-        assert_permission(user, experiment_set, Action.ADD_EXPERIMENT)
+        assert_permission(user_data, experiment_set, Action.ADD_EXPERIMENT)
     try:
         doi_identifiers = [
             await find_or_create_doi_identifier(db, identifier.identifier)
@@ -202,8 +209,8 @@ async def create_experiment(
         doi_identifiers=doi_identifiers,
         publication_identifiers=publication_identifiers,  # an internal association proxy representation
         raw_read_identifiers=raw_read_identifiers,
-        created_by=user,
-        modified_by=user,
+        created_by=user_data.user,
+        modified_by=user_data.user,
     )  # type: ignore
     await item.set_keywords(db, item_create.keywords)
     db.add(item)
@@ -220,7 +227,7 @@ async def update_experiment(
     item_update: experiment.ExperimentUpdate,
     urn: str,
     db: Session = Depends(deps.get_db),
-    user: User = Depends(require_current_user),
+    user_data: UserData = Depends(require_current_user_with_email),
 ) -> Any:
     """
     Update an experiment.
@@ -231,7 +238,7 @@ async def update_experiment(
     item = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
     if item is None:
         raise HTTPException(status_code=404, detail=f"experiment with URN {urn} not found")
-    assert_permission(user, item, Action.UPDATE)
+    assert_permission(user_data, item, Action.UPDATE)
 
     pairs = {
         k: v
@@ -276,7 +283,7 @@ async def update_experiment(
     item.raw_read_identifiers = raw_read_identifiers
 
     await item.set_keywords(db, item_update.keywords)
-    item.modified_by = user
+    item.modified_by = user_data.user
 
     db.add(item)
     db.commit()
@@ -286,7 +293,10 @@ async def update_experiment(
 
 @router.delete("/experiments/{urn}", response_model=None, responses={422: {}})
 async def delete_experiment(
-    *, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(require_current_user)
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(require_current_user),
 ) -> None:
     """
     Delete a experiment .
@@ -304,7 +314,7 @@ async def delete_experiment(
     item = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"experiment with URN '{urn}' not found.")
-    assert_permission(user, item, Action.DELETE)
+    assert_permission(user_data, item, Action.DELETE)
 
     db.delete(item)
     db.commit()

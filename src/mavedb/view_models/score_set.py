@@ -89,6 +89,7 @@ class ScoreSetModify(ScoreSetBase):
     def target_labels_are_unique(cls, field_value, values):
         # Labels are only used on target sequence instances.
         if len(field_value) > 1 and all([target.target_sequence is not None for target in field_value]):
+            # Labels have already been sanitized by the TargetSequence validator.
             labels = [target.target_sequence.label for target in field_value]
             dup_indices = [idx for idx, item in enumerate(labels) if item in labels[:idx]]
             if dup_indices:
@@ -204,7 +205,6 @@ class SavedScoreSet(ScoreSetBase):
 
     urn: str
     num_variants: int
-    experiment: SavedExperiment
     license: ShortLicense
     superseded_score_set_urn: Optional[str]
     superseding_score_set_urn: Optional[str]
@@ -268,3 +268,17 @@ class AdminScoreSet(ScoreSet):
 
     normalised: bool
     approved: bool
+
+
+class ScoreSetPublicDump(SavedScoreSet):
+    """Score set view model containing properties to include in a dump of all published data."""
+
+    doi_identifiers: Sequence[DoiIdentifier]
+    primary_publication_identifiers: Sequence[PublicationIdentifier]
+    secondary_publication_identifiers: Sequence[PublicationIdentifier]
+    created_by: Optional[User]
+    modified_by: Optional[User]
+    target_genes: Sequence[TargetGene]
+    private: bool
+    processing_state: Optional[ProcessingState]
+    processing_errors: Optional[dict]

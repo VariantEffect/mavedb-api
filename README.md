@@ -26,23 +26,28 @@ Or add `mavedb` to your Python project's dependencies.
 
 - Python 3.9 or later
 - PIP
-- [build](https://github.com/pypa/hatch) for building distributions. This can be installed with `pip install build`.
-- [hatch](https://github.com/pypa/hatch) for building distributions. This can be installed with `pip install hatch`.
+- [Poetry](https://python-poetry.org/) for building and publishing distributions. For details on installing poetry, consult its [documentation](https://python-poetry.org/docs/#installation).
 
 ### Building distribution packages
 
 To build the source distribution and wheel, run
 
 ```
-python -m build
+poetry build
 ```
 
-The build utility will look at `pyproject.toml` and invoke Hatchling to build the distributions.
+The build utility will look at `pyproject.toml` and invoke Poetry to build the distributions. Note that it will output build artifacts to `./dist` by default.
 
-The distribution can be uploaded to PyPI using [twine](https://twine.readthedocs.io/en/stable/).
+The distribution can be uploaded to PyPI using Poetry as well. After building the packaged, simply invoke
+
+```
+poetry publish -r pypi -u <username> -p <password>
+```
+
+To build and publish the package in one go, just pass the `--build` flag to the publish command.
 
 For use as a server, this distribution includes an optional set of dependencies, which are only invoked if the package
-is installed with `pip install mavedb[server]`.
+is installed with `poetry install mavedb --extras server`.
 
 ### Running a local version of the API server
 
