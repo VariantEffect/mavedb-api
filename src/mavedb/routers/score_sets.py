@@ -1,7 +1,4 @@
-import csv
-import io
 import logging
-import re
 from datetime import date
 from typing import Any, List, Optional
 
@@ -26,8 +23,11 @@ from mavedb.lib.identifiers import (
 from mavedb.lib.permissions import Action, assert_permission
 from mavedb.lib.score_sets import (
     find_meta_analyses_for_experiment_sets,
+    get_score_set_counts_as_csv,
+    get_score_set_scores_as_csv,
     search_score_sets as _search_score_sets,
     csv_data_to_df,
+    variants_to_csv_rows,
 )
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_score_set_urn
@@ -47,8 +47,6 @@ from mavedb.view_models import score_set
 from mavedb.view_models.search import ScoreSetsSearch
 
 logger = logging.getLogger(__name__)
-
-null_values_re = re.compile(r"\s+|none|nan|na|undefined|n/a|null|nil", flags=re.IGNORECASE)
 
 
 async def fetch_score_set_by_urn(db, urn: str, owner: Optional[UserData]) -> Optional[ScoreSet]:
@@ -71,12 +69,6 @@ async def fetch_score_set_by_urn(db, urn: str, owner: Optional[UserData]) -> Opt
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
     return item
-
-
-def is_null(value):
-    """Return True if a string represents a null value."""
-    value = str(value).strip().lower()
-    return null_values_re.fullmatch(value) or not value
 
 
 router = APIRouter(prefix="/api/v1", tags=["score sets"], responses={404: {"description": "not found"}})
@@ -156,23 +148,8 @@ def get_score_set_scores_csv(
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
     assert_permission(user_data, score_set, Action.READ)
 
-    assert type(score_set.dataset_columns) is dict
-    score_columns = [str(x) for x in list(score_set.dataset_columns.get("score_columns", []))]
-    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_columns
-    type_column = "score_data"
-    variants = score_set.variants
-
-    if start:
-        variants = variants[start:]
-    if limit:
-        variants = variants[:limit]
-
-    rows_data = get_csv_rows_data(variants, columns=columns, dtype=type_column)
-    stream = io.StringIO()
-    writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
-    writer.writeheader()
-    writer.writerows(rows_data)
-    return StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+    csv_str = get_score_set_scores_as_csv(db, score_set, start, limit)
+    return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
 @router.get(
@@ -212,23 +189,8 @@ async def get_score_set_counts_csv(
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
     assert_permission(user_data, score_set, Action.READ)
 
-    assert type(score_set.dataset_columns) is dict
-    count_columns = [str(x) for x in list(score_set.dataset_columns.get("count_columns", []))]
-    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + count_columns
-    type_column = "count_data"
-    variants = score_set.variants
-
-    if start:
-        variants = variants[start:]
-    if limit:
-        variants = variants[:limit]
-
-    rows_data = get_csv_rows_data(variants, columns=columns, dtype=type_column)
-    stream = io.StringIO()
-    writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
-    writer.writeheader()
-    writer.writerows(rows_data)
-    return StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+    csv_str = get_score_set_counts_as_csv(db, score_set, start, limit)
+    return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
 @router.get("/score-sets/{urn}/mapped-variants", status_code=200, response_model=list[mapped_variant.MappedVariant])
@@ -657,10 +619,10 @@ async def update_score_set(
             score_columns = ["hgvs_nt", "hgvs_splice", "hgvs_pro"] + item.dataset_columns["score_columns"]
             count_columns = ["hgvs_nt", "hgvs_splice", "hgvs_pro"] + item.dataset_columns["count_columns"]
             scores_data = pd.DataFrame(
-                get_csv_rows_data(item.variants, columns=score_columns, dtype="score_data")
+                variants_to_csv_rows(item.variants, columns=score_columns, dtype="score_data")
             ).replace("NA", pd.NA)
             count_data = pd.DataFrame(
-                get_csv_rows_data(item.variants, columns=count_columns, dtype="count_data")
+                variants_to_csv_rows(item.variants, columns=count_columns, dtype="count_data")
             ).replace("NA", pd.NA)
 
             # await the insertion of this job into the worker queue, not the job itself.
@@ -779,44 +741,3 @@ def publish_score_set(
     db.commit()
     db.refresh(item)
     return item
-
-
-def get_csv_rows_data(variants, columns, dtype, na_rep="NA"):
-    """
-    Format each variant into a dictionary row containing the keys specified
-    in `columns`.
-
-    Parameters
-    ----------
-    variants : list[variant.models.Variant`]
-        List of variants.
-    columns : list[str]
-        Columns to serialize.
-    dtype : str, {'scores', 'counts'}
-        The type of data requested. Either the 'score_data' or 'count_data'.
-    na_rep : str
-        String to represent null values.
-
-    Returns
-    -------
-    list[dict]
-    """
-    row_dicts = []
-    for variant in variants:
-        data = {}
-        for column_key in columns:
-            if column_key == "hgvs_nt":
-                value = str(variant.hgvs_nt)
-            elif column_key == "hgvs_pro":
-                value = str(variant.hgvs_pro)
-            elif column_key == "hgvs_splice":
-                value = str(variant.hgvs_splice)
-            elif column_key == "accession":
-                value = str(variant.urn)
-            else:
-                value = str(variant.data[dtype][column_key])
-            if is_null(value):
-                value = na_rep
-            data[column_key] = value
-        row_dicts.append(data)
-    return row_dicts

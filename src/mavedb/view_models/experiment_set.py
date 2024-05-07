@@ -4,7 +4,7 @@ from typing import List, Sequence
 from pydantic.types import Optional
 
 from mavedb.view_models.base.base import BaseModel
-from mavedb.view_models.experiment import Experiment, SavedExperiment
+from mavedb.view_models.experiment import Experiment, ExperimentPublicDump, SavedExperiment
 from mavedb.view_models.user import SavedUser, User
 
 
@@ -49,3 +49,10 @@ class AdminExperimentSet(SavedExperimentSet):
     created_by: Optional[User]
     modified_by: Optional[User]
     experiments: Sequence[Experiment]
+
+
+# Properties to include in a dump of all published data.
+class ExperimentSetPublicDump(SavedExperimentSet):
+    experiments: Sequence[ExperimentPublicDump]
+    created_by: Optional[User]
+    modified_by: Optional[User]

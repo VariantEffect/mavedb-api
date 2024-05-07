@@ -679,3 +679,92 @@ def test_search_score_sets_match(session, data_provider, client, setup_router_db
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["title"] == score_set_1_1["title"]
+
+
+def test_anonymous_cannot_delete_other_users_private_scoreset(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
+
+    assert response.status_code == 401
+    assert "Could not validate credentials" in response.json()["detail"]
+
+
+def test_anonymous_cannot_delete_other_users_published_scoreset(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    response_data = response.json()
+
+    with DependencyOverrider(anonymous_app_overrides):
+        del_response = client.delete(f"/api/v1/score-sets/{response_data['urn']}")
+
+    assert del_response.status_code == 401
+    del_response_data = del_response.json()
+    assert "Could not validate credentials" in del_response_data["detail"]
+
+
+def test_can_delete_own_private_scoreset(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
+
+    assert response.status_code == 200
+
+
+def test_cannot_delete_own_published_scoreset(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    response_data = response.json()
+
+    del_response = client.delete(f"/api/v1/score-sets/{response_data['urn']}")
+
+    assert del_response.status_code == 403
+    del_response_data = del_response.json()
+    assert f"insufficient permissions for URN '{response_data['urn']}'" in del_response_data["detail"]
+
+
+def test_admin_can_delete_other_users_private_scoreset(
+    session, data_provider, client, setup_router_db, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
+
+    assert response.status_code == 200
+
+
+def test_admin_can_delete_other_users_published_scoreset(
+    session, data_provider, client, setup_router_db, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    response_data = response.json()
+
+    with DependencyOverrider(admin_app_overrides):
+        del_response = client.delete(f"/api/v1/score-sets/{response_data['urn']}")
+
+    assert del_response.status_code == 200
