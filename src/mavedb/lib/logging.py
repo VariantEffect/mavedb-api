@@ -15,7 +15,7 @@ import time
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "")
 API_URL = os.getenv("API_URL", "")
-CLOUDWATCH_LOG_STREAM = os.getenv("CLOUDWATCH_LOG_STREAM", "")
+CLOUDWATCH_LOG_GROUP = os.getenv("CLOUDWATCH_LOG_GROUP", "")
 AWS_REGION_NAME = os.getenv("AWS_REGION_NAME", "")
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ if AWS_REGION_NAME and CLOUDWATCH_LOG_STREAM:
     boto3_logs_client = boto3.client("logs", region_name=AWS_REGION_NAME)
     logger.addHandler(CloudWatchLogHandler(
         boto3_client=boto3_logs_client,
-        log_group_name=CLOUDWATCH_LOG_STREAM))
+        log_group_name=CLOUDWATCH_LOG_GROUP))
 
 class LogType(str, Enum):
     api_request = "api_request"
