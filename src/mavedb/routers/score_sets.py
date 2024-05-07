@@ -14,7 +14,7 @@ from sqlalchemy.exc import MultipleResultsFound
 
 from mavedb import deps
 from mavedb.lib.authentication import UserData
-from mavedb.lib.authorization import get_current_user, require_current_user
+from mavedb.lib.authorization import get_current_user, require_current_user, require_current_user_with_email
 from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
     find_or_create_doi_identifier,
@@ -227,7 +227,7 @@ async def create_score_set(
     *,
     item_create: score_set.ScoreSetCreate,
     db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(require_current_user),
+    user_data: UserData = Depends(require_current_user_with_email),
 ) -> Any:
     """
     Create a score set.
@@ -439,7 +439,7 @@ async def upload_score_set_variant_data(
     counts_file: Optional[UploadFile] = File(None),
     scores_file: UploadFile = File(...),
     db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(require_current_user),
+    user_data: UserData = Depends(require_current_user_with_email),
     worker: ArqRedis = Depends(deps.get_worker),
 ) -> Any:
     """
@@ -480,7 +480,7 @@ async def update_score_set(
     urn: str,
     item_update: score_set.ScoreSetUpdate,
     db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(require_current_user),
+    user_data: UserData = Depends(require_current_user_with_email),
     worker: ArqRedis = Depends(deps.get_worker),
 ) -> Any:
     """

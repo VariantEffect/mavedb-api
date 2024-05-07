@@ -47,6 +47,14 @@ def test_create_minimal_experiment(client, setup_router_db):
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
+def test_cannot_create_experiment_without_email(client, setup_router_db):
+    client.put("api/v1/users/me", json={"email": None})
+    response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
+    assert response.status_code == 400
+    response_data = response.json()
+    assert response_data["detail"] == "There must be an email address associated with your account to use this feature."
+
+    
 def test_can_delete_experiment(client, setup_router_db):
     experiment = create_experiment(client)
     response = client.delete(f"api/v1/experiments/{experiment['urn']}")

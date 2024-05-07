@@ -60,6 +60,25 @@ async def update_me(
     current_user = user_data.user
     assert_permission(user_data, current_user, Action.UPDATE)
     current_user.email = user_update.email
+    current_user.is_first_login = False
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.put("/users/me/has-logged-in", status_code=200, response_model=user.CurrentUser, responses={404: {}, 500: {}})
+async def user_has_logged_in(
+    *,
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(require_current_user),
+) -> Any:
+    """
+    Update the current user's.
+    """
+    current_user = user_data.user
+    assert_permission(user_data, current_user, Action.UPDATE)
+    current_user.is_first_login = False
     db.add(current_user)
     db.commit()
     db.refresh(current_user)
@@ -71,7 +90,7 @@ async def update_me(
 async def update_user(
     *,
     id: int,
-    item_update: user.UserUpdate,
+    item_update: user.AdminUserUpdate,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
 ) -> Any:

@@ -44,6 +44,7 @@ alembic = { version = "~1.7.6", optional = true }
 arq = { version = "~0.25.0", optional = true }
 authlib = { version = "~0.15.5", optional = true }
 cryptography = { version = "~41.0.6", optional = true }
+email-validator = { version = "~2.1.1", optional = true }
 fastapi = { version = "~0.95.0", optional = true }
 orcid = { version = "~1.0.3", optional = true }
 psycopg2 = { version = "~2.9.3", optional = true }
@@ -77,7 +78,7 @@ SQLAlchemy = { extras = ["mypy"], version = "~2.0.0" }
 
 
 [tool.poetry.extras]
-server = ["alembic", "arq", "authlib", "cryptography", "fastapi", "orcid", "psycopg2", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "uvicorn"]
+server = ["alembic", "arq", "authlib", "cryptography", "fastapi", "email-validator", "orcid", "psycopg2", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "uvicorn"]
 
 
 [tool.black]

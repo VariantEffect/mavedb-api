@@ -13,27 +13,33 @@ TEST_USER = {
     "username": "0000-1111-2222-3333",
     "first_name": "First",
     "last_name": "Last",
+    "email": "test_user@test.com",
     "is_active": True,
     "is_staff": False,
     "is_superuser": False,
+    "is_first_login": True,
 }
 
 EXTRA_USER = {
     "username": "1234-5678-8765-4321",
     "first_name": "Extra",
     "last_name": "User",
+    "email": "extra_user@test.com",
     "is_active": True,
     "is_staff": False,
     "is_superuser": False,
+    "is_first_login": True,
 }
 
 ADMIN_USER = {
     "username": "9999-9999-9999-9999",
     "first_name": "Admin",
     "last_name": "User",
+    "email": "admin_user@test.com",
     "is_active": True,
     "is_staff": False,
     "is_superuser": False,
+    "is_first_login": True,
 }
 
 TEST_EXPERIMENT = {

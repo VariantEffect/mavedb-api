@@ -143,7 +143,7 @@ def test_fetching_nonexistent_user_as_admin_raises_exception(client, setup_route
 
 def test_anonymous_user_cannot_update_self(client, setup_router_db, anonymous_app_overrides):
     user_update = TEST_USER.copy()
-    user_update.update({"email": "updated@email"})
+    user_update.update({"email": "updated@test.com"})
     with DependencyOverrider(anonymous_app_overrides):
         response = client.put("/api/v1/users/me", json=user_update)
 
@@ -154,28 +154,53 @@ def test_anonymous_user_cannot_update_self(client, setup_router_db, anonymous_ap
 
 def test_user_can_update_self(client, setup_router_db):
     user_update = TEST_USER.copy()
-    user_update.update({"email": "updated@email"})
+    user_update.update({"email": "updated@test.com"})
     response = client.put("/api/v1/users/me", json=user_update)
     assert response.status_code == 200
     response_value = response.json()
-    assert response_value["email"] == "updated@email"
+    assert response_value["email"] == "updated@test.com"
 
 
 def test_admin_can_update_self(client, setup_router_db, admin_app_overrides):
     user_update = ADMIN_USER.copy()
-    user_update.update({"email": "updated@email"})
+    user_update.update({"email": "updated@test.com"})
     with DependencyOverrider(admin_app_overrides):
         response = client.put("/api/v1/users/me", json=user_update)
 
     assert response.status_code == 200
     response_value = response.json()
-    assert response_value["email"] == "updated@email"
+    assert response_value["email"] == "updated@test.com"
+
+
+def test_anonymous_user_cannot_set_logged_in_property(client, setup_router_db, anonymous_app_overrides):
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.put("/api/v1/users/me/has-logged-in")
+
+    assert response.status_code == 401
+    response_value = response.json()
+    assert response_value["detail"] == "Could not validate credentials"
+
+
+def test_user_can_set_logged_in_property_on_self(client, setup_router_db):
+    response = client.put("/api/v1/users/me/has-logged-in")
+    assert response.status_code == 200
+    response_value = response.json()
+    assert not response_value[camelize("is_first_login")]
+
+
+def test_admin_can_set_logged_in_property_on_self(client, setup_router_db, admin_app_overrides):
+    with DependencyOverrider(admin_app_overrides):
+        response = client.put("/api/v1/users/me/has-logged-in")
+
+    assert response.status_code == 200
+    response_value = response.json()
+    assert not response_value[camelize("is_first_login")]
 
 
 @pytest.mark.parametrize(
     "field_name,field_value",
     [
-        ("email", "updated@email"),
+        ("email", "updated@test.com"),
         ("first_name", "Updated"),
         ("last_name", "User"),
         ("roles", ["admin"]),
@@ -197,7 +222,7 @@ def test_anonymous_user_cannot_update_other_users(
 @pytest.mark.parametrize(
     "field_name,field_value",
     [
-        ("email", "updated@email"),
+        ("email", "updated@test.com"),
         ("first_name", "Updated"),
         ("last_name", "User"),
         ("roles", ["admin"]),
@@ -215,7 +240,7 @@ def test_user_cannot_update_other_users(client, setup_router_db, field_name, fie
 @pytest.mark.parametrize(
     "field_name,field_value",
     [
-        ("email", "updated@email"),
+        ("email", "updated@test.com"),
         ("first_name", "Updated"),
         ("last_name", "User"),
         ("roles", ["admin"]),
