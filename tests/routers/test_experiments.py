@@ -26,6 +26,7 @@ from tests.helpers.constants import (
     TEST_MINIMAL_EXPERIMENT_RESPONSE,
     TEST_PUBMED_IDENTIFIER,
 )
+from tests.helpers.dependency_overrider import DependencyOverrider
 
 
 def test_test_minimal_experiment_is_valid():
@@ -44,6 +45,22 @@ def test_create_minimal_experiment(client, setup_router_db):
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
+
+
+def test_cannot_create_experiment_without_email(client, setup_router_db):
+    client.put("api/v1/users/me", json={"email": None})
+    response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
+    assert response.status_code == 400
+    response_data = response.json()
+    assert response_data["detail"] == "There must be an email address associated with your account to use this feature."
+
+
+def test_can_delete_experiment(client, setup_router_db):
+    experiment = create_experiment(client)
+    response = client.delete(f"api/v1/experiments/{experiment['urn']}")
+    assert response.status_code == 200
+    get_response = client.get(f"api/v1/experiments/{experiment['urn']}")
+    assert get_response.status_code == 404
 
 
 @pytest.mark.parametrize(
@@ -91,7 +108,17 @@ def test_cannot_assign_to_missing_experiment_set(client, setup_router_db):
     assert f"experiment set with URN '{experiment_set_urn}' not found" in response_data["detail"]
 
 
-def test_cannot_assign_to_other_user_private_experiment_set(session, client, setup_router_db):
+def test_can_update_own_private_experiment_set(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    experiment_post_payload.update({"experimentSetUrn": experiment["experimentSetUrn"], "title": "Second Experiment"})
+    response = client.post("/api/v1/experiments/", json=experiment_post_payload)
+    assert response.status_code == 200
+    assert response.json()["experimentSetUrn"] == experiment["experimentSetUrn"]
+    assert response.json()["title"] == "Second Experiment"
+
+
+def test_cannot_update_other_users_private_experiment_set(session, client, setup_router_db):
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
     change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
@@ -103,7 +130,35 @@ def test_cannot_assign_to_other_user_private_experiment_set(session, client, set
     assert f"experiment set with URN '{experiment['experimentSetUrn']}' not found" in response_data["detail"]
 
 
-def test_can_assign_to_own_public_experiment_set(session, data_provider, client, setup_router_db, data_files):
+def test_anonymous_cannot_update_other_users_private_experiment_set(
+    session, client, anonymous_app_overrides, setup_router_db
+):
+    experiment = create_experiment(client)
+    experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    experiment_post_payload.update({"experimentSetUrn": experiment["experimentSetUrn"]})
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.post("/api/v1/experiments/", json=experiment_post_payload)
+
+    assert response.status_code == 401
+    response_data = response.json()
+    assert "Could not validate credentials" in response_data["detail"]
+
+
+def test_admin_can_update_other_users_private_experiment_set(session, client, admin_app_overrides, setup_router_db):
+    experiment = create_experiment(client)
+    experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    experiment_post_payload.update({"experimentSetUrn": experiment["experimentSetUrn"], "title": "Second Experiment"})
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.post("/api/v1/experiments/", json=experiment_post_payload)
+
+    assert response.status_code == 200
+    assert response.json()["experimentSetUrn"] == experiment["experimentSetUrn"]
+    assert response.json()["title"] == "Second Experiment"
+
+
+def test_can_update_own_public_experiment_set(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -117,7 +172,7 @@ def test_can_assign_to_own_public_experiment_set(session, data_provider, client,
     assert response_data["title"] == "Second Experiment"
 
 
-def test_cannot_assign_to_other_user_public_experiment_set(session, data_provider, client, setup_router_db, data_files):
+def test_cannot_update_other_users_public_experiment_set(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -131,6 +186,44 @@ def test_cannot_assign_to_other_user_public_experiment_set(session, data_provide
     assert response.status_code == 403
     response_data = response.json()
     assert f"insufficient permissions for URN '{published_experiment_set_urn}'" in response_data["detail"]
+
+
+def test_anonymous_cannot_update_others_user_public_experiment_set(
+    session, data_provider, client, anonymous_app_overrides, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    published_experiment_set_urn = published_score_set["experiment"]["experimentSetUrn"]
+    experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    experiment_post_payload.update({"experimentSetUrn": published_experiment_set_urn, "title": "Second Experiment"})
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.post("/api/v1/experiments/", json=experiment_post_payload)
+
+    assert response.status_code == 401
+    response_data = response.json()
+    assert f"Could not validate credentials" in response_data["detail"]
+
+
+def test_admin_can_update_other_users_public_experiment_set(
+    session, data_provider, client, admin_app_overrides, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+
+    with DependencyOverrider(admin_app_overrides):
+        response_data = create_experiment(
+            client,
+            {"experimentSetUrn": published_score_set["experiment"]["experimentSetUrn"], "title": "Second Experiment"},
+        )
+    assert response_data["experimentSetUrn"] == published_score_set["experiment"]["experimentSetUrn"]
+    assert response_data["title"] == "Second Experiment"
 
 
 def test_edit_preserves_optional_metadata(client, setup_router_db):
@@ -148,7 +241,79 @@ def test_edit_preserves_optional_metadata(client, setup_router_db):
 )
 def test_can_edit_private_experiment(client, setup_router_db, test_field, test_value):
     experiment = create_experiment(client)
-    response_data = create_experiment(client, {test_field: test_value, "urn": experiment["urn"]})
+    experiment_post_payload = experiment.copy()
+    experiment_post_payload.update({test_field: test_value, "urn": experiment["urn"]})
+    response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    assert (test_field, response_data[test_field]) == (test_field, test_value)
+
+
+@pytest.mark.parametrize(
+    "test_field,test_value",
+    [
+        ("title", "Edited Title"),
+        ("shortDescription", "Edited Short Description"),
+        ("abstractText", "Edited Abstract"),
+        ("methodText", "Edited Methods"),
+    ],
+)
+def test_cannot_edit_other_users_private_experiment(client, session, setup_router_db, test_field, test_value):
+    experiment = create_experiment(client)
+    experiment_post_payload = experiment.copy()
+    experiment_post_payload.update({test_field: test_value, "urn": experiment["urn"]})
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
+    assert response.status_code == 404
+    response_data = response.json()
+    assert f"experiment with URN '{experiment['urn']}' not found" in response_data["detail"]
+
+
+@pytest.mark.parametrize(
+    "test_field,test_value",
+    [
+        ("title", "Edited Title"),
+        ("shortDescription", "Edited Short Description"),
+        ("abstractText", "Edited Abstract"),
+        ("methodText", "Edited Methods"),
+    ],
+)
+def test_anonymous_cannot_update_other_users_private_experiment(
+    client, anonymous_app_overrides, session, setup_router_db, test_field, test_value
+):
+    experiment = create_experiment(client)
+    experiment_post_payload = experiment.copy()
+    experiment_post_payload.update({test_field: test_value, "urn": experiment["urn"]})
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
+
+    assert response.status_code == 401
+    response_data = response.json()
+    assert f"Could not validate credentials" in response_data["detail"]
+
+
+@pytest.mark.parametrize(
+    "test_field,test_value",
+    [
+        ("title", "Edited Title"),
+        ("shortDescription", "Edited Short Description"),
+        ("abstractText", "Edited Abstract"),
+        ("methodText", "Edited Methods"),
+    ],
+)
+def test_admin_can_update_other_users_private_experiment(
+    client, admin_app_overrides, setup_router_db, test_field, test_value
+):
+    experiment = create_experiment(client)
+    experiment_post_payload = experiment.copy()
+    experiment_post_payload.update({test_field: test_value, "urn": experiment["urn"]})
+    with DependencyOverrider(admin_app_overrides):
+        response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
+    assert response.status_code == 200
+    response_data = response.json()
     jsonschema.validate(instance=response_data, schema=Experiment.schema())
     assert (test_field, response_data[test_field]) == (test_field, test_value)
 
@@ -316,7 +481,7 @@ def test_get_own_private_experiment(client, setup_router_db):
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
-def test_cannot_get_other_user_private_experiment(session, client, setup_router_db):
+def test_cannot_get_other_users_private_experiment(session, client, setup_router_db):
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
     change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
@@ -324,6 +489,31 @@ def test_cannot_get_other_user_private_experiment(session, client, setup_router_
     assert response.status_code == 404
     response_data = response.json()
     assert f"experiment with URN '{experiment['urn']}' not found" in response_data["detail"]
+
+
+def test_anonymous_cannot_get_users_private_experiment(session, client, anonymous_app_overrides, setup_router_db):
+    experiment = create_experiment(client)
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert response.status_code == 404
+    response_data = response.json()
+    assert f"experiment with URN '{experiment['urn']}' not found" in response_data["detail"]
+
+
+def test_admin_can_get_other_users_private_experiment(client, admin_app_overrides, setup_router_db):
+    experiment = create_experiment(client)
+    expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
+    expected_response.update({"urn": experiment["urn"], "experimentSetUrn": experiment["experimentSetUrn"]})
+    with DependencyOverrider(admin_app_overrides):
+        response = client.get(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
 
 
 def test_search_experiments(session, client, setup_router_db):
@@ -398,3 +588,93 @@ def test_search_not_my_experiments(session, client, setup_router_db):
     response = client.post("/api/v1/me/experiments/search", json=search_payload)
     assert response.status_code == 200
     assert len(response.json()) == 0
+
+
+def test_anonymous_search_experiments(session, client, anonymous_app_overrides, setup_router_db):
+    experiment = create_experiment(client)
+    search_payload = {"text": experiment["shortDescription"]}
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.post("/api/v1/experiments/search", json=search_payload)
+    assert response.status_code == 200
+    assert response.json()[0]["title"] == experiment["title"]
+
+
+def test_anonymous_cannot_search_my_experiments(session, client, anonymous_app_overrides, setup_router_db):
+    experiment = create_experiment(client)
+    search_payload = {"text": experiment["shortDescription"]}
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.post("/api/v1/me/experiments/search", json=search_payload)
+    assert response.status_code == 401
+    assert response.json()["detail"] in "Could not validate credentials"
+
+
+def test_anonymous_cannot_delete_other_users_private_experiment(
+    session, client, setup_router_db, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert response.status_code == 401
+    assert "Could not validate credentials" in response.json()["detail"]
+
+
+def test_anonymous_cannot_delete_other_users_published_experiment(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+
+    with DependencyOverrider(anonymous_app_overrides):
+        del_response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert del_response.status_code == 401
+    del_response_data = del_response.json()
+    assert "Could not validate credentials" in del_response_data["detail"]
+
+
+def test_can_delete_own_private_experiment(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert response.status_code == 200
+
+
+def test_cannot_delete_own_published_experiment(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    response_data = response.json()
+    experiment_urn = response_data["experiment"]["urn"]
+    del_response = client.delete(f"/api/v1/experiments/{experiment_urn}")
+
+    assert del_response.status_code == 403
+    del_response_data = del_response.json()
+    assert f"insufficient permissions for URN '{experiment_urn}'" in del_response_data["detail"]
+
+
+def test_admin_can_delete_other_users_private_experiment(session, client, setup_router_db, admin_app_overrides):
+    experiment = create_experiment(client)
+    with DependencyOverrider(admin_app_overrides):
+        response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert response.status_code == 200
+
+
+def test_admin_can_delete_other_users_published_experiment(
+    session, data_provider, client, setup_router_db, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    client.post(f"/api/v1/experiments/{score_set['urn']}/publish")
+    with DependencyOverrider(admin_app_overrides):
+        del_response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert del_response.status_code == 200
