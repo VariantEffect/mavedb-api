@@ -16,8 +16,17 @@ from mavedb.lib.orcid import fetch_orcid_user_email
 from mavedb.models.access_key import AccessKey
 from mavedb.models.user import User
 
-ORCID_JWT_SIGNING_PUBLIC_KEY = os.getenv("ORCID_JWT_SIGNING_PUBLIC_KEY", "")
-ORCID_JWT_AUDIENCE = os.getenv("ORCID_CLIENT_ID")
+ORCID_JWT_SIGNING_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjxTIntA7YvdfnYkLSN4w
+k//E2zf/wbb0SV/HLHFvh6a9ENVRD1/rHK0EijlBzikb+1rgDQihJETcgBLsMoZV
+QqGj8fDUUuxnVHsuGav/bf41PA7E/58HXKPrB2C0cON41f7K3o9TStKpVJOSXBrR
+WURmNQ64qnSSryn1nCxMzXpaw7VUo409ohybbvN6ngxVy4QR2NCC7Fr0QVdtapxD
+7zdlwx6lEwGemuqs/oG5oDtrRuRgeOHmRps2R6gG5oc+JqVMrVRv6F9h4ja3UgxC
+DBQjOVT1BFPWmMHnHCsVYLqbbXkZUfvP2sO1dJiYd/zrQhi+FtNth9qrLLv3gkgt
+wQIDAQAB
+-----END PUBLIC KEY-----
+"""
+ORCID_JWT_AUDIENCE = "APP-GXFVWWJT8H0F50WD"
 
 ACCESS_TOKEN_NAME = "X-API-key"
 
