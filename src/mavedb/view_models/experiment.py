@@ -90,12 +90,10 @@ class SavedExperiment(ExperimentBase):
     modification_date: date
     published_date: Optional[date]
     experiment_set_urn: str
-    score_set_urns: list[str]
     doi_identifiers: Sequence[SavedDoiIdentifier]
     primary_publication_identifiers: Sequence[SavedPublicationIdentifier]
     secondary_publication_identifiers: Sequence[SavedPublicationIdentifier]
     raw_read_identifiers: Sequence[SavedRawReadIdentifier]
-    processing_state: Optional[str]
     keywords: list[str]
 
     class Config:
@@ -112,6 +110,8 @@ class SavedExperiment(ExperimentBase):
 
 # Properties to return to non-admin clients
 class Experiment(SavedExperiment):
+    score_set_urns: list[str]
+    processing_state: Optional[str]
     doi_identifiers: Sequence[DoiIdentifier]
     primary_publication_identifiers: Sequence[PublicationIdentifier]
     secondary_publication_identifiers: Sequence[PublicationIdentifier]
@@ -121,9 +121,21 @@ class Experiment(SavedExperiment):
 
 
 class ShortExperiment(SavedExperiment):
-    pass
+    score_set_urns: list[str]
+    processing_state: Optional[str]
 
 
 # Properties to return to admin clients
-class AdminExperiment(SavedExperiment):
+class AdminExperiment(Experiment):
+    score_set_urns: list[str]
+    processing_state: Optional[str]
     approved: bool
+
+
+# Properties to include in a dump of all published data.
+class ExperimentPublicDump(SavedExperiment):
+    score_sets: "Sequence[ScoreSetPublicDump]"
+
+
+from mavedb.view_models.score_set import ScoreSetPublicDump
+ExperimentPublicDump.update_forward_refs()

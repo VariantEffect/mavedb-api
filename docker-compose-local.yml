@@ -5,11 +5,13 @@ services:
     image: mavedb-api/mavedb-api:latest
     build:
       context: .
+      target: application
     command: bash -c "uvicorn mavedb.server_main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=./ssl/server.key --ssl-certfile=./ssl/server.cert"
     depends_on:
       - db
+      - redis
     env_file:
-      - settings/.env.prod
+      - settings/.env.dev
     environment:
       DB_HOST: db
       DB_PORT: 5432
@@ -21,15 +23,16 @@ services:
     image: mavedb-api-worker/mavedb-api-worker:latest
     build:
       context: .
-      dockerfile: Dockerfile.worker
+      target: worker
     command: bash -c "arq src.mavedb.worker.WorkerSettings"
     env_file:
-      - settings/.env.prod
+      - settings/.env.dev
     environment:
       DB_HOST: db
       DB_PORT: 5432
       REDIS_IP: redis
       REDIS_PORT: 6379
+      REDIS_SSL: False
     depends_on:
       - db
       - redis
@@ -38,7 +41,7 @@ services:
   db:
     image: postgres:14
     env_file:
-      - settings/.env.prod
+      - settings/.env.dev
     restart: unless-stopped
     ports:
       - "5434:5432"
@@ -48,7 +51,7 @@ services:
   redis:
     image: redis:7.2.3
     env_file:
-      - settings/.env.prod
+      - settings/.env.dev
     ports:
       - "6381:6379"
     volumes:

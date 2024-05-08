@@ -2,18 +2,21 @@ from datetime import date
 from typing import Optional
 
 from mavedb.view_models.base.base import BaseModel, validator
-from mavedb.view_models.reference_genome import ReferenceGenome
+from mavedb.view_models.taxonomy import AdminTaxonomy, SavedTaxonomy, Taxonomy, TaxonomyCreate
 from mavedb.lib.validation import target
 from mavedb.lib.validation.exceptions import ValidationError
 
 from fqfa import infer_sequence_type
 
 
+def sanitize_target_sequence_label(label: str):
+    return label.strip().replace(" ", "_")
+
+
 class TargetSequenceBase(BaseModel):
     sequence_type: str
     sequence: str
     label: Optional[str]
-    reference: ReferenceGenome
 
 
 class TargetSequenceModify(TargetSequenceBase):
@@ -41,18 +44,18 @@ class TargetSequenceModify(TargetSequenceBase):
         return field_value
 
     @validator("label")
-    def check_alphanumeric(cls, field_value, values, field, config) -> str:
+    def label_does_not_include_colon(cls, field_value, values, field, config) -> str:
         if isinstance(field_value, str):
-            is_alphanumeric = field_value.replace("_", "").isalnum()
-            if not is_alphanumeric:
-                raise ValidationError(
-                    f"Target sequence label `{field_value}` can contain only letters, numbers, and underscores."
-                )
-        return field_value
+            if ":" in field_value:
+                raise ValidationError(f"Target sequence label `{field_value}` may not contain a colon.")
+
+        # Sanitize the label by stripping leading/trailing whitespace and replacing any internal whitespace with
+        # underscores. Fully qualified variants should never contain whitespace.
+        return sanitize_target_sequence_label(field_value)
 
 
 class TargetSequenceCreate(TargetSequenceModify):
-    pass
+    taxonomy: TaxonomyCreate
 
 
 class TargetSequenceUpdate(TargetSequenceModify):
@@ -61,6 +64,8 @@ class TargetSequenceUpdate(TargetSequenceModify):
 
 # Properties shared by models stored in DB
 class SavedTargetSequence(TargetSequenceBase):
+    taxonomy: SavedTaxonomy
+
     class Config:
         orm_mode = True
         arbitrary_types_allowed = True
@@ -68,10 +73,11 @@ class SavedTargetSequence(TargetSequenceBase):
 
 # Properties to return to non-admin clients
 class TargetSequence(SavedTargetSequence):
-    pass
+    taxonomy: Taxonomy
 
 
 # Properties to return to admin clients
 class AdminTargetSequence(SavedTargetSequence):
     creation_date: date
     modification_date: date
+    taxonomy: AdminTaxonomy

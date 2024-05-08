@@ -13,18 +13,33 @@ TEST_USER = {
     "username": "0000-1111-2222-3333",
     "first_name": "First",
     "last_name": "Last",
+    "email": "test_user@test.com",
     "is_active": True,
     "is_staff": False,
     "is_superuser": False,
+    "is_first_login": True,
 }
 
 EXTRA_USER = {
     "username": "1234-5678-8765-4321",
     "first_name": "Extra",
     "last_name": "User",
+    "email": "extra_user@test.com",
     "is_active": True,
     "is_staff": False,
     "is_superuser": False,
+    "is_first_login": True,
+}
+
+ADMIN_USER = {
+    "username": "9999-9999-9999-9999",
+    "first_name": "Admin",
+    "last_name": "User",
+    "email": "admin_user@test.com",
+    "is_active": True,
+    "is_staff": False,
+    "is_superuser": False,
+    "is_first_login": True,
 }
 
 TEST_EXPERIMENT = {
@@ -69,10 +84,16 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     "experimentSetUrn": None,
 }
 
-TEST_REFERENCE_GENOME = {
+TEST_TAXONOMY = {
     "id": 1,
-    "short_name": "Name",
-    "organism_name": "Organism",
+    "tax_id": 9606,
+    "organism_name": "Organism name",
+    "common_name": "Common name",
+    "rank": "Rank",
+    "has_described_species_name": True,
+    "article_reference": "NCBI:txid9606",
+    "genome_identifier_id": None,
+    "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606",
 }
 
 TEST_LICENSE = {
@@ -94,7 +115,6 @@ TEST_SEQ_SCORESET = {
             "name": "TEST1",
             "category": "Protein coding",
             "external_identifiers": [],
-            "reference_maps": [{"genome_id": TEST_REFERENCE_GENOME["id"]}],
             "target_sequence": {
                 "sequence_type": "dna",
                 "sequence": "ACGTTT",
@@ -122,16 +142,18 @@ TEST_MINIMAL_SEQ_SCORESET = {
             "name": "TEST1",
             "category": "Protein coding",
             "externalIdentifiers": [],
-            "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
             "targetSequence": {
                 "sequenceType": "dna",
                 "sequence": "ACGTTT",
-                "reference": {
-                    "id": 1,
-                    "shortName": "Name",
-                    "organismName": "Organism",
-                    "creationDate": date.today().isoformat(),
-                    "modificationDate": date.today().isoformat(),
+                "taxonomy": {
+                    "taxId": TEST_TAXONOMY["tax_id"],
+                    "organismName": TEST_TAXONOMY["organism_name"],
+                    "commonName": TEST_TAXONOMY["common_name"],
+                    "rank": TEST_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_TAXONOMY["article_reference"],
+                    "id": TEST_TAXONOMY["id"],
+                    "url": TEST_TAXONOMY["url"],
                 },
             },
         }
@@ -167,12 +189,15 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
                 "sequenceType": "dna",
                 "sequence": "ACGTTT",
                 "label": "TEST1",
-                "reference": {
-                    "id": 1,
-                    "shortName": "Name",
-                    "organismName": "Organism",
-                    "creationDate": date.today().isoformat(),
-                    "modificationDate": date.today().isoformat(),
+                "taxonomy": {
+                    "taxId": TEST_TAXONOMY["tax_id"],
+                    "organismName": TEST_TAXONOMY["organism_name"],
+                    "commonName": TEST_TAXONOMY["common_name"],
+                    "rank": TEST_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_TAXONOMY["article_reference"],
+                    "id": TEST_TAXONOMY["id"],
+                    "url": TEST_TAXONOMY["url"],
                 },
             },
         }
@@ -203,7 +228,6 @@ TEST_MINIMAL_ACC_SCORESET = {
             "name": "TEST2",
             "category": "Protein coding",
             "externalIdentifiers": [],
-            "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
             "targetAccession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
         }
     ],
@@ -220,7 +244,6 @@ TEST_ACC_SCORESET = {
             "name": "TEST2",
             "category": "Protein coding",
             "external_identifiers": [],
-            "reference_maps": [{"genome_id": TEST_REFERENCE_GENOME["id"]}],
             "target_accession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
         }
     ],
@@ -250,7 +273,6 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
             "name": "TEST2",
             "category": "Protein coding",
             "externalIdentifiers": [],
-            "referenceMaps": [{"genomeId": TEST_REFERENCE_GENOME["id"]}],
             "targetAccession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
         }
     ],

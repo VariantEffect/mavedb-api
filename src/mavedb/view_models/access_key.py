@@ -2,6 +2,7 @@ from datetime import date
 from typing import Optional
 
 from mavedb.view_models.base.base import BaseModel
+from mavedb.models.enums.user_role import UserRole
 
 
 class AccessKeyBase(BaseModel):
@@ -15,6 +16,8 @@ class AccessKeyBase(BaseModel):
 class SavedAccessKey(AccessKeyBase):
     class Config:
         orm_mode = True
+
+    role: Optional[UserRole]
 
 
 # Properties to return to non-admin clients

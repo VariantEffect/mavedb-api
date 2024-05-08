@@ -14,9 +14,10 @@ BACKGROUND_CRONJOBS: list[Callable] = []
 
 REDIS_IP = os.getenv("REDIS_IP") or "localhost"
 REDIS_PORT = int(os.getenv("REDIS_PORT") or 6379)
+REDIS_SSL = (os.getenv("REDIS_SSL") or "false").lower() == "true"
 
 
-RedisWorkerSettings = RedisSettings(host=REDIS_IP, port=REDIS_PORT, ssl=True)
+RedisWorkerSettings = RedisSettings(host=REDIS_IP, port=REDIS_PORT, ssl=REDIS_SSL)
 
 
 async def startup(ctx):
