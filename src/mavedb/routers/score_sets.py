@@ -110,32 +110,6 @@ async def show_score_set(
 
     return await fetch_score_set_by_urn(db, urn, user_data)
 
-@router.get(
-    "/score-sets/current-version/{urn}",
-    status_code=200,
-    response_model=Optional[score_set.ScoreSet],
-    responses={404: {}, 500: {}},
-    response_model_exclude_none=True,
-)
-async def get_score_set_current_version(
-    *, urn: str, db: Session = Depends(deps.get_db), user: User = Depends(get_current_user)
-) -> Any:
-    """
-    Fetch the newest version of a score set by URN.
-    """
-
-    item = await fetch_score_set_by_urn(db, urn, user)
-    if item:
-        score_set_id = item.id
-        while score_set_id:
-            permission_filter = ScoreSet.private.is_(False)
-            superseding_score_set = db.query(ScoreSet).filter(ScoreSet.superseded_score_set_id == score_set_id).filter(permission_filter).one_or_none()
-            if superseding_score_set:
-                score_set_id = superseding_score_set.id
-                item = superseding_score_set
-            else:
-                break
-    return item
 
 @router.get(
     "/score-sets/{urn}/scores",
