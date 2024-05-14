@@ -11,9 +11,9 @@ from .score_set import ScoreSet
 class Variant(Base):
     __tablename__ = "variants"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
 
-    urn = Column(String(64), nullable=True, unique=True, index=True)
+    urn = Column(String(64), index=True, nullable=True, unique=True)
     data = Column(JSONB, nullable=False)
 
     score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=False)

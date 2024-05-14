@@ -10,7 +10,7 @@ from .genome_identifier import GenomeIdentifier
 class Taxonomy(Base):
     __tablename__ = "taxonomies"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     tax_id = Column(Integer, nullable=False)
     organism_name = Column(String, nullable=True)
     common_name = Column(String, nullable=True)

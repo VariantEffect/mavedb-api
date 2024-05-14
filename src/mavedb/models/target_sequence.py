@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 class TargetSequence(Base):
     __tablename__ = "target_sequences"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     sequence_type = Column(String, nullable=False)
     sequence = Column(String, nullable=False)
     label = Column(String, nullable=True)

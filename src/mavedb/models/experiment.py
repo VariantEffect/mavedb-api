@@ -50,7 +50,7 @@ experiments_raw_read_identifiers_association_table = Table(
 class Experiment(Base):
     __tablename__ = "experiments"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
 
     urn = Column(String(64), nullable=True, default=generate_temp_urn, unique=True, index=True)
     title = Column(String, nullable=False)

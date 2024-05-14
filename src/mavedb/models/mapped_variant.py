@@ -9,7 +9,7 @@ from .variant import Variant
 class MappedVariant(Base):
     __tablename__ = "mapped_variants"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
 
     pre_mapped = Column(JSONB, nullable=False)
     post_mapped = Column(JSONB, nullable=False)

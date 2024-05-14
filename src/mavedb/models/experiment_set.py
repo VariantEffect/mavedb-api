@@ -50,7 +50,7 @@ experiment_sets_raw_read_identifiers_association_table = Table(
 class ExperimentSet(Base):
     __tablename__ = "experiment_sets"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
 
     urn = Column(String(64), nullable=True, default=generate_temp_urn, unique=True, index=True)
     extra_metadata = Column(JSONB, nullable=False)

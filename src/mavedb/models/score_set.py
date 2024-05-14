@@ -63,9 +63,9 @@ score_sets_raw_read_identifiers_association_table = Table(
 class ScoreSet(Base):
     __tablename__ = "scoresets"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
 
-    urn = Column(String(64), nullable=True, default=generate_temp_urn, unique=True, index=True)
+    urn = Column(String(64), default=generate_temp_urn, index=True, nullable=True, unique=True)
     title = Column(String, nullable=False)
     method_text = Column(String, nullable=False)
     abstract_text = Column(String, nullable=False)

@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 class TargetGene(Base):
     __tablename__ = "target_genes"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
 
     name = Column(String, nullable=False)
     category = Column(String, nullable=False)
