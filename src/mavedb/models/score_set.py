@@ -73,6 +73,7 @@ class ScoreSet(Base):
     extra_metadata = Column(JSONB, nullable=False)
     dataset_columns = Column(JSONB, nullable=False, default={})
     external_links = Column(JSONB, nullable=False, default={})
+    statistics = Column(JSONB, nullable=True)
 
     normalised = Column(Boolean, nullable=False, default=False)
     private = Column(Boolean, nullable=False, default=True)

@@ -1,8 +1,10 @@
 import csv
 import io
+import logging
 import re
-from typing import Any, BinaryIO, Iterable, Optional, Sequence
+from typing import Any, BinaryIO, Iterable, List, Optional, Sequence, Tuple, Union
 
+import mavehgvs
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
@@ -41,6 +43,8 @@ from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.view_models.search import ScoreSetsSearch
+
+logger = logging.getLogger(__name__)
 
 VariantData = dict[str, Optional[dict[str, dict]]]
 
@@ -635,3 +639,230 @@ def columns_for_dataset(dataset: Optional[pd.DataFrame]) -> list[str]:
         return []
 
     return [col for col in dataset.columns if col not in HGVSColumns.options()]
+
+
+def get_score_set_target_lengths(score_set: ScoreSet):
+    dna_lengths: list[int] = []
+    protein_lengths: list[int] = []
+    for target_gene in score_set.target_genes:
+        if target_gene.target_sequence is not None:
+            if target_gene.target_sequence.sequence_type == "protein":  # or "dna"
+                protein_length = len(target_gene.target_sequence.sequence)
+                protein_lengths.append(protein_length)
+                dna_lengths.append(protein_length * 3)  # Infer DNA target length from protein.
+            elif target_gene.target_sequence.sequence_type == "dna":
+                dna_length = len(target_gene.target_sequence.sequence)
+                protein_lengths.append(0)  # Do not infer a protein target length from DNA.
+                dna_lengths.append(dna_length)
+            else:
+                # Invalid sequence type
+                raise ValidationError("Invalid sequence type")
+    return {
+        "dna": dna_lengths,
+        "protein": protein_lengths,
+    }
+
+
+def summarize_nt_mutations_in_variant(variant: Variant):
+    if variant.hgvs_nt is None:
+        return {"num_mutations": 0}
+    nt_variants: Tuple[List[Optional[mavehgvs.Variant]], List[Optional[str]]] = mavehgvs.util.parse_variant_strings(
+        [variant.hgvs_nt]
+    )
+    nt_variant: Optional[mavehgvs.Variant] = nt_variants[0][0]
+    if nt_variant is None:
+        return {"num_mutations": 0}
+    return {
+        "num_mutations": len(nt_variant.positions) if type(nt_variant.positions) is list else 1,
+    }
+
+
+def summarize_pro_mutations_in_variant(variant: Variant):
+    if variant.hgvs_pro is None:
+        return {"num_mutations": 0, "most_severe_mutation_type": None}
+    pro_variants: Tuple[List[Optional[mavehgvs.Variant]], List[Optional[str]]] = mavehgvs.util.parse_variant_strings(
+        [variant.hgvs_pro]
+    )
+    pro_variant: Optional[mavehgvs.Variant] = pro_variants[0][0]
+    if pro_variant is None:
+        return {"num_mutations": 0, "most_severe_mutation_type": None}
+    # print(f"{pro_variant.sequence}, VTYPE: {pro_variant.variant_type}, {pro_variant.target_id}")
+
+    has_synonmyous_mutations = False
+    has_missense_mutations = False
+    has_nonsense_mutations = False
+    has_other_mutations = False
+
+    # The pro_variant object contains either one sequence or a list of them, and similarly one variation type or a list.
+    # We normalize both here, turning single elements into lists of length 1.
+    sequences: list[Union[str, tuple[str, str], None]] = (
+        pro_variant.sequence if type(pro_variant.sequence) is list else [pro_variant.sequence]
+    )
+    variation_types: list[str] = (
+        pro_variant.variant_type if type(pro_variant.variant_type) is list else [pro_variant.variant_type]
+    )
+
+    # Look at each variation (mutation) and count synonymous, nonsense, and missense mutations.
+    for i, variation_type in enumerate(variation_types):
+        if variation_type == "equal":
+            has_synonmyous_mutations = True
+        elif variation_type == "sub":
+            sequence = sequences[i]
+            # For a substitution, there should be two sequence elements (WT and mutated). The second sequence element
+            # may in general be one of the following:
+            # - An amino acid
+            # - Ter (stop codon). MaveHGVS doesn't support the short notation *.
+            # - - or del. This should not occur when the variant type is "sub."
+            # - =. This should not occur when the variant type is "sub," but we allow it.
+            if type(sequence) is not tuple:
+                logger.warn(f"Variant {variant.urn} has a sequence inconsistent with its variant type.")
+                has_other_mutations = True
+            elif sequence[1] in ["*", "Ter"]:
+                has_nonsense_mutations = True
+            elif sequence[1] in ["-", "del"]:
+                logger.warn(f"Variant {variant.urn} has a sequence inconsistent with its variant type.")
+                has_other_mutations = True
+            elif sequence[1] == "=" or sequence[0] == sequence[1]:
+                has_synonmyous_mutations = True
+            else:
+                has_missense_mutations = True
+        else:
+            print(variation_type)
+            has_other_mutations = True
+
+    # Set the variant type only if all variations are of the same type.
+    if has_other_mutations:
+        mutation_type = "other"
+    elif has_nonsense_mutations:
+        mutation_type = "nonsense"
+    elif has_missense_mutations:
+        mutation_type = "missense"
+    elif has_synonmyous_mutations:
+        mutation_type = "synonymous"
+    else:
+        mutation_type = "other"
+
+    return {
+        "num_mutations": len(pro_variant.positions) if type(pro_variant.positions) is list else 1,
+        "most_severe_mutation_type": mutation_type,
+    }
+
+
+def calculate_score_set_statistics(score_set: ScoreSet):
+    score_set.target_genes
+
+    lengths = get_score_set_target_lengths(score_set)
+    dna_target_length = sum(lengths["dna"])
+    pro_target_length = sum(lengths["protein"])
+
+    num_single_mutant_nt_variants = 0
+    num_double_mutant_nt_variants = 0
+    num_triple_plus_mutant_nt_variants = 0
+
+    num_single_mutant_pro_variants = 0
+    num_double_mutant_pro_variants = 0
+    num_triple_plus_mutant_pro_variants = 0
+
+    num_splice_variants = 0
+
+    num_missense_variants = 0
+    num_nonsense_variants = 0
+    num_synonymous_variants = 0
+
+    # Count of all AA- and NT-sequence mutations, to be used in determining the average number of mutations per position
+    num_nt_mutations = 0
+    num_pro_mutations = 0
+
+    all_variants_have_hgvs_nt = True
+    all_variants_have_hgvs_pro = True
+    some_variants_have_hgvs_nt = False
+    some_variants_have_hgvs_pro = False
+
+    for v in score_set.variants:
+        # if not re.search(r"\*$", v.hgvs_pro):
+        #     continue
+
+        variant_has_hgvs_nt = v.hgvs_nt is not None
+        variant_has_hgvs_pro = v.hgvs_pro is not None
+        all_variants_have_hgvs_nt = all_variants_have_hgvs_nt and variant_has_hgvs_nt
+        all_variants_have_hgvs_pro = all_variants_have_hgvs_pro and variant_has_hgvs_pro
+        some_variants_have_hgvs_nt = some_variants_have_hgvs_nt or variant_has_hgvs_nt
+        some_variants_have_hgvs_pro = some_variants_have_hgvs_pro or variant_has_hgvs_pro
+
+        nt_mutation_summary = summarize_nt_mutations_in_variant(v)
+        pro_mutation_summary = summarize_pro_mutations_in_variant(v)
+
+        num_nt_mutations = nt_mutation_summary["num_mutations"]
+        num_pro_mutations = pro_mutation_summary["num_mutations"]
+
+        # Count variants by number of AA-sequence mutations.
+        if num_pro_mutations == 1:
+            num_single_mutant_pro_variants += 1
+        elif num_pro_mutations == 2:
+            num_double_mutant_pro_variants += 1
+        elif num_pro_mutations > 2:
+            num_triple_plus_mutant_pro_variants += 1
+
+        # Count variants by number of NT-sequence mutations.
+        if num_nt_mutations == 1:
+            num_single_mutant_nt_variants += 1
+        elif num_nt_mutations == 2:
+            num_double_mutant_nt_variants += 1
+        elif num_nt_mutations > 2:
+            num_triple_plus_mutant_nt_variants += 1
+
+        # Count variants with hgvs_splice set.
+        if v.hgvs_splice is not None:
+            num_splice_variants += 1
+
+        # Count protein sequence variants by most severe mutation type. Those with mutations other than missense
+        most_severe_pro_mutation_type: int = pro_mutation_summary["most_severe_mutation_type"]
+        if most_severe_pro_mutation_type == "nonsense":
+            num_nonsense_variants += 1
+        elif most_severe_pro_mutation_type == "missense":
+            num_missense_variants += 1
+        elif most_severe_pro_mutation_type == "synonymous":
+            num_synonymous_variants += 1
+
+        print(f"{v.hgvs_pro}: {num_nt_mutations}/{num_pro_mutations} ({most_severe_pro_mutation_type})")
+
+    statistics = {
+        "num_splice_variants": num_splice_variants,
+        "target_length": {
+            "dna": dna_target_length,
+            "protein": pro_target_length,
+        },
+    }
+
+    if some_variants_have_hgvs_nt or some_variants_have_hgvs_pro:
+        statistics["num_variants_by_mutation_count"] = {}
+
+    if some_variants_have_hgvs_nt:
+        statistics["num_variants_by_mutation_count"]["nt"] = {  # type: ignore
+            "single": num_single_mutant_nt_variants,
+            "double": num_double_mutant_nt_variants,
+            "triple_or_more": num_triple_plus_mutant_nt_variants,
+        }
+
+    if some_variants_have_hgvs_pro:
+        statistics["num_variants_by_mutation_count"]["pro"] = {  # type: ignore
+            "single": num_single_mutant_pro_variants,
+            "double": num_double_mutant_pro_variants,
+            "triple_or_more": num_triple_plus_mutant_pro_variants,
+        }
+
+    if all_variants_have_hgvs_nt or all_variants_have_hgvs_pro:
+        statistics["mean_num_mutations_per_position"] = {}
+
+    if all_variants_have_hgvs_nt:
+        statistics["mean_num_mutations_per_position"]["dna"] = num_nt_mutations / dna_target_length if dna_target_length > 0 else 0  # type: ignore
+
+    if all_variants_have_hgvs_pro:
+        statistics["num_variants_by_mutation_type"] = {
+            "missense": num_missense_variants,
+            "nonsense": num_nonsense_variants,
+            "synonymous": num_synonymous_variants,
+        }
+        statistics["mean_num_mutations_per_position"]["protein"] = num_pro_mutations / pro_target_length if pro_target_length > 0 else 0  # type: ignore
+
+    return statistics
