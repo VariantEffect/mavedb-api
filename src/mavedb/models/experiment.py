@@ -71,9 +71,9 @@ class Experiment(Base):
     experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), index=True, nullable=True)
     experiment_set: Mapped[Optional[ExperimentSet]] = relationship(back_populates="experiments")
 
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     created_by: Mapped[User] = relationship("User", foreign_keys="Experiment.created_by_id")
-    modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    modified_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     modified_by: Mapped[User] = relationship("User", foreign_keys="Experiment.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)

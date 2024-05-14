@@ -92,16 +92,16 @@ class ScoreSet(Base):
     experiment: Mapped["Experiment"] = relationship(back_populates="score_sets")
 
     # TODO Standardize on US or GB spelling for licenc/se.
-    licence_id = Column(Integer, ForeignKey("licenses.id"), nullable=False)
+    licence_id = Column(Integer, ForeignKey("licenses.id"), index=True, nullable=False)
     license: Mapped["License"] = relationship("License")
-    superseded_score_set_id = Column("replaces_id", Integer, ForeignKey("scoresets.id"), nullable=True)  # TODO
+    superseded_score_set_id = Column("replaces_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=True)
     superseded_score_set: Mapped[Optional["ScoreSet"]] = relationship(
         "ScoreSet", uselist=False, remote_side=[id], backref=backref("superseding_score_set", uselist=False)
     )
 
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     created_by: Mapped["User"] = relationship("User", foreign_keys="ScoreSet.created_by_id")
-    modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    modified_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     modified_by: Mapped["User"] = relationship("User", foreign_keys="ScoreSet.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
