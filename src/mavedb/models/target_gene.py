@@ -26,16 +26,14 @@ class TargetGene(Base):
     category = Column(String, nullable=False)
 
     score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=False)
-    score_set : Mapped[ScoreSet] = relationship(
-        back_populates="target_genes", single_parent=True, uselist=True
-    )
+    score_set: Mapped[ScoreSet] = relationship(back_populates="target_genes", single_parent=True, uselist=True)
 
     target_sequence_id = Column(Integer, ForeignKey("target_sequences.id"), index=True, nullable=True)
     accession_id = Column(Integer, ForeignKey("target_accessions.id"), index=True, nullable=True)
-    target_sequence : Mapped[TargetSequence] = relationship(
+    target_sequence: Mapped[TargetSequence] = relationship(
         back_populates="target_genes", cascade="all,delete-orphan", single_parent=True
     )
-    target_accession : Mapped[TargetAccession] = relationship(
+    target_accession: Mapped[TargetAccession] = relationship(
         "TargetAccession",
         backref=backref("target_genes", single_parent=True, uselist=True),
         cascade="all,delete-orphan",
@@ -45,6 +43,6 @@ class TargetGene(Base):
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    ensembl_offset : Mapped["EnsemblOffset"] = relationship(back_populates="target_gene", cascade="all, delete-orphan")
-    refseq_offset : Mapped["RefseqOffset"] = relationship(back_populates="target_gene", cascade="all, delete-orphan")
-    uniprot_offset : Mapped["UniprotOffset"] = relationship(back_populates="target_gene", cascade="all, delete-orphan")
+    ensembl_offset: Mapped["EnsemblOffset"] = relationship(back_populates="target_gene", cascade="all, delete-orphan")
+    refseq_offset: Mapped["RefseqOffset"] = relationship(back_populates="target_gene", cascade="all, delete-orphan")
+    uniprot_offset: Mapped["UniprotOffset"] = relationship(back_populates="target_gene", cascade="all, delete-orphan")
