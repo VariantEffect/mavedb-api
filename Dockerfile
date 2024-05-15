@@ -81,6 +81,8 @@ COPY poetry.lock pyproject.toml ./
 
 # installs runtime dependencies to $VIRTUAL_ENV
 RUN poetry install --no-root --extras server
+COPY alembic /code/alembic
+COPY alembic.ini /code/alembic.ini
 COPY src /code/src
 COPY src/mavedb/server_main.py /code/main.py
 
