@@ -17,7 +17,7 @@ class AccessKey(Base):
     __tablename__ = "access_keys"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     user: Mapped[User] = relationship(back_populates="access_keys")
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=True)
     role_obj: Mapped[Role] = relationship(Role)

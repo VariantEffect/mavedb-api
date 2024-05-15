@@ -8,7 +8,7 @@ from mavedb.db.base import Base
 class License(Base):
     __tablename__ = "licenses"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     long_name = Column(String, nullable=False, unique=True)
     short_name = Column(String, nullable=False, unique=True)
     text = Column(String, nullable=False, unique=False)
