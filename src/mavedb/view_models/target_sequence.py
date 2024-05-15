@@ -49,9 +49,11 @@ class TargetSequenceModify(TargetSequenceBase):
             if ":" in field_value:
                 raise ValidationError(f"Target sequence label `{field_value}` may not contain a colon.")
 
-        # Sanitize the label by stripping leading/trailing whitespace and replacing any internal whitespace with
-        # underscores. Fully qualified variants should never contain whitespace.
-        return sanitize_target_sequence_label(field_value)
+            # Sanitize the label by stripping leading/trailing whitespace and replacing any internal whitespace with
+            # underscores. Fully qualified variants should never contain whitespace.
+            return sanitize_target_sequence_label(field_value)
+
+        return field_value
 
 
 class TargetSequenceCreate(TargetSequenceModify):
