@@ -2,7 +2,7 @@ import csv
 import io
 import re
 from typing import Any, BinaryIO, Iterable, Optional, Sequence
- 
+
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
@@ -80,16 +80,12 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ScoreSet.keyword_objs.any(func.lower(Keyword.text).icontains(lower_search_text)),
                 ScoreSet.target_genes.any(
                     TargetGene.target_sequence.has(
-                        TargetSequence.taxonomy.has(
-                            func.lower(Taxonomy.organism_name).icontains(lower_search_text)
-                        )
+                        TargetSequence.taxonomy.has(func.lower(Taxonomy.organism_name).icontains(lower_search_text))
                     )
                 ),
                 ScoreSet.target_genes.any(
                     TargetGene.target_sequence.has(
-                        TargetSequence.taxonomy.has(
-                            func.lower(Taxonomy.common_name).icontains(lower_search_text)
-                        )
+                        TargetSequence.taxonomy.has(func.lower(Taxonomy.common_name).icontains(lower_search_text))
                     )
                 ),
                 ScoreSet.target_genes.any(
@@ -123,7 +119,9 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ),
                 ScoreSet.target_genes.any(
                     TargetGene.refseq_offset.has(
-                        RefseqOffset.identifier.has(func.lower(RefseqIdentifier.identifier).icontains(lower_search_text))
+                        RefseqOffset.identifier.has(
+                            func.lower(RefseqIdentifier.identifier).icontains(lower_search_text)
+                        )
                     )
                 ),
                 ScoreSet.target_genes.any(
@@ -143,9 +141,7 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
         query = query.filter(
             ScoreSet.target_genes.any(
                 TargetGene.target_sequence.has(
-                    TargetSequence.taxonomy.has(
-                        Taxonomy.organism_name.in_(search.target_organism_names)
-                    )
+                    TargetSequence.taxonomy.has(Taxonomy.organism_name.in_(search.target_organism_names))
                 )
             )
         )
@@ -605,7 +601,6 @@ def csv_data_to_df(file_data: BinaryIO) -> pd.DataFrame:
         sep=",",
         encoding="utf-8",
         quotechar="'",
-        comment="#",
         na_values=extra_na_values,
         keep_default_na=True,
         dtype={**{col: str for col in HGVSColumns.options()}, "scores": float},
