@@ -58,13 +58,8 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
     query = db.query(ScoreSet)  # \
     # .filter(ScoreSet.private.is_(False))
 
-    # Get superseded_score_set_id list
-    replaced_score_set_ids = db.query(ScoreSet.superseded_score_set_id).filter(ScoreSet.superseded_score_set_id.isnot(None)).distinct().all()
-    replaced_score_set_ids = {id for (id,) in replaced_score_set_ids}
-
     #  filter out the score sets that are replaced by other score sets
-    if replaced_score_set_ids:
-        query = query.filter(~ScoreSet.id.in_(replaced_score_set_ids))
+    query = query.filter(~ScoreSet.superseding_score_set.has())
 
     if owner is not None:
         query = query.filter(ScoreSet.created_by_id == owner.id)
