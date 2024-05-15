@@ -58,6 +58,21 @@ def test_target_sequence_label_is_sanitized():
     assert target_sequence.label == sanitize_target_sequence_label(label)
 
 
+def test_target_sequence_label_can_be_nonetype():
+    sequence_type = "dna"
+    label = None
+    sequence = SEQUENCE
+    taxonomy = TAXONOMY
+
+    target_sequence = TargetSequenceCreate(
+        sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label
+    )
+
+    assert target_sequence.sequence_type == sequence_type
+    assert target_sequence.sequence == SEQUENCE
+    assert target_sequence.label is None
+
+
 def test_cannot_create_target_sequence_with_label_containing_colon():
     sequence_type = "dna"
     label = "sequence:label"
