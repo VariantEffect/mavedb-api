@@ -66,13 +66,16 @@ async def fetch_score_set_by_urn(db, urn: str, owner: Optional[UserData]) -> Opt
     except MultipleResultsFound:
         raise HTTPException(status_code=500, detail=f"multiple score sets with URN '{urn}' were found")
 
-    assert_permission(owner, item, Action.READ)
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
+    assert_permission(owner, item, Action.READ)
     return item
 
 
-router = APIRouter(prefix="/api/v1", tags=["score sets"], responses={404: {"description": "not found"}}, route_class=LoggedRoute)
+router = APIRouter(
+    prefix="/api/v1", tags=["score sets"], responses={404: {"description": "not found"}}, route_class=LoggedRoute
+)
 
 
 @router.post("/score-sets/search", status_code=200, response_model=list[score_set.ShortScoreSet])
