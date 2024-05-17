@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from alembic import op
 from mavedb.lib.identifiers import ExternalPublication
-from mavedb.lib.rxiv import Rxiv
+from mavedb.lib.external_publications import Rxiv
 from mavedb.models.publication_identifier import PublicationIdentifier
 
 # revision identifiers, used by Alembic.

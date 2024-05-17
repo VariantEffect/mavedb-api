@@ -22,6 +22,7 @@ class PublicationIdentifier(Base):
     # Deprecated.
     preprint_doi = Column(String, nullable=True)
     publication_year = Column(Integer, nullable=True)
+    # Deprecated.
     preprint_date = Column(Date, nullable=True)
     publication_journal = Column(String, nullable=True)
     url = Column(String, nullable=True)

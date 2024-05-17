@@ -2,7 +2,6 @@ import idutils
 import datetime
 
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.lib.validation.utilities import is_null
 from mavedb.lib.validation.constants.publication import valid_dbnames
 
 
@@ -53,6 +52,7 @@ def validate_publication(identifier: str) -> None:
                    preprint article is from before 2019.12.11 (12345678)
                    or the article publication date with a 8 digit
                    suffix if published after that date (2019.12.12.12345678).
+    - valid DOIs: We use a RegEx provided by IDUtils to check this constraint.
 
     Note that preprint identifiers may have leading zeros, while PMIDs may not.
 
@@ -66,15 +66,19 @@ def validate_publication(identifier: str) -> None:
     None
         If the identifier is in one of the formats we accept.
         NOTE: This does not imply that the identifier exists
-        in the PM, bioRxiv, or medRxiv databases.
+        in the Crossref, PubMed, bioRxiv, or medRxiv databases.
 
     Raises
     ______
     ValidationError
         If the identifier is not an accepted publication identifier.
     """
-
-    if not (validate_pubmed(identifier) or validate_biorxiv(identifier) or validate_medrxiv(identifier)):
+    if not (
+        validate_pubmed(identifier)
+        or validate_biorxiv(identifier)
+        or validate_medrxiv(identifier)
+        or idutils.is_doi(identifier)
+    ):
         raise ValidationError(f"'{identifier}' is not a valid PubMed, bioRxiv, or medRxiv identifier.")
 
 
