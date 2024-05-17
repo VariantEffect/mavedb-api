@@ -364,7 +364,7 @@ async def find_or_create_publication_identifier(
             f"No matching articles found for identifier {identifier} across all accepted publication databases."
         )
 
-    if sum(article is None for article in article_matches.values()) > 1:
+    if sum(article is not None for article in article_matches.values()) > 1:
         raise AmbiguousIdentifierError(
             f"Found multiple articles associated with identifier {identifier}. Specify a `db_name` along with this identifier to avoid ambiguity."
         )
