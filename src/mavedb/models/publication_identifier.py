@@ -18,8 +18,6 @@ class PublicationIdentifier(Base):
     authors = Column(JSONB, nullable=False)
     doi = Column(String, nullable=True)
     publication_year = Column(Integer, nullable=True)
-    # Deprecated.
-    preprint_date = Column(Date, nullable=True)
     publication_journal = Column(String, nullable=True)
     url = Column(String, nullable=True)
     reference_html = Column(String, nullable=True)
