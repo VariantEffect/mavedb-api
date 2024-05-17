@@ -375,7 +375,7 @@ async def find_or_create_publication_identifier(
     if isinstance(matched_article, PublicationIdentifier):
         return matched_article
 
-    # TODO(#XXX): It may be useful for internal consistency to use the Crossref record fetched via DOI if it exists. If a publication did not
+    # TODO(#214): It may be useful for internal consistency to use the Crossref record fetched via DOI if it exists. If a publication did not
     #             have a DOI, we would need to use the record as returned by PubMed/bioRxiv/medRxiv.
 
     return create_generic_article(matched_article)
