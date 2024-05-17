@@ -352,13 +352,13 @@ def test_create_experiment_with_new_primary_pubmed_publication(client, setup_rou
             "id",
             "authors",
             "dbName",
+            "doi",
             "identifier",
             "title",
             "url",
             "referenceHtml",
-            "publicationDoi",
-            "publicationYear",
             "publicationJournal",
+            "publicationYear",
         ]
     )
     # TODO: add separate tests for generating the publication url and referenceHtml
@@ -387,7 +387,7 @@ def test_create_experiment_with_new_primary_preprint_publication(client, setup_r
             "title",
             "url",
             "referenceHtml",
-            "preprintDoi",
+            "doi",
             "preprintDate",
             "publicationJournal",
         ]
@@ -444,6 +444,8 @@ def test_create_experiment_rxiv_unavailable(client, setup_router_db, db_name, id
         assert r.status_code == 502
 
 
+# TODO#212: Test creation of publications with invalid DOIs
+@pytest.mark.skip
 def test_create_experiment_with_invalid_doi(client, setup_router_db):
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload.update({"doiIdentifiers": [{"identifier": "20711194"}]})

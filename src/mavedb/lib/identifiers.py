@@ -53,9 +53,8 @@ class ExternalPublication:
     publication_year: int
     publication_volume: Optional[str]
     publication_pages: Optional[str]
-    publication_doi: Optional[str]
+    doi: Optional[str]
     publication_journal: Optional[str]
-    preprint_doi: Optional[str]
     preprint_date: Optional[date]
     db_name: str
 
@@ -81,16 +80,15 @@ class ExternalPublication:
         self.title = str(external_publication.title)
         self.abstract = str(external_publication.abstract)
         self.authors = self._generate_author_list(external_publication.authors)
+        self.doi = external_publication.doi
 
         # Non-shared fields
         if isinstance(external_publication, PubmedArticle):
             self.publication_year = int(external_publication.year)
             self.publication_journal = external_publication.jrnl
-            self.publication_doi = external_publication.doi
             self.publication_volume = external_publication.volume
             self.publication_pages = external_publication.pages
         elif isinstance(external_publication, RxivContentDetail):
-            self.preprint_doi = external_publication.doi
             self.preprint_date = external_publication.date
 
     def _generate_author_list(self, authors: list[str]) -> list[dict[str, Union[str, bool]]]:
@@ -143,16 +141,20 @@ class ExternalPublication:
         author = self._format_authors()
 
         if self.db_name in ["PubMed"]:
-            doi_str = "" if not self.publication_doi else self.publication_doi
+            doi_str = "" if not self.doi else self.doi
             title = "(None)" if not self.title else self.title.strip(".")
             journal = "(None)" if not self.publication_journal else self.publication_journal.strip(".")
             year = "(Unknown year)" if not self.publication_year else self.publication_year
             volume = "(Unknown volume)" if not self.publication_volume else self.publication_volume
             pages = "(Unknown pages)" if not self.publication_pages else self.publication_pages
         else:
-            doi_str = "" if not self.preprint_doi else self.preprint_doi
+            doi_str = "" if not self.doi else self.doi
             title = "(None)" if not self.title else self.title.strip(".")
-            journal = "(None)" if not (hasattr(self, "publication_journal") and self.publication_journal) else self.publication_journal.strip(".")
+            journal = (
+                "(None)"
+                if not (hasattr(self, "publication_journal") and self.publication_journal)
+                else self.publication_journal.strip(".")
+            )
             year = "(Unknown year)" if not self.preprint_date else self.preprint_date.year
 
             # We don't receive these fields from rxiv platforms
@@ -306,7 +308,7 @@ def create_generic_article(article: ExternalPublication) -> PublicationIdentifie
             abstract=article.abstract,
             authors=article.authors,
             preprint_date=article.preprint_date,
-            preprint_doi=article.preprint_doi,
+            doi=article.doi,
             publication_journal="Preprint",  # blanket `Preprint` journal for preprint articles
             reference_html=article.reference_html,
         )
@@ -318,7 +320,7 @@ def create_generic_article(article: ExternalPublication) -> PublicationIdentifie
             title=article.title,
             abstract=article.abstract,
             authors=article.authors,
-            publication_doi=article.publication_doi,
+            doi=article.doi,
             publication_year=article.publication_year,
             publication_journal=article.publication_journal,
             reference_html=article.reference_html,

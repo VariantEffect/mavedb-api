@@ -32,8 +32,7 @@ class ExternalPublicationIdentifier(PublicationIdentifierBase):
     title: str
     abstract: Optional[str]
     authors: list[dict[str, str]]
-    publication_doi: Optional[str]
-    preprint_doi: Optional[str]
+    doi: Optional[str]
     publication_year: Optional[int]
     preprint_date: Optional[date]
     publication_journal: Optional[str]
