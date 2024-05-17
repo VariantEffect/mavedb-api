@@ -17,10 +17,6 @@ class PublicationIdentifier(Base):
     abstract = Column(String, nullable=True)
     authors = Column(JSONB, nullable=False)
     doi = Column(String, nullable=True)
-    # Deprecated.
-    publication_doi = Column(String, nullable=True)
-    # Deprecated.
-    preprint_doi = Column(String, nullable=True)
     publication_year = Column(Integer, nullable=True)
     # Deprecated.
     preprint_date = Column(Date, nullable=True)
