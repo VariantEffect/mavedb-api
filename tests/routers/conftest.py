@@ -183,5 +183,28 @@ def mock_publication_fetch(request, requests_mock):
                 ]
             },
         )
+    elif publication_to_mock["dbName"] == "Crossref":
+        requests_mock.get(
+            f"https://api.crossref.org/works/{publication_to_mock['identifier']}",
+            json={
+                "status": "ok",
+                "message-type": "work",
+                "message-version": "1.0.0",
+                "message": {
+                    "DOI": "10.1016/j.ahj.2024.04.019",
+                    "source": "Crossref",
+                    "title": ["Crossref test pub title"],
+                    "prefix": "10.1016",
+                    "author": [
+                        {"given": "author", "family": "one", "sequence": "first", "affiliation": []},
+                        {"given": "author", "family": "two", "sequence": "additional", "affiliation": []},
+                    ],
+                    "container-title": ["American Heart Journal"],
+                    "abstract": "<jats:title>Abstract</jats:title><jats:p>text test</jats:p>",
+                    "URL": "http://dx.doi.org/10.1016/j.ahj.2024.04.019",
+                    "published": {"date-parts": [[2024, 5]]},
+                },
+            },
+        )
 
     return publication_to_mock

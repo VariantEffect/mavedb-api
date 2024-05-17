@@ -105,7 +105,7 @@ class RxivPublication:
     published_date: Optional[datetime.date]
 
     def __init__(self, metadata: dict[str, str]) -> None:
-        self.title = metadata["preprint_title"]
+        self.title = metadata.get("title", metadata.get("preprint_title", ""))
         self.preprint_doi = metadata.get("preprint_doi")
         self.published_doi = metadata.get("published_doi")
         self.preprint_category = metadata.get("preprint_category")
@@ -261,6 +261,7 @@ class Crossref:
         if result.status_code == 404:
             return None
 
+        result.raise_for_status()
         return result.json()["message"]
 
     def doi(self, identifier: str) -> Optional[CrossrefWork]:
@@ -560,4 +561,5 @@ class Rxiv:
         if response.status_code == 404:
             return []
 
+        response.raise_for_status()
         return json.loads(response.text) if return_format == "json" else response.text

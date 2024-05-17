@@ -21,6 +21,7 @@ from tests.helpers.util import (
 from tests.helpers.constants import (
     EXTRA_USER,
     TEST_BIORXIV_IDENTIFIER,
+    TEST_CROSSREF_IDENTIFIER,
     TEST_MEDRXIV_IDENTIFIER,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_EXPERIMENT_RESPONSE,
@@ -388,8 +389,38 @@ def test_create_experiment_with_new_primary_preprint_publication(client, setup_r
             "url",
             "referenceHtml",
             "doi",
-            "preprintDate",
             "publicationJournal",
+            "publicationYear",
+        ]
+    )
+    # TODO: add separate tests for generating the publication url and referenceHtml
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        ({"dbName": "Crossref", "identifier": f"{TEST_CROSSREF_IDENTIFIER}"}),
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_create_experiment_with_new_primary_crossref_publication(client, setup_router_db, mock_publication_fetch):
+    mocked_publication = mock_publication_fetch
+    response_data = create_experiment(client, {"primaryPublicationIdentifiers": [mocked_publication]})
+
+    assert len(response_data["primaryPublicationIdentifiers"]) == 1
+    assert sorted(response_data["primaryPublicationIdentifiers"][0]) == sorted(
+        [
+            "abstract",
+            "id",
+            "authors",
+            "dbName",
+            "identifier",
+            "title",
+            "url",
+            "referenceHtml",
+            "doi",
+            "publicationJournal",
+            "publicationYear",
         ]
     )
     # TODO: add separate tests for generating the publication url and referenceHtml
@@ -444,8 +475,46 @@ def test_create_experiment_rxiv_unavailable(client, setup_router_db, db_name, id
         assert r.status_code == 502
 
 
-# TODO#212: Test creation of publications with invalid DOIs
-@pytest.mark.skip
+@pytest.mark.parametrize("db_name, identifier", [("Crossref", TEST_CROSSREF_IDENTIFIER)])
+def test_create_experiment_crossref_not_found(client, setup_router_db, db_name, identifier):
+    with requests_mock.mock() as m:
+        m.get(f"https://api.crossref.org/works/{identifier}", json="Resource not found.", status_code=404)
+        payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+        payload["primaryPublicationIdentifiers"] = [{"identifier": f"{identifier}"}]
+        r = client.post("/api/v1/experiments/", json=payload)
+
+        assert m.called
+
+        assert r.status_code == 404
+
+
+@pytest.mark.parametrize("db_name, identifier", [("Crossref", TEST_CROSSREF_IDENTIFIER)])
+def test_create_experiment_crossref_timeout(client, setup_router_db, db_name, identifier):
+    with requests_mock.mock() as m:
+        m.get(
+            f"https://api.crossref.org/works/{identifier}",
+            exc=requests.exceptions.ConnectTimeout,
+        )
+        payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+        payload["primaryPublicationIdentifiers"] = [{"identifier": f"{identifier}"}]
+        r = client.post("/api/v1/experiments/", json=payload)
+
+        assert m.called
+        assert r.status_code == 504
+
+
+@pytest.mark.parametrize("db_name, identifier", [("Crossref", TEST_CROSSREF_IDENTIFIER)])
+def test_create_experiment_crossref_unavailable(client, setup_router_db, db_name, identifier):
+    with requests_mock.mock() as m:
+        m.get(f"https://api.crossref.org/works/{identifier}", status_code=503)
+        payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+        payload["primaryPublicationIdentifiers"] = [{"identifier": f"{identifier}"}]
+        r = client.post("/api/v1/experiments/", json=payload)
+
+        assert m.called
+        assert r.status_code == 502
+
+
 def test_create_experiment_with_invalid_doi(client, setup_router_db):
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload.update({"doiIdentifiers": [{"identifier": "20711194"}]})
