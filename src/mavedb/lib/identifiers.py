@@ -197,10 +197,11 @@ async def fetch_pubmed_article(identifier: str) -> Optional[PubmedArticle]:
         raise AmbiguousIdentifierError(f"Fetched more than 1 PubMed article associated with PMID {identifier}") from exc
     except EutilsNCBIError:
         return None
-    except IndexError:
-        return None
-    else:
+
+    if fetched_articles:
         return fetched_articles[0]
+    else:
+        return None
 
 
 # TODO: Could search on article_detail -> content_detail to try and get the richer
