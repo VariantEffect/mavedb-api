@@ -40,7 +40,8 @@ class CrossrefWork(CrossrefObject):
     def __init__(self, resource: dict[str, Any]) -> None:
         super().__init__(resource["DOI"])
 
-        self.title = resource["title"]
+        # title is within a list.
+        self.title = resource["title"][0]
         self.url = resource.get("URL")
         self.volume = resource.get("volume")
 
