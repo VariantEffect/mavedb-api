@@ -302,7 +302,10 @@ async def find_generic_article(
                 ExternalPublication(identifier, "Crossref", external_publication) if external_publication else None
             )
         else:
-            found_articles["Crossref"] = existing_publication
+            # When we find an existing publication via DOI, it is not always the case that it came from Crossref originally.
+            # Use the existing publication db as the article key if it exists, otherwise default to Crossref since this is a DOI.
+            existing_db_name = existing_publication.db_name if existing_publication.db_name else "Crossref"
+            found_articles[existing_db_name] = existing_publication
 
         return found_articles
 
