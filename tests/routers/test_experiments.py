@@ -534,7 +534,7 @@ def test_create_experiment_with_invalid_primary_publication(client, setup_router
     assert response.status_code == 422
     response_data = response.json()
     assert (
-        f"'{experiment_post_payload['primaryPublicationIdentifiers'][0]['identifier']}' is not a valid PubMed, bioRxiv, or medRxiv identifier"
+        f"'{experiment_post_payload['primaryPublicationIdentifiers'][0]['identifier']}' is not a valid DOI or a valid PubMed, bioRxiv, or medRxiv identifier"
         in response_data["detail"][0]["msg"]
     )
 
