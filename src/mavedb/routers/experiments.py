@@ -46,7 +46,7 @@ def list_experiments(
     """
     query = db.query(Experiment)
     if q is not None:
-        if user_data.user is None:
+        if user_data is None:
             return []
         if len(q) > 0:
             query = query.filter(
