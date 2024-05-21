@@ -3,13 +3,15 @@ from datetime import date
 from typing import Optional, Union, Mapping
 
 import eutils  # type: ignore
+from idutils import is_doi, normalize_doi
 from eutils import EutilsNCBIError  # type: ignore
 from eutils._internal.xmlfacades.pubmedarticle import PubmedArticle  # type: ignore
 from eutils._internal.xmlfacades.pubmedarticleset import PubmedArticleSet  # type: ignore
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError
-from mavedb.lib.rxiv import Rxiv, RxivContentDetail
+from mavedb.lib.external_publications import Rxiv, Crossref, CrossrefWork, RxivContentDetail, PublicationAuthors
 from mavedb.lib.validation.publication import identifier_valid_for, validate_db_name
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
@@ -47,17 +49,19 @@ class ExternalPublication:
     """
 
     identifier: str
+    db_name: str
+
     title: str
-    abstract: str
-    authors: list[dict[str, Union[str, bool]]]
-    publication_year: int
+    authors: list[PublicationAuthors]
+
+    abstract: Optional[str]
+    doi: Optional[str]
+    publication_year: Optional[int]
     publication_volume: Optional[str]
     publication_pages: Optional[str]
-    publication_doi: Optional[str]
     publication_journal: Optional[str]
-    preprint_doi: Optional[str]
-    preprint_date: Optional[date]
-    db_name: str
+
+    supplied_url: Optional[str] = None
 
     _article_cit_fmt = "{author}. {title}. {journal}. {year}; {volume}:{pages}. {doi}"
 
@@ -65,35 +69,43 @@ class ExternalPublication:
         self,
         identifier: str,
         db_name: str,
-        external_publication: Union[RxivContentDetail, PubmedArticle],
+        external_publication: Union[RxivContentDetail, PubmedArticle, CrossrefWork],
     ) -> None:
-        """
-        NOTE: We assume here that the first author in each of these author lists is the primary author
-              of a publication. From what I have seen so far from the metapub and biorxiv APIs, this
-              is a fine assumption to make, but it doesn't come with future guarantees and this may
-              not be the case for certain publications.
-        """
         validate_db_name(db_name)
 
-        # Shared fields
+        # Required identification fields
         self.identifier = identifier
         self.db_name = db_name
+
+        # Shared fields
         self.title = str(external_publication.title)
-        self.abstract = str(external_publication.abstract)
-        self.authors = self._generate_author_list(external_publication.authors)
+        self.abstract = str(external_publication.abstract) if external_publication.abstract else None
+        self.doi = str(external_publication.doi) if external_publication.doi else None
 
         # Non-shared fields
         if isinstance(external_publication, PubmedArticle):
-            self.publication_year = int(external_publication.year)
-            self.publication_journal = external_publication.jrnl
-            self.publication_doi = external_publication.doi
-            self.publication_volume = external_publication.volume
-            self.publication_pages = external_publication.pages
-        elif isinstance(external_publication, RxivContentDetail):
-            self.preprint_doi = external_publication.doi
-            self.preprint_date = external_publication.date
+            self.authors = self._infer_author_list(external_publication.authors)
+            self.publication_year = int(external_publication.year) if external_publication.year else None
+            self.publication_journal = str(external_publication.jrnl) if external_publication.jrnl else None
+            self.publication_volume = str(external_publication.volume) if external_publication.volume else None
+            self.publication_pages = str(external_publication.pages) if external_publication.pages else None
 
-    def _generate_author_list(self, authors: list[str]) -> list[dict[str, Union[str, bool]]]:
+        elif isinstance(external_publication, RxivContentDetail):
+            self.authors = external_publication.authors
+            self.publication_year = external_publication.date.year if external_publication.date else None
+            self.publication_journal = "Preprint"  # blanket `Preprint` journal for preprint articles
+            self.publication_volume = None
+            self.publication_pages = None
+
+        elif isinstance(external_publication, CrossrefWork):
+            self.authors = external_publication.authors
+            self.supplied_url = external_publication.url
+            self.publication_year = external_publication.publication_year
+            self.publication_journal = external_publication.publication_journal
+            self.publication_volume = external_publication.volume
+            self.publication_pages = None
+
+    def _infer_author_list(self, authors: list[str]) -> list[PublicationAuthors]:
         """
         Generates a list of author names and thier authorship level associated with this publication.
         """
@@ -113,26 +125,26 @@ class ExternalPublication:
         return author
 
     @property
-    def first_author(self) -> str:
-        return str(self.authors[0]["name"])
+    def primary_author(self) -> str:
+        (primary_author,) = (author["name"] for author in self.authors if author["primary"])
+        return primary_author
 
     @property
     def secondary_authors(self) -> list[str]:
-        if len(self.authors) > 1:
-            return [str(author["name"]) for author in self.authors[1:]]
-        else:
-            return []
+        return [author["name"] for author in self.authors if not author["primary"]]
 
     @property
-    def url(self) -> str:
+    def url(self) -> Optional[str]:
         if self.db_name == "PubMed":
             return f"http://www.ncbi.nlm.nih.gov/pubmed/{self.identifier}"
         elif self.db_name == "bioRxiv":
             return f"https://www.biorxiv.org/content/10.1101/{self.identifier}"
         elif self.db_name == "medRxiv":
             return f"https://www.medrxiv.org/content/10.1101/{self.identifier}"
+        elif self.db_name == "Crossref":
+            return self.supplied_url
         else:
-            return ""
+            return None
 
     @property
     def reference_html(self) -> str:
@@ -142,22 +154,16 @@ class ExternalPublication:
         """
         author = self._format_authors()
 
-        if self.db_name in ["PubMed"]:
-            doi_str = "" if not self.publication_doi else self.publication_doi
-            title = "(None)" if not self.title else self.title.strip(".")
-            journal = "(None)" if not self.publication_journal else self.publication_journal.strip(".")
-            year = "(Unknown year)" if not self.publication_year else self.publication_year
-            volume = "(Unknown volume)" if not self.publication_volume else self.publication_volume
-            pages = "(Unknown pages)" if not self.publication_pages else self.publication_pages
-        else:
-            doi_str = "" if not self.preprint_doi else self.preprint_doi
-            title = "(None)" if not self.title else self.title.strip(".")
-            journal = "(None)" if not (hasattr(self, "publication_journal") and self.publication_journal) else self.publication_journal.strip(".")
-            year = "(Unknown year)" if not self.preprint_date else self.preprint_date.year
-
-            # We don't receive these fields from rxiv platforms
-            volume = "(Unknown volume)"
-            pages = "(Unknown pages)"
+        doi_str = "" if not self.doi else self.doi
+        title = "(None)" if not self.title else self.title.strip(".")
+        journal = (
+            "(None)"
+            if not self.publication_journal or self.publication_journal == "Preprint"
+            else self.publication_journal.strip(".")
+        )
+        year = "(Unknown year)" if not self.publication_year else self.publication_year
+        volume = "(Unknown volume)" if not self.publication_volume else self.publication_volume
+        pages = "(Unknown pages)" if not self.publication_pages else self.publication_pages
 
         return self._article_cit_fmt.format(
             author=author, volume=volume, pages=pages, year=year, title=title, journal=journal, doi=doi_str
@@ -178,7 +184,7 @@ async def find_or_create_doi_identifier(db: Session, identifier: str):
     return doi_identifier
 
 
-async def fetch_pubmed_article(identifier: str) -> Optional[ExternalPublication]:
+async def fetch_pubmed_article(identifier: str) -> Optional[PubmedArticle]:
     """
     Fetch an existing PubMed article from NCBI
     """
@@ -186,16 +192,16 @@ async def fetch_pubmed_article(identifier: str) -> Optional[ExternalPublication]
     try:
         fetched_articles = list(PubmedArticleSet(fetch.efetch({"db": "pubmed", "id": identifier})))
         assert len(fetched_articles) < 2
-        article = ExternalPublication(identifier=identifier, db_name="PubMed", external_publication=fetched_articles[0])
 
     except AssertionError as exc:
         raise AmbiguousIdentifierError(f"Fetched more than 1 PubMed article associated with PMID {identifier}") from exc
     except EutilsNCBIError:
         return None
-    except IndexError:
-        return None
+
+    if fetched_articles:
+        return fetched_articles[0]
     else:
-        return article
+        return None
 
 
 # TODO: Could search on article_detail -> content_detail to try and get the richer
@@ -206,37 +212,38 @@ async def fetch_pubmed_article(identifier: str) -> Optional[ExternalPublication]
 #
 # NOTE: The most up to date version of a preprint will be the last element in the
 #       content detail list.
-async def fetch_biorxiv_article(identifier: str) -> Optional[ExternalPublication]:
+async def fetch_biorxiv_article(identifier: str) -> Optional[RxivContentDetail]:
     """
     Fetch an existing bioRxiv article from Rxiv
     """
     fetch = Rxiv("https://api.biorxiv.org", "biorxiv")
+    articles = fetch.content_detail(identifier=identifier)
     try:
-        articles = fetch.content_detail(identifier=identifier)
-        article = ExternalPublication(identifier=identifier, db_name="bioRxiv", external_publication=articles[-1])
+        return articles[-1]
     except IndexError:
         return None
-    else:
-        return article
 
 
-async def fetch_medrxiv_article(identifier: str) -> Optional[ExternalPublication]:
+async def fetch_medrxiv_article(identifier: str) -> Optional[RxivContentDetail]:
     """
     Fetch an existing medRxiv article from Rxiv
     """
     fetch = Rxiv("https://api.biorxiv.org", "medrxiv")
+    articles = fetch.content_detail(identifier=identifier)
     try:
-        articles = fetch.content_detail(identifier=identifier)
-        article = ExternalPublication(identifier=identifier, db_name="medRxiv", external_publication=articles[-1])
+        return articles[-1]
     except IndexError:
         return None
-    else:
-        return article
+
+
+async def fetch_crossref_work(identifier: str) -> Optional[CrossrefWork]:
+    fetch = Crossref(endpoint="works")
+    return fetch.doi(identifier)
 
 
 async def find_generic_article(
-    db: Session, identifier: str
-) -> Mapping[str, Union[ExternalPublication, PublicationIdentifier]]:
+    db: Session, identifier: str, db_name: Optional[str] = None
+) -> Mapping[str, Union[PublicationIdentifier, ExternalPublication, None]]:
     """
     Check if a provided publication identifier ambiguously identifies a publication,
     ie the same identifier is identifies publications in multiple publication databases
@@ -246,83 +253,102 @@ async def find_generic_article(
     :param identifier: A valid publication identifier
     :return: A list of databases where this identifier exists.
     """
-    valid_databases = identifier_valid_for(identifier)
-    matching_articles = {}
-    pubmed_pub: Union[PublicationIdentifier, ExternalPublication, None]
-    biorxiv_pub: Union[PublicationIdentifier, ExternalPublication, None]
-    medrxiv_pub: Union[PublicationIdentifier, ExternalPublication, None]
+    db_specific_fetches = {
+        "Crossref": fetch_crossref_work,
+        "PubMed": fetch_pubmed_article,
+        "bioRxiv": fetch_biorxiv_article,
+        "medRxiv": fetch_medrxiv_article,
+    }
 
-    if valid_databases["PubMed"]:
-        pubmed_pub = (
-            db.query(PublicationIdentifier)
-            .filter(PublicationIdentifier.identifier == identifier, PublicationIdentifier.db_name == "PubMed")
-            .one_or_none()
-        )
-        if not pubmed_pub:
-            pubmed_pub = await fetch_pubmed_article(identifier)
+    # Only check entries with the appropriate `db_name` if one is provided.
+    db_specific_match: dict[str, Union[PublicationIdentifier, ExternalPublication, None]] = {}
+    if db_name:
+        if db_name == "Crossref":
+            internal_publication_query = select(PublicationIdentifier).filter(PublicationIdentifier.doi == identifier)
+        else:
+            internal_publication_query = select(PublicationIdentifier).filter(
+                PublicationIdentifier.identifier == identifier
+            )
 
-        if pubmed_pub:
-            matching_articles["PubMed"] = pubmed_pub
+        existing_publication = db.execute(
+            internal_publication_query.filter(PublicationIdentifier.db_name == db_name)
+        ).scalar_one_or_none()
 
-    if valid_databases["bioRxiv"]:
-        biorxiv_pub = (
-            db.query(PublicationIdentifier)
-            .filter(PublicationIdentifier.identifier == identifier, PublicationIdentifier.db_name == "bioRxiv")
-            .one_or_none()
-        )
+        if not existing_publication:
+            external_publication = await db_specific_fetches[db_name](identifier)
+            db_specific_match = {
+                db_name: (
+                    ExternalPublication(identifier, db_name, external_publication) if external_publication else None
+                )
+            }
+        else:
+            db_specific_match = {db_name: existing_publication}
 
-        if not biorxiv_pub:
-            biorxiv_pub = await fetch_biorxiv_article(identifier)
+        return db_specific_match
 
-        if biorxiv_pub:
-            matching_articles["bioRxiv"] = biorxiv_pub
+    # If the identifier is a DOI, it will necessarily have a unique match in Crossref (if such a match exists).
+    # Return this match directly where possible.
+    found_articles: dict[str, Union[PublicationIdentifier, ExternalPublication, None]] = {}
+    if is_doi(identifier):
+        identifier = normalize_doi(identifier)
 
-    if valid_databases["medRxiv"]:
-        medrxiv_pub = (
-            db.query(PublicationIdentifier)
-            .filter(PublicationIdentifier.identifier == identifier, PublicationIdentifier.db_name == "medRxiv")
-            .one_or_none()
-        )
-        if not medrxiv_pub:
-            medrxiv_pub = await fetch_medrxiv_article(identifier)
+        existing_publication = db.execute(
+            select(PublicationIdentifier).filter(PublicationIdentifier.doi == identifier)
+        ).scalar_one_or_none()
 
-        if medrxiv_pub:
-            matching_articles["medRxiv"] = medrxiv_pub
+        if not existing_publication:
+            external_publication = await fetch_crossref_work(identifier)
+            found_articles["Crossref"] = (
+                ExternalPublication(identifier, "Crossref", external_publication) if external_publication else None
+            )
+        else:
+            # When we find an existing publication via DOI, it is not always the case that it came from Crossref originally.
+            # Use the existing publication db as the article key if it exists, otherwise default to Crossref since this is a DOI.
+            existing_db_name = existing_publication.db_name if existing_publication.db_name else "Crossref"
+            found_articles[existing_db_name] = existing_publication
 
-    return matching_articles
+        return found_articles
+
+    # When we are not provided a db name, we must try to match the provided identifier to a
+    # publication from each one of our accepted databases.
+    for publication_db, identifier_valid in identifier_valid_for(identifier).items():
+        if identifier_valid:
+            existing_publication = db.execute(
+                select(PublicationIdentifier)
+                .filter(PublicationIdentifier.identifier == identifier)
+                .filter(PublicationIdentifier.db_name == publication_db)
+            ).scalar_one_or_none()
+
+            if not existing_publication:
+                external_publication = await db_specific_fetches[publication_db](identifier)
+                found_articles[publication_db] = (
+                    ExternalPublication(identifier, publication_db, external_publication)
+                    if external_publication
+                    else None
+                )
+            else:
+                found_articles[publication_db] = existing_publication
+
+    return found_articles
 
 
 def create_generic_article(article: ExternalPublication) -> PublicationIdentifier:
     """
-    Create a new publication identifier object based on the provided identifier, article metadata,
+    Create a new (unsaved) publication identifier object based on the provided identifier, article metadata,
     and publication database name.
     """
-    if article.db_name in ["bioRxiv", "medRxiv"]:
-        return PublicationIdentifier(
-            identifier=article.identifier,
-            db_name=article.db_name,
-            url=article.url,
-            title=article.title,
-            abstract=article.abstract,
-            authors=article.authors,
-            preprint_date=article.preprint_date,
-            preprint_doi=article.preprint_doi,
-            publication_journal="Preprint",  # blanket `Preprint` journal for preprint articles
-            reference_html=article.reference_html,
-        )
-    else:
-        return PublicationIdentifier(
-            identifier=article.identifier,
-            db_name=article.db_name,
-            url=article.url,
-            title=article.title,
-            abstract=article.abstract,
-            authors=article.authors,
-            publication_doi=article.publication_doi,
-            publication_year=article.publication_year,
-            publication_journal=article.publication_journal,
-            reference_html=article.reference_html,
-        )
+    return PublicationIdentifier(
+        identifier=article.identifier,
+        db_name=article.db_name,
+        url=article.url,
+        title=article.title,
+        abstract=article.abstract,
+        authors=article.authors,
+        publication_year=article.publication_year,
+        doi=article.doi,
+        publication_journal=article.publication_journal,
+        reference_html=article.reference_html,
+    )
 
 
 async def find_or_create_publication_identifier(
@@ -335,39 +361,28 @@ async def find_or_create_publication_identifier(
     :param identifier: A valid publication identifier
     :return: An existing PublicationIdentifier containing the specified identifier string, or a new, unsaved PublicationIdentifier
     """
-    article: Union[PublicationIdentifier, ExternalPublication, None]
+    article_matches = await find_generic_article(db, identifier, db_name)
 
-    matching_articles = await find_generic_article(db, identifier)
-
-    if not matching_articles:
+    if not any(article_matches.values()):
         raise NonexistentIdentifierError(
             f"No matching articles found for identifier {identifier} across all accepted publication databases."
         )
 
-    # If we aren't provided with a specific DB name, infer the desired article based on those that match
-    if not db_name:
-        if len(matching_articles.keys()) > 1:
-            raise AmbiguousIdentifierError(
-                f"Found multiple articles associated with identifier {identifier}. Specify a `db_name` along with this identifier to avoid ambiguity."
-            )
-
-        # Return the article directly if it is an existing publication in our db
-        db_name, article = list(matching_articles.items())[0]
-        if isinstance(article, PublicationIdentifier):
-            return article
-        else:
-            return create_generic_article(article)
-
-    article = matching_articles.get(db_name)
-    if article:
-        if isinstance(article, PublicationIdentifier):
-            return article
-        else:
-            return create_generic_article(article)
-    else:
-        raise NonexistentIdentifierError(
-            f"Could not find any articles matching identifier {identifier} in database {db_name}."
+    if sum(article is not None for article in article_matches.values()) > 1:
+        raise AmbiguousIdentifierError(
+            f"Found multiple articles associated with identifier {identifier}. Specify a `db_name` along with this identifier to avoid ambiguity."
         )
+
+    matched_article = next(article for article in article_matches.values() if article is not None)
+
+    # If the article already exists, return it directly.
+    if isinstance(matched_article, PublicationIdentifier):
+        return matched_article
+
+    # TODO(#214): It may be useful for internal consistency to use the Crossref record fetched via DOI if it exists. If a publication did not
+    #             have a DOI, we would need to use the record as returned by PubMed/bioRxiv/medRxiv.
+
+    return create_generic_article(matched_article)
 
 
 async def find_or_create_raw_read_identifier(db: Session, identifier: str):
@@ -401,7 +416,7 @@ async def find_or_create_external_gene_identifier(db: Session, db_name: str, ide
     if not external_gene_identifier:
         external_gene_identifier = identifier_class(
             identifier=identifier,
-            db_name=db_name
+            db_name=db_name,
             # TODO Set URL from identifier
             # url=f'https://doi.org/{identifier}'
         )

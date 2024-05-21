@@ -1,1 +1,1 @@
-valid_dbnames = ["PubMed", "bioRxiv", "medRxiv"]
+valid_dbnames = ["PubMed", "bioRxiv", "medRxiv", "Crossref"]

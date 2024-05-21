@@ -27,7 +27,7 @@ class ExperimentGetter(PublicationIdentifiersGetter):
     def get(self, key: Any, default: Any = ...) -> Any:
         if key == "score_set_urns":
             score_sets = getattr(self._obj, "score_sets") or []
-            return sorted([score_set.urn for score_set in score_sets])
+            return sorted([score_set.urn for score_set in score_sets if score_set.superseding_score_set is None])
         elif key == "experiment_set_urn":
             experiment_set = getattr(self._obj, "experiment_set")
             return experiment_set.urn if experiment_set is not None else None
