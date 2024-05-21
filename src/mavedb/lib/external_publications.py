@@ -1,59 +1,96 @@
 """
-Minimal library for interacting with bioRxiv and medRxiv pre-print servers
+(Extremely) Minimal library for interacting with Rxiv and Crossref APIs
 """
 
 import datetime
 import json
 import logging
-from typing import Any, Optional, Union
+import re
+from typing import Any, Optional, TypedDict, Union
 
 import requests
+from idutils import is_doi
 
 logger = logging.getLogger(__name__)
 
 
-class RxivContentDetail:
-    """
-    Class for generic returned Rxiv publication content (non-published)
-    """
+class PublicationAuthors(TypedDict):
+    name: str
+    primary: bool
 
-    title: str
+
+class CrossrefObject:
     doi: str
-    category: str
-    authors: list[str]
-    author_corresponding: str
-    author_corresponding_institution: str
-    date: datetime.date
-    version: str
-    type: str
-    license: str
-    jatsxml: str
-    abstract: str
-    published: str
-    server: Optional[str]  # not guaranteed
+    identifier: str
 
-    def __init__(self, metadata: dict[str, str]) -> None:
-        self.title = metadata["title"]
-        self.doi = metadata["doi"]
-        self.category = metadata["category"]
-        self.authors = [s.strip() for s in metadata.get("authors", "").split(";")]
-        self.author_corresponding = metadata["author_corresponding"]
-        self.author_corresponding_institution = metadata["author_corresponding_institution"]
-        self.date = datetime.datetime.strptime(metadata["date"], "%Y-%m-%d")
-        self.version = metadata["version"]
-        self.type = metadata["type"]
-        self.license = metadata["license"]
-        self.jatsxml = metadata["jatsxml"]
-        self.abstract = metadata["abstract"]
-        self.published = metadata["published"]
-        self.server = metadata.get("server")
+    def __init__(self, identifier: str) -> None:
+        assert is_doi(identifier)
+        self.doi = self.identifier = identifier
 
-    @property
-    def first_author(self) -> Optional[str]:
-        if len(self.authors) > 0:
-            return self.authors[0]
+
+class CrossrefWork(CrossrefObject):
+    title: str
+    abstract: Optional[str]
+    url: Optional[str]
+    authors: list[PublicationAuthors]
+    publication_year: Optional[int]
+    volume: Optional[str]
+    publication_journal: Optional[str]
+
+    def __init__(self, resource: dict[str, Any]) -> None:
+        super().__init__(resource["DOI"])
+
+        # title is within a list.
+        self.title = resource["title"][0]
+        self.url = resource.get("URL")
+        self.volume = resource.get("volume")
+
+        # Strip HTML tags from returned abstract text. Strip pre-pended `Abstract` from resulting string.
+        self.abstract = resource.get("abstract")
+        if self.abstract:
+            self.abstract = re.compile(r"(<!--.*?-->|<[^>]*>)").sub("", self.abstract).strip("Abstract")
+
+        # Publication journal is contained within a list field.
+        container_title: Optional[list[str]] = resource.get("container-title")
+        if container_title:
+            # Empty lists are falsy, so we are safe from IndexErrors here.
+            self.publication_journal = container_title[0]
         else:
-            return None
+            self.publication_journal = None
+
+        # Publication date is contained within a list of date parts.
+        publication_date: Optional[dict[str, list[list[int]]]] = resource.get("published")
+        if publication_date:
+            try:
+                # publication_date = {"date-parts": [[Y, M, D]]}
+                self.publication_year = publication_date["date-parts"][0][0]
+            # Some publications may only have year and month information.
+            except IndexError:
+                self.publication_year = None
+        else:
+            self.publication_year = None
+
+        # Construct internally styled author list from the resources' list of authors.
+        authors: list[dict[str, str]] = resource.get("author", [])
+        self.authors = [
+            {
+                "name": f"{author.get('given', '').strip()} {author.get('family', '').strip()}",
+                "primary": True if author.get("sequence") == "first" else False,
+            }
+            for author in authors
+        ]
+
+
+class CrossrefAgency(CrossrefObject):
+    id: Optional[str]
+    label: Optional[str]
+
+    def __init__(self, resource: dict[str, Any]) -> None:
+        super().__init__(resource["DOI"])
+
+        agency: dict = resource.get("agency", {})
+        self.id = agency.get("id")
+        self.label = agency.get("label")
 
 
 class RxivPublication:
@@ -61,20 +98,72 @@ class RxivPublication:
     Class for generic returned Rxiv publication metadata
     """
 
-    preprint_title: str
-    preprint_doi: str
-    published_doi: str
-    preprint_category: str
-    preprint_date: datetime.date
-    published_date: datetime.date
+    title: str
+    preprint_doi: Optional[str]
+    published_doi: Optional[str]
+    category: Optional[str]
+    preprint_date: Optional[datetime.date]
+    published_date: Optional[datetime.date]
 
     def __init__(self, metadata: dict[str, str]) -> None:
-        self.preprint_title = metadata["preprint_title"]
-        self.preprint_doi = metadata["preprint_doi"]
-        self.published_doi = metadata["published_doi"]
-        self.preprint_category = metadata["preprint_category"]
-        self.preprint_date = datetime.datetime.strptime(metadata["preprint_date"], "%Y-%m-%d")
-        self.published_date = datetime.datetime.strptime(metadata["published_date"], "%Y-%m-%d")
+        self.title = metadata.get("title", metadata.get("preprint_title", ""))
+        self.preprint_doi = metadata.get("preprint_doi")
+        self.published_doi = metadata.get("published_doi")
+        self.preprint_category = metadata.get("preprint_category")
+
+        preprint_date = metadata.get("preprint_date")
+        published_date = metadata.get("published_date")
+        self.preprint_date = datetime.datetime.strptime(preprint_date, "%Y-%m-%d") if preprint_date else None
+        self.published_date = datetime.datetime.strptime(published_date, "%Y-%m-%d") if published_date else None
+
+    def generate_author_list(self, metadata: dict[str, str]) -> list[PublicationAuthors]:
+        authors = [s.strip() for s in metadata.get("preprint_authors", "").split(";")]
+        return [{"name": author, "primary": idx == 0} for idx, author in enumerate(authors)]
+
+
+class RxivContentDetail(RxivPublication):
+    """
+    Class for generic returned Rxiv publication content (non-published)
+    """
+
+    authors: list[PublicationAuthors]
+
+    doi: Optional[str]
+    author_corresponding: Optional[str]
+    author_corresponding_institution: Optional[str]
+    date: Optional[datetime.date]
+    version: Optional[str]
+    type: Optional[str]
+    license: Optional[str]
+    jatsxml: Optional[str]
+    abstract: Optional[str]
+    published: Optional[str]
+    server: Optional[str]
+
+    def __init__(self, metadata: dict[str, str]) -> None:
+        super().__init__(metadata)
+
+        if metadata.get("doi"):
+            self.doi = metadata["doi"]
+        else:
+            self.doi = self.published_doi if self.published_doi else self.preprint_doi
+
+        self.author_corresponding = metadata.get("author_corresponding")
+        self.author_corresponding_institution = metadata.get("author_corresponding_institution")
+        self.version = metadata.get("version")
+        self.type = metadata.get("type")
+        self.license = metadata.get("license")
+        self.jatsxml = metadata.get("jatsxml")
+        self.abstract = metadata.get("abstract")
+        self.published = metadata.get("published")
+        self.server = metadata.get("server")
+
+        if metadata.get("date"):
+            self.date = datetime.datetime.strptime(metadata["date"], "%Y-%m-%d")
+        else:
+            self.date = self.published_date if self.published_date else self.preprint_date
+
+        self.authors = self.generate_author_list(metadata)
 
 
 class RxivPublisherDetail(RxivPublication):
@@ -82,11 +171,11 @@ class RxivPublisherDetail(RxivPublication):
     Class for generic returned Rxiv publisher metadata
     """
 
-    published_citation_count: str
+    published_citation_count: Optional[str]
 
     def __init__(self, metadata: dict[str, str]) -> None:
         super().__init__(metadata)
-        self.published_citation_count = metadata["published_citation_count"]
+        self.published_citation_count = metadata.get("published_citation_count")
 
 
 class RxivPublicationDetail(RxivPublication):
@@ -94,43 +183,30 @@ class RxivPublicationDetail(RxivPublication):
     Class for generic returned Rxiv article metadata (published)
     """
 
-    preprint_authors: list[str]
-    preprint_author_corresponding: str
-    preprint_author_corresponding_institution: str
-    preprint_platform: str
-    preprint_abstract: str
-    published_journal: str
+    authors: list[PublicationAuthors]
+    author_corresponding: Optional[str]
+    author_corresponding_institution: Optional[str]
+    platform: Optional[str]
+    abstract: Optional[str]
+    published_journal: Optional[str]
 
     _article_cit_fmt = "{author}. {title}. {journal}. {year}; {volume}:{pages}.{doi}"
 
     def __init__(self, metadata: dict[str, str]) -> None:
+        """
+        NOTE: We assume here that the first author in each of these author lists is the primary author
+              of a publication. From what I have seen so far from the metapub and biorxiv APIs, this
+              is a fine assumption to make, but it doesn't come with future guarantees and this may
+              not be the case for certain publications.
+        """
         super().__init__(metadata)
-        self.preprint_authors = [s.strip() for s in metadata.get("preprint_authors", "").split(";")]
-        self.preprint_author_corresponding = metadata["preprint_author_corresponding"]
-        self.preprint_author_corresponding_institution = metadata["preprint_author_corresponding_institution"]
-        self.preprint_platform = metadata["preprint_platform"]
-        self.preprint_abstract = metadata["preprint_abstract"]
-        self.published_journal = metadata["published_journal"]
+        self.author_corresponding = metadata.get("preprint_author_corresponding")
+        self.author_corresponding_institution = metadata.get("preprint_author_corresponding_institution")
+        self.platform = metadata.get("preprint_platform")
+        self.abstract = metadata.get("preprint_abstract")
+        self.published_journal = metadata.get("published_journal")
 
-    def _format_authors(self) -> str:
-        """Helper function for returning a well formatted HTML author list"""
-        if self.preprint_authors and len(self.preprint_authors) > 2:
-            author = self.preprint_authors[0] + ", <i>et al</i>"
-        elif self.preprint_authors and len(self.preprint_authors) == 2:
-            author = " and ".join([author for author in self.preprint_authors])
-        elif self.preprint_authors and len(self.preprint_authors) < 2:
-            author = self.preprint_authors[0]
-        else:
-            author = ""
-
-        return author
-
-    @property
-    def first_author(self) -> Optional[str]:
-        if len(self.preprint_authors) > 0:
-            return self.preprint_authors[0]
-        else:
-            return None
+        self.authors = self.generate_author_list(metadata)
 
 
 class RxivStatistics:
@@ -170,6 +246,32 @@ class RxivUsageStatistics(RxivStatistics):
         self.abstract_cumulative = int(metadata["abstract_cumulative"])
         self.full_text_cumulative = int(metadata["full_text_cumulative"])
         self.pdf_cumulative = int(metadata["pdf_cumulative"])
+
+
+class Crossref:
+    url = "https://api.crossref.org"
+    endpoint: str
+
+    def __init__(self, endpoint) -> None:
+        super().__init__()
+        self.endpoint = endpoint
+
+    def _fetch(self, url) -> Optional[dict]:
+        result = requests.get(url)
+
+        if result.status_code == 404:
+            return None
+
+        result.raise_for_status()
+        return result.json()["message"]
+
+    def doi(self, identifier: str) -> Optional[CrossrefWork]:
+        result = self._fetch(f"{self.url}/{self.endpoint}/{identifier}")
+        return CrossrefWork(result) if result else None
+
+    def agency(self, identifier: str) -> Optional[CrossrefAgency]:
+        result = self._fetch(f"{self.url}/{self.endpoint}/{identifier}/agency")
+        return CrossrefAgency(result) if result else None
 
 
 class Rxiv:
@@ -456,5 +558,9 @@ class Rxiv:
         and load as JSON if desired.
         """
         response = requests.get(url)
+
+        if response.status_code == 404:
+            return []
+
         response.raise_for_status()
         return json.loads(response.text) if return_format == "json" else response.text
