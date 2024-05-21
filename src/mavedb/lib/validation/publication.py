@@ -79,7 +79,7 @@ def validate_publication(identifier: str) -> None:
         or validate_medrxiv(identifier)
         or idutils.is_doi(identifier)
     ):
-        raise ValidationError(f"'{identifier}' is not a valid PubMed, bioRxiv, or medRxiv identifier.")
+        raise ValidationError(f"'{identifier}' is not a valid DOI or a valid PubMed, bioRxiv, or medRxiv identifier.")
 
 
 def validate_pubmed(identifier: str) -> bool:
