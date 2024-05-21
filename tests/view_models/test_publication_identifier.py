@@ -42,7 +42,7 @@ def test_invalid_publication_identifier_create_validator(client):
     invalid_identifier = "not_an_identifier"
     with pytest.raises(ValueError) as exc_info:
         PublicationIdentifierCreate(identifier=invalid_identifier)
-    assert "'not_an_identifier' is not a valid PubMed, bioRxiv, or medRxiv identifier." in str(exc_info.value)
+    assert "'not_an_identifier' is not a valid DOI or a valid PubMed, bioRxiv, or medRxiv identifier." in str(exc_info.value)
 
 
 def test_invalid_publication_identifier_date_part_create_validator(client):
@@ -50,4 +50,4 @@ def test_invalid_publication_identifier_date_part_create_validator(client):
     invalid_identifier = "2018.12.12.207222"
     with pytest.raises(ValueError) as exc_info:
         PublicationIdentifierCreate(identifier=invalid_identifier)
-    assert "'2018.12.12.207222' is not a valid PubMed, bioRxiv, or medRxiv identifier." in str(exc_info.value)
+    assert "'2018.12.12.207222' is not a valid DOI or a valid PubMed, bioRxiv, or medRxiv identifier." in str(exc_info.value)

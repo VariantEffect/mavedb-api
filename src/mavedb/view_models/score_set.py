@@ -200,14 +200,23 @@ class ShortScoreSet(BaseModel):
         getter_dict = ScoreSetGetter
 
 
+class ShorterScoreSet(BaseModel):
+    urn: str
+
+    class Config:
+        orm_mode = True
+        arbitrary_types_allowed = True
+        getter_dict = ScoreSetGetter
+
+
 class SavedScoreSet(ScoreSetBase):
     """Base class for score set view models representing saved records."""
 
     urn: str
     num_variants: int
     license: ShortLicense
-    superseded_score_set_urn: Optional[str]
-    superseding_score_set_urn: Optional[str]
+    superseded_score_set: Optional[ShorterScoreSet]
+    superseding_score_set: Optional[ShorterScoreSet]
     meta_analyzes_score_set_urns: list[str]
     meta_analyzed_by_score_set_urns: list[str]
     doi_identifiers: Sequence[SavedDoiIdentifier]

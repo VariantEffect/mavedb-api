@@ -1,7 +1,7 @@
 from mavedb.lib.validation.publication import validate_publication, validate_db_name
 from mavedb.view_models.base.base import BaseModel, validator
-from datetime import date
 from typing import Optional
+from mavedb.lib.identifiers import PublicationAuthors
 
 import logging
 
@@ -27,16 +27,15 @@ class PublicationIdentifierCreate(PublicationIdentifierBase):
 
 # Properties of external publication identifiers
 class ExternalPublicationIdentifier(PublicationIdentifierBase):
-    url: str
-    reference_html: str
     title: str
+    authors: list[PublicationAuthors]
+
     abstract: Optional[str]
-    authors: list[dict[str, str]]
-    publication_doi: Optional[str]
-    preprint_doi: Optional[str]
+    doi: Optional[str]
     publication_year: Optional[int]
-    preprint_date: Optional[date]
     publication_journal: Optional[str]
+    url: Optional[str]
+    reference_html: Optional[str]
 
     class Config:
         orm_mode = True
