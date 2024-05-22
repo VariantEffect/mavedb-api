@@ -87,7 +87,8 @@ class ScoreSetModify(ScoreSetBase):
     @validator("target_genes")
     def target_labels_are_unique(cls, field_value, values):
         # Labels are only used on target sequence instances.
-        if len(field_value) > 1 and all([isinstance(target, TargetSequence) for target in field_value]):
+        if len(field_value) > 1 and all([target.target_sequence is not None for target in field_value]):
+            # Labels have already been sanitized by the TargetSequence validator.
             labels = [target.target_sequence.label for target in field_value]
             dup_indices = [idx for idx, item in enumerate(labels) if item in labels[:idx]]
             if dup_indices:
@@ -98,6 +99,14 @@ class ScoreSetModify(ScoreSetBase):
                     "Target sequence labels cannot be duplicated.",
                     custom_loc=["body", "targetGene", dup_indices[-1], "targetSequence", "label"],
                 )
+
+        return field_value
+
+    # Validate that this score set contains at least one target attached to it
+    @validator("target_genes")
+    def at_least_one_target_gene_exists(cls, field_value, values):
+        if len(field_value) < 1:
+            raise ValidationError("Score sets should define at least one target.")
 
         return field_value
 
@@ -185,15 +194,23 @@ class ShortScoreSet(BaseModel):
         getter_dict = ScoreSetGetter
 
 
+class ShorterScoreSet(BaseModel):
+    urn: str
+
+    class Config:
+        orm_mode = True
+        arbitrary_types_allowed = True
+        getter_dict = ScoreSetGetter
+
+
 class SavedScoreSet(ScoreSetBase):
     """Base class for score set view models representing saved records."""
 
     urn: str
     num_variants: int
-    experiment: SavedExperiment
     license: ShortLicense
-    superseded_score_set_urn: Optional[str]
-    superseding_score_set_urn: Optional[str]
+    superseded_score_set: Optional[ShorterScoreSet]
+    superseding_score_set: Optional[ShorterScoreSet]
     meta_analyzes_score_set_urns: list[str]
     meta_analyzed_by_score_set_urns: list[str]
     doi_identifiers: Sequence[SavedDoiIdentifier]
@@ -253,3 +270,17 @@ class AdminScoreSet(ScoreSet):
 
     normalised: bool
     approved: bool
+
+
+class ScoreSetPublicDump(SavedScoreSet):
+    """Score set view model containing properties to include in a dump of all published data."""
+
+    doi_identifiers: Sequence[DoiIdentifier]
+    primary_publication_identifiers: Sequence[PublicationIdentifier]
+    secondary_publication_identifiers: Sequence[PublicationIdentifier]
+    created_by: Optional[User]
+    modified_by: Optional[User]
+    target_genes: Sequence[TargetGene]
+    private: bool
+    processing_state: Optional[ProcessingState]
+    processing_errors: Optional[dict]

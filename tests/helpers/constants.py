@@ -5,6 +5,7 @@ from mavedb.models.enums.processing_state import ProcessingState
 TEST_PUBMED_IDENTIFIER = "20711194"
 TEST_BIORXIV_IDENTIFIER = "2021.06.21.212592"
 TEST_MEDRXIV_IDENTIFIER = "2021.06.22.21259265"
+TEST_CROSSREF_IDENTIFIER = "10.1371/2021.06.22.21259265"
 
 VALID_ACCESSION = "NM_001637.3"
 VALID_GENE = "BRCA1"
@@ -13,18 +14,33 @@ TEST_USER = {
     "username": "0000-1111-2222-3333",
     "first_name": "First",
     "last_name": "Last",
+    "email": "test_user@test.com",
     "is_active": True,
     "is_staff": False,
     "is_superuser": False,
+    "is_first_login": True,
 }
 
 EXTRA_USER = {
     "username": "1234-5678-8765-4321",
     "first_name": "Extra",
     "last_name": "User",
+    "email": "extra_user@test.com",
     "is_active": True,
     "is_staff": False,
     "is_superuser": False,
+    "is_first_login": True,
+}
+
+ADMIN_USER = {
+    "username": "9999-9999-9999-9999",
+    "first_name": "Admin",
+    "last_name": "User",
+    "email": "admin_user@test.com",
+    "is_active": True,
+    "is_staff": False,
+    "is_superuser": False,
+    "is_first_login": True,
 }
 
 TEST_EXPERIMENT = {
@@ -105,7 +121,7 @@ TEST_TAXONOMY = {
     "has_described_species_name": True,
     "article_reference": "NCBI:txid9606",
     "genome_identifier_id": None,
-    "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606"
+    "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606",
 }
 
 TEST_LICENSE = {
@@ -149,25 +165,27 @@ TEST_MINIMAL_SEQ_SCORESET = {
     "abstractText": "Abstract",
     "methodText": "Methods",
     "licenseId": 1,
-    "targetGenes":[ {
-        "name": "TEST1",
-        "category": "Protein coding",
-        "externalIdentifiers": [],
-        "targetSequence": {
-            "sequenceType": "dna",
-            "sequence": "ACGTTT",
-            "taxonomy": {
-                "taxId": TEST_TAXONOMY["tax_id"],
-                "organismName": TEST_TAXONOMY["organism_name"],
-                "commonName": TEST_TAXONOMY["common_name"],
-                "rank": TEST_TAXONOMY["rank"],
-                "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                "articleReference": TEST_TAXONOMY["article_reference"],
-                "id": TEST_TAXONOMY["id"],
-                "url": TEST_TAXONOMY["url"]
-            }
-        },
-    } ],
+    "targetGenes": [
+        {
+            "name": "TEST1",
+            "category": "Protein coding",
+            "externalIdentifiers": [],
+            "targetSequence": {
+                "sequenceType": "dna",
+                "sequence": "ACGTTT",
+                "taxonomy": {
+                    "taxId": TEST_TAXONOMY["tax_id"],
+                    "organismName": TEST_TAXONOMY["organism_name"],
+                    "commonName": TEST_TAXONOMY["common_name"],
+                    "rank": TEST_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_TAXONOMY["article_reference"],
+                    "id": TEST_TAXONOMY["id"],
+                    "url": TEST_TAXONOMY["url"],
+                },
+            },
+        }
+    ],
 }
 
 TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
@@ -189,27 +207,29 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "modificationDate": date.today().isoformat(),
     "license": {camelize(k): v for k, v in TEST_LICENSE.items() if k not in ("text",)},
     "numVariants": 0,
-    "targetGenes": [ {
-        "name": "TEST1",
-        "category": "Protein coding",
-        "externalIdentifiers": [],
-        "id": 1,
-        "targetSequence": {
-            "sequenceType": "dna",
-            "sequence": "ACGTTT",
-            "label": "TEST1",
-            "taxonomy": {
-                "taxId": TEST_TAXONOMY["tax_id"],
-                "organismName": TEST_TAXONOMY["organism_name"],
-                "commonName": TEST_TAXONOMY["common_name"],
-                "rank": TEST_TAXONOMY["rank"],
-                "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                "articleReference": TEST_TAXONOMY["article_reference"],
-                "id": TEST_TAXONOMY["id"],
-                "url": TEST_TAXONOMY["url"]
-            }
-        },
-    } ],
+    "targetGenes": [
+        {
+            "name": "TEST1",
+            "category": "Protein coding",
+            "externalIdentifiers": [],
+            "id": 1,
+            "targetSequence": {
+                "sequenceType": "dna",
+                "sequence": "ACGTTT",
+                "label": "TEST1",
+                "taxonomy": {
+                    "taxId": TEST_TAXONOMY["tax_id"],
+                    "organismName": TEST_TAXONOMY["organism_name"],
+                    "commonName": TEST_TAXONOMY["common_name"],
+                    "rank": TEST_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_TAXONOMY["article_reference"],
+                    "id": TEST_TAXONOMY["id"],
+                    "url": TEST_TAXONOMY["url"],
+                },
+            },
+        }
+    ],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
     "doiIdentifiers": [],

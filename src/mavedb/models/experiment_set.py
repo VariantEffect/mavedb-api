@@ -50,7 +50,7 @@ experiment_sets_raw_read_identifiers_association_table = Table(
 class ExperimentSet(Base):
     __tablename__ = "experiment_sets"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
 
     urn = Column(String(64), nullable=True, default=generate_temp_urn, unique=True, index=True)
     extra_metadata = Column(JSONB, nullable=False)
@@ -66,9 +66,9 @@ class ExperimentSet(Base):
         back_populates="experiment_set", cascade="all, delete-orphan"
     )
 
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     created_by: Mapped[User] = relationship("User", foreign_keys="ExperimentSet.created_by_id")
-    modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    modified_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     modified_by: Mapped[User] = relationship("User", foreign_keys="ExperimentSet.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)

@@ -28,7 +28,7 @@ class ExperimentGetter(PublicationIdentifiersGetter):
     def get(self, key: Any, default: Any = ...) -> Any:
         if key == "score_set_urns":
             score_sets = getattr(self._obj, "score_sets") or []
-            return sorted([score_set.urn for score_set in score_sets])
+            return sorted([score_set.urn for score_set in score_sets if score_set.superseding_score_set is None])
         elif key == "experiment_set_urn":
             experiment_set = getattr(self._obj, "experiment_set")
             return experiment_set.urn if experiment_set is not None else None
@@ -91,12 +91,10 @@ class SavedExperiment(ExperimentBase):
     modification_date: date
     published_date: Optional[date]
     experiment_set_urn: str
-    score_set_urns: list[str]
     doi_identifiers: Sequence[SavedDoiIdentifier]
     primary_publication_identifiers: Sequence[SavedPublicationIdentifier]
     secondary_publication_identifiers: Sequence[SavedPublicationIdentifier]
     raw_read_identifiers: Sequence[SavedRawReadIdentifier]
-    processing_state: Optional[str]
     keywords: Optional[Dict[str, Keyword]]
 
     class Config:
@@ -113,6 +111,8 @@ class SavedExperiment(ExperimentBase):
 
 # Properties to return to non-admin clients
 class Experiment(SavedExperiment):
+    score_set_urns: list[str]
+    processing_state: Optional[str]
     doi_identifiers: Sequence[DoiIdentifier]
     primary_publication_identifiers: Sequence[PublicationIdentifier]
     secondary_publication_identifiers: Sequence[PublicationIdentifier]
@@ -123,9 +123,21 @@ class Experiment(SavedExperiment):
 
 
 class ShortExperiment(SavedExperiment):
-    pass
+    score_set_urns: list[str]
+    processing_state: Optional[str]
 
 
 # Properties to return to admin clients
-class AdminExperiment(SavedExperiment):
+class AdminExperiment(Experiment):
+    score_set_urns: list[str]
+    processing_state: Optional[str]
     approved: bool
+
+
+# Properties to include in a dump of all published data.
+class ExperimentPublicDump(SavedExperiment):
+    score_sets: "Sequence[ScoreSetPublicDump]"
+
+
+from mavedb.view_models.score_set import ScoreSetPublicDump
+ExperimentPublicDump.update_forward_refs()

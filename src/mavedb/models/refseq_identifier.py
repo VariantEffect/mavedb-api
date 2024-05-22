@@ -8,7 +8,7 @@ from mavedb.db.base import Base
 class RefseqIdentifier(Base):
     __tablename__ = "refseq_identifiers"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     identifier = Column(String, nullable=False)
     db_name = Column(String, nullable=False)
     db_version = Column(String, nullable=True)

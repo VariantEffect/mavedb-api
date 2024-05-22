@@ -60,7 +60,7 @@ experiments_raw_read_identifiers_association_table = Table(
 class Experiment(Base):
     __tablename__ = "experiments"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
 
     urn = Column(String(64), nullable=True, default=generate_temp_urn, unique=True, index=True)
     title = Column(String, nullable=False)
@@ -78,12 +78,12 @@ class Experiment(Base):
     num_score_sets = Column("num_scoresets", Integer, nullable=False, default=0)
     score_sets: Mapped[List["ScoreSet"]] = relationship(back_populates="experiment", cascade="all, delete-orphan")
 
-    experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), nullable=True)
+    experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), index=True, nullable=True)
     experiment_set: Mapped[Optional[ExperimentSet]] = relationship(back_populates="experiments")
 
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     created_by: Mapped[User] = relationship("User", foreign_keys="Experiment.created_by_id")
-    modified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    modified_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     modified_by: Mapped[User] = relationship("User", foreign_keys="Experiment.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
