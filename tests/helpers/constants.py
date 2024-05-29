@@ -210,6 +210,7 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
     "datasetColumns": {},
+    "externalLinks": {},
     "private": True,
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
     # keys to be set after receiving response
