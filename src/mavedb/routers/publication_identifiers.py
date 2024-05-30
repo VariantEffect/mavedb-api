@@ -14,7 +14,8 @@ from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.view_models import publication_identifier
 from mavedb.view_models.search import TextSearch
 
-PublicationDataBases = Enum("PublicationDataBases", ((x, x) for x in valid_dbnames))
+# I don't think we can escape the type: ignore hint here on a dynamically created enumerated type.
+PublicationDatabases = Enum("PublicationDataBases", ((x, x) for x in valid_dbnames))  # type: ignore
 
 
 router = APIRouter(
@@ -87,7 +88,7 @@ def fetch_publication_by_identifier(*, identifier: str, db: Session = Depends(de
 )
 def fetch_publication_by_dbname_and_identifier(
     *,
-    db_name: PublicationDataBases,
+    db_name: PublicationDatabases,
     identifier: str,
     db: Session = Depends(deps.get_db),
 ) -> PublicationIdentifier:
