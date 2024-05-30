@@ -34,6 +34,10 @@ from mavedb.view_models.user import SavedUser, User
 from mavedb.view_models.variant import VariantInDbBase
 
 
+class ExternalLink(BaseModel):
+    url: Optional[str]
+
+
 class ScoreSetGetter(PublicationIdentifiersGetter):
     def get(self, key: Any, default: Any = ...) -> Any:
         if key == "meta_analyzes_score_set_urns":
@@ -229,6 +233,7 @@ class SavedScoreSet(ScoreSetBase):
     modified_by: Optional[SavedUser]
     target_genes: Sequence[SavedTargetGene]
     dataset_columns: Dict
+    external_links: Dict[str, ExternalLink]
     keywords: list[str]
 
     class Config:
@@ -290,4 +295,4 @@ class ScoreSetPublicDump(SavedScoreSet):
     target_genes: Sequence[TargetGene]
     private: bool
     processing_state: Optional[ProcessingState]
-    processing_errors: Optional[dict]
+    processing_errors: Optional[Dict]
