@@ -2,7 +2,8 @@
 from __future__ import annotations
 from typing import Optional
 
-from mavedb.view_models.base.base import BaseModel
+from mavedb.lib.validation import keywords
+from mavedb.view_models.base.base import BaseModel, validator
 
 
 class KeywordBase(BaseModel):
@@ -16,7 +17,15 @@ class KeywordBase(BaseModel):
 
 class KeywordCreate(KeywordBase):
     """View model for creating a new keyword."""
-    pass
+    @validator("key")
+    def validate_key(cls, v):
+        keywords.validate_keyword(v)
+        return v
+
+    @validator("value")
+    def validate_value(cls, v):
+        keywords.validate_keyword(v)
+        return v
 
 
 class KeywordUpdate(KeywordBase):

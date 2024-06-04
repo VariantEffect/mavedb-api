@@ -50,32 +50,33 @@ TEST_EXPERIMENT = {
     "method_text": "Methods",
 }
 
-TEST_KEYWORDS = {
-    "endogenousKeyword": {
-      "key": "Endogenous Locus Library Method",
-      "value": "SaCas9",
-      "special": False,
-      "description": "Description 1"
+TEST_KEYWORDS = [
+    {
+        "keyword": {
+            "key": "Variant Library Creation Method",
+            "value": "Endogenous locus library method",
+            "special": False,
+            "description": "Description 1"
+        },
     },
-    "invitroKeyword": {
-      "key": "In Vitro Construct Library Method",
-      "value": "Episomal delivery",
-      "special": False,
-      "description": "Description 2"
+    {
+        "keyword": {
+            "key": "Endogenous Locus Library Method",
+            "value": "SaCas9",
+            "special": False,
+            "description": "Description 2"
+        },
     },
-    "phenotypicKeyword": {
-      "key": "Phenotypic Assay",
-      "value": "Molecular display",
-      "special": False,
-      "description": "Description 3"
+    {
+        "keyword": {
+            "key": "Delivery method",
+            "value": "Other",
+            "special": False,
+            "description": "Description 3"
+        },
+        "description": "Details of delivery method"
     },
-    "variantKeyword": {
-      "key": "Variant Library",
-      "value": "Lentivirus transduction",
-      "special": False,
-      "description": "Description 4"
-    }
-}
+]
 
 TEST_MINIMAL_EXPERIMENT = {
     "title": "Test Experiment Title",
@@ -102,7 +103,7 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
     "scoreSetUrns": [],
-    "keywords": {},
+    "keywords": [],
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
@@ -157,7 +158,6 @@ TEST_SEQ_SCORESET = {
         }
     ],
 }
-
 
 TEST_MINIMAL_SEQ_SCORESET = {
     "title": "Test Score Set Title",
@@ -243,7 +243,6 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "processingState": ProcessingState.incomplete.name,
 }
 
-
 TEST_MINIMAL_ACC_SCORESET = {
     "title": "Test Score Set Acc Title",
     "shortDescription": "Test accession score set",
@@ -259,7 +258,6 @@ TEST_MINIMAL_ACC_SCORESET = {
         }
     ],
 }
-
 
 TEST_ACC_SCORESET = {
     "title": "Test Score Set Acc Title",
@@ -315,7 +313,6 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     "urn": None,
     "processingState": ProcessingState.incomplete.name,
 }
-
 
 TEST_CDOT_TRANSCRIPT = {
     "start_codon": 0,

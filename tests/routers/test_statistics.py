@@ -275,10 +275,12 @@ def test_record_keyword_statistics(session, data_provider, client, setup_router_
     """
     # Create and add the new keywords to the session
     new_keywords = [
-        ControlledKeyword(key="Endogenous Locus Library Method", value="SaCas9", vocabulary=None, special=True, description="Description 1"),
-        ControlledKeyword(key="In Vitro Construct Library Method", value="Episomal delivery", vocabulary=None, special=True, description="Description 2"),
-        ControlledKeyword(key="Phenotypic Assay", value="Molecular display", vocabulary=None, special=False, description="Description 3"),
-        ControlledKeyword(key="Variant Library", value="Lentivirus transduction", vocabulary=None, special=False, description="Description 4"),
+        ControlledKeyword(key="Variant Library Creation Method", value="Endogenous locus library method",
+                          vocabulary=None, special=True, description="Description 1"),
+        ControlledKeyword(key="Endogenous Locus Library Method", value="SaCas9",
+                          vocabulary=None, special=True, description="Description 2"),
+        ControlledKeyword(key="Delivery method", value="Other",
+                          vocabulary=None, special=False, description="Description 3")
     ]
     for keyword in new_keywords:
         session.add(keyword)
@@ -295,7 +297,7 @@ def test_record_keyword_statistics(session, data_provider, client, setup_router_
     publish_score_set(client, score_set["urn"])
 
     response = client.get(f"/api/v1/statistics/record/experiment/keywords")
-    desired_field_values = ["SaCas9", "Episomal delivery", "Molecular display", "Lentivirus transduction"]
+    desired_field_values = ["SaCas9", "Endogenous locus library method", "Other"]
     for desired_field_value in desired_field_values:
         assert_statistic(desired_field_value, response)
 

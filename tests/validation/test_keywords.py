@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from mavedb.lib.validation.keywords import validate_keyword, validate_keywords
+from mavedb.lib.validation.keywords import validate_keyword
 from mavedb.lib.validation.exceptions import ValidationError
 
 
@@ -14,6 +14,6 @@ class TestKeywordValidators(TestCase):
         with self.assertRaises(ValidationError):
             validate_keyword(555)
 
-    def test_ve_invalid_keyword_in_list(self):
+    def test_ve_invalid_empty_keyword(self):
         with self.assertRaises(ValidationError):
-            validate_keywords(["protein", 555])
+            validate_keyword("")

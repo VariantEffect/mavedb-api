@@ -5,15 +5,15 @@ from sqlalchemy.orm import Session
 from typing import Any, Union
 
 from mavedb.deps import get_db
-from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.controlled_keyword import ControlledKeyword
+from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.raw_read_identifier import RawReadIdentifier
 from mavedb.models.experiment import (
     Experiment,
     experiments_doi_identifiers_association_table,
-    experiments_controlled_keywords_association_table,
     experiments_raw_read_identifiers_association_table,
 )
+from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.publication_identifier import PublicationIdentifier
@@ -237,7 +237,7 @@ def _record_from_field_and_model(
             RecordFields.doiIdentifiers: experiments_doi_identifiers_association_table,
             RecordFields.publicationIdentifiers: ExperimentPublicationIdentifierAssociation,
             RecordFields.rawReadIdentifiers: experiments_raw_read_identifiers_association_table,
-            RecordFields.keywords: experiments_controlled_keywords_association_table,
+            RecordFields.keywords: ExperimentControlledKeywordAssociation,
         },
         RecordNames.scoreSet: {
             RecordFields.doiIdentifiers: score_sets_doi_identifiers_association_table,

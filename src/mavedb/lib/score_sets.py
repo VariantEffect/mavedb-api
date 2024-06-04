@@ -23,6 +23,7 @@ from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
 from mavedb.models.experiment import Experiment
+from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.publication_identifier import PublicationIdentifier
@@ -185,10 +186,11 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
         .options(
             contains_eager(ScoreSet.experiment).options(
                 joinedload(Experiment.experiment_set),
-                joinedload(Experiment.keyword_objs),
+                joinedload(Experiment.keyword_objs).joinedload(
+                    ExperimentControlledKeywordAssociation.controlled_keyword
+                ),
                 joinedload(Experiment.created_by),
                 joinedload(Experiment.modified_by),
-                joinedload(Experiment.keyword_objs),
                 joinedload(Experiment.doi_identifiers),
                 joinedload(Experiment.publication_identifier_associations).joinedload(
                     ExperimentPublicationIdentifierAssociation.publication

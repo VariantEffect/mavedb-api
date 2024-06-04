@@ -18,8 +18,9 @@ from mavedb.lib.identifiers import (
     find_or_create_raw_read_identifier,
 )
 from mavedb.lib.permissions import assert_permission, Action
-from mavedb.models.controlled_keyword import ControlledKeyword
+from mavedb.lib.validation.keywords import find_keyword
 from mavedb.models.experiment import Experiment
+from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
 from mavedb.view_models import experiment, score_set
@@ -193,6 +194,17 @@ async def create_experiment(
     for publication in publication_identifiers:
         setattr(publication, "primary", publication.identifier in primary_identifiers)
 
+    keywords: list[ExperimentControlledKeywordAssociation] = []
+    if item_create.keywords:
+        for upload_keyword in item_create.keywords:
+            description = upload_keyword.description
+            controlled_keyword = find_keyword(db, upload_keyword.keyword.key, upload_keyword.keyword.value)
+            experiment_controlled_keyword = ExperimentControlledKeywordAssociation(
+                controlled_keyword=controlled_keyword,
+                description=description,
+            )
+            keywords.append(experiment_controlled_keyword)
+
     item = Experiment(
         **jsonable_encoder(
             item_create,
@@ -212,13 +224,9 @@ async def create_experiment(
         raw_read_identifiers=raw_read_identifiers,
         created_by=user_data.user,
         modified_by=user_data.user,
+        keyword_objs=keywords
     )  # type: ignore
-    if item_create.keywords:
-        keywords = item_create.keywords
-        try:
-            await item.set_keywords(db, keywords)
-        except Exception:
-            raise HTTPException(status_code=500, detail='Invalid keywords')
+
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -293,8 +301,8 @@ async def update_experiment(
         keywords = item_update.keywords
         try:
             await item.set_keywords(db, keywords)
-        except Exception:
-            raise HTTPException(status_code=500, detail='Invalid keywords')
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Invalid keywords: {str(e)}")
 
     item.modified_by = user_data.user
 

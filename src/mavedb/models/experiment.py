@@ -1,4 +1,3 @@
-from collections import defaultdict
 from datetime import date
 
 from typing import Any, Optional, List, TYPE_CHECKING
@@ -23,13 +22,7 @@ from mavedb.models.publication_identifier import PublicationIdentifier
 
 if TYPE_CHECKING:
     from mavedb.models.score_set import ScoreSet
-
-experiments_controlled_keywords_association_table = Table(
-    'experiment_controlled_keywords',
-    Base.metadata,
-    Column('experiment_id', ForeignKey('experiments.id'), primary_key=True),
-    Column('controlled_keyword_id', ForeignKey('controlled_keywords.id'), primary_key=True)
-)
+    from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 
 
 experiments_doi_identifiers_association_table = Table(
@@ -39,14 +32,12 @@ experiments_doi_identifiers_association_table = Table(
     Column("doi_identifier_id", ForeignKey("doi_identifiers.id"), primary_key=True),
 )
 
-
 experiments_legacy_keywords_association_table = Table(
     "experiment_keywords",
     Base.metadata,
     Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
     Column("keyword_id", ForeignKey("keywords.id"), primary_key=True),
 )
-
 
 # experiments_sra_identifiers_association_table = Table(
 experiments_raw_read_identifiers_association_table = Table(
@@ -87,8 +78,8 @@ class Experiment(Base):
     modified_by: Mapped[User] = relationship("User", foreign_keys="Experiment.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
-    keyword_objs: Mapped[list[ControlledKeyword]] = relationship(
-        "ControlledKeyword", secondary=experiments_controlled_keywords_association_table, backref="experiments"
+    keyword_objs: Mapped[list["ExperimentControlledKeywordAssociation"]] = relationship(
+        back_populates="experiment", cascade="all, delete-orphan"
     )
     legacy_keyword_objs: Mapped[list[LegacyKeyword]] = relationship(
         "LegacyKeyword", secondary=experiments_legacy_keywords_association_table, backref="experiments")
@@ -122,18 +113,25 @@ class Experiment(Base):
     # Dict[str, ControlledKeyword] gets error Incompatible return value type in mypy
     def keywords(self) -> list[tuple[Any, Any]]:
         keyword_objs = self.keyword_objs or []
-        keywords = defaultdict(dict)  # type: dict
-        for keyword in keyword_objs:
-            keywords[keyword.key] = keyword
-        return sorted(keywords.items())
-
+        keywords = []
+        for keyword_assoc in keyword_objs:
+            controlled_keyword = keyword_assoc.controlled_keyword
+            keywords.append({
+                "keyword": {
+                    "key": controlled_keyword.key,
+                    "value": controlled_keyword.value,
+                    "vocabulary": controlled_keyword.vocabulary,
+                    "special": controlled_keyword.special,
+                    "description": controlled_keyword.description,
+                },
+                "description": keyword_assoc.description
+            })
+        return keywords
 
     @property
     def legacy_keywords(self) -> list[str]:
         legacy_keyword_objs = self.legacy_keyword_objs or []
-        #return list(map(lambda keyword_obj: keyword_obj.text, legacy_keyword_objs))
         return [keyword_obj.text for keyword_obj in legacy_keyword_objs if keyword_obj.text is not None]
-
 
     async def set_legacy_keywords(self, db, keywords: Optional[list[str]]):
         if keywords:
@@ -141,12 +139,16 @@ class Experiment(Base):
         else:
             self.keyword_objs = []
 
-
     async def set_keywords(self, db, keywords: dict):
         self.keyword_objs = []
         for keyword_obj in keywords.values():
             keyword = await self._find_keyword(db, keyword_obj.key, keyword_obj.value, keyword_obj.vocabulary)
-            self.keyword_objs.append(keyword)
+            experiment_controlled_keyword = ExperimentControlledKeywordAssociation(
+                experiment=self,
+                controlled_keyword=keyword,
+                description=keyword_obj.description  # Ensure keyword_obj has a description attribute
+            )
+            self.keyword_objs.append(experiment_controlled_keyword)
 
     # See https://gist.github.com/tachyondecay/e0fe90c074d6b6707d8f1b0b1dcc8e3a
     # @keywords.setter
