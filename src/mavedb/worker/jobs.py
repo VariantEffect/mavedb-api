@@ -1,4 +1,5 @@
 import logging
+import requests
 
 import pandas as pd
 from cdot.hgvs.dataproviders import RESTDataProvider
@@ -16,6 +17,7 @@ from mavedb.lib.validation.dataframe import (
     validate_and_standardize_dataframe_pair,
 )
 from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
@@ -37,7 +39,9 @@ async def create_variants_for_score_set(
         db: Session = ctx["db"]
         hdp: RESTDataProvider = ctx["hdp"]
 
-        score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one()
+        score_set = db.scalars(
+            select(ScoreSet).where(ScoreSet.urn == score_set_urn)
+        ).one()
         updated_by = db.scalars(select(User).where(User.id == updater_id)).one()
 
         score_set.modified_by = updated_by
@@ -73,15 +77,24 @@ async def create_variants_for_score_set(
     except ValidationError as e:
         db.rollback()
         score_set.processing_state = ProcessingState.failed
-        logger.error(f"Validation error while processing variants for {score_set.urn}", exc_info=e)
-        score_set.processing_errors = {"exception": str(e), "detail": e.triggering_exceptions}
+        logger.error(
+            f"Validation error while processing variants for {score_set.urn}",
+            exc_info=e,
+        )
+        score_set.processing_errors = {
+            "exception": str(e),
+            "detail": e.triggering_exceptions,
+        }
 
     # NOTE: Since these are likely to be internal errors, it makes less sense to add them to the DB and surface them to the end user.
     # Catch all non-system exiting exceptions.
     except Exception as e:
         db.rollback()
         score_set.processing_state = ProcessingState.failed
-        logger.error(f"Encountered an exception while processing variants for {score_set.urn}", exc_info=e)
+        logger.error(
+            f"Encountered an exception while processing variants for {score_set.urn}",
+            exc_info=e,
+        )
         score_set.processing_errors = {"exception": str(e), "detail": []}
         send_slack_message(err=e)
 
@@ -100,3 +113,23 @@ async def create_variants_for_score_set(
         db.refresh(score_set)
 
     return score_set
+
+
+async def map_variants_for_score_set(ctx, score_set_urn: str):
+    db: Session = ctx["db"]
+
+    response = requests.post(f"http://dcd-mapping:8000/api/v1/map/{score_set_urn}")
+    response.raise_for_status()
+    mapping_results = response.json()
+
+    for mapped_score in mapping_results["mapped_scores"]:
+        variant_urn = mapped_score["mavedb_id"]
+        variant = db.scalars(select(Variant).where(Variant.urn == variant_urn)).one()
+        mapped_variant = MappedVariant(
+            pre_mapped = mapped_score["pre_mapped"],
+            post_mapped = mapped_score["post_mapped"],
+            variant_id = variant.id
+        )
+        db.add(mapped_variant)
+    
+    db.commit()
