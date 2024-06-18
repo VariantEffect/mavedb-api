@@ -1,4 +1,5 @@
 import logging
+import requests
 
 import pandas as pd
 from cdot.hgvs.dataproviders import RESTDataProvider
@@ -17,6 +18,7 @@ from mavedb.lib.validation.dataframe import (
     validate_and_standardize_dataframe_pair,
 )
 from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
@@ -49,7 +51,9 @@ async def create_variants_for_score_set(
         db: Session = ctx["db"]
         hdp: RESTDataProvider = ctx["hdp"]
 
-        score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one()
+        score_set = db.scalars(
+            select(ScoreSet).where(ScoreSet.urn == score_set_urn)
+        ).one()
         updated_by = db.scalars(select(User).where(User.id == updater_id)).one()
 
         score_set.modified_by = updated_by
@@ -143,3 +147,23 @@ async def create_variants_for_score_set(
 
     ctx["state"][ctx["job_id"]] = logging_context.copy()
     return score_set.processing_state.name
+
+
+async def map_variants_for_score_set(ctx, score_set_urn: str):
+    db: Session = ctx["db"]
+
+    response = requests.post(f"http://dcd-mapping:8000/api/v1/map/{score_set_urn}")
+    response.raise_for_status()
+    mapping_results = response.json()
+
+    for mapped_score in mapping_results["mapped_scores"]:
+        variant_urn = mapped_score["mavedb_id"]
+        variant = db.scalars(select(Variant).where(Variant.urn == variant_urn)).one()
+        mapped_variant = MappedVariant(
+            pre_mapped = mapped_score["pre_mapped"],
+            post_mapped = mapped_score["post_mapped"],
+            variant_id = variant.id
+        )
+        db.add(mapped_variant)
+    
+    db.commit()

@@ -63,6 +63,25 @@ services:
     volumes:
       - mavedb-redis-dev:/data
 
+  dcd-mapping:
+    image: dcd-mapping:dev
+    command: bash -c "uvicorn api.server_main:app --host 0.0.0.0 --port 8000 --reload"
+    depends_on:
+      - db
+      - seqrepo
+    env_file:
+      - settings/.env.dev
+      - settings/.env.dev.mapping
+    ports:
+      - "8004:8000"
+    volumes:
+      - mavedb-seqrepo-dev:/usr/local/share/seqrepo
+
+  seqrepo:
+    image: biocommons/seqrepo:2021-01-29
+    volumes:
+      - mavedb-seqrepo-dev:/usr/local/share/seqrepo
+
 #  rabbitmq:
 #    image: rabbitmq:3.8.3
 #    ports:
@@ -71,3 +90,4 @@ services:
 volumes:
   mavedb-data-dev:
   mavedb-redis-dev:
+  mavedb-seqrepo-dev:
