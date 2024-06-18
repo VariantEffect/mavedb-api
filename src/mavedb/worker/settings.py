@@ -1,15 +1,17 @@
 import os
+from concurrent import futures
 from typing import Callable
 
 from arq.connections import RedisSettings
 from arq import cron
 
-from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_score_set
+from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager
 from mavedb.db.session import SessionLocal
 from mavedb.data_providers.services import cdot_rest
 
 # ARQ requires at least one task on startup.
-BACKGROUND_FUNCTIONS: list[Callable] = [create_variants_for_score_set, map_variants_for_score_set]
+BACKGROUND_FUNCTIONS: list[Callable] = [create_variants_for_score_set, variant_mapper_manager, map_variants_for_score_set]
+#BACKGROUND_CRONJOBS: list[Callable] = [cron(variant_mapper_manager, hour={range(0, 23)}, minute={0, 15, 30, 45})]
 BACKGROUND_CRONJOBS: list[Callable] = []
 
 REDIS_IP = os.getenv("REDIS_IP") or "localhost"
@@ -25,6 +27,8 @@ async def startup(ctx):
     db.current_user_id = None
     ctx["db"] = db
     ctx["hdp"] = cdot_rest()
+    ctx["mapping_queue"] = []
+    ctx["pool"] = futures.ProcessPoolExecutor()
 
 
 async def shutdown(ctx):
@@ -43,3 +47,4 @@ class ArqWorkerSettings:
     cron_jobs: list = BACKGROUND_CRONJOBS
 
     job_timeout = 5 * 60 * 60  # Keep jobs alive for a long while...
+    keep_result = 0 # don't keep job results, in order to continuously enqueue new mapping jobs

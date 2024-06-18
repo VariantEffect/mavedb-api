@@ -1,7 +1,12 @@
+import asyncio
+import functools
 import logging
 import requests
+from typing import Optional
 
 import pandas as pd
+from arq import ArqRedis
+from arq.jobs import Job, JobStatus
 from cdot.hgvs.dataproviders import RESTDataProvider
 from sqlalchemy import delete, select, null
 from sqlalchemy.orm import Session
@@ -38,6 +43,7 @@ async def create_variants_for_score_set(
     try:
         db: Session = ctx["db"]
         hdp: RESTDataProvider = ctx["hdp"]
+        redis: ArqRedis = ctx["redis"]
 
         score_set = db.scalars(
             select(ScoreSet).where(ScoreSet.urn == score_set_urn)
@@ -107,6 +113,7 @@ async def create_variants_for_score_set(
     else:
         score_set.processing_state = ProcessingState.success
         score_set.processing_errors = null()
+        await redis.enqueue_job('variant_mapper_manager', score_set_urn)
     finally:
         db.add(score_set)
         db.commit()
@@ -118,18 +125,57 @@ async def create_variants_for_score_set(
 async def map_variants_for_score_set(ctx, score_set_urn: str):
     db: Session = ctx["db"]
 
-    response = requests.post(f"http://dcd-mapping:8000/api/v1/map/{score_set_urn}")
+    logger.info(f"map variants for score set has started for score set {score_set_urn}")
+
+    blocking = functools.partial(requests.post(f"http://dcd-mapping:8000/api/v1/map/{score_set_urn}"))
+    loop = asyncio.get_running_loop()
+    response = await loop.run_in_executor(ctx["pool"], blocking)
+
+    #response = requests.post(f"http://dcd-mapping:8000/api/v1/map/{score_set_urn}")
     response.raise_for_status()
     mapping_results = response.json()
+
+    if mapping_results:
+        existing_variants = select(Variant.id).join(ScoreSet).where(ScoreSet.urn == score_set_urn).subquery()
+        db.execute(delete(MappedVariant).where(MappedVariant.variant_id.in_(existing_variants)))
 
     for mapped_score in mapping_results["mapped_scores"]:
         variant_urn = mapped_score["mavedb_id"]
         variant = db.scalars(select(Variant).where(Variant.urn == variant_urn)).one()
         mapped_variant = MappedVariant(
-            pre_mapped = mapped_score["pre_mapped"],
-            post_mapped = mapped_score["post_mapped"],
+            pre_mapped = mapped_score["pre_mapped_2_0"],
+            post_mapped = mapped_score["post_mapped_2_0"],
             variant_id = variant.id
         )
         db.add(mapped_variant)
     
     db.commit()
+
+
+async def map_variants_async(ctx, score_set_urn: str):
+    blocking = functools.partial(map_variants_for_score_set, ctx["db"], score_set_urn)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(ctx["pool"], blocking)
+
+
+async def variant_mapper_manager(ctx, score_set_urn: Optional[str]):
+    queue: list[str] = ctx["mapping_queue"]
+    redis: ArqRedis = ctx["redis"]
+
+    if score_set_urn:
+        queue.append(score_set_urn)
+    
+    logger.info(f"Queue: {queue}")
+    
+    if not queue:
+        return
+   
+    job = Job(job_id='vrs_map', redis=redis)
+    logger.info(f"checked for job: {job}")
+    if await job.status() is JobStatus.not_found:
+        logger.info("Job is none, attempting to enqueue new map variants job")
+        score_set_urn = queue.pop(0)
+        await redis.enqueue_job('map_variants_for_score_set', score_set_urn, _job_id='vrs_map')
+    else:
+        logger.info(f"Job status: {await job.status()}")
+
