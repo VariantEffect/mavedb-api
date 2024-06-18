@@ -161,7 +161,7 @@ async def map_variants_for_score_set(ctx, score_set_urn: str):
 
     logger.info(f"map variants for score set has started for score set {score_set_urn}")
 
-    blocking = functools.partial(requests.post(f"http://dcd-mapping:8000/api/v1/map/{score_set_urn}"))
+    blocking = functools.partial(requests.post, f"http://dcd-mapping:8000/api/v1/map/{score_set_urn}")
     loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(ctx["pool"], blocking)
 
