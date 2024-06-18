@@ -1,6 +1,6 @@
 from datetime import date
 
-from typing import Any, Optional, List, TYPE_CHECKING
+from typing import Optional, List, TYPE_CHECKING
 
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.event import listens_for
@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 from mavedb.db.base import Base
 from mavedb.lib.temp_urns import generate_temp_urn
+from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.legacy_keyword import LegacyKeyword
@@ -22,7 +23,6 @@ from mavedb.models.publication_identifier import PublicationIdentifier
 
 if TYPE_CHECKING:
     from mavedb.models.score_set import ScoreSet
-    from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 
 
 experiments_doi_identifiers_association_table = Table(
@@ -111,7 +111,7 @@ class Experiment(Base):
     # Original codes. Not sure this part.
     # def keywords(self) -> Dict[str, ControlledKeyword]:
     # Dict[str, ControlledKeyword] gets error Incompatible return value type in mypy
-    def keywords(self) -> list[tuple[Any, Any]]:
+    def keywords(self) -> list[dict]:
         keyword_objs = self.keyword_objs or []
         keywords = []
         for keyword_assoc in keyword_objs:
@@ -139,10 +139,11 @@ class Experiment(Base):
         else:
             self.keyword_objs = []
 
-    async def set_keywords(self, db, keywords: dict):
+    async def set_keywords(self, db, keywords: list):
         self.keyword_objs = []
-        for keyword_obj in keywords.values():
-            keyword = await self._find_keyword(db, keyword_obj.key, keyword_obj.value, keyword_obj.vocabulary)
+        for keyword_obj in keywords:
+            keyword = await self._find_keyword(db, keyword_obj.keyword.key, keyword_obj.keyword.value,
+                                               keyword_obj.keyword.vocabulary)
             experiment_controlled_keyword = ExperimentControlledKeywordAssociation(
                 experiment=self,
                 controlled_keyword=keyword,

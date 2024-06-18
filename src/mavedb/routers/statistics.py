@@ -229,7 +229,8 @@ def _record_from_field_and_model(
         dict[
             RecordFields,
             Union[
-                Table, type[ExperimentPublicationIdentifierAssociation], type[ScoreSetPublicationIdentifierAssociation]
+                Table, type[ExperimentControlledKeywordAssociation], type[ExperimentPublicationIdentifierAssociation],
+                type[ScoreSetPublicationIdentifierAssociation]
             ],
         ],
     ] = {

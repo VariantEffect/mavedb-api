@@ -61,7 +61,7 @@ TEST_KEYWORDS = [
     },
     {
         "keyword": {
-            "key": "Endogenous Locus Library Method",
+            "key": "Endogenous Locus Library Method System",
             "value": "SaCas9",
             "special": False,
             "description": "Description 2"
@@ -69,10 +69,18 @@ TEST_KEYWORDS = [
     },
     {
         "keyword": {
+            "key": "Endogenous Locus Library Method Mechanism",
+            "value": "Base editor",
+            "special": False,
+            "description": "Description 3"
+        },
+    },
+    {
+        "keyword": {
             "key": "Delivery method",
             "value": "Other",
             "special": False,
-            "description": "Description 3"
+            "description": "Description 4"
         },
         "description": "Details of delivery method"
     },

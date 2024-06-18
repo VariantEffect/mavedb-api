@@ -18,7 +18,7 @@ from mavedb.lib.identifiers import (
     find_or_create_raw_read_identifier,
 )
 from mavedb.lib.permissions import assert_permission, Action
-from mavedb.lib.validation.keywords import find_keyword
+from mavedb.lib.validation.keywords import find_keyword, validate_keyword_list
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_set import ExperimentSet
@@ -196,6 +196,7 @@ async def create_experiment(
 
     keywords: list[ExperimentControlledKeywordAssociation] = []
     if item_create.keywords:
+        validate_keyword_list(item_create.keywords)
         for upload_keyword in item_create.keywords:
             description = upload_keyword.description
             controlled_keyword = find_keyword(db, upload_keyword.keyword.key, upload_keyword.keyword.value)
@@ -297,7 +298,9 @@ async def update_experiment(
     item.raw_read_identifiers = raw_read_identifiers
 
     # await item.set_keywords(db, item_update.keywords)
+
     if item_update.keywords:
+        validate_keyword_list(item_update.keywords)
         keywords = item_update.keywords
         try:
             await item.set_keywords(db, keywords)

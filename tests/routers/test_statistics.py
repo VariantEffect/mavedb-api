@@ -277,10 +277,12 @@ def test_record_keyword_statistics(session, data_provider, client, setup_router_
     new_keywords = [
         ControlledKeyword(key="Variant Library Creation Method", value="Endogenous locus library method",
                           vocabulary=None, special=True, description="Description 1"),
-        ControlledKeyword(key="Endogenous Locus Library Method", value="SaCas9",
+        ControlledKeyword(key="Endogenous Locus Library Method System", value="SaCas9",
                           vocabulary=None, special=True, description="Description 2"),
+        ControlledKeyword(key="Endogenous Locus Library Method Mechanism", value="Base editor",
+                          vocabulary=None, special=True, description="Description 3"),
         ControlledKeyword(key="Delivery method", value="Other",
-                          vocabulary=None, special=False, description="Description 3")
+                          vocabulary=None, special=False, description="Description 4")
     ]
     for keyword in new_keywords:
         session.add(keyword)
@@ -297,7 +299,7 @@ def test_record_keyword_statistics(session, data_provider, client, setup_router_
     publish_score_set(client, score_set["urn"])
 
     response = client.get(f"/api/v1/statistics/record/experiment/keywords")
-    desired_field_values = ["SaCas9", "Endogenous locus library method", "Other"]
+    desired_field_values = ["SaCas9", "Endogenous locus library method", "Base editor", "Other"]
     for desired_field_value in desired_field_values:
         assert_statistic(desired_field_value, response)
 
