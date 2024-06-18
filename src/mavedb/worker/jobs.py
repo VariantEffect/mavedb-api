@@ -106,7 +106,9 @@ async def create_variants_for_score_set(
         hdp: RESTDataProvider = ctx["hdp"]
         redis: ArqRedis = ctx["redis"]
 
-        score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one()
+        score_set = db.scalars(
+            select(ScoreSet).where(ScoreSet.urn == score_set_urn)
+        ).one()
         updated_by = db.scalars(select(User).where(User.id == updater_id)).one()
 
         score_set.modified_by = updated_by
