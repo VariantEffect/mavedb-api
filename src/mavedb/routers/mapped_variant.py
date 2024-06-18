@@ -1,5 +1,6 @@
 from typing import Any, List, Optional
 
+from arq import ArqRedis
 from fastapi import APIRouter, Depends
 from fastapi.exceptions import HTTPException
 from sqlalchemy.orm import Session
@@ -40,3 +41,12 @@ async def show_mapped_variant(
     """
 
     return await fetch_mapped_variant_by_variant_urn(db, urn)
+
+@router.post("/map/{urn}", status_code=200, responses={404: {}, 500: {}})
+async def map_score_set(
+    *, urn: str, worker: ArqRedis = Depends(deps.get_worker)
+) -> Any:
+    await worker.enqueue_job(
+                    "variant_mapper_manager", urn,
+                )
+    
