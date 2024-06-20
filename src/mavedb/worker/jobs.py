@@ -2,6 +2,7 @@ import asyncio
 import functools
 import logging
 import requests
+from datetime import timedelta
 from typing import Optional
 
 import pandas as pd
@@ -57,9 +58,7 @@ async def create_variants_for_score_set(
         hdp: RESTDataProvider = ctx["hdp"]
         redis: ArqRedis = ctx["redis"]
 
-        score_set = db.scalars(
-            select(ScoreSet).where(ScoreSet.urn == score_set_urn)
-        ).one()
+        score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one()
         updated_by = db.scalars(select(User).where(User.id == updater_id)).one()
 
         score_set.modified_by = updated_by
@@ -145,7 +144,9 @@ async def create_variants_for_score_set(
         logging_context["processing_state"] = score_set.processing_state.name
         logger.info(msg="Finished creating variants in score set.", extra=logging_context)
 
-        await redis.enqueue_job('variant_mapper_manager', score_set_urn)
+
+        await redis.lpush("mapping_queue", score_set_urn)  # type: ignore
+        await redis.enqueue_job("variant_mapper_manager")
     finally:
         db.add(score_set)
         db.commit()
@@ -159,57 +160,63 @@ async def create_variants_for_score_set(
 async def map_variants_for_score_set(ctx, score_set_urn: str):
     db: Session = ctx["db"]
 
-    logger.info(f"map variants for score set has started for score set {score_set_urn}")
+    logger.info(f"Started variant mapping for score set: {score_set_urn}")
 
+    # Do not block Worker event loop during mapping, see: https://arq-docs.helpmanual.io/#synchronous-jobs.
     blocking = functools.partial(requests.post, f"http://dcd-mapping:8000/api/v1/map/{score_set_urn}")
     loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(ctx["pool"], blocking)
 
-    #response = requests.post(f"http://dcd-mapping:8000/api/v1/map/{score_set_urn}")
-    response.raise_for_status()
-    mapping_results = response.json()
+    try:
+        response.raise_for_status()
+        mapping_results = response.json()
+    except requests.HTTPError as e:
+        logger.error(
+            f"Encountered an exception while mapping variants for {score_set_urn}",
+            exc_info=e,
+        )
+
+    logger.debug("Done mapping variants.")
 
     if mapping_results:
-        existing_variants = select(Variant.id).join(ScoreSet).where(ScoreSet.urn == score_set_urn).subquery()
+        existing_variants = select(Variant.id).join(ScoreSet).where(ScoreSet.urn == score_set_urn)
         db.execute(delete(MappedVariant).where(MappedVariant.variant_id.in_(existing_variants)))
+        logger.debug("Removed existing mapped variants for this score set.")
 
     for mapped_score in mapping_results["mapped_scores"]:
         variant_urn = mapped_score["mavedb_id"]
         variant = db.scalars(select(Variant).where(Variant.urn == variant_urn)).one()
+
         mapped_variant = MappedVariant(
-            pre_mapped = mapped_score["pre_mapped_2_0"],
-            post_mapped = mapped_score["post_mapped_2_0"],
-            variant_id = variant.id
+            pre_mapped=mapped_score["pre_mapped_2_0"],
+            post_mapped=mapped_score["post_mapped_2_0"],
+            variant_id=variant.id,
         )
         db.add(mapped_variant)
-    
+
+    logger.info(f"Inserted {len(mapping_results['mapped_scores'])} mapped variants.")
     db.commit()
 
 
-async def map_variants_async(ctx, score_set_urn: str):
-    blocking = functools.partial(map_variants_for_score_set, ctx["db"], score_set_urn)
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(ctx["pool"], blocking)
-
-
-async def variant_mapper_manager(ctx, score_set_urn: Optional[str]):
-    queue: list[str] = ctx["mapping_queue"]
+async def variant_mapper_manager(ctx: dict) -> Optional[Job]:
+    logger.debug("Variant mapping manager began execution")
     redis: ArqRedis = ctx["redis"]
 
-    if score_set_urn:
-        queue.append(score_set_urn)
-    
-    logger.info(f"Queue: {queue}")
-    
-    if not queue:
-        return
-   
-    job = Job(job_id='vrs_map', redis=redis)
-    logger.info(f"checked for job: {job}")
-    if await job.status() is JobStatus.not_found:
-        logger.info("Job is none, attempting to enqueue new map variants job")
-        score_set_urn = queue.pop(0)
-        await redis.enqueue_job('map_variants_for_score_set', score_set_urn, _job_id='vrs_map')
-    else:
-        logger.info(f"Job status: {await job.status()}")
+    queue_length = await redis.llen("mapping_queue")  # type:ignore
+    if queue_length == 0:
+        logger.debug("No mapping jobs exist in the queue.")
+        return None
 
+    logger.debug(f"{queue_length + 1} mapping job(s) are queued.")
+
+    job = Job(job_id="vrs_map", redis=redis)
+    if await job.status() is JobStatus.not_found:
+        logger.info("No mapping jobs are running, queuing a new one.")
+        queued_urn = await redis.rpop("mapping_queue")  # type:ignore
+        return await redis.enqueue_job("map_variants_for_score_set", queued_urn, _job_id="vrs_map")
+    else:
+        logger.debug("A mapping job is already running, deferring mapping by 5 minutes.")
+
+        # Our persistent Redis queue and ARQs execution rules ensure that even if the worker is stopped and not restarted
+        # before the deferred time, these deferred jobs will still run once able.
+        return await redis.enqueue_job("variant_mapper_manager", _defer_by=timedelta(minutes=5))
