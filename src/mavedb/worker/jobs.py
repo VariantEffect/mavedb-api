@@ -31,6 +31,7 @@ from mavedb.models.variant import Variant
 
 logger = logging.getLogger(__name__)
 
+MAPPING_QUEUE_NAME = "vrs_mapping_queue"
 
 def setup_job_state(ctx, invoker: int, resource: str, correlation_id: str):
     ctx["state"][ctx["job_id"]] = {
@@ -144,8 +145,7 @@ async def create_variants_for_score_set(
         logging_context["processing_state"] = score_set.processing_state.name
         logger.info(msg="Finished creating variants in score set.", extra=logging_context)
 
-
-        await redis.lpush("mapping_queue", score_set_urn)  # type: ignore
+        await redis.lpush(MAPPING_QUEUE_NAME, score_set_urn)  # type: ignore
         await redis.enqueue_job("variant_mapper_manager")
     finally:
         db.add(score_set)
@@ -170,7 +170,7 @@ async def map_variants_for_score_set(ctx, score_set_urn: str):
     try:
         response.raise_for_status()
         mapping_results = response.json()
-    except requests.HTTPError as e:
+    except requests.exceptions.HTTPError as e:
         logger.error(
             f"Encountered an exception while mapping variants for {score_set_urn}",
             exc_info=e,
@@ -202,7 +202,7 @@ async def variant_mapper_manager(ctx: dict) -> Optional[Job]:
     logger.debug("Variant mapping manager began execution")
     redis: ArqRedis = ctx["redis"]
 
-    queue_length = await redis.llen("mapping_queue")  # type:ignore
+    queue_length = await redis.llen(MAPPING_QUEUE_NAME)  # type:ignore
     if queue_length == 0:
         logger.debug("No mapping jobs exist in the queue.")
         return None
@@ -212,11 +212,11 @@ async def variant_mapper_manager(ctx: dict) -> Optional[Job]:
     job = Job(job_id="vrs_map", redis=redis)
     if await job.status() is JobStatus.not_found:
         logger.info("No mapping jobs are running, queuing a new one.")
-        queued_urn = await redis.rpop("mapping_queue")  # type:ignore
+        queued_urn = await redis.rpop(MAPPING_QUEUE_NAME)  # type:ignore
         return await redis.enqueue_job("map_variants_for_score_set", queued_urn, _job_id="vrs_map")
     else:
         logger.debug("A mapping job is already running, deferring mapping by 5 minutes.")
 
-        # Our persistent Redis queue and ARQs execution rules ensure that even if the worker is stopped and not restarted
+        # Our persistent Redis queue and ARQ's execution rules ensure that even if the worker is stopped and not restarted
         # before the deferred time, these deferred jobs will still run once able.
         return await redis.enqueue_job("variant_mapper_manager", _defer_by=timedelta(minutes=5))
