@@ -6,7 +6,6 @@ from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import is_null
 
 from mavedb.models.controlled_keyword import ControlledKeyword
-from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 
 
 def find_keyword(db: Session, key: str, value: str):
@@ -25,10 +24,7 @@ def validate_description(value: str, description: Optional[str]):
 def validate_duplicates(keywords: list):
     keys = []
     values = []
-    print("fff")
-    print(keywords)
     for k in keywords:
-        print(k)
         keys.append(k.keyword.key.lower())  # k: ExperimentControlledKeywordCreate object
         if k.keyword.value.lower() != "other":
             values.append(k.keyword.value.lower())

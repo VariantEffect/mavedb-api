@@ -1,11 +1,16 @@
 from fastapi import HTTPException
 from unittest import TestCase
 
-from mavedb.lib.validation.keywords import validate_keyword, validate_description, validate_duplicates
+from mavedb.lib.validation.keywords import (
+    validate_keyword,
+    validate_description,
+    validate_duplicates,
+    validate_keyword_keys
+)
 from mavedb.lib.validation.exceptions import ValidationError
 
-from mavedb.models.controlled_keyword import ControlledKeyword
-from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
+from mavedb.view_models.experiment_controlled_keyword import ExperimentControlledKeywordCreate
+from tests.helpers.constants import TEST_DESCRIPTION
 
 
 class TestKeywordValidators(TestCase):
@@ -34,83 +39,237 @@ class TestKeywordValidators(TestCase):
         with self.assertRaises(HTTPException):
             validate_description(value, description)
 
-    # def test_duplicate_keys(self):
-    #     controlled_keyword1 = ControlledKeyword(
-    #         key="Variant Library Creation Method",
-    #         value="Endogenous locus library method",
-    #         vocabulary=None,
-    #         special=True,
-    #         description="Description 1"
-    #     )
-    #
-    #     controlled_keyword2 = ControlledKeyword(
-    #         key="Endogenous Locus Library Method",
-    #         value="SaCas9",
-    #         vocabulary=None,
-    #         special=True,
-    #         description="Description 2"
-    #     )
-    #
-    #     experiment_controlled_keyword1 = ExperimentControlledKeywordAssociation(
-    #         controlled_keyword=controlled_keyword1,
-    #         description="Extra description"
-    #     )
-    #
-    #     experiment_controlled_keyword2 = ExperimentControlledKeywordAssociation(
-    #         controlled_keyword=controlled_keyword2,
-    #         description="Details of delivery method"
-    #     )
-    #
-    #     test_keyword = [
-    #         experiment_controlled_keyword1,
-    #         experiment_controlled_keyword2
-    #     ]
-    #
-    #     with self.assertRaises(HTTPException):
-    #         validate_duplicates(test_keyword)
-    #
+    def test_duplicate_keys(self):
+        # Invalid keywords list.
+        keyword1 = {
+            "key": "Variant Library Creation Method",
+            "value": "Endogenous locus library method",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
+
+        keyword2 = {
+            "key": "Variant Library Creation Method",
+            "value": "SaCas9",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
+        keyword_list = [keyword_obj1, keyword_obj2]
+        with self.assertRaises(HTTPException):
+            validate_duplicates(keyword_list)
+
     def test_duplicate_values(self):
-        test_keyword = [
-            {
-                "keyword": {
+        # Invalid keywords list.
+        keyword1 = {
                     "key": "Variant Library Creation Method",
                     "value": "Endogenous locus library method",
                     "special": False,
-                    "description": "Description 1"
-                },
-            },
-            {
-                "keyword": {
+                    "description": TEST_DESCRIPTION
+                }
+        keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
+
+        keyword2 = {
                     "key": "Endogenous Locus Library Method System",
                     "value": "Endogenous locus library method",
                     "special": False,
-                    "description": "Description 3"
-                },
-                "description": "Details of delivery method"
-            },
-        ]
+                    "description": TEST_DESCRIPTION
+                }
+        keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
+        keyword_list = [keyword_obj1, keyword_obj2]
         with self.assertRaises(HTTPException):
-            validate_duplicates(test_keyword)
-    #
-    # def test_duplicate_values_but_they_are_other(self):
-    #     test_keyword = [
-    #         {
-    #             "keyword": {
-    #                 "key": "Variant Library Creation Method",
-    #                 "value": "Other",
-    #                 "special": False,
-    #                 "description": "Description 1"
-    #             },
-    #             "description": "Extra description",
-    #         },
-    #         {
-    #             "keyword": {
-    #                 "key": "Delivery method",
-    #                 "value": "Other",
-    #                 "special": False,
-    #                 "description": "Description 2"
-    #             },
-    #             "description": "Details of delivery method"
-    #         },
-    #     ]
-    #     validate_duplicates(test_keyword)
+            validate_duplicates(keyword_list)
+
+    def test_duplicate_values_but_they_are_other(self):
+        # Valid keyword list
+        keyword1 = {
+            "key": "Variant Library Creation Method",
+            "value": "Other",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
+
+        keyword2 = {
+            "key": "Endogenous Locus Library Method System",
+            "value": "Other",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
+        keyword_list = [keyword_obj1, keyword_obj2]
+        validate_duplicates(keyword_list)
+
+    def test_variant_library_value_is_endogenous_and_another_keywords_keys_are_endogenous(self):
+        # Valid keyword list
+        keyword1 = {
+            "key": "Variant Library Creation Method",
+            "value": "Endogenous locus library method",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
+
+        keyword2 = {
+            "key": "Endogenous Locus Library Method System",
+            "value": "Other",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
+
+        keyword3 = {
+            "key": "Endogenous Locus Library Method Mechanism",
+            "value": "Nuclease",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj3 = ExperimentControlledKeywordCreate(keyword=keyword3, description=TEST_DESCRIPTION)
+        keyword_list = [keyword_obj1, keyword_obj2, keyword_obj3]
+        validate_keyword_keys(keyword_list)
+
+    def test_variant_library_value_is_endogenous_but_another_keywords_keys_are_in_vitro(self):
+        # Invalid keyword list
+        keyword1 = {
+            "key": "Variant Library Creation Method",
+            "value": "Endogenous locus library method",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
+
+        keyword2 = {
+            "key": "In Vitro Construct Library Method System",
+            "value": "Oligo-directed mutagenic PCR",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
+
+        keyword3 = {
+            "key": "In Vitro Construct Library Method Mechanism",
+            "value": "Native locus replacement",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj3 = ExperimentControlledKeywordCreate(keyword=keyword3, description=TEST_DESCRIPTION)
+        keyword_list = [keyword_obj1, keyword_obj2, keyword_obj3]
+        with self.assertRaises(HTTPException):
+            validate_keyword_keys(keyword_list)
+
+    def test_variant_library_value_is_in_vitro_and_another_keywords_keys_are_both_in_vitro(self):
+        # Valid keyword list
+        keyword1 = {
+            "key": "Variant Library Creation Method",
+            "value": "In vitro construct library method",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
+
+        keyword2 = {
+            "key": "In Vitro Construct Library Method System",
+            "value": "Oligo-directed mutagenic PCR",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
+
+        keyword3 = {
+            "key": "In Vitro Construct Library Method Mechanism",
+            "value": "Native locus replacement",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj3 = ExperimentControlledKeywordCreate(keyword=keyword3, description=TEST_DESCRIPTION)
+        keyword_list = [keyword_obj1, keyword_obj2, keyword_obj3]
+        validate_keyword_keys(keyword_list)
+
+    def test_variant_library_value_is_in_vitro_but_another_keywords_keys_are_endogenous(self):
+        # Invalid keyword list
+        keyword1 = {
+            "key": "Variant Library Creation Method",
+            "value": "In vitro construct library method",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
+
+        keyword2 = {
+            "key": "Endogenous Locus Library Method System",
+            "value": "Other",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
+
+        keyword3 = {
+            "key": "Endogenous Locus Library Method Mechanism",
+            "value": "Nuclease",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj3 = ExperimentControlledKeywordCreate(keyword=keyword3, description=TEST_DESCRIPTION)
+        keyword_list = [keyword_obj1, keyword_obj2, keyword_obj3]
+        with self.assertRaises(HTTPException):
+            validate_keyword_keys(keyword_list)
+
+    def test_variant_library_value_is_other(self):
+        # Valid keyword
+        keyword1 = {
+            "key": "Variant Library Creation Method",
+            "value": "Other",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
+        keyword_list = [keyword_obj1]
+        validate_keyword_keys(keyword_list)
+
+    def test_variant_library_value_is_other_but_another_keyword_key_is_endogenous(self):
+        # Invalid keyword list
+        keyword1 = {
+            "key": "Variant Library Creation Method",
+            "value": "Other",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
+
+        keyword2 = {
+            "key": "Endogenous Locus Library Method System",
+            "value": "Other",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
+
+        keyword_list = [keyword_obj1, keyword_obj2]
+        with self.assertRaises(HTTPException):
+            validate_keyword_keys(keyword_list)
+
+    def test_variant_library_value_is_other_but_another_keyword_key_is_in_vitro(self):
+        """
+        Invalid keyword list.
+        If Variant Library Creation Method is Other, none of the rest keywords' keys is endogenous or in vitro method.
+        """
+        keyword1 = {
+            "key": "Variant Library Creation Method",
+            "value": "Other",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
+
+        keyword2 = {
+            "key": "In Vitro Construct Library Method System",
+            "value": "Oligo-directed mutagenic PCR",
+            "special": False,
+            "description": TEST_DESCRIPTION
+        }
+        keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
+
+        keyword_list = [keyword_obj1, keyword_obj2]
+        with self.assertRaises(HTTPException):
+            validate_keyword_keys(keyword_list)

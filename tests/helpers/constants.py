@@ -43,6 +43,8 @@ ADMIN_USER = {
     "is_first_login": True,
 }
 
+TEST_DESCRIPTION = 'description'
+
 TEST_EXPERIMENT = {
     "title": "Test Title",
     "short_description": "Test experiment",
