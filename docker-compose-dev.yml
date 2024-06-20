@@ -71,7 +71,6 @@ services:
       - seqrepo
     env_file:
       - settings/.env.dev
-      - settings/.env.dev.mapping
     ports:
       - "8004:8000"
     volumes:
