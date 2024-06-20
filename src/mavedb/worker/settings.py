@@ -63,4 +63,4 @@ class ArqWorkerSettings:
     cron_jobs: list = BACKGROUND_CRONJOBS
 
     job_timeout = 5 * 60 * 60  # Keep jobs alive for a long while...
-    keep_result = 0 # don't keep job results, in order to continuously enqueue new mapping jobs
+    keep_result = 0  # don't keep job results, in order to continuously enqueue new mapping jobs
