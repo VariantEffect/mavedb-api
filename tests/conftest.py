@@ -26,7 +26,7 @@ from mavedb.lib.authorization import require_current_user
 from mavedb.lib.authentication import get_current_user, UserData
 from mavedb.models.user import User
 from mavedb.server_main import app
-from mavedb.worker.jobs import create_variants_for_score_set
+from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager
 
 sys.path.append(".")
 
@@ -152,7 +152,7 @@ async def arq_worker(data_provider, session, arq_redis):
         ctx["hdp"] = data_provider
 
     worker_ = Worker(
-        functions=[create_variants_for_score_set],
+        functions=[create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager],
         redis_pool=arq_redis,
         burst=True,
         poll_delay=0,
@@ -168,8 +168,8 @@ async def arq_worker(data_provider, session, arq_redis):
 
 
 @pytest.fixture
-def standalone_worker_context(session, data_provider):
-    yield {"db": session, "hdp": data_provider, "state": {}, "job_id": "test_job"}
+def standalone_worker_context(session, data_provider, arq_redis):
+    yield {"db": session, "hdp": data_provider, "state": {}, "job_id": "test_job", "redis": arq_redis}
 
 
 @pytest.fixture()
