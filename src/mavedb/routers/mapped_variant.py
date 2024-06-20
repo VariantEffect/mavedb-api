@@ -11,6 +11,7 @@ from mavedb import deps
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
 from mavedb.view_models import mapped_variant
+from mavedb.worker.jobs import MAPPING_QUEUE_NAME
 
 
 async def fetch_mapped_variant_by_variant_urn(db, urn: str) -> Optional[MappedVariant]:
@@ -53,7 +54,7 @@ async def show_mapped_variant(*, urn: str, db: Session = Depends(deps.get_db)) -
 
 @router.post("/map/{urn}", status_code=200, responses={404: {}, 500: {}})
 async def map_score_set(*, urn: str, worker: ArqRedis = Depends(deps.get_worker)) -> Any:
-    await worker.lpush("mapping_queue", urn)  # type: ignore
+    await worker.lpush(MAPPING_QUEUE_NAME, urn)  # type: ignore
     await worker.enqueue_job(
         "variant_mapper_manager",
     )
