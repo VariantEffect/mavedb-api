@@ -88,6 +88,8 @@ async def enqueue_job_with_backoff(
 
     return (new_job_id, not limit_reached, backoff)
 
+MAPPING_QUEUE_NAME = "vrs_mapping_queue"
+
 
 async def create_variants_for_score_set(
     ctx, correlation_id: str, score_set_urn: str, updater_id: int, scores: pd.DataFrame, counts: pd.DataFrame
