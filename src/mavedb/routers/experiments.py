@@ -194,17 +194,22 @@ async def create_experiment(
     for publication in publication_identifiers:
         setattr(publication, "primary", publication.identifier in primary_identifiers)
 
+    # Controlled keywords currently is allowed none. Will be changed in the future.
     keywords: list[ExperimentControlledKeywordAssociation] = []
     if item_create.keywords:
-        validate_keyword_list(item_create.keywords)
-        for upload_keyword in item_create.keywords:
-            description = upload_keyword.description
-            controlled_keyword = find_keyword(db, upload_keyword.keyword.key, upload_keyword.keyword.value)
-            experiment_controlled_keyword = ExperimentControlledKeywordAssociation(
-                controlled_keyword=controlled_keyword,
-                description=description,
-            )
-            keywords.append(experiment_controlled_keyword)
+        all_values_none = all(k.keyword.value is None for k in item_create.keywords)
+        if all_values_none:
+            pass
+        else:
+            validate_keyword_list(item_create.keywords)
+            for upload_keyword in item_create.keywords:
+                description = upload_keyword.description
+                controlled_keyword = find_keyword(db, upload_keyword.keyword.key, upload_keyword.keyword.value)
+                experiment_controlled_keyword = ExperimentControlledKeywordAssociation(
+                    controlled_keyword=controlled_keyword,
+                    description=description,
+                )
+                keywords.append(experiment_controlled_keyword)
 
     item = Experiment(
         **jsonable_encoder(
@@ -300,12 +305,16 @@ async def update_experiment(
     # await item.set_keywords(db, item_update.keywords)
 
     if item_update.keywords:
-        validate_keyword_list(item_update.keywords)
-        keywords = item_update.keywords
-        try:
-            await item.set_keywords(db, keywords)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Invalid keywords: {str(e)}")
+        all_values_none = all(k.keyword.value is None for k in item_update.keywords)
+        if all_values_none:
+            pass
+        else:
+            validate_keyword_list(item_update.keywords)
+            keywords = item_update.keywords
+            try:
+                await item.set_keywords(db, keywords)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Invalid keywords: {str(e)}")
 
     item.modified_by = user_data.user
 
