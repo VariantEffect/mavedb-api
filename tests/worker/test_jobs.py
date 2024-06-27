@@ -1,7 +1,11 @@
+import requests
+import requests_mock
 from copy import deepcopy
 from uuid import uuid4
 from unittest.mock import patch
+from concurrent import futures
 
+import arq.jobs
 import cdot.hgvs.dataproviders
 import jsonschema
 import pandas as pd
@@ -12,9 +16,15 @@ from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant
+from mavedb.models.mapped_variant import MappedVariant
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
-from mavedb.worker.jobs import create_variants_for_score_set
+from mavedb.worker.jobs import (
+    create_variants_for_score_set,
+    map_variants_for_score_set,
+    variant_mapper_manager,
+    MAPPING_QUEUE_NAME,
+)
 from sqlalchemy import select
 
 from tests.helpers.constants import (
@@ -22,6 +32,7 @@ from tests.helpers.constants import (
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_SEQ_SCORESET,
+    TEST_VARIANT_MAPPING_SCAFFOLD,
 )
 
 
@@ -51,6 +62,38 @@ async def setup_records_and_files(async_client, data_files, input_score_set):
         counts = csv_data_to_df(count_file)
 
     return score_set["urn"], scores, counts
+
+
+async def setup_records_files_and_variants(async_client, data_files, input_score_set, worker_ctx):
+    urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+
+    # Patch CDOT `_get_transcript`, in the event this function is called on an accesssion based scoreset.
+    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+        score_set = await create_variants_for_score_set(worker_ctx, urn, 1, scores, counts)
+
+    assert score_set.processing_state is ProcessingState.success
+    assert score_set.num_variants == 3
+
+    return score_set
+
+
+async def setup_mapping_output(async_client, session, score_set):
+    score_set_response = await async_client.get(f"/api/v1/score-set/{score_set.urn}")
+
+    mapping_output = TEST_VARIANT_MAPPING_SCAFFOLD.copy()
+    mapping_output["metadata"] = score_set_response.json()
+
+    variants = session.scalars(select(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).all()
+    for variant in variants:
+        mapped_score = {
+            "pre_mapped": {"test": "pre_mapped_output"},
+            "post_mapped": {"test": "post_mapped_output"},
+            "mavedb_id": variant.urn,
+        }
+
+        mapping_output["mapped_scores"].append(mapped_score)
+
+    return mapping_output
 
 
 @pytest.mark.asyncio
@@ -298,4 +341,164 @@ async def test_create_variants_for_score_set(
 
     # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
     # thinks we are still using the session fixture and will hang indefinitely.
+    session.commit()
+
+
+# NOTE: These tests operate under the assumption that mapping output is consistent between accession based and sequence based score sets. If
+# this assumption changes in the future, tests reflecting this difference in output should be added for accession based score sets.
+
+
+@pytest.mark.asyncio
+@pytest.mark.skip
+async def test_create_mapped_variants_for_scoreset(
+    setup_worker_db,
+    async_client,
+    standalone_worker_context,
+    session,
+    data_files,
+):
+    score_set = await setup_records_files_and_variants(
+        async_client, data_files, TEST_MINIMAL_SEQ_SCORESET, standalone_worker_context
+    )
+
+    test_mapping_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
+
+    # TODO: How can we mock a functools.partial object running in another event loop? Do we require
+    #       some sort of wrapper object? Must we context manage within this other event loop?
+    with requests_mock.Mocker() as m:
+        m.post(
+            f"http://dcd-mapping:8000/api/v1/map/{score_set.urn}",
+            json=test_mapping_output_for_score_set,
+        )
+
+        await map_variants_for_score_set(standalone_worker_context, score_set.urn)
+        assert m.called
+
+    mapped_variants_for_score_set = session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSet).filter(ScoreSet.urn == score_set.urn)
+    ).all()
+    assert len(mapped_variants_for_score_set) == score_set.num_variants
+
+
+@pytest.mark.asyncio
+@pytest.mark.skip
+async def test_create_mapped_variants_for_scoreset_with_existing_mapped_variants(
+    setup_worker_db, async_client, standalone_worker_context, session, data_files
+):
+    score_set = await setup_records_files_and_variants(
+        async_client, data_files, TEST_MINIMAL_SEQ_SCORESET, standalone_worker_context
+    )
+
+    test_mapping_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
+
+    # TODO: How can we mock a functools.partial object running in another event loop? Do we require
+    #       some sort of wrapper object? Must we context manage within this other event loop?
+    with requests_mock.mock() as m:
+        m.post(
+            f"http://dcd-mapping:8000/api/v1/map/{score_set.urn}",
+            json=test_mapping_output_for_score_set,
+        )
+
+        session.add(
+            MappedVariant(pre_mapped={"preexisting": "variant"}, post_mapped={"preexisting": "variant"}, variant_id=1)
+        )
+        session.commit()
+
+        await map_variants_for_score_set(standalone_worker_context, score_set.urn)
+        assert m.called
+
+    mapped_variants_for_score_set = session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSet).filter(ScoreSet.urn == score_set.urn)
+    ).all()
+    assert len(mapped_variants_for_score_set) == score_set.num_variants
+
+
+@pytest.mark.asyncio
+@pytest.mark.skip
+async def test_create_mapped_variants_for_scoreset_mapping_exception(
+    input_score_set, setup_worker_db, async_client, standalone_worker_context, session, data_files
+):
+    score_set = await setup_records_files_and_variants(
+        async_client, data_files, TEST_MINIMAL_SEQ_SCORESET, standalone_worker_context
+    )
+
+    # TODO: How can we mock a functools.partial object running in another event loop? Do we require
+    #       some sort of wrapper object? Must we context manage within this other event loop?
+    with requests_mock.mock() as m:
+        m.post(
+            f"http://dcd-mapping:8000/api/v1/map/{score_set.urn}",
+            exc=requests.exceptions.HTTPError,
+        )
+
+        await map_variants_for_score_set(standalone_worker_context, score_set.urn)
+        assert m.called
+
+    # TODO: How are errors persisted? Test persistence mechanism.
+    mapped_variants_for_score_set = session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSet).filter(ScoreSet.urn == score_set.urn)
+    ).all()
+    assert len(mapped_variants_for_score_set) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.skip
+async def test_create_mapped_variants_for_scoreset_no_mapping_output(
+    input_score_set, setup_worker_db, async_client, standalone_worker_context, session, data_files
+):
+    score_set = await setup_records_files_and_variants(
+        async_client, data_files, TEST_MINIMAL_SEQ_SCORESET, standalone_worker_context
+    )
+
+    # TODO: How can we mock a functools.partial object running in another event loop? Do we require
+    #       some sort of wrapper object? Must we context manage within this other event loop?
+    test_mapping_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
+    test_mapping_output_for_score_set["mapped_scores"] = []
+
+    with requests_mock.mock() as m:
+        m.post(
+            f"http://dcd-mapping:8000/api/v1/map/{score_set.urn}",
+            json=test_mapping_output_for_score_set,
+        )
+
+        await map_variants_for_score_set(standalone_worker_context, score_set.urn)
+        assert m.called
+
+    mapped_variants_for_score_set = session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSet).filter(ScoreSet.urn == score_set.urn)
+    ).all()
+    assert len(mapped_variants_for_score_set) == 0
+
+
+@pytest.mark.asyncio
+async def test_mapping_manager_empty_queue(setup_worker_db, standalone_worker_context, session):
+    queued_job = await variant_mapper_manager(standalone_worker_context)
+
+    # No new jobs should have been created if nothing is in the queue.
+    assert queued_job is None
+    session.commit()
+
+
+@pytest.mark.asyncio
+async def test_mapping_manager_occupied_queue_mapping_in_progress(setup_worker_db, standalone_worker_context, session):
+    await standalone_worker_context["redis"].lpush(MAPPING_QUEUE_NAME, "mavedb:test-urn")
+
+    with patch.object(arq.jobs.Job, "status", return_value=arq.jobs.JobStatus.in_progress):
+        queued_job = await variant_mapper_manager(standalone_worker_context)
+
+    # Execution should be deferred if a job is in progress.
+    assert await queued_job.status() is arq.jobs.JobStatus.deferred
+    session.commit()
+
+
+@pytest.mark.asyncio
+async def test_mapping_manager_occupied_queue_mapping_not_in_progress(
+    setup_worker_db, standalone_worker_context, session
+):
+    await standalone_worker_context["redis"].lpush(MAPPING_QUEUE_NAME, "mavedb:test-urn")
+
+    with patch.object(arq.jobs.Job, "status", return_value=arq.jobs.JobStatus.not_found):
+        queued_job = await variant_mapper_manager(standalone_worker_context)
+
+    # VRS Mapping jobs have the same ID.
+    assert queued_job.job_id == "vrs_map"
     session.commit()

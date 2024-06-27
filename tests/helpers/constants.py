@@ -523,3 +523,15 @@ TEST_CDOT_TRANSCRIPT = {
         }
     },
 }
+
+
+TEST_VARIANT_MAPPING_SCAFFOLD = {
+    "metadata": {},
+    "computed_reference_sequence": {"sequence_type": "dna", "sequence_id": "ga4gh:SQ.ref_test", "sequence": "ACGTTT"},
+    "mapped_reference_sequence": {
+        "sequence_type": "dna",
+        "sequence_id": "ga4gh:SQ.map_test",
+        "sequence_accessions": ["NC_000001.11"],
+    },
+    "mapped_scores": [],
+}

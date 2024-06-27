@@ -28,6 +28,7 @@ from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
+from mavedb.data_providers.services import vrs_mapper
 
 logger = logging.getLogger(__name__)
 
@@ -163,18 +164,18 @@ async def map_variants_for_score_set(ctx, score_set_urn: str):
     logger.info(f"Started variant mapping for score set: {score_set_urn}")
 
     # Do not block Worker event loop during mapping, see: https://arq-docs.helpmanual.io/#synchronous-jobs.
-    blocking = functools.partial(requests.post, f"http://dcd-mapping:8000/api/v1/map/{score_set_urn}")
+    vrs = vrs_mapper()
+    blocking = functools.partial(vrs.map_score_set, score_set_urn)
     loop = asyncio.get_running_loop()
-    response = await loop.run_in_executor(ctx["pool"], blocking)
 
     try:
-        response.raise_for_status()
-        mapping_results = response.json()
+        mapping_results = await loop.run_in_executor(ctx["pool"], blocking)
     except requests.exceptions.HTTPError as e:
         logger.error(
             f"Encountered an exception while mapping variants for {score_set_urn}",
             exc_info=e,
         )
+        return
 
     logger.debug("Done mapping variants.")
 
@@ -207,7 +208,7 @@ async def variant_mapper_manager(ctx: dict) -> Optional[Job]:
         logger.debug("No mapping jobs exist in the queue.")
         return None
 
-    logger.debug(f"{queue_length + 1} mapping job(s) are queued.")
+    logger.debug(f"{queue_length} mapping job(s) are queued.")
 
     job = Job(job_id="vrs_map", redis=redis)
     if await job.status() is JobStatus.not_found:
