@@ -1,5 +1,6 @@
 import os
 import sys
+from concurrent import futures
 from inspect import getsourcefile
 from os.path import abspath
 from unittest.mock import patch
@@ -165,7 +166,7 @@ async def arq_worker(data_provider, session, arq_redis):
 
 @pytest.fixture
 def standalone_worker_context(session, data_provider, arq_redis):
-    yield {"db": session, "hdp": data_provider, "redis": arq_redis}
+    yield {"db": session, "hdp": data_provider, "redis": arq_redis, "pool": futures.ProcessPoolExecutor()}
 
 
 @pytest.fixture()
