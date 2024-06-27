@@ -5,6 +5,7 @@ from copy import deepcopy
 from requests import HTTPError
 from uuid import uuid4
 from unittest.mock import patch
+from concurrent import futures
 
 import arq.jobs
 import cdot.hgvs.dataproviders
