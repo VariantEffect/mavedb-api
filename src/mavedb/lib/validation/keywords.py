@@ -8,7 +8,8 @@ from mavedb.lib.validation.utilities import is_null
 from mavedb.models.controlled_keyword import ControlledKeyword
 
 
-def find_keyword(db: Session, key: str, value: str):
+# value will not be Optional when we confirm the final controlled keyword list.
+def find_keyword(db: Session, key: str, value: Optional[str]):
     query = db.query(ControlledKeyword).filter(ControlledKeyword.key == key).filter(ControlledKeyword.value == value)
     controlled_keyword = query.one_or_none()
     if controlled_keyword is None:

@@ -198,11 +198,11 @@ async def create_experiment(
     keywords: list[ExperimentControlledKeywordAssociation] = []
     if item_create.keywords:
         all_values_none = all(k.keyword.value is None for k in item_create.keywords)
-        if all_values_none:
-            pass
-        else:
-            validate_keyword_list(item_create.keywords)
-            for upload_keyword in item_create.keywords:
+        if all_values_none is False:
+            # Users may choose part of keywords from dropdown menu. Remove not chosen keywords from the list.
+            filtered_keywords = list(filter(lambda k: k.keyword.value is not None, item_create.keywords))
+            validate_keyword_list(filtered_keywords)
+            for upload_keyword in filtered_keywords:
                 description = upload_keyword.description
                 controlled_keyword = find_keyword(db, upload_keyword.keyword.key, upload_keyword.keyword.value)
                 experiment_controlled_keyword = ExperimentControlledKeywordAssociation(
@@ -302,17 +302,14 @@ async def update_experiment(
     item.publication_identifiers = publication_identifiers
     item.raw_read_identifiers = raw_read_identifiers
 
-    # await item.set_keywords(db, item_update.keywords)
-
     if item_update.keywords:
         all_values_none = all(k.keyword.value is None for k in item_update.keywords)
-        if all_values_none:
-            pass
-        else:
-            validate_keyword_list(item_update.keywords)
-            keywords = item_update.keywords
+        if all_values_none is False:
+            # Users may choose part of keywords from dropdown menu. Remove not chosen keywords from the list.
+            filtered_keywords = list(filter(lambda k: k.keyword.value is not None, item_update.keywords))
+            validate_keyword_list(filtered_keywords)
             try:
-                await item.set_keywords(db, keywords)
+                await item.set_keywords(db, filtered_keywords)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Invalid keywords: {str(e)}")
 
