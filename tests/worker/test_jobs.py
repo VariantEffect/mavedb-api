@@ -1,15 +1,15 @@
-import requests
-import requests_mock
+from asyncio.unix_events import _UnixSelectorEventLoop
 from copy import deepcopy
+from requests import HTTPError
 from uuid import uuid4
 from unittest.mock import patch
-from concurrent import futures
 
 import arq.jobs
 import cdot.hgvs.dataproviders
 import jsonschema
 import pandas as pd
 import pytest
+
 from mavedb.lib.mave.constants import HGVS_NT_COLUMN
 from mavedb.lib.score_sets import csv_data_to_df
 from mavedb.lib.validation.exceptions import ValidationError
@@ -77,17 +77,22 @@ async def setup_records_files_and_variants(async_client, data_files, input_score
     return score_set
 
 
-async def setup_mapping_output(async_client, session, score_set):
+async def setup_mapping_output(async_client, session, score_set, empty=False):
     score_set_response = await async_client.get(f"/api/v1/score-set/{score_set.urn}")
 
-    mapping_output = TEST_VARIANT_MAPPING_SCAFFOLD.copy()
+    mapping_output = deepcopy(TEST_VARIANT_MAPPING_SCAFFOLD)
     mapping_output["metadata"] = score_set_response.json()
+
+    if empty:
+        return mapping_output
 
     variants = session.scalars(select(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).all()
     for variant in variants:
         mapped_score = {
             "pre_mapped": {"test": "pre_mapped_output"},
+            "pre_mapped_2_0": {"test": "pre_mapped_output (2.0)"},
             "post_mapped": {"test": "post_mapped_output"},
+            "post_mapped_2_0": {"test": "post_mapped_output (2.0)"},
             "mavedb_id": variant.urn,
         }
 
@@ -349,7 +354,6 @@ async def test_create_variants_for_score_set(
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip
 async def test_create_mapped_variants_for_scoreset(
     setup_worker_db,
     async_client,
@@ -361,27 +365,29 @@ async def test_create_mapped_variants_for_scoreset(
         async_client, data_files, TEST_MINIMAL_SEQ_SCORESET, standalone_worker_context
     )
 
-    test_mapping_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
+    # Do not await, we need a co-routine object to be the return value of our `run_in_executor` mock.
+    mapping_test_output_for_score_set = setup_mapping_output(async_client, session, score_set)
 
-    # TODO: How can we mock a functools.partial object running in another event loop? Do we require
-    #       some sort of wrapper object? Must we context manage within this other event loop?
-    with requests_mock.Mocker() as m:
-        m.post(
-            f"http://dcd-mapping:8000/api/v1/map/{score_set.urn}",
-            json=test_mapping_output_for_score_set,
-        )
-
+    # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
+    # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
+    # object that sets up test mappingn output.
+    #
+    # TODO: Does this work on non-unix based machines.
+    # TODO: Is it even a safe operation to patch this event loop method?
+    with patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=mapping_test_output_for_score_set):
         await map_variants_for_score_set(standalone_worker_context, score_set.urn)
-        assert m.called
 
     mapped_variants_for_score_set = session.scalars(
-        select(MappedVariant).join(Variant).join(ScoreSet).filter(ScoreSet.urn == score_set.urn)
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
     assert len(mapped_variants_for_score_set) == score_set.num_variants
 
+    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
+    # thinks we are still using the session fixture and will hang indefinitely.
+    session.commit()
+
 
 @pytest.mark.asyncio
-@pytest.mark.skip
 async def test_create_mapped_variants_for_scoreset_with_existing_mapped_variants(
     setup_worker_db, async_client, standalone_worker_context, session, data_files
 ):
@@ -389,84 +395,104 @@ async def test_create_mapped_variants_for_scoreset_with_existing_mapped_variants
         async_client, data_files, TEST_MINIMAL_SEQ_SCORESET, standalone_worker_context
     )
 
-    test_mapping_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
+    # Do not await, we need a co-routine object to be the return value of our `run_in_executor` mock.
+    mapping_test_output_for_score_set = setup_mapping_output(async_client, session, score_set)
 
-    # TODO: How can we mock a functools.partial object running in another event loop? Do we require
-    #       some sort of wrapper object? Must we context manage within this other event loop?
-    with requests_mock.mock() as m:
-        m.post(
-            f"http://dcd-mapping:8000/api/v1/map/{score_set.urn}",
-            json=test_mapping_output_for_score_set,
-        )
+    # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
+    # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
+    # object that sets up test mappingn output.
+    #
+    # TODO: Does this work on non-unix based machines.
+    # TODO: Is it even a safe operation to patch this event loop method?
+    with patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=mapping_test_output_for_score_set):
+        existing_variant = session.scalars(select(Variant)).first()
+
+        if not existing_variant:
+            raise ValueError
 
         session.add(
-            MappedVariant(pre_mapped={"preexisting": "variant"}, post_mapped={"preexisting": "variant"}, variant_id=1)
+            MappedVariant(
+                pre_mapped={"preexisting": "variant"},
+                post_mapped={"preexisting": "variant"},
+                variant_id=existing_variant.id,
+            )
         )
         session.commit()
 
         await map_variants_for_score_set(standalone_worker_context, score_set.urn)
-        assert m.called
 
     mapped_variants_for_score_set = session.scalars(
-        select(MappedVariant).join(Variant).join(ScoreSet).filter(ScoreSet.urn == score_set.urn)
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
     assert len(mapped_variants_for_score_set) == score_set.num_variants
 
+    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
+    # thinks we are still using the session fixture and will hang indefinitely.
+    session.commit()
+
 
 @pytest.mark.asyncio
-@pytest.mark.skip
 async def test_create_mapped_variants_for_scoreset_mapping_exception(
-    input_score_set, setup_worker_db, async_client, standalone_worker_context, session, data_files
+    setup_worker_db, async_client, standalone_worker_context, session, data_files
 ):
+    async def awaitable_http_error():
+        raise HTTPError
+
     score_set = await setup_records_files_and_variants(
         async_client, data_files, TEST_MINIMAL_SEQ_SCORESET, standalone_worker_context
     )
 
-    # TODO: How can we mock a functools.partial object running in another event loop? Do we require
-    #       some sort of wrapper object? Must we context manage within this other event loop?
-    with requests_mock.mock() as m:
-        m.post(
-            f"http://dcd-mapping:8000/api/v1/map/{score_set.urn}",
-            exc=requests.exceptions.HTTPError,
-        )
+    # Do not await, we need a co-routine object which raises an http error once awaited.
+    mapping_test_output_for_score_set = awaitable_http_error()
 
+    # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
+    # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
+    # object that sets up test mappingn output.
+    #
+    # TODO: Does this work on non-unix based machines?
+    # TODO: Is it even a safe operation to patch this event loop method?
+    with patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=mapping_test_output_for_score_set):
         await map_variants_for_score_set(standalone_worker_context, score_set.urn)
-        assert m.called
 
     # TODO: How are errors persisted? Test persistence mechanism.
     mapped_variants_for_score_set = session.scalars(
-        select(MappedVariant).join(Variant).join(ScoreSet).filter(ScoreSet.urn == score_set.urn)
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
     assert len(mapped_variants_for_score_set) == 0
 
+    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
+    # thinks we are still using the session fixture and will hang indefinitely.
+    session.commit()
+
 
 @pytest.mark.asyncio
-@pytest.mark.skip
 async def test_create_mapped_variants_for_scoreset_no_mapping_output(
-    input_score_set, setup_worker_db, async_client, standalone_worker_context, session, data_files
+    setup_worker_db, async_client, standalone_worker_context, session, data_files
 ):
     score_set = await setup_records_files_and_variants(
         async_client, data_files, TEST_MINIMAL_SEQ_SCORESET, standalone_worker_context
     )
 
-    # TODO: How can we mock a functools.partial object running in another event loop? Do we require
-    #       some sort of wrapper object? Must we context manage within this other event loop?
-    test_mapping_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
-    test_mapping_output_for_score_set["mapped_scores"] = []
+    # Do not await, we need a co-routine object to be the return value of our `run_in_executor` mock.
+    mapping_test_output_for_score_set = setup_mapping_output(async_client, session, score_set, empty=True)
 
-    with requests_mock.mock() as m:
-        m.post(
-            f"http://dcd-mapping:8000/api/v1/map/{score_set.urn}",
-            json=test_mapping_output_for_score_set,
-        )
-
+    # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
+    # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
+    # object that sets up test mappingn output.
+    #
+    # TODO: Does this work on non-unix based machines.
+    # TODO: Is it even a safe operation to patch this event loop method?
+    with patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=mapping_test_output_for_score_set):
         await map_variants_for_score_set(standalone_worker_context, score_set.urn)
-        assert m.called
 
     mapped_variants_for_score_set = session.scalars(
-        select(MappedVariant).join(Variant).join(ScoreSet).filter(ScoreSet.urn == score_set.urn)
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
     assert len(mapped_variants_for_score_set) == 0
+
+    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
+    # thinks we are still using the session fixture and will hang indefinitely.
+    session.commit()
 
 
 @pytest.mark.asyncio
