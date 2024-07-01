@@ -222,7 +222,7 @@ async def search_publications_by_identifier(*, identifier: str, db: Session = De
 @router.get(
     "/search/{db_name}/{identifier}",
     status_code=200,
-    response_model=publication_identifier.PublicationIdentifier,
+    response_model=list[publication_identifier.PublicationIdentifier],
     responses={404: {}, 500: {}},
 )
 async def search_publications_by_identifier_and_db(
@@ -232,7 +232,7 @@ async def search_publications_by_identifier_and_db(
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """
-    Search publication identifiers via their identifier and database.
+    Search all of the publication identifiers via their identifier and database.
     """
     query = (
         db.query(PublicationIdentifier)
