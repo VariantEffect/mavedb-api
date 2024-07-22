@@ -7,13 +7,13 @@ from mavedb.models.access_key import AccessKey
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.user import User
 
+from tests.helpers.util import create_api_key_for_current_user, create_admin_key_for_current_user
+
 
 def test_create_user_access_key(client, setup_router_db, session):
-    response = client.post("api/v1/users/me/access-keys")
-    assert response.status_code == 200
-    response_value = response.json()
+    key_id = create_api_key_for_current_user(client)
 
-    saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == response_value["keyId"]).one_or_none()
+    saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == key_id).one_or_none()
     assert saved_access_key is not None
 
     # Some lingering db transaction holds this test open unless it is explicitly closed.
@@ -44,12 +44,9 @@ def test_user_cannot_create_access_key_for_role_they_dont_have(client, setup_rou
 
 def test_admin_can_create_admin_key(client, setup_router_db, session, admin_app_overrides):
     with DependencyOverrider(admin_app_overrides):
-        response = client.post("api/v1/users/me/access-keys/admin")
+        key_id = create_admin_key_for_current_user(client)
 
-    assert response.status_code == 200
-    response_value = response.json()
-
-    saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == response_value["keyId"]).one_or_none()
+    saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == key_id).one_or_none()
     assert saved_access_key is not None
     assert saved_access_key.role is UserRole.admin
 
@@ -58,15 +55,13 @@ def test_admin_can_create_admin_key(client, setup_router_db, session, admin_app_
 
 
 def test_user_can_delete_access_key(client, setup_router_db, session):
-    response = client.post("api/v1/users/me/access-keys")
-    assert response.status_code == 200
-    response_value = response.json()
-    saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == response_value["keyId"]).one_or_none()
+    key_id = create_api_key_for_current_user(client)
+    saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == key_id).one_or_none()
     assert saved_access_key is not None
 
-    del_response = client.delete(f"api/v1/users/me/access-keys/{response_value['keyId']}")
+    del_response = client.delete(f"api/v1/users/me/access-keys/{key_id}")
     assert del_response.status_code == 200
-    saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == response_value["keyId"]).one_or_none()
+    saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == key_id).one_or_none()
     assert saved_access_key is None
 
     # Some lingering db transaction holds this test open unless it is explicitly closed.
@@ -74,14 +69,12 @@ def test_user_can_delete_access_key(client, setup_router_db, session):
 
 
 def test_anonymous_user_cannot_delete_access_key(client, setup_router_db, session, anonymous_app_overrides):
-    response = client.post("api/v1/users/me/access-keys")
-    assert response.status_code == 200
-    response_value = response.json()
-    saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == response_value["keyId"]).one_or_none()
+    key_id = create_api_key_for_current_user(client)
+    saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == key_id).one_or_none()
     assert saved_access_key is not None
 
     with DependencyOverrider(anonymous_app_overrides):
-        del_response = client.delete(f"api/v1/users/me/access-keys/{response_value['keyId']}")
+        del_response = client.delete(f"api/v1/users/me/access-keys/{key_id}")
 
     assert del_response.status_code == 401
     response_value = del_response.json()
@@ -92,10 +85,8 @@ def test_anonymous_user_cannot_delete_access_key(client, setup_router_db, sessio
 
 
 def test_user_cannot_delete_other_users_access_key(client, setup_router_db, session):
-    response = client.post("api/v1/users/me/access-keys")
-    assert response.status_code == 200
-    response_value = response.json()
-    saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == response_value["keyId"]).one_or_none()
+    key_id = create_api_key_for_current_user(client)
+    saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == key_id).one_or_none()
     assert saved_access_key is not None
 
     extra_user = session.query(User).filter(User.username == EXTRA_USER["username"]).one_or_none()
@@ -104,9 +95,9 @@ def test_user_cannot_delete_other_users_access_key(client, setup_router_db, sess
     session.add(saved_access_key)
     session.commit()
 
-    del_response = client.delete(f"api/v1/users/me/access-keys/{response_value['keyId']}")
+    del_response = client.delete(f"api/v1/users/me/access-keys/{key_id}")
     assert del_response.status_code == 200
-    saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == response_value["keyId"]).one_or_none()
+    saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == key_id).one_or_none()
     assert saved_access_key is not None
 
     # Some lingering db transaction holds this test open unless it is explicitly closed.
