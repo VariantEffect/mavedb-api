@@ -175,3 +175,26 @@ def publish_score_set(client, score_set_urn):
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
     return response_data
+
+
+def create_api_key_for_current_user(client):
+    response = client.post("api/v1/users/me/access-keys")
+    assert response.status_code == 200
+    return response.json()["keyId"]
+
+
+def create_admin_key_for_current_user(client):
+    response = client.post("api/v1/users/me/access-keys/admin")
+    assert response.status_code == 200
+    return response.json()["keyId"]
+
+
+def mark_user_inactive(session, username):
+    user = session.query(User).where(User.username == username).one()
+    user.is_active = False
+
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    return user
