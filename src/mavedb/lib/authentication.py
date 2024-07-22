@@ -158,11 +158,8 @@ async def get_current_user(
             email=email,
             is_first_login=True,
         )
-        logger.info(f"Creating new user with username {user.username}")
 
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+        logger.info(f"Creating new user with username {user.username}")
 
     elif not user.is_active:
         return None

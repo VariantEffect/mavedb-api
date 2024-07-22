@@ -21,6 +21,12 @@ TEST_USER = {
     "is_first_login": True,
 }
 
+TEST_USER_DECODED_JWT = {
+    "sub": TEST_USER["username"],
+    "given_name": TEST_USER["first_name"],
+    "family_name": TEST_USER["last_name"],
+}
+
 EXTRA_USER = {
     "username": "1234-5678-8765-4321",
     "first_name": "Extra",
@@ -32,6 +38,12 @@ EXTRA_USER = {
     "is_first_login": True,
 }
 
+EXTRA_USER_DECODED_JWT = {
+    "sub": EXTRA_USER["username"],
+    "given_name": EXTRA_USER["first_name"],
+    "family_name": EXTRA_USER["last_name"],
+}
+
 ADMIN_USER = {
     "username": "9999-9999-9999-9999",
     "first_name": "Admin",
@@ -41,6 +53,12 @@ ADMIN_USER = {
     "is_staff": False,
     "is_superuser": False,
     "is_first_login": True,
+}
+
+ADMIN_USER_DECODED_JWT = {
+    "sub": ADMIN_USER["username"],
+    "given_name": ADMIN_USER["first_name"],
+    "family_name": ADMIN_USER["last_name"],
 }
 
 TEST_EXPERIMENT = {
