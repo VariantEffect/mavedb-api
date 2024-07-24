@@ -19,11 +19,12 @@ CLOUDWATCH_LOG_GROUP = os.getenv("CLOUDWATCH_LOG_GROUP", "")
 AWS_REGION_NAME = os.getenv("AWS_REGION_NAME", "")
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 if AWS_REGION_NAME and CLOUDWATCH_LOG_GROUP:
     boto3_logs_client = boto3.client("logs", region_name=AWS_REGION_NAME)
-    logger.addHandler(CloudWatchLogHandler(
-        boto3_client=boto3_logs_client,
-        log_group_name=CLOUDWATCH_LOG_GROUP))
+    logger.addHandler(CloudWatchLogHandler(boto3_client=boto3_logs_client, log_group_name=CLOUDWATCH_LOG_GROUP))
+
 
 class LogType(str, Enum):
     api_request = "api_request"
@@ -54,7 +55,7 @@ def log_info(request: Request, response: Response, start: int, end: int):
         source = Source.web
     elif "referer" in request.headers and request.headers["referer"] == API_URL + "/docs":
         source = Source.docs
-    
+
     record: LogRecord = {
         "log_type": LogType.api_request,
         "source": source,
@@ -91,7 +92,7 @@ class LoggedRoute(APIRoute):
                     response.background = tasks
             else:
                 response.background = task
-                
+
             return response
-            
+
         return logging_route_handler
