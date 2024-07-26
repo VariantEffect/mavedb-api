@@ -20,6 +20,7 @@ from mavedb.lib.identifiers import (
     find_or_create_publication_identifier,
     find_or_create_raw_read_identifier,
 )
+from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.permissions import assert_permission, Action
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import validate_keyword_list
@@ -36,7 +37,9 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1", tags=["experiments"], responses={404: {"description": "Not found"}})
+router = APIRouter(
+    prefix="/api/v1", tags=["experiments"], responses={404: {"description": "Not found"}}, route_class=LoggedRoute
+)
 
 
 @router.get(
