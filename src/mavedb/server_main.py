@@ -37,6 +37,7 @@ from mavedb.routers import (
 )
 from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError, MixedTargetError
 from mavedb.lib.permissions import PermissionException
+from mavedb.lib.middleware import InteractionMiddleware
 from mavedb.lib.slack import send_slack_message
 
 logging.basicConfig()
@@ -57,6 +58,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(InteractionMiddleware)
 app.include_router(access_keys.router)
 app.include_router(api_information.router)
 app.include_router(controlled_keywords.router)
