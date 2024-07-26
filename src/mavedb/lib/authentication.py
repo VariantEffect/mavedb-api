@@ -130,6 +130,7 @@ async def get_current_user_data_from_api_key(
 
 
 async def get_current_user(
+    request: Request,
     api_key_user_data: Optional[UserData] = Depends(get_current_user_data_from_api_key),
     token_payload: dict = Depends(JWTBearer()),
     db: Session = Depends(deps.get_db),
@@ -137,11 +138,17 @@ async def get_current_user(
     # Namespaced with x_ to indicate this is a custom application header.
     x_active_roles: Optional[str] = Header(default=None),
 ) -> Optional[UserData]:
+    request.state.auth_method = None
+
     if api_key_user_data is not None:
+        request.state.auth_method = AuthenticationMethod.api_key
         return api_key_user_data
 
     if token_payload is None:
         return None
+
+    # If there was a token payload, auth method must be JWT.
+    request.state.auth_method = AuthenticationMethod.jwt
 
     username: Optional[str] = token_payload.get("sub")
     if username is None:
