@@ -17,6 +17,7 @@ from mavedb.lib.identifiers import (
     find_or_create_publication_identifier,
     find_or_create_raw_read_identifier,
 )
+from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.permissions import assert_permission, Action
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
@@ -28,7 +29,9 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1", tags=["experiments"], responses={404: {"description": "Not found"}})
+router = APIRouter(
+    prefix="/api/v1", tags=["experiments"], responses={404: {"description": "Not found"}}, route_class=LoggedRoute
+)
 
 
 @router.get(
@@ -125,7 +128,9 @@ def get_experiment_score_sets(
     #
     # TODO(#182): A side effect of this implementation is that only the user who has created the experiment may view all the Score sets
     # associated with a given experiment. This could be solved with user impersonation for certain user roles.
-    score_sets = db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(~ScoreSet.superseding_score_set.has())
+    score_sets = (
+        db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(~ScoreSet.superseding_score_set.has())
+    )
     if user_data is not None:
         score_set_result = score_sets.filter(
             or_(ScoreSet.private.is_(False), and_(ScoreSet.private.is_(True), ScoreSet.created_by == user_data.user))
