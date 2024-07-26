@@ -4,6 +4,7 @@ from typing import Callable
 from arq.connections import RedisSettings
 from arq import cron
 
+from mavedb.lib.logging.canonical import log_job
 from mavedb.worker.jobs import create_variants_for_score_set
 from mavedb.db.session import SessionLocal
 from mavedb.data_providers.services import cdot_rest
@@ -38,6 +39,7 @@ class ArqWorkerSettings:
 
     on_startup = startup
     on_shutdown = shutdown
+    after_job_end = log_job
     redis_settings = RedisWorkerSettings
     functions: list = BACKGROUND_FUNCTIONS
     cron_jobs: list = BACKGROUND_CRONJOBS

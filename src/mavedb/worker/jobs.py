@@ -20,7 +20,7 @@ from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 
-logging.basicConfig()
+# logging.basicConfig()
 logger = logging.getLogger(__name__)
 logger.setLevel("INFO")
 
@@ -73,7 +73,8 @@ async def create_variants_for_score_set(
     except ValidationError as e:
         db.rollback()
         score_set.processing_state = ProcessingState.failed
-        logger.error(f"Validation error while processing variants for {score_set.urn}", exc_info=e)
+        score_set.num_variants = 0
+        logger.warning(f"Validation error while processing variants for {score_set.urn}", exc_info=e)
         score_set.processing_errors = {"exception": str(e), "detail": e.triggering_exceptions}
 
     # NOTE: Since these are likely to be internal errors, it makes less sense to add them to the DB and surface them to the end user.
@@ -81,12 +82,14 @@ async def create_variants_for_score_set(
     except Exception as e:
         db.rollback()
         score_set.processing_state = ProcessingState.failed
+        score_set.num_variants = 0
         logger.error(f"Encountered an exception while processing variants for {score_set.urn}", exc_info=e)
         score_set.processing_errors = {"exception": str(e), "detail": []}
         send_slack_message(err=e)
 
     # Catch all other exceptions and raise them. The exceptions caught here will be system exiting.
     except BaseException as e:
+        logger.error("Encountered unknown exception.", exc_info=e)
         db.rollback()
         score_set.processing_state = ProcessingState.failed
         db.commit()
@@ -99,4 +102,8 @@ async def create_variants_for_score_set(
         db.commit()
         db.refresh(score_set)
 
-    return score_set
+    return {
+        "summary": "success" if score_set.processing_state == ProcessingState.success else score_set.processing_errors["exception"],  # type: ignore
+        "variants_created": score_set.num_variants,
+        "score_set": score_set_urn,
+    }
