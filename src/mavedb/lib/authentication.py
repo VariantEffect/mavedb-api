@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 import logging
 import os
 from typing import Optional
@@ -33,10 +34,16 @@ ACCESS_TOKEN_NAME = "X-API-key"
 logger = logging.getLogger(__name__)
 
 
+class AuthenticationMethod(str, Enum):
+    api_key = "api_key"
+    jwt = "jwt"
+
+
 @dataclass
 class UserData:
     user: User
     active_roles: list[UserRole]
+    auth_method: AuthenticationMethod
 
 
 ####################################################################################################
@@ -114,7 +121,7 @@ async def get_current_user_data_from_api_key(
             user = access_key.user
             roles = [access_key.role] if access_key.role is not None else []
 
-    return UserData(user, roles) if user else None
+    return UserData(user, roles, AuthenticationMethod.api_key) if user else None
 
 
 ####################################################################################################
@@ -172,7 +179,7 @@ async def get_current_user(
     db.refresh(user)
 
     if x_active_roles is None:
-        return UserData(user, user.roles)
+        return UserData(user, user.roles, AuthenticationMethod.jwt)
 
     # FastAPI has poor support for headers of type list (really, they are just comma separated strings).
     # Parse out any requested roles manually.
@@ -194,4 +201,4 @@ async def get_current_user(
         else:
             active_roles.append(enumerated_role)
 
-    return UserData(user, active_roles)
+    return UserData(user, active_roles, AuthenticationMethod.jwt)

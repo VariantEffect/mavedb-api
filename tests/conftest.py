@@ -23,7 +23,7 @@ from sqlalchemy.pool import NullPool
 from mavedb.db.base import Base
 from mavedb.deps import get_db, get_worker, hgvs_data_provider
 from mavedb.lib.authorization import require_current_user
-from mavedb.lib.authentication import get_current_user, UserData
+from mavedb.lib.authentication import AuthenticationMethod, get_current_user, UserData
 from mavedb.models.user import User
 from mavedb.server_main import app
 from mavedb.worker.jobs import create_variants_for_score_set
@@ -185,11 +185,11 @@ def app_(session, data_provider, arq_redis):
 
     def override_current_user():
         default_user = session.query(User).filter(User.username == TEST_USER["username"]).one_or_none()
-        yield UserData(default_user, default_user.roles)
+        yield UserData(default_user, default_user.roles, AuthenticationMethod.jwt)
 
     def override_require_user():
         default_user = session.query(User).filter(User.username == TEST_USER["username"]).one_or_none()
-        yield UserData(default_user, default_user.roles)
+        yield UserData(default_user, default_user.roles, AuthenticationMethod.jwt)
 
     def override_hgvs_data_provider():
         yield data_provider
@@ -244,11 +244,11 @@ def admin_app_overrides(session, data_provider, arq_redis):
 
     def override_current_user():
         admin_user = session.query(User).filter(User.username == ADMIN_USER["username"]).one_or_none()
-        yield UserData(admin_user, admin_user.roles)
+        yield UserData(admin_user, admin_user.roles, AuthenticationMethod.jwt)
 
     def override_require_user():
         admin_user = session.query(User).filter(User.username == ADMIN_USER["username"]).one_or_none()
-        yield UserData(admin_user, admin_user.roles)
+        yield UserData(admin_user, admin_user.roles, AuthenticationMethod.jwt)
 
     def override_hgvs_data_provider():
         yield data_provider
