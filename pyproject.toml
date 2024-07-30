@@ -38,6 +38,8 @@ pandas = "~1.4.1"
 pydantic = "~1.10"
 python-dotenv = "~0.20.0"
 SQLAlchemy = "~2.0.0"
+starlette = "~0.27.0"
+starlette-context = "^0.3.6"
 
 # Optional dependencies for running this application as a server
 alembic = { version = "~1.7.6", optional = true }
@@ -53,7 +55,6 @@ python-jose = { extras = ["cryptography"], version = "~3.3.0", optional = true }
 python-multipart = { version = "~0.0.5", optional = true }
 requests = { version = "~2.31.0", optional = true }
 slack-sdk = { version = "~3.21.3", optional = true }
-starlette = { version = "~0.27.0", optional = true }
 uvicorn = { extras = ["standard"], version = "*", optional = true }
 watchtower = { version = "~3.2.0", optional = true }
 
@@ -81,7 +82,7 @@ SQLAlchemy = { extras = ["mypy"], version = "~2.0.0" }
 
 
 [tool.poetry.extras]
-server = ["alembic", "arq", "authlib", "boto3", "cryptography", "fastapi", "email-validator", "orcid", "psycopg2", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "uvicorn", "watchtower"]
+server = ["alembic", "arq", "authlib", "boto3", "cryptography", "fastapi", "email-validator", "orcid", "psycopg2", "python-jose", "python-multipart", "requests", "slack-sdk", "uvicorn", "watchtower"]
 
 
 [tool.black]
