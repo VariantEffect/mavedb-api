@@ -10,11 +10,13 @@ from requests import Request
 from sqlalchemy.orm import configure_mappers
 from starlette import status
 from starlette.responses import JSONResponse
+from starlette_context.plugins import CorrelationIdPlugin, RequestIdPlugin, UserAgentPlugin
 from eutils._internal.exceptions import EutilsRequestError  # type: ignore
 
 from mavedb.models import *
 
 from mavedb import __version__
+from mavedb.lib.logging.context import PopulatedRawContextMiddleware
 from mavedb.routers import (
     access_keys,
     api_information,
@@ -23,6 +25,7 @@ from mavedb.routers import (
     experiments,
     hgvs,
     licenses,
+    log,
     mapped_variant,
     orcid,
     publication_identifiers,
@@ -36,7 +39,6 @@ from mavedb.routers import (
 )
 from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError, MixedTargetError
 from mavedb.lib.permissions import PermissionException
-from mavedb.lib.middleware import InteractionMiddleware
 from mavedb.lib.slack import send_slack_message
 
 logging.basicConfig()
@@ -57,7 +59,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.add_middleware(InteractionMiddleware)
+app.add_middleware(
+    PopulatedRawContextMiddleware,
+    plugins=(
+        CorrelationIdPlugin(force_new_uuid=True),
+        RequestIdPlugin(force_new_uuid=True),
+        UserAgentPlugin(),
+    ),
+)
 app.include_router(access_keys.router)
 app.include_router(api_information.router)
 app.include_router(doi_identifiers.router)
@@ -65,6 +74,7 @@ app.include_router(experiment_sets.router)
 app.include_router(experiments.router)
 app.include_router(hgvs.router)
 app.include_router(licenses.router)
+# app.include_router(log.router)
 app.include_router(mapped_variant.router)
 app.include_router(orcid.router)
 app.include_router(publication_identifiers.router)
