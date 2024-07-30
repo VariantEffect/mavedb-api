@@ -4,9 +4,8 @@ from enum import Enum
 import logging
 import os
 from typing import Optional
-import os
 
-from fastapi import Depends, HTTPException, Request, Security, Header
+from fastapi import Depends, Request, HTTPException, Security, Header
 from fastapi.security import APIKeyCookie, APIKeyHeader, APIKeyQuery, HTTPAuthorizationCredentials, HTTPBearer
 from jose import jwt
 from sqlalchemy.orm import Session
@@ -14,6 +13,7 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.models.enums.user_role import UserRole
 from mavedb.lib.orcid import fetch_orcid_user_email
+from mavedb.lib.logging.context import dump_context, save_to_context
 from mavedb.models.access_key import AccessKey
 from mavedb.models.user import User
 
@@ -64,7 +64,8 @@ def decode_jwt(token: str) -> dict:
         return decoded_token
     # TODO: should catch specific exceptions, and should log them more usefully.
     except Exception as ex:
-        print(ex)
+        save_to_context({"authentication_exception": str(ex)})
+        logger.debug(f"Failed to authenticate user; Could not decode user token. {dump_context()}")
         return {}
 
 
@@ -78,14 +79,24 @@ class JWTBearer(HTTPBearer):
             credentials = await super(JWTBearer, self).__call__(request)
         except HTTPException:
             credentials = None
+
         if credentials:
             if not credentials.scheme == "Bearer":
+                save_to_context({"scheme": credentials.scheme})
+                logger.info(f"Failed to authenticate user; Invalid authentication scheme. {dump_context()}")
                 raise HTTPException(status_code=403, detail="Invalid authentication scheme.")
+
             token_payload = self.verify_jwt(credentials.credentials)
+
             if not token_payload:
+                logger.info(f"Failed to authenticate user; Invalid or expired token. {dump_context()}")
                 raise HTTPException(status_code=403, detail="Invalid token or expired token.")
+
+            logger.debug(f"Successfully acquired JWT. {dump_context()}")
             return token_payload
+
         else:
+            logger.debug(f"Failed to authenticate user; No credentials were provided. {dump_context()}")
             return None
 
     @staticmethod
@@ -115,13 +126,28 @@ async def get_current_user_data_from_api_key(
 ) -> Optional[UserData]:
     user = None
     roles: list[UserRole] = []
+
     if access_token is not None:
         access_key = db.query(AccessKey).filter(AccessKey.key_id == access_token).one_or_none()
         if access_key:
             user = access_key.user
-            roles = [access_key.role] if access_key.role is not None else []
+            if access_key.role is not None:
+                roles = [access_key.role] if access_key.role is not None else []
 
-    return UserData(user, roles, AuthenticationMethod.api_key) if user else None
+            save_to_context(
+                {
+                    "user": user.id,
+                    "active_roles": [role.name for role in roles],
+                    "available_roles": [role.name for role in user.roles],
+                }
+            )
+
+    if user is not None:
+        logger.debug(f"Successfully authenticated API key for user. {dump_context()}")
+        return UserData(user, roles, AuthenticationMethod.api_key)
+
+    logger.debug(f"Failed to authenticate user via API key; No key provided. {dump_context()}")
+    return None
 
 
 ####################################################################################################
@@ -130,7 +156,6 @@ async def get_current_user_data_from_api_key(
 
 
 async def get_current_user(
-    request: Request,
     api_key_user_data: Optional[UserData] = Depends(get_current_user_data_from_api_key),
     token_payload: dict = Depends(JWTBearer()),
     db: Session = Depends(deps.get_db),
@@ -138,20 +163,23 @@ async def get_current_user(
     # Namespaced with x_ to indicate this is a custom application header.
     x_active_roles: Optional[str] = Header(default=None),
 ) -> Optional[UserData]:
-    request.state.auth_method = None
+    save_to_context({"auth_method": None, "requested_roles": x_active_roles, "user_authenticated": False})
 
     if api_key_user_data is not None:
-        request.state.auth_method = AuthenticationMethod.api_key
+        save_to_context({"auth_method": AuthenticationMethod.api_key, "user_authenticated": True})
+        logger.info(f"Successfully authenticated user via API key. {dump_context()}")
         return api_key_user_data
 
     if token_payload is None:
+        logger.info(f"Failed to authenticate user; Could not acquire credentials via API key or JWT. {dump_context()}")
         return None
 
     # If there was a token payload, auth method must be JWT.
-    request.state.auth_method = AuthenticationMethod.jwt
+    save_to_context({"auth_method": AuthenticationMethod.jwt, "user_authenticated": True})
 
     username: Optional[str] = token_payload.get("sub")
     if username is None:
+        logger.info(f"Failed to authenticate user; Username not present in token payload. {dump_context()}")
         return None
 
     user = db.query(User).filter(User.username == username).one_or_none()
@@ -172,20 +200,29 @@ async def get_current_user(
             email=email,
             is_first_login=True,
         )
+        save_to_context({"user": user.id, "first_login": user.is_first_login})
 
-        logger.info(f"Creating new user with username {user.username}")
+        logger.debug(f"Created new user. {dump_context()}")
 
     elif not user.is_active:
+        save_to_context({"user": user.id})
+        logger.info(f"Failed to authenticate user; User is inactive. {dump_context()}")
         return None
     else:
         user.last_login = datetime.now()
         user.is_first_login = False
+        save_to_context({"user": user.id, "first_login": user.is_first_login})
 
     db.add(user)
     db.commit()
     db.refresh(user)
+    logger.info(f"Successfully authenticated user via JWT. {dump_context()}")
 
+    # When no roles are requested, the user may act as any assigned role.
+    save_to_context({"available_roles": [role.name for role in user.roles]})
     if x_active_roles is None:
+        save_to_context({"active_roles": [role.name for role in user.roles]})
+        logger.info(f"Successfully assigned user roles to authenticated user. {dump_context()}")
         return UserData(user, user.roles, AuthenticationMethod.jwt)
 
     # FastAPI has poor support for headers of type list (really, they are just comma separated strings).
@@ -200,12 +237,16 @@ async def get_current_user(
         # Collectively, these are known to the client as the 'ordinary user' role. Because these permissions are supplied
         # by default, we do not need add the 'ordinary user' role to the list of active roles.
         if requested_role not in UserRole._member_names_:
+            logger.debug(f"Ignoring unknown requested role {requested_role}. {dump_context()}")
             continue
 
         enumerated_role = UserRole[requested_role]
         if enumerated_role not in user.roles:
+            logger.warning(f"User requested role to which they do not belong. {dump_context()}")
             raise HTTPException(status_code=403, detail="This user is not a member of the requested acting role.")
         else:
             active_roles.append(enumerated_role)
 
+    save_to_context({"active_roles": [role.name for role in active_roles]})
+    logger.info(f"Successfully assigned user roles to authenticated user. {dump_context()}")
     return UserData(user, active_roles, AuthenticationMethod.jwt)

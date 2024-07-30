@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, File, status, UploadFile, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import MultipleResultsFound
 
@@ -21,6 +20,7 @@ from mavedb.lib.identifiers import (
     find_or_create_publication_identifier,
 )
 from mavedb.lib.logging import LoggedRoute
+from mavedb.lib.logging.context import dump_context, save_to_context, correlation_id_for_context
 from mavedb.lib.permissions import Action, assert_permission
 from mavedb.lib.score_sets import (
     find_meta_analyses_for_experiment_sets,
@@ -40,7 +40,6 @@ from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_accession import TargetAccession
-from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.view_models import mapped_variant
@@ -64,9 +63,11 @@ async def fetch_score_set_by_urn(db, urn: str, owner: Optional[UserData]) -> Opt
     try:
         item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     except MultipleResultsFound:
+        logger.info(f"Could not fetch the requested score set; Multiple such score sets exist. {dump_context()}")
         raise HTTPException(status_code=500, detail=f"multiple score sets with URN '{urn}' were found")
 
     if not item:
+        logger.info(f"Could not fetch the requested score set; No such score sets exist. {dump_context()}")
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(owner, item, Action.READ)
@@ -111,8 +112,11 @@ async def show_score_set(
     """
     Fetch a single score set by URN.
     """
+    save_to_context({"requested_resource": urn})
+    fetched_score_set = await fetch_score_set_by_urn(db, urn, user_data)
 
-    return await fetch_score_set_by_urn(db, urn, user_data)
+    logger.info(f"Successfully fetched the requested score set. {dump_context()}")
+    return fetched_score_set
 
 
 @router.get(
@@ -142,18 +146,27 @@ def get_score_set_scores_csv(
     /score-sets/{urn}/scores?start=0&limit=100
     /score-sets/{urn}/scores?start=100
     """
+    save_to_context({"requested_resource": urn, "resource_property": "scores", "start": start, "limit": limit})
+
     if start and start < 0:
+        logger.info(f"Could not fetch scores with negative start index. {dump_context()}")
         raise HTTPException(status_code=400, detail="Start index must be non-negative")
-    if limit != None and limit <= 0:
+    if limit is not None and limit <= 0:
+        logger.info(f"Could not fetch scores with non-positive limit. {dump_context()}")
         raise HTTPException(status_code=400, detail="Limit must be positive")
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
+        logger.info(f"Could not fetch the requested scores; No such score set exists. {dump_context()}")
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
     assert_permission(user_data, score_set, Action.READ)
 
     csv_str = get_score_set_scores_as_csv(db, score_set, start, limit)
-    return StreamingResponse(iter([csv_str]), media_type="text/csv")
+    response = StreamingResponse(iter([csv_str]), media_type="text/csv")
+
+    logger.info(f"Successfully fetched scores CSV. {dump_context()}")
+    return response
 
 
 @router.get(
@@ -183,18 +196,27 @@ async def get_score_set_counts_csv(
     /score-sets/{urn}/counts?start=0&limit=100
     /score-sets/{urn}/counts?start=100
     """
+    save_to_context({"requested_resource": urn, "resource_property": "counts", "start": start, "limit": limit})
+
     if start and start < 0:
+        logger.info(f"Could not fetch counts with negative start index. {dump_context()}")
         raise HTTPException(status_code=400, detail="Start index must be non-negative")
-    if limit != None and limit <= 0:
+    if limit is not None and limit <= 0:
+        logger.info(f"Could not fetch counts with non-positive limit. {dump_context()}")
         raise HTTPException(status_code=400, detail="Limit must be positive")
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
+        logger.info(f"Could not fetch the requested counts; No such score set exist. {dump_context()}")
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
+
     assert_permission(user_data, score_set, Action.READ)
 
     csv_str = get_score_set_counts_as_csv(db, score_set, start, limit)
-    return StreamingResponse(iter([csv_str]), media_type="text/csv")
+    response = StreamingResponse(iter([csv_str]), media_type="text/csv")
+
+    logger.info(f"Successfully fetched counts CSV. {dump_context()}")
+    return response
 
 
 @router.get("/score-sets/{urn}/mapped-variants", status_code=200, response_model=list[mapped_variant.MappedVariant])
@@ -207,9 +229,13 @@ def get_score_set_mapped_variants(
     """
     Return mapped variants from a score set, identified by URN.
     """
+    save_to_context({"requested_resource": urn, "resource_property": "mapped-variants"})
+
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
+        logger.info(f"Could not fetch the requested mapped variants; No such score set exist. {dump_context()}")
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
+
     assert_permission(user_data, score_set, Action.READ)
 
     mapped_variants = (
@@ -221,8 +247,12 @@ def get_score_set_mapped_variants(
     )
 
     if not mapped_variants:
+        logger.info(f"No mapped variants are associated with the requested score set. {dump_context()}")
         raise HTTPException(status_code=404, detail=f"No mapped variant associated with score set URN {urn} was found")
 
+    logger.info(
+        f"Successfully fetched {len(mapped_variants)} associated with the requested score set. {dump_context()}"
+    )
     return mapped_variants
 
 
@@ -236,26 +266,38 @@ async def create_score_set(
     """
     Create a score set.
     """
+    logger.info(f"Began score set creation {dump_context()}")
 
     if item_create is None:
+        logger.info(f"Failed to create score set; No item was provided. {dump_context()}")
         return None
 
     experiment: Optional[Experiment] = None
     if item_create.experiment_urn is not None:
         experiment = db.query(Experiment).filter(Experiment.urn == item_create.experiment_urn).one_or_none()
         if not experiment:
+            logger.info(f"Failed to create score set; The requested experiment does not exist. {dump_context()}")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
 
+        save_to_context({"experiment": experiment.urn})
         assert_permission(user_data, experiment, Action.UPDATE)
         assert_permission(user_data, experiment, Action.ADD_SCORE_SET)
+        logger.info(f"Creating experiment within existing experiment. {dump_context()}")
 
     license_ = db.query(License).filter(License.id == item_create.license_id).one_or_none()
+    save_to_context({"requested_license": item_create.license_id})
+
     if not license_:
+        logger.info(f"Failed to create score set; The requested license does not exist. {dump_context()}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
 
+    save_to_context({"requested_superseded_score_set": item_create.superseded_score_set_urn})
     if item_create.superseded_score_set_urn is not None:
         superseded_score_set = await fetch_score_set_by_urn(db, item_create.superseded_score_set_urn, user_data)
         if superseded_score_set is None:
+            logger.info(
+                f"Failed to create score set; The requested superseded score set does not exist. {dump_context()}"
+            )
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown superseded score set")
     else:
         superseded_score_set = None
@@ -267,8 +309,12 @@ async def create_score_set(
         if ss is not None
     ]
 
+    save_to_context({"requested_meta_analyzes_score_sets": distinct_meta_analyzes_score_set_urns})
     for i, meta_analyzes_score_set in enumerate(meta_analyzes_score_sets):
         if meta_analyzes_score_set is None:
+            logger.info(
+                f"Failed to create score set; The requested meta analyzed score set ({distinct_meta_analyzes_score_set_urns[i]}) does not exist. {dump_context()}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Unknown meta-analyzed score set {distinct_meta_analyzes_score_set_urns[i]}",
@@ -317,6 +363,9 @@ async def create_score_set(
                 modified_by=user_data.user,
             )
 
+        save_to_context({"meta_analysis_experiment": experiment.urn})
+        logger.info(f"Creating experiment within meta analysis experiment. {dump_context()}")
+
     doi_identifiers = [
         await find_or_create_doi_identifier(db, identifier.identifier)
         for identifier in item_create.doi_identifiers or []
@@ -329,6 +378,7 @@ async def create_score_set(
         await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
         for identifier in item_create.secondary_publication_identifiers or []
     ] + primary_publication_identifiers
+
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
     primary_identifiers = [pub.identifier for pub in primary_publication_identifiers]
@@ -340,13 +390,18 @@ async def create_score_set(
     for gene in item_create.target_genes:
         if gene.target_sequence:
             if accessions and len(targets) > 0:
+                logger.info(
+                    f"Failed to create score set; Both a sequence and accession based target were detected. {dump_context()}"
+                )
                 raise MixedTargetError(
                     "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                 )
             upload_taxonomy = gene.target_sequence.taxonomy
+            save_to_context({"requested_taxonomy": gene.target_sequence.taxonomy.tax_id})
             taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
 
             if not taxonomy:
+                logger.info(f"Failed to create score set; The requested taxonomy does not exist. {dump_context()}")
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown taxonomy")
 
             # If the target sequence has a label, use it. Otherwise, use the name from the target gene as the label.
@@ -369,6 +424,9 @@ async def create_score_set(
 
         elif gene.target_accession:
             if not accessions and len(targets) > 0:
+                logger.info(
+                    f"Failed to create score set; Both a sequence and accession based target were detected. {dump_context()}"
+                )
                 raise MixedTargetError(
                     "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                 )
@@ -383,6 +441,8 @@ async def create_score_set(
                 target_accession=target_accession,
             )
         else:
+            save_to_context({"failing_target": gene})
+            logger.info(f"Failed to create score set; Could not infer target type. {dump_context()}")
             raise ValueError("One of either `target_accession` or `target_gene` should be present")
 
         for external_gene_identifier_offset_create in gene.external_identifiers:
@@ -428,6 +488,9 @@ async def create_score_set(
     db.add(item)
     db.commit()
     db.refresh(item)
+
+    save_to_context({"created_resource": item.urn})
+    logger.info(f"Successfully created new score set. {dump_context()}")
     return item
 
 
@@ -450,21 +513,20 @@ async def upload_score_set_variant_data(
     Upload scores and variant count files for a score set, and initiate processing these files to
     create variants.
     """
+    save_to_context({"requested_resource": urn, "resource_property": "variants"})
 
     # item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(ScoreSet.private.is_(False)).one_or_none()
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
-    if not item or not item.urn or not scores_file:
+    if not item or not item.urn:
+        logger.info(f"Failed to create variants; The requested score set does not exist. {dump_context()}")
+        return None
+
+    if not scores_file:
+        logger.info(f"Failed to create variants; No scores were provided. {dump_context()}")
         return None
 
     assert_permission(user_data, item, Action.UPDATE)
     assert_permission(user_data, item, Action.SET_SCORES)
-
-    # Mark the score set as being processed and delete the old variants so that uploading new scores and counts won't accumulate the old ones.
-    item.processing_state = ProcessingState.processing
-    db.query(Variant).filter(Variant.score_set_id == item.id).delete()
-    db.add(item)
-    db.commit()
-    db.refresh(item)
 
     scores_df = csv_data_to_df(scores_file.file)
     counts_df = None
@@ -473,7 +535,17 @@ async def upload_score_set_variant_data(
 
     if scores_file:
         # await the insertion of this job into the worker queue, not the job itself.
-        await worker.enqueue_job("create_variants_for_score_set", item.urn, user_data.user.id, scores_df, counts_df)
+        job = await worker.enqueue_job(
+            "create_variants_for_score_set",
+            correlation_id_for_context(),
+            item.urn,
+            user_data.user.id,
+            scores_df,
+            counts_df,
+        )
+        if job is not None:
+            save_to_context({"worker_job_id": job.job_id})
+        logger.info(f"Enqueud variant creation job. {dump_context()}")
 
     return item
 
@@ -490,22 +562,32 @@ async def update_score_set(
     """
     Update a score set.
     """
+    save_to_context({"requested_resource": urn})
+    logger.info(f"Began score set update. {dump_context()}")
 
     if not item_update:
+        logger.info(f"Failed to update score set; No score set was provided. {dump_context()}")
         raise HTTPException(status_code=400, detail="The request contained no updated item.")
 
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
+        logger.info(f"Failed to update score set; The requested score set does not exist. {dump_context()}")
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
     assert_permission(user_data, item, Action.UPDATE)
 
     # Editing unpublished score set
     if item.private is True:
         license_ = None
+
         if item_update.license_id is not None:
+            save_to_context({"license": item_update.license_id})
             license_ = db.query(License).filter(License.id == item_update.license_id).one_or_none()
+
             if not license_:
+                logger.info(f"Failed to update score set; The requested license does not exist. {dump_context()}")
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
+
             item.license = license_
 
         for var, value in vars(item_update).items():
@@ -532,6 +614,7 @@ async def update_score_set(
             await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             for identifier in item_update.secondary_publication_identifiers or []
         ] + primary_publication_identifiers
+
         # create a temporary `primary` attribute on each of our publications that indicates
         # to our association proxy whether it is a primary publication or not
         primary_identifiers = [pub.identifier for pub in primary_publication_identifiers]
@@ -557,14 +640,19 @@ async def update_score_set(
         for gene in item_update.target_genes:
             if gene.target_sequence:
                 if accessions and len(targets) > 0:
+                    logger.info(
+                        f"Failed to update score set; Both a sequence and accession based target were detected. {dump_context()}"
+                    )
                     raise MixedTargetError(
                         "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                     )
 
                 upload_taxonomy = gene.target_sequence.taxonomy
+                save_to_context({"requested_taxonomy": gene.target_sequence.taxonomy.tax_id})
                 taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
 
                 if not taxonomy:
+                    logger.info(f"Failed to create score set; The requested taxonomy does not exist. {dump_context()}")
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.tax_id}",
@@ -590,6 +678,9 @@ async def update_score_set(
 
             elif gene.target_accession:
                 if not accessions and len(targets) > 0:
+                    logger.info(
+                        f"Failed to create score set; Both a sequence and accession based target were detected. {dump_context()}"
+                    )
                     raise MixedTargetError(
                         "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                     )
@@ -604,6 +695,8 @@ async def update_score_set(
                     target_accession=target_accession,
                 )
             else:
+                save_to_context({"failing_target": gene})
+                logger.info(f"Failed to create score set; Could not infer target type. {dump_context()}")
                 raise ValueError("One of either `target_accession` or `target_gene` should be present")
 
             for external_gene_identifier_offset_create in gene.external_identifiers:
@@ -622,6 +715,7 @@ async def update_score_set(
             assert item.dataset_columns is not None
             score_columns = ["hgvs_nt", "hgvs_splice", "hgvs_pro"] + item.dataset_columns["score_columns"]
             count_columns = ["hgvs_nt", "hgvs_splice", "hgvs_pro"] + item.dataset_columns["count_columns"]
+
             scores_data = pd.DataFrame(
                 variants_to_csv_rows(item.variants, columns=score_columns, dtype="score_data")
             ).replace("NA", pd.NA)
@@ -630,9 +724,17 @@ async def update_score_set(
             ).replace("NA", pd.NA)
 
             # await the insertion of this job into the worker queue, not the job itself.
-            await worker.enqueue_job(
-                "create_variants_for_score_set", item.urn, user_data.user.id, scores_data, count_data
+            job = await worker.enqueue_job(
+                "create_variants_for_score_set",
+                correlation_id_for_context(),
+                item.urn,
+                user_data.user.id,
+                scores_data,
+                count_data,
             )
+            if job is not None:
+                save_to_context({"worker_job_id": job.job_id})
+            logger.info(f"Enqueud variant creation job. {dump_context()}")
 
         for var, value in vars(item_update).items():
             if var not in [
@@ -654,6 +756,9 @@ async def update_score_set(
     db.add(item)
     db.commit()
     db.refresh(item)
+
+    save_to_context({"updated_resource": item.urn})
+    logger.info(f"Successfully updated score set. {dump_context()}")
     return item
 
 
@@ -677,12 +782,19 @@ async def delete_score_set(
     communitcate to client whether the operation succeeded
     204 if successful but not returning content - likely going with this
     """
+    save_to_context({"requested_resource": urn})
+
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
+        logger.info(f"Failed to delete score set; The requested score set does not exist. {dump_context()}")
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
     assert_permission(user_data, item, Action.DELETE)
+
     db.delete(item)
     db.commit()
+
+    logger.info(f"Successfully deleted the requested score set. {dump_context()}")
 
 
 @router.post(
@@ -697,16 +809,26 @@ def publish_score_set(
     """
     Publish a score set.
     """
+    save_to_context({"requested_resource": urn})
+
     item: Optional[ScoreSet] = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
+        logger.info(f"Failed to publish score set; The requested score set does not exist. {dump_context()}")
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
     assert_permission(user_data, item, Action.PUBLISH)
 
     if not item.experiment:
+        logger.info(
+            f"Failed to publish score set; The requested score set does not belong to an experiment. {dump_context()}"
+        )
         raise HTTPException(
             status_code=500, detail="This score set does not belong to an experiment and cannot be published."
         )
     if not item.experiment.experiment_set:
+        logger.info(
+            f"Failed to publish score set; The requested score set's experiment does not belong to an experiment set. {dump_context()}"
+        )
         raise HTTPException(
             status_code=500,
             detail="This score set's experiment does not belong to an experiment set and cannot be published.",
@@ -714,6 +836,9 @@ def publish_score_set(
     # TODO This can probably be done more efficiently; at least, it's worth checking the SQL query that SQLAlchemy
     # generates when all we want is len(score_set.variants).
     if len(item.variants) == 0:
+        logger.info(
+            f"Failed to publish score set; The requested score set does not contain any variant scores. {dump_context()}"
+        )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="cannot publish score set without variant scores",
@@ -727,6 +852,8 @@ def publish_score_set(
         item.experiment.experiment_set.published_date = published_date
         db.add(item.experiment.experiment_set)
 
+    save_to_context({"experiment_set": item.experiment.experiment_set.urn})
+
     if item.experiment.private or not item.experiment.published_date:
         item.experiment.urn = generate_experiment_urn(
             db, item.experiment.experiment_set, experiment_is_meta_analysis=len(item.meta_analyzes_score_sets) > 0
@@ -735,13 +862,17 @@ def publish_score_set(
         item.experiment.published_date = published_date
         db.add(item.experiment)
 
-    old_urn = item.urn
+    save_to_context({"experiment": item.experiment.urn})
+
     item.urn = generate_score_set_urn(db, item.experiment)
-    logger.info(f"publishing {old_urn} as {item.urn}")
     item.private = False
     item.published_date = published_date
-    db.add(item)
 
+    save_to_context({"score_set": item.urn})
+
+    db.add(item)
     db.commit()
     db.refresh(item)
+
+    logger.info(f"Successfully published score set. {dump_context()}")
     return item
