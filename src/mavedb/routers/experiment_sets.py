@@ -38,5 +38,4 @@ def fetch_experiment_set(*, urn: str, db: Session = Depends(deps.get_db)) -> Any
     else:
         item.experiments.sort(key=attrgetter("urn"))
 
-    logger.info(f"Fetched requested resource from database. {dump_context()}")
     return item

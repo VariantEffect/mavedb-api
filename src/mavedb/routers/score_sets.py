@@ -180,10 +180,7 @@ def get_score_set_scores_csv(
     assert_permission(user_data, score_set, Action.READ)
 
     csv_str = get_score_set_scores_as_csv(db, score_set, start, limit)
-    response = StreamingResponse(iter([csv_str]), media_type="text/csv")
-
-    logger.info(f"Successfully fetched scores CSV. {dump_context()}")
-    return response
+    return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
 @router.get(
@@ -230,10 +227,7 @@ async def get_score_set_counts_csv(
     assert_permission(user_data, score_set, Action.READ)
 
     csv_str = get_score_set_counts_as_csv(db, score_set, start, limit)
-    response = StreamingResponse(iter([csv_str]), media_type="text/csv")
-
-    logger.info(f"Successfully fetched counts CSV. {dump_context()}")
-    return response
+    return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
 @router.get("/score-sets/{urn}/mapped-variants", status_code=200, response_model=list[mapped_variant.MappedVariant])
@@ -267,9 +261,6 @@ def get_score_set_mapped_variants(
         logger.info(f"No mapped variants are associated with the requested score set. {dump_context()}")
         raise HTTPException(status_code=404, detail=f"No mapped variant associated with score set URN {urn} was found")
 
-    logger.info(
-        f"Successfully fetched {len(mapped_variants)} associated with the requested score set. {dump_context()}"
-    )
     return mapped_variants
 
 
@@ -283,7 +274,7 @@ async def create_score_set(
     """
     Create a score set.
     """
-    logger.info(f"Began score set creation {dump_context()}")
+    logger.debug(f"Began score set creation {dump_context()}")
 
     if item_create is None:
         logger.info(f"Failed to create score set; No item was provided. {dump_context()}")
@@ -299,7 +290,6 @@ async def create_score_set(
         save_to_context({"experiment": experiment.urn})
         assert_permission(user_data, experiment, Action.UPDATE)
         assert_permission(user_data, experiment, Action.ADD_SCORE_SET)
-        logger.info(f"Creating experiment within existing experiment. {dump_context()}")
 
     license_ = db.query(License).filter(License.id == item_create.license_id).one_or_none()
     save_to_context({"requested_license": item_create.license_id})
@@ -519,7 +509,6 @@ async def create_score_set(
     db.refresh(item)
 
     save_to_context({"created_resource": item.urn})
-    logger.info(f"Successfully created new score set. {dump_context()}")
     return item
 
 
@@ -592,7 +581,7 @@ async def update_score_set(
     Update a score set.
     """
     save_to_context({"requested_resource": urn})
-    logger.info(f"Began score set update. {dump_context()}")
+    logger.debug(f"Began score set update. {dump_context()}")
 
     if not item_update:
         logger.info(f"Failed to update score set; No score set was provided. {dump_context()}")
@@ -806,7 +795,6 @@ async def update_score_set(
     db.refresh(item)
 
     save_to_context({"updated_resource": item.urn})
-    logger.info(f"Successfully updated score set. {dump_context()}")
     return item
 
 
@@ -841,8 +829,6 @@ async def delete_score_set(
 
     db.delete(item)
     db.commit()
-
-    logger.info(f"Successfully deleted the requested score set. {dump_context()}")
 
 
 @router.post(
@@ -922,5 +908,4 @@ def publish_score_set(
     db.commit()
     db.refresh(item)
 
-    logger.info(f"Successfully published score set. {dump_context()}")
     return item

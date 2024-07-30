@@ -121,8 +121,6 @@ def fetch_experiment(
         raise HTTPException(status_code=404, detail=f"Experiment with URN {urn} not found")
 
     assert_permission(user_data, item, Action.READ)
-
-    logger.info(f"Successfully fetched the requested experiment. {dump_context()}")
     return item
 
 
@@ -176,7 +174,6 @@ def get_experiment_score_sets(
         score_set_result.sort(key=attrgetter("urn"))
         save_to_context({"associated_resources": [item.urn for item in score_set_result]})
 
-    logger.info(f"Found {len(score_set_result)} score sets associated with the requested experiment. {dump_context()}")
     return score_set_result
 
 
@@ -192,7 +189,7 @@ async def create_experiment(
     """
     Create an experiment.
     """
-    logger.info(f"Began creation of new experiment, {dump_context()}")
+    logger.debug(f"Began creation of new experiment, {dump_context()}")
 
     if item_create is None:
         logger.info(f"Could not create experiment; No item was provided. {dump_context()}")
@@ -222,7 +219,7 @@ async def create_experiment(
             [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
             model=experiment.ExperimentCreate,
         )
-    logger.info(f"Creating experiment within existing experiment set. {dump_context()}")
+    logger.debug(f"Creating experiment within existing experiment set. {dump_context()}")
 
     try:
         doi_identifiers = [
@@ -309,7 +306,6 @@ async def create_experiment(
     db.refresh(item)
 
     save_to_context({"created_resource": item.urn})
-    logger.info(f"Successfully created new experiment. {dump_context()}")
     return item
 
 
@@ -327,7 +323,7 @@ async def update_experiment(
     Update an experiment.
     """
     save_to_context({"requested_resource": urn})
-    logger.info(f"Began experiment update. {dump_context()}")
+    logger.debug(f"Began experiment update. {dump_context()}")
 
     if item_update is None:
         logger.info(f"Failed to update experiment; No experiment was provided. {dump_context()}")
@@ -416,7 +412,6 @@ async def update_experiment(
     db.refresh(item)
 
     save_to_context({"updated_resource": item.urn})
-    logger.info(f"Successfully updated experiment. {dump_context()}")
     return item
 
 
@@ -453,5 +448,3 @@ async def delete_experiment(
 
     db.delete(item)
     db.commit()
-
-    logger.info(f"Successfully deleted the requested experiment. {dump_context()}")
