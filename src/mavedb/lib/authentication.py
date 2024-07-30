@@ -162,7 +162,7 @@ async def get_current_user(
     # Namespaced with x_ to indicate this is a custom application header.
     x_active_roles: Optional[str] = Header(default=None),
 ) -> Optional[UserData]:
-    save_to_context({"auth_method": None, "requested_roles": x_active_roles, "user_authenticated": False})
+    save_to_context({"requested_roles": x_active_roles})
 
     if api_key_user_data is not None:
         save_to_context({"auth_method": AuthenticationMethod.api_key, "user_authenticated": True})
@@ -170,18 +170,20 @@ async def get_current_user(
         return api_key_user_data
 
     if token_payload is None:
+        save_to_context({"auth_method": None, "user_authenticated": False})
         logger.info(f"Failed to authenticate user; Could not acquire credentials via API key or JWT. {dump_context()}")
         return None
 
-    # If there was a token payload, auth method must be JWT.
-    save_to_context({"auth_method": AuthenticationMethod.jwt, "user_authenticated": True})
-
     username: Optional[str] = token_payload.get("sub")
     if username is None:
+        save_to_context({"auth_method": AuthenticationMethod.jwt, "user_authenticated": False})
         logger.info(f"Failed to authenticate user; Username not present in token payload. {dump_context()}")
         return None
 
     user = db.query(User).filter(User.username == username).one_or_none()
+
+    # If there was a token payload, auth method must be JWT.
+    save_to_context({"auth_method": AuthenticationMethod.jwt})
 
     # A new user has just connected an ORCID iD. Create the user account.
     if user is None:
@@ -199,18 +201,18 @@ async def get_current_user(
             email=email,
             is_first_login=True,
         )
-        save_to_context({"user": user.id, "first_login": user.is_first_login})
+        save_to_context({"user": user.id, "first_login": user.is_first_login, "user_authenticated": True})
 
         logger.debug(f"Created new user. {dump_context()}")
 
     elif not user.is_active:
-        save_to_context({"user": user.id})
+        save_to_context({"user": user.id, "user_authenticated": True})
         logger.info(f"Failed to authenticate user; User is inactive. {dump_context()}")
         return None
     else:
         user.last_login = datetime.now()
         user.is_first_login = False
-        save_to_context({"user": user.id, "first_login": user.is_first_login})
+        save_to_context({"user": user.id, "first_login": user.is_first_login, "user_authenticated": True})
 
     db.add(user)
     db.commit()
