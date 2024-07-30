@@ -263,7 +263,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
 
 
 def assert_permission(user_data: Optional[UserData], item: Base, action: Action) -> PermissionResponse:
-    save_to_context({"permission_boundary": logging_context().get("permission_boundary", []).append(action)})
+    save_to_context({"permission_boundary": action})
     permission = has_permission(user_data, item, action)
 
     if not permission.permitted:
