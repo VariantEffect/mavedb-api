@@ -1,4 +1,5 @@
 import secrets
+import logging
 from typing import Any
 
 from cryptography.hazmat.backends import default_backend as crypto_default_backend
@@ -12,11 +13,17 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import require_current_user
+from mavedb.lib.logging import LoggedRoute
+from mavedb.lib.logging.context import dump_context, save_to_context
 from mavedb.models.access_key import AccessKey
 from mavedb.models.enums.user_role import UserRole
 from mavedb.view_models import access_key
 
-router = APIRouter(prefix="/api/v1", tags=["access keys"], responses={404: {"description": "Not found"}})
+router = APIRouter(
+    prefix="/api/v1", tags=["access keys"], responses={404: {"description": "Not found"}}, route_class=LoggedRoute
+)
+
+logger = logging.getLogger(__name__)
 
 
 def generate_key_pair():
@@ -76,8 +83,12 @@ async def create_my_access_key_with_role(
     """
     Create a new access key for the current user, with the specified role.
     """
+    save_to_context({"requested_role": role.name})
     # Allow the user to create an access key for any of their potential roles, not just their active one.
     if not any(user_role == role for user_role in user_data.user.roles):
+        logger.warning(
+            f"Could not create API key for user; User does not belong to the requested role. {dump_context()}"
+        )
         raise HTTPException(status_code=403, detail="User cannot create an API key for a role they do not have.")
 
     private_key, public_key = generate_key_pair()
@@ -103,4 +114,5 @@ def delete_my_access_key(
     item = db.query(AccessKey).filter(AccessKey.key_id == key_id).one_or_none()
     if item and item.user.id == user_data.user.id:
         db.delete(item)
-    db.commit()
+        db.commit()
+        logger.debug(f"Successfully deleted provided API key {dump_context()}")

@@ -9,11 +9,15 @@ from starlette.responses import JSONResponse
 from mavedb.lib.authorization import require_current_user
 from mavedb.lib.orcid import fetch_orcid_user
 from mavedb.models.user import User
+from mavedb.lib.logging import LoggedRoute
+from mavedb.lib.logging.context import dump_context, save_to_context
 from mavedb.view_models import orcid
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/orcid", tags=["orcid"], responses={404: {"description": "Not found"}})
+router = APIRouter(
+    prefix="/api/v1/orcid", tags=["orcid"], responses={404: {"description": "Not found"}}, route_class=LoggedRoute
+)
 
 ORCID_CLIENT_ID = os.getenv("ORCID_CLIENT_ID")
 ORCID_CLIENT_SECRET = os.getenv("ORCID_CLIENT_SECRET")
@@ -71,9 +75,11 @@ async def get_token_from_code(*, request: orcid.OrcidAuthTokenRequest) -> Any:
             expires_in = data["expires_in"]
             id_token = data["id_token"]
 
+            save_to_context({"token_type": token_type, "expires_in": expires_in})
+
             if token_type is None or token_type.lower() != "bearer":
                 logger.warning(
-                    f'Unexpected token type "{token_type}" received from ORCID when exchanging code for token.'
+                    f"Unexpected token type received from ORCID when exchanging code for token. {dump_context()}"
                 )
 
             return {
@@ -84,4 +90,4 @@ async def get_token_from_code(*, request: orcid.OrcidAuthTokenRequest) -> Any:
             }
         else:
             data = response.json()
-            raise HTTPException(status_code=401, detail=f"Authentication error")
+            raise HTTPException(status_code=401, detail="Authentication error")
