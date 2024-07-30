@@ -34,6 +34,7 @@ async def on_job_start(ctx):
     db.current_user_id = None
     ctx["db"] = db
     ctx["hdp"] = cdot_rest()
+    ctx["state"] = {}
 
 
 async def on_job_end(ctx):

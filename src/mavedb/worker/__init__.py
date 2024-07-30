@@ -5,7 +5,7 @@ from sqlalchemy.orm import configure_mappers
 from mavedb.models import *
 from mavedb.worker.settings import ArqWorkerSettings
 
-logging.basicConfig()
+logging.basicConfig(level=logging.INFO)
 
 # Scan all our model classes and create backref attributes. Otherwise, these attributes only get added to classes once
 # an instance of the related class has been created. Since the worker is a distinct service, we should make sure this
