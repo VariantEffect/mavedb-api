@@ -23,7 +23,7 @@ from sqlalchemy.pool import NullPool
 from mavedb.db.base import Base
 from mavedb.deps import get_db, get_worker, hgvs_data_provider
 from mavedb.lib.authorization import require_current_user
-from mavedb.lib.authentication import AuthenticationMethod, get_current_user, UserData
+from mavedb.lib.authentication import get_current_user, UserData
 from mavedb.models.user import User
 from mavedb.server_main import app
 from mavedb.worker.jobs import create_variants_for_score_set
@@ -169,7 +169,7 @@ async def arq_worker(data_provider, session, arq_redis):
 
 @pytest.fixture
 def standalone_worker_context(session, data_provider):
-    yield {"db": session, "hdp": data_provider}
+    yield {"db": session, "hdp": data_provider, "state": {}, "job_id": "test_job"}
 
 
 @pytest.fixture()
@@ -185,11 +185,11 @@ def app_(session, data_provider, arq_redis):
 
     def override_current_user():
         default_user = session.query(User).filter(User.username == TEST_USER["username"]).one_or_none()
-        yield UserData(default_user, default_user.roles, AuthenticationMethod.jwt)
+        yield UserData(default_user, default_user.roles)
 
     def override_require_user():
         default_user = session.query(User).filter(User.username == TEST_USER["username"]).one_or_none()
-        yield UserData(default_user, default_user.roles, AuthenticationMethod.jwt)
+        yield UserData(default_user, default_user.roles)
 
     def override_hgvs_data_provider():
         yield data_provider
@@ -244,11 +244,11 @@ def admin_app_overrides(session, data_provider, arq_redis):
 
     def override_current_user():
         admin_user = session.query(User).filter(User.username == ADMIN_USER["username"]).one_or_none()
-        yield UserData(admin_user, admin_user.roles, AuthenticationMethod.jwt)
+        yield UserData(admin_user, admin_user.roles)
 
     def override_require_user():
         admin_user = session.query(User).filter(User.username == ADMIN_USER["username"]).one_or_none()
-        yield UserData(admin_user, admin_user.roles, AuthenticationMethod.jwt)
+        yield UserData(admin_user, admin_user.roles)
 
     def override_hgvs_data_provider():
         yield data_provider

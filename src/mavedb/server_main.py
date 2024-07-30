@@ -53,20 +53,20 @@ logger = logging.getLogger(__name__)
 configure_mappers()
 
 app = FastAPI()
+# app.add_middleware(
+#     PopulatedRawContextMiddleware,
+#     plugins=(
+#         CorrelationIdPlugin(force_new_uuid=True),
+#         RequestIdPlugin(force_new_uuid=True),
+#         UserAgentPlugin(),
+#     ),
+# )
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
-app.add_middleware(
-    PopulatedRawContextMiddleware,
-    plugins=(
-        CorrelationIdPlugin(force_new_uuid=True),
-        RequestIdPlugin(force_new_uuid=True),
-        UserAgentPlugin(),
-    ),
 )
 app.include_router(access_keys.router)
 app.include_router(api_information.router)
