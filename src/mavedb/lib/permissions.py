@@ -72,7 +72,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
         user_is_self = item.id == user_data.user.id if user_data is not None else False
 
     save_to_context(
-        {"resource_is_private": published, "user_is_owner_of_ressource": user_is_owner, "user_is_self": user_is_self}
+        {"resource_is_private": private, "user_is_owner_of_ressource": user_is_owner, "user_is_self": user_is_self}
     )
 
     if isinstance(item, ExperimentSet):

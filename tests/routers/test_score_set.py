@@ -151,9 +151,6 @@ def test_add_score_set_variants_scores_only_endpoint(client, setup_router_db, da
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
 
-    # We test the worker process that actually adds the variant data separately. Here, we take it as
-    # fact that it would have succeeded.
-    score_set.update({"processingState": "processing"})
     assert score_set == response_data
 
 
@@ -180,9 +177,6 @@ def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setu
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
 
-    # We test the worker process that actually adds the variant data separately. Here, we take it as
-    # fact that it would have succeeded.
-    score_set.update({"processingState": "processing"})
     assert score_set == response_data
 
 
@@ -263,9 +257,6 @@ def test_admin_can_add_scores_to_other_user_score_set(
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
 
-    # We test the worker process that actually adds the variant data separately. Here, we take it as
-    # fact that it would have succeeded.
-    score_set.update({"processingState": "processing"})
     assert score_set == response_data
 
 
@@ -292,9 +283,6 @@ def test_admin_can_add_scores_and_counts_to_other_user_score_set(session, client
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
 
-    # We test the worker process that actually adds the variant data separately. Here, we take it as
-    # fact that it would have succeeded.
-    score_set.update({"processingState": "processing"})
     assert score_set == response_data
 
 
