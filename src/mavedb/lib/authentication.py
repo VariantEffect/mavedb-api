@@ -43,7 +43,6 @@ class AuthenticationMethod(str, Enum):
 class UserData:
     user: User
     active_roles: list[UserRole]
-    auth_method: AuthenticationMethod
 
 
 ####################################################################################################
@@ -144,7 +143,7 @@ async def get_current_user_data_from_api_key(
 
     if user is not None:
         logger.debug(f"Successfully authenticated API key for user. {dump_context()}")
-        return UserData(user, roles, AuthenticationMethod.api_key)
+        return UserData(user, roles)
 
     logger.debug(f"Failed to authenticate user via API key; No key provided. {dump_context()}")
     return None
@@ -223,7 +222,7 @@ async def get_current_user(
     if x_active_roles is None:
         save_to_context({"active_roles": [role.name for role in user.roles]})
         logger.info(f"Successfully assigned user roles to authenticated user. {dump_context()}")
-        return UserData(user, user.roles, AuthenticationMethod.jwt)
+        return UserData(user, user.roles)
 
     # FastAPI has poor support for headers of type list (really, they are just comma separated strings).
     # Parse out any requested roles manually.
@@ -249,4 +248,4 @@ async def get_current_user(
 
     save_to_context({"active_roles": [role.name for role in active_roles]})
     logger.info(f"Successfully assigned user roles to authenticated user. {dump_context()}")
-    return UserData(user, active_roles, AuthenticationMethod.jwt)
+    return UserData(user, active_roles)
