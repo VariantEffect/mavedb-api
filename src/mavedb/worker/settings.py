@@ -26,6 +26,7 @@ async def startup(ctx):
     db.current_user_id = None
     ctx["db"] = db
     ctx["hdp"] = cdot_rest()
+    ctx["state"] = {}
 
 
 async def shutdown(ctx):
