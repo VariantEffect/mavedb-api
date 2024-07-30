@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Optional
 
 from mavedb.lib.authentication import UserData
-from mavedb.lib.logging.context import logging_context, save_to_context, dump_context
+from mavedb.lib.logging.context import save_to_context, dump_context
 from mavedb.db.base import Base
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment import Experiment
@@ -263,7 +263,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
 
 
 def assert_permission(user_data: Optional[UserData], item: Base, action: Action) -> PermissionResponse:
-    save_to_context({"permission_boundary": action})
+    save_to_context({"permission_boundary": action.name})
     permission = has_permission(user_data, item, action)
 
     if not permission.permitted:
