@@ -9,8 +9,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from mavedb.db.base import Base
 from mavedb.lib.temp_urns import generate_temp_urn
 from .user import User
-from .keyword import Keyword
 from .doi_identifier import DoiIdentifier
+from .legacy_keyword import LegacyKeyword
 from .publication_identifier import PublicationIdentifier
 from .raw_read_identifier import RawReadIdentifier
 
@@ -24,7 +24,7 @@ experiment_sets_doi_identifiers_association_table = Table(
     Column("doi_identifier_id", ForeignKey("doi_identifiers.id"), primary_key=True),
 )
 
-experiment_sets_keywords_association_table = Table(
+experiment_sets_legacy_keywords_association_table = Table(
     "experiment_set_keywords",
     Base.metadata,
     Column("experiment_set_id", ForeignKey("experiment_sets.id"), primary_key=True),
@@ -73,8 +73,8 @@ class ExperimentSet(Base):
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    keyword_objs: Mapped[list[Keyword]] = relationship(
-        "Keyword", secondary=experiment_sets_keywords_association_table, backref="experiment_sets"
+    keyword_objs: Mapped[list[LegacyKeyword]] = relationship(
+        "LegacyKeyword", secondary=experiment_sets_legacy_keywords_association_table, backref="experiment_sets"
     )
     doi_identifiers: Mapped[list[DoiIdentifier]] = relationship(
         "DoiIdentifier", secondary=experiment_sets_doi_identifiers_association_table, backref="experiment_sets"

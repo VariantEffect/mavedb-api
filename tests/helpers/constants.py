@@ -55,6 +55,8 @@ ADMIN_USER = {
     "is_first_login": True,
 }
 
+TEST_DESCRIPTION = 'description'
+
 ADMIN_USER_DECODED_JWT = {
     "sub": ADMIN_USER["username"],
     "given_name": ADMIN_USER["first_name"],
@@ -67,6 +69,42 @@ TEST_EXPERIMENT = {
     "abstract_text": "Abstract",
     "method_text": "Methods",
 }
+
+TEST_KEYWORDS = [
+    {
+        "keyword": {
+            "key": "Variant Library Creation Method",
+            "value": "Endogenous locus library method",
+            "special": False,
+            "description": "Description 1"
+        },
+    },
+    {
+        "keyword": {
+            "key": "Endogenous Locus Library Method System",
+            "value": "SaCas9",
+            "special": False,
+            "description": "Description 2"
+        },
+    },
+    {
+        "keyword": {
+            "key": "Endogenous Locus Library Method Mechanism",
+            "value": "Base editor",
+            "special": False,
+            "description": "Description 3"
+        },
+    },
+    {
+        "keyword": {
+            "key": "Delivery method",
+            "value": "Other",
+            "special": False,
+            "description": "Description 4"
+        },
+        "description": "Details of delivery method"
+    },
+]
 
 TEST_MINIMAL_EXPERIMENT = {
     "title": "Test Experiment Title",
@@ -149,7 +187,6 @@ TEST_SEQ_SCORESET = {
     ],
 }
 
-
 TEST_MINIMAL_SEQ_SCORESET = {
     "title": "Test Score Set Title",
     "shortDescription": "Test score set",
@@ -223,7 +260,6 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     ],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
-    "keywords": [],
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
@@ -235,7 +271,6 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "urn": None,
     "processingState": ProcessingState.incomplete.name,
 }
-
 
 TEST_MINIMAL_ACC_SCORESET = {
     "title": "Test Score Set Acc Title",
@@ -252,7 +287,6 @@ TEST_MINIMAL_ACC_SCORESET = {
         }
     ],
 }
-
 
 TEST_ACC_SCORESET = {
     "title": "Test Score Set Acc Title",
@@ -298,7 +332,6 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     ],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
-    "keywords": [],
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
@@ -309,7 +342,6 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     "urn": None,
     "processingState": ProcessingState.incomplete.name,
 }
-
 
 TEST_CDOT_TRANSCRIPT = {
     "start_codon": 0,

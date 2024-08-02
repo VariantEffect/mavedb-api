@@ -403,7 +403,6 @@ async def create_score_set(
             exclude={
                 "doi_identifiers",
                 "experiment_urn",
-                "keywords",
                 "license_id",
                 "meta_analyzes_score_set_urns",
                 "primary_publication_identifiers",
@@ -423,8 +422,7 @@ async def create_score_set(
         created_by=user_data.user,
         modified_by=user_data.user,
     )  # type: ignore
-    if item_create.keywords is not None:
-        await item.set_keywords(db, item_create.keywords)
+
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -510,7 +508,6 @@ async def update_score_set(
 
         for var, value in vars(item_update).items():
             if var not in [
-                "keywords",
                 "doi_identifiers",
                 "experiment_urn",
                 "license_id",
@@ -539,8 +536,6 @@ async def update_score_set(
             setattr(publication, "primary", publication.identifier in primary_identifiers)
 
         item.publication_identifiers = publication_identifiers
-        if item_update.keywords is not None:
-            await item.set_keywords(db, item_update.keywords)
 
         # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the score set's
         # target_gene to None, because we have set cascade='all,delete-orphan' on ScoreSet.target_gene. (Since the
@@ -636,7 +631,6 @@ async def update_score_set(
 
         for var, value in vars(item_update).items():
             if var not in [
-                "keywords",
                 "doi_identifiers",
                 "experiment_urn",
                 "primary_publication_identifiers",

@@ -1,8 +1,47 @@
+from sqlalchemy.orm import Session
+from typing import Optional
+
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import is_null
 
+from mavedb.models.controlled_keyword import ControlledKeyword
 
-def validate_keywords(keywords: list[str]):
+
+# value will not be Optional when we confirm the final controlled keyword list.
+def find_keyword(db: Session, key: str, value: Optional[str]):
+    query = db.query(ControlledKeyword).filter(ControlledKeyword.key == key).filter(ControlledKeyword.value == value)
+    controlled_keyword = query.one_or_none()
+    if controlled_keyword is None:
+        raise ValueError(f'Invalid keyword {key} or {value}')
+    return controlled_keyword
+
+
+def validate_description(value: str, key: str, description: Optional[str]):
+    if value.lower() == "other" and (description is None or description.strip() == ""):
+        raise ValidationError(
+            "Other option does not allow empty description.",
+            custom_loc=["body", "keywordDescriptions", key]
+        )
+
+
+def validate_duplicates(keywords: list):
+    keys = []
+    values = []
+    for k in keywords:
+        keys.append(k.keyword.key.lower())  # k: ExperimentControlledKeywordCreate object
+        if k.keyword.value.lower() != "other":
+            values.append(k.keyword.value.lower())
+
+    keys_set = set(keys)
+    values_set = set(values)
+
+    if len(keys) != len(keys_set):
+        raise ValidationError("Duplicate keys found in keywords.")
+    if len(values) != len(values_set):
+        raise ValidationError("Duplicate values found in keywords.")
+
+
+def validate_keyword(keyword: str):
     """
     Validates a list of keywords.
 
@@ -16,30 +55,38 @@ def validate_keywords(keywords: list[str]):
     ValidationError
         If the list is invalid or null or if any individual keyword is invalid or null.
     """
-    if is_null(keywords):
-        raise ValidationError(
-            "{} are not valid keywords. Keywords must be a non null list of strings.".format(keywords)
-        )
-    else:
-        for keyword in keywords:
-            validate_keyword(keyword)
-
-
-def validate_keyword(keyword: str):
-    """
-    This function validates whether or not the kw parameter is valid by
-    checking that it is a string that is not null. If kw is null
-    or is not a string, an error is raised.
-
-    Parameters
-    __________
-    kw : str
-        The keyword to be validated.
-
-    Raises
-    ______
-    ValidationError
-        If the kw argument is not a valid string.
-    """
     if is_null(keyword) or not isinstance(keyword, str):
-        raise ValidationError("{} not a valid keyword. Keywords must be non null strings.".format(keyword))
+        raise ValidationError(
+            "{} are not valid keywords. Keywords must be a non null list of strings.".format(keyword)
+        )
+
+
+def validate_keyword_keys(keywords: list):
+    keys = []
+    values = []
+    for k in keywords:
+        keys.append(k.keyword.key.lower())
+        values.append(k.keyword.value.lower())
+
+    if "endogenous locus library method" in values:
+        if ("endogenous locus library method system" not in keys) or ("endogenous locus library method mechanism" not in keys):
+            raise ValidationError("Miss 'Endogenous Locus Library Method System' "
+                                  "or 'Endogenous Locus Library Method Mechanism' in keywords")
+        elif ("in vitro construct library method system" in keys) or ("in vitro construct library method mechanism" in keys):
+            raise ValidationError("Endogenous Locus Library Method does not allow in vitro method system or mechanism")
+    elif "in vitro construct library method" in values:
+        if ("in vitro construct library method system" not in keys) or ("in vitro construct library method mechanism" not in keys):
+            raise ValidationError("Miss 'In Vitro Construct Library Method System' "
+                                  "or 'In Vitro Construct Library Method Mechanism' in keywords")
+        elif ("endogenous locus library method system" in keys) or ("endogenous locus library method mechanism" in keys):
+            raise ValidationError(
+                "In Vitro Construct Library Method does not allow endogenous method system or mechanism")
+    elif "other" in values:
+        if ("endogenous locus library method system" in keys) or ("endogenous locus library method mechanism" in keys) \
+                or ("in vitro construct library method system" in keys) or ("in vitro construct library method mechanism" in keys):
+            raise ValidationError("Wrong keywords combination.")
+
+
+def validate_keyword_list(keywords: list):
+    validate_duplicates(keywords)
+    validate_keyword_keys(keywords)
