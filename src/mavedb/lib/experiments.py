@@ -51,7 +51,8 @@ def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSe
                 ),
                 Experiment.publication_identifiers.any(
                     func.jsonb_path_exists(
-                        PublicationIdentifier.authors, f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")"""
+                        PublicationIdentifier.authors,
+                        f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")""",
                     )
                 ),
             )
@@ -84,6 +85,6 @@ def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSe
         items = []
 
     save_to_context({"matching_resources": len(items)})
-    logger.debug(f"Experiment search yielded {len(items)} matching resources. {dump_context()}")
+    logger.debug(dump_context(message="Experiment search yielded {len(items)} matching resources."))
 
     return items

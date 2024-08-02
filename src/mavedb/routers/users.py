@@ -51,7 +51,7 @@ async def show_user(
     save_to_context({"requested_user": id})
     item = db.query(User).filter(User.id == id).one_or_none()
     if not item:
-        logger.warning(f"Could not show user; Requested user does not exist. {dump_context()}")
+        logger.warning(dump_context(message="Could not show user; Requested user does not exist."))
         raise HTTPException(status_code=404, detail=f"User with ID {id} not found")
     return item
 
@@ -109,7 +109,7 @@ async def update_user(
     save_to_context({"requested_user": id})
     item = db.query(User).filter(User.id == id).one_or_none()
     if not item:
-        logger.warning(f"Could not update user; Requested user does not exist. {dump_context()}")
+        logger.warning(dump_context(message="Could not update user; Requested user does not exist."))
         raise HTTPException(status_code=404, detail=f"User with id {id} not found.")
 
     assert_permission(user_data, item, Action.UPDATE)

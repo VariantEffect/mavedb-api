@@ -25,11 +25,15 @@ from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
 from mavedb.models.experiment import Experiment
-from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
+from mavedb.models.experiment_publication_identifier import (
+    ExperimentPublicationIdentifierAssociation,
+)
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.keyword import Keyword
 from mavedb.models.publication_identifier import PublicationIdentifier
-from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
+from mavedb.models.score_set_publication_identifier import (
+    ScoreSetPublicationIdentifierAssociation,
+)
 from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.refseq_identifier import RefseqIdentifier
 from mavedb.models.score_set import ScoreSet
@@ -118,7 +122,8 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ),
                 ScoreSet.publication_identifiers.any(
                     func.jsonb_path_exists(
-                        PublicationIdentifier.authors, f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")"""
+                        PublicationIdentifier.authors,
+                        f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")""",
                     )
                 ),
                 ScoreSet.doi_identifiers.any(func.lower(DoiIdentifier.identifier).icontains(lower_search_text)),
@@ -238,7 +243,7 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
         score_sets = []
 
     save_to_context({"matching_resources": len(score_sets)})
-    logger.debug(f"Score set search yielded {len(score_sets)} matching resources. {dump_context()}")
+    logger.debug(dump_context(message=f"Score set search yielded {len(score_sets)} matching resources."))
 
     return score_sets  # filter_visible_score_sets(score_sets)
 
@@ -288,7 +293,10 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
 
 
 def get_score_set_counts_as_csv(
-    db: Session, score_set: ScoreSet, start: Optional[int] = None, limit: Optional[int] = None
+    db: Session,
+    score_set: ScoreSet,
+    start: Optional[int] = None,
+    limit: Optional[int] = None,
 ) -> str:
     assert type(score_set.dataset_columns) is dict
     count_columns = [str(x) for x in list(score_set.dataset_columns.get("count_columns", []))]
@@ -315,7 +323,10 @@ def get_score_set_counts_as_csv(
 
 
 def get_score_set_scores_as_csv(
-    db: Session, score_set: ScoreSet, start: Optional[int] = None, limit: Optional[int] = None
+    db: Session,
+    score_set: ScoreSet,
+    start: Optional[int] = None,
+    limit: Optional[int] = None,
 ) -> str:
     assert type(score_set.dataset_columns) is dict
     score_columns = [str(x) for x in list(score_set.dataset_columns.get("score_columns", []))]
