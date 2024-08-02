@@ -21,7 +21,12 @@ router = APIRouter(
 logger = logging.getLogger(__name__)
 
 
-@router.get("/{urn}", status_code=200, response_model=experiment_set.ExperimentSet, responses={404: {}})
+@router.get(
+    "/{urn}",
+    status_code=200,
+    response_model=experiment_set.ExperimentSet,
+    responses={404: {}},
+)
 def fetch_experiment_set(*, urn: str, db: Session = Depends(deps.get_db)) -> Any:
     """
     Fetch a single experiment set by URN.
@@ -33,7 +38,7 @@ def fetch_experiment_set(*, urn: str, db: Session = Depends(deps.get_db)) -> Any
     if not item:
         # the exception is raised, not returned - you will get a validation
         # error otherwise.
-        logger.debug(f"The requested resources does not exist. {dump_context()}")
+        logger.debug(dump_context("The requested resources does not exist."))
         raise HTTPException(status_code=404, detail=f"Experiment set with URN {urn} not found")
     else:
         item.experiments.sort(key=attrgetter("urn"))

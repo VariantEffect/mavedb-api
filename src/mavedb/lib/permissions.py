@@ -33,9 +33,9 @@ class PermissionResponse:
 
         save_to_context({"permission_message": self.message, "access_permitted": self.permitted})
         if self.permitted:
-            logger.debug(f"Access to the requested resource is permitted. {dump_context()}")
+            logger.debug(dump_context(message="Access to the requested resource is permitted."))
         else:
-            logger.debug(f"Access to the requested resource is not permitted. {dump_context()}")
+            logger.debug(dump_context(message="Access to the requested resource is not permitted."))
 
 
 class PermissionException(Exception):
@@ -48,7 +48,7 @@ def roles_permitted(user_roles: list[UserRole], permitted_roles: list[UserRole])
     save_to_context({"permitted_roles": [role.name for role in permitted_roles]})
 
     if not user_roles:
-        logger.debug(f"User has no associated roles. {dump_context()}")
+        logger.debug(dump_context(message="User has no associated roles."))
         return False
 
     return any(role in permitted_roles for role in user_roles)
@@ -75,7 +75,11 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
         user_may_edit = user_is_self
 
     save_to_context(
-        {"resource_is_private": private, "user_is_owner_of_ressource": user_is_owner, "user_is_self": user_is_self}
+        {
+            "resource_is_private": private,
+            "user_is_owner_of_ressource": user_is_owner,
+            "user_is_self": user_is_self,
+        }
     )
 
     if isinstance(item, ExperimentSet):

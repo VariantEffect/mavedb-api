@@ -2,6 +2,7 @@ import json
 import logging
 import time
 import os
+from contextlib import contextmanager
 from typing import Any, Union, Optional
 
 
@@ -44,12 +45,34 @@ class PopulatedRawContextMiddleware(RawContextMiddleware):
         ctx["application"] = __project__
         ctx["version"] = __version__
 
-        ctx["host"] = request.client.host if request.client else None
-
         # Retain plugin functionality.
         plugin_ctx = {plugin.key: await plugin.process_request(request) for plugin in self.plugins}
 
         return {**ctx, **plugin_ctx}
+
+
+@contextmanager
+def managed_local_context(managed_ctx: dict, **kwargs):
+    global_context = logging_context()
+
+    existing_data = {}
+    for k, v in managed_ctx.items():
+        # Retain any colliding context.
+        if k in global_context.keys():
+            existing_data[k] = context.pop(k)
+
+        global_context[k] = v
+
+    try:
+        yield global_context
+
+    # Clear data from managed keys and restore any colliding context.
+    finally:
+        for k in managed_ctx.keys():
+            global_context.pop(k)
+
+            if k in existing_data.keys():
+                global_context[k] = existing_data[k]
 
 
 def save_to_context(ctx: dict) -> dict:
@@ -79,8 +102,19 @@ def logging_context() -> dict:
     return context.data
 
 
-def dump_context() -> str:
-    return json.dumps(logging_context())
+def dump_context(message: Optional[str] = None, local_ctx: Optional[dict] = None) -> str:
+    # No local context to manage.
+    if not message and not local_ctx:
+        return json.dumps(logging_context())
+
+    local_ctx = local_ctx if local_ctx else {}
+
+    # A passed message will take priority over an existing message in the local context.
+    if message:
+        local_ctx = {**local_ctx, "message": message}
+
+    with managed_local_context(local_ctx) as managed_ctx:
+        return json.dumps(managed_ctx)
 
 
 def correlation_id_for_context() -> Optional[str]:

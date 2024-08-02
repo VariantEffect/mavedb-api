@@ -35,7 +35,7 @@ async def log_job(ctx: dict):
     result = await completed_job.result_info()
 
     if not result:
-        logger.warning(f"Job finished, but could not retrieve a job result for job {job_id}. {dump_context()}")
+        logger.warning(dump_context(message=f"Job finished, but could not retrieve a job result for job {job_id}."))
 
     assert result
     save_to_context(
@@ -55,13 +55,10 @@ async def log_job(ctx: dict):
     )
 
     if not result.success:
-        save_to_context({"message": "Job completed unsuccessfully."})
-        logger.warning(dump_context())
+        logger.warning(dump_context(message="Job completed unsuccessfully."))
     else:
-        save_to_context({"message": "Job completed successfully."})
-        logger.info(dump_context())
+        logger.info(dump_context(message="Job completed successfully."))
 
 
 def log_request():
-    save_to_context({"message": "Request comleted."})
-    logger.info(dump_context())
+    logger.info(dump_context(message="Request comleted."))

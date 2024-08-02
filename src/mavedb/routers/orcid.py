@@ -16,7 +16,10 @@ from mavedb.view_models import orcid
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/api/v1/orcid", tags=["orcid"], responses={404: {"description": "Not found"}}, route_class=LoggedRoute
+    prefix="/api/v1/orcid",
+    tags=["orcid"],
+    responses={404: {"description": "Not found"}},
+    route_class=LoggedRoute,
 )
 
 ORCID_CLIENT_ID = os.getenv("ORCID_CLIENT_ID")
@@ -79,7 +82,7 @@ async def get_token_from_code(*, request: orcid.OrcidAuthTokenRequest) -> Any:
 
             if token_type is None or token_type.lower() != "bearer":
                 logger.warning(
-                    f"Unexpected token type received from ORCID when exchanging code for token. {dump_context()}"
+                    dump_context(message="Unexpected token type received from ORCID when exchanging code for token.")
                 )
 
             return {
