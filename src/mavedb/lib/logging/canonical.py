@@ -56,10 +56,12 @@ async def log_job(ctx: dict):
         }
     )
 
-    if not result.success:
-        logger.warning(dump_context(message="Job completed unsuccessfully."))
-    else:
+    if result.result == "success":
         logger.info(dump_context(message="Job completed successfully."))
+    elif result.result != "success":
+        logger.warning(dump_context(message="Job completed with handled exception."))
+    else:
+        logger.error(dump_context(message="Job completed with unhandled exception."))
 
 
 def log_request(request: Request, response: Response, start: int, end: int):
@@ -72,4 +74,9 @@ def log_request(request: Request, response: Response, start: int, end: int):
         }
     )
 
-    logger.info(dump_context(message="Request comleted."))
+    if response.status_code < 400:
+        logger.info(dump_context(message="Request comleted."))
+    elif response.status_code < 500:
+        logger.warning(dump_context(message="Request comleted."))
+    else:
+        logger.error(dump_context(message="Request comleted with exception."))
