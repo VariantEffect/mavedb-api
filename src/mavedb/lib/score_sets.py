@@ -71,7 +71,7 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
             query = query.filter(ScoreSet.published_date.is_(None))
 
     if search.text:
-        lower_search_text = search.text.lower()
+        lower_search_text = search.text.lower().strip()
         query = query.filter(
             or_(
                 ScoreSet.urn.icontains(lower_search_text),

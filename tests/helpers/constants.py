@@ -21,6 +21,12 @@ TEST_USER = {
     "is_first_login": True,
 }
 
+TEST_USER_DECODED_JWT = {
+    "sub": TEST_USER["username"],
+    "given_name": TEST_USER["first_name"],
+    "family_name": TEST_USER["last_name"],
+}
+
 EXTRA_USER = {
     "username": "1234-5678-8765-4321",
     "first_name": "Extra",
@@ -30,6 +36,12 @@ EXTRA_USER = {
     "is_staff": False,
     "is_superuser": False,
     "is_first_login": True,
+}
+
+EXTRA_USER_DECODED_JWT = {
+    "sub": EXTRA_USER["username"],
+    "given_name": EXTRA_USER["first_name"],
+    "family_name": EXTRA_USER["last_name"],
 }
 
 ADMIN_USER = {
@@ -44,6 +56,12 @@ ADMIN_USER = {
 }
 
 TEST_DESCRIPTION = 'description'
+
+ADMIN_USER_DECODED_JWT = {
+    "sub": ADMIN_USER["username"],
+    "given_name": ADMIN_USER["first_name"],
+    "family_name": ADMIN_USER["last_name"],
+}
 
 TEST_EXPERIMENT = {
     "title": "Test Title",
@@ -246,6 +264,7 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
     "datasetColumns": {},
+    "externalLinks": {},
     "private": True,
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
     # keys to be set after receiving response
