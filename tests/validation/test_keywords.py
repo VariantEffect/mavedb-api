@@ -1,4 +1,3 @@
-from fastapi import HTTPException
 from unittest import TestCase
 
 from mavedb.lib.validation.keywords import (
@@ -28,16 +27,18 @@ class TestKeywordValidators(TestCase):
             validate_keyword("")
 
     def test_other_with_extra_description(self):
+        key = "Key"
         value = "Other"
         description = "testing"
-        validate_description(value, description)
+        validate_description(value, key, description)
 
     def test_other_without_extra_description(self):
         # Value is Other, but not provide extra description
+        key = "Key"
         value = "Other"
         description = None
-        with self.assertRaises(HTTPException):
-            validate_description(value, description)
+        with self.assertRaises(ValidationError):
+            validate_description(value, key, description)
 
     def test_duplicate_keys(self):
         # Invalid keywords list.
@@ -57,7 +58,7 @@ class TestKeywordValidators(TestCase):
         }
         keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
         keyword_list = [keyword_obj1, keyword_obj2]
-        with self.assertRaises(HTTPException):
+        with self.assertRaises(ValidationError):
             validate_duplicates(keyword_list)
 
     def test_duplicate_values(self):
@@ -78,7 +79,7 @@ class TestKeywordValidators(TestCase):
                 }
         keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
         keyword_list = [keyword_obj1, keyword_obj2]
-        with self.assertRaises(HTTPException):
+        with self.assertRaises(ValidationError):
             validate_duplicates(keyword_list)
 
     def test_duplicate_values_but_they_are_other(self):
@@ -155,7 +156,7 @@ class TestKeywordValidators(TestCase):
         }
         keyword_obj3 = ExperimentControlledKeywordCreate(keyword=keyword3, description=TEST_DESCRIPTION)
         keyword_list = [keyword_obj1, keyword_obj2, keyword_obj3]
-        with self.assertRaises(HTTPException):
+        with self.assertRaises(ValidationError):
             validate_keyword_keys(keyword_list)
 
     def test_variant_library_value_is_in_vitro_and_another_keywords_keys_are_both_in_vitro(self):
@@ -212,7 +213,7 @@ class TestKeywordValidators(TestCase):
         }
         keyword_obj3 = ExperimentControlledKeywordCreate(keyword=keyword3, description=TEST_DESCRIPTION)
         keyword_list = [keyword_obj1, keyword_obj2, keyword_obj3]
-        with self.assertRaises(HTTPException):
+        with self.assertRaises(ValidationError):
             validate_keyword_keys(keyword_list)
 
     def test_variant_library_value_is_other(self):
@@ -246,7 +247,7 @@ class TestKeywordValidators(TestCase):
         keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
 
         keyword_list = [keyword_obj1, keyword_obj2]
-        with self.assertRaises(HTTPException):
+        with self.assertRaises(ValidationError):
             validate_keyword_keys(keyword_list)
 
     def test_variant_library_value_is_other_but_another_keyword_key_is_in_vitro(self):
@@ -271,5 +272,5 @@ class TestKeywordValidators(TestCase):
         keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
 
         keyword_list = [keyword_obj1, keyword_obj2]
-        with self.assertRaises(HTTPException):
+        with self.assertRaises(ValidationError):
             validate_keyword_keys(keyword_list)

@@ -1,4 +1,3 @@
-from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -17,9 +16,12 @@ def find_keyword(db: Session, key: str, value: Optional[str]):
     return controlled_keyword
 
 
-def validate_description(value: str, description: Optional[str]):
+def validate_description(value: str, key: str, description: Optional[str]):
     if value.lower() == "other" and (description is None or description.strip() == ""):
-        raise HTTPException(status_code=403, detail="Other option does not allow empty description.")
+        raise ValidationError(
+            "Other option does not allow empty description.",
+            custom_loc=["body", "keywordDescriptions", key]
+        )
 
 
 def validate_duplicates(keywords: list):
@@ -34,9 +36,9 @@ def validate_duplicates(keywords: list):
     values_set = set(values)
 
     if len(keys) != len(keys_set):
-        raise HTTPException(status_code=403, detail="Duplicate keys found in keywords.")
+        raise ValidationError("Duplicate keys found in keywords.")
     if len(values) != len(values_set):
-        raise HTTPException(status_code=403, detail="Duplicate values found in keywords.")
+        raise ValidationError("Duplicate values found in keywords.")
 
 
 def validate_keyword(keyword: str):
@@ -68,15 +70,21 @@ def validate_keyword_keys(keywords: list):
 
     if "endogenous locus library method" in values:
         if ("endogenous locus library method system" not in keys) or ("endogenous locus library method mechanism" not in keys):
-            raise HTTPException(status_code=403, detail="Miss 'Endogenous Locus Library Method System' "
-                                                        "or 'Endogenous Locus Library Method Mechanism' in keywords")
+            raise ValidationError("Miss 'Endogenous Locus Library Method System' "
+                                  "or 'Endogenous Locus Library Method Mechanism' in keywords")
+        elif ("in vitro construct library method system" in keys) or ("in vitro construct library method mechanism" in keys):
+            raise ValidationError("Endogenous Locus Library Method does not allow in vitro method system or mechanism")
     elif "in vitro construct library method" in values:
         if ("in vitro construct library method system" not in keys) or ("in vitro construct library method mechanism" not in keys):
-            raise HTTPException(status_code=403, detail="Miss 'In Vitro Construct Library Method System' "
-                                                        "or 'In Vitro Construct Library Method Mechanism' in keywords")
+            raise ValidationError("Miss 'In Vitro Construct Library Method System' "
+                                  "or 'In Vitro Construct Library Method Mechanism' in keywords")
+        elif ("endogenous locus library method system" in keys) or ("endogenous locus library method mechanism" in keys):
+            raise ValidationError(
+                "In Vitro Construct Library Method does not allow endogenous method system or mechanism")
     elif "other" in values:
-        if ("endogenous locus library method system" in keys) or ("endogenous locus library method mechanism" in keys) or ("in vitro construct library method system" in keys) or ("in vitro construct library method mechanism" in keys):
-            raise HTTPException(status_code=403, detail="Wrong keys in keywords.")
+        if ("endogenous locus library method system" in keys) or ("endogenous locus library method mechanism" in keys) \
+                or ("in vitro construct library method system" in keys) or ("in vitro construct library method mechanism" in keys):
+            raise ValidationError("Wrong keywords combination.")
 
 
 def validate_keyword_list(keywords: list):

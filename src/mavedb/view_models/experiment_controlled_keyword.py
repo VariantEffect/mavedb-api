@@ -18,7 +18,7 @@ class ExperimentControlledKeywordBase(BaseModel):
 
         # validated_keyword possible value: {'key': 'Delivery method', 'value': None}
         if validated_keyword and validated_keyword['value']:
-            keywords.validate_description(validated_keyword['value'], validated_description)
+            keywords.validate_description(validated_keyword['value'], validated_keyword['key'], validated_description)
         return values
 
 

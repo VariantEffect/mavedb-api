@@ -1,4 +1,3 @@
-from fastapi import HTTPException
 from mavedb.view_models.experiment_controlled_keyword import ExperimentControlledKeywordCreate
 from tests.helpers.constants import TEST_DESCRIPTION
 
@@ -52,6 +51,6 @@ def test_create_keyword_value_is_other_without_description():
         "special": False,
         "description": TEST_DESCRIPTION
     }
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(ValueError) as exc_info:
         ExperimentControlledKeywordCreate(keyword=keyword, description=None)
-    assert "Other option does not allow empty description." in str(exc_info.value.detail)
+    assert "Other option does not allow empty description." in str(exc_info.value)

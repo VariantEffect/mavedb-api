@@ -18,6 +18,7 @@ from mavedb.lib.identifiers import (
     find_or_create_raw_read_identifier,
 )
 from mavedb.lib.permissions import assert_permission, Action
+from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import find_keyword, validate_keyword_list
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
@@ -201,7 +202,10 @@ async def create_experiment(
         if all_values_none is False:
             # Users may choose part of keywords from dropdown menu. Remove not chosen keywords from the list.
             filtered_keywords = list(filter(lambda k: k.keyword.value is not None, item_create.keywords))
-            validate_keyword_list(filtered_keywords)
+            try:
+                validate_keyword_list(filtered_keywords)
+            except ValidationError as e:
+                raise HTTPException(status_code=422, detail=str(e))
             for upload_keyword in filtered_keywords:
                 description = upload_keyword.description
                 controlled_keyword = find_keyword(db, upload_keyword.keyword.key, upload_keyword.keyword.value)
