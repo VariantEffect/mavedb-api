@@ -5,6 +5,8 @@ from typing import Any
 import boto3
 from arq import ArqRedis
 from arq.jobs import Job
+from starlette.requests import Request
+from starlette.responses import Response
 from watchtower import CloudWatchLogHandler
 
 from mavedb import __version__
@@ -60,5 +62,14 @@ async def log_job(ctx: dict):
         logger.info(dump_context(message="Job completed successfully."))
 
 
-def log_request():
+def log_request(request: Request, response: Response, start: int, end: int):
+    save_to_context(
+        {
+            "log_type": LogType.api_request,
+            "time_ns": start,
+            "duration_ns": end - start,
+            "response_code": response.status_code,
+        }
+    )
+
     logger.info(dump_context(message="Request comleted."))
