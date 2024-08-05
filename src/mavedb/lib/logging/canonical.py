@@ -1,7 +1,7 @@
 import logging
 import os
 import json
-from typing import Any
+from typing import Any, Optional
 
 import boto3
 from arq import ArqRedis
@@ -12,7 +12,7 @@ from watchtower import CloudWatchLogHandler
 
 from mavedb import __version__
 from mavedb.lib.logging.models import Source, LogType
-from mavedb.lib.logging.context import save_to_context, dump_context
+from mavedb.lib.logging.context import save_to_context, dump_context, logging_context
 
 
 logger = logging.getLogger(__name__)
@@ -87,30 +87,19 @@ async def log_job(ctx: dict):
         logger.error(json.dumps(log_context))
 
     log_context.pop("message")
-    flush_cloudwatch_logs()
 
 
-def log_request(request: Request, response: Response, start: int, end: int):
-    save_to_context(
-        {
-            "log_type": LogType.api_request,
-            "time_ns": start,
-            "duration_ns": end - start,
-            "response_code": response.status_code,
-        }
-    )
+def log_request(request: Request, response: Response, end: int):
+    start: Optional[int] = logging_context().get("time_ns")
+
+    if start:
+        save_to_context({"duration_ns": end - start})
+
+    save_to_context({"log_type": LogType.api_request, "response_code": response.status_code})
 
     if response.status_code < 400:
-        logger.info(dump_context(message="Request comleted."))
+        logger.info(dump_context(message="Request completed."))
     elif response.status_code < 500:
-        logger.warning(dump_context(message="Request comleted."))
+        logger.warning(dump_context(message="Request completed."))
     else:
-        logger.error(dump_context(message="Request comleted with exception."))
-
-
-def flush_cloudwatch_logs():
-    """Force flush of all cloudwatch logging handlers. For example at the end of a process just before it is killed."""
-    root_logger = logging.getLogger()
-    for handler in root_logger.handlers:
-        if isinstance(handler, CloudWatchLogHandler):
-            handler.flush()
+        logger.error(dump_context(message="Request completed with exception."))

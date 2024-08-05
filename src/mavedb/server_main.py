@@ -1,4 +1,5 @@
 import logging
+import time
 
 import uvicorn
 from fastapi import FastAPI
@@ -6,9 +7,9 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
-from requests import Request
 from sqlalchemy.orm import configure_mappers
 from starlette import status
+from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette_context.plugins import CorrelationIdPlugin, RequestIdPlugin, UserAgentPlugin
 from eutils._internal.exceptions import EutilsRequestError  # type: ignore
@@ -16,7 +17,8 @@ from eutils._internal.exceptions import EutilsRequestError  # type: ignore
 from mavedb.models import *
 
 from mavedb import __version__
-from mavedb.lib.logging.context import PopulatedRawContextMiddleware
+from mavedb.lib.logging.context import PopulatedRawContextMiddleware, dump_context, save_exc_info_to_context
+from mavedb.lib.logging.canonical import log_request
 from mavedb.routers import (
     access_keys,
     api_information,
@@ -91,50 +93,48 @@ app.include_router(users.router)
 
 @app.exception_handler(PermissionException)
 async def permission_exception_handler(request: Request, exc: PermissionException):
-    return JSONResponse(
-        {"detail": exc.message},
-        status_code=exc.http_code,
-    )
+    response = JSONResponse({"detail": exc.message}, status_code=exc.http_code)
+    log_request(request, response, time.time_ns())
+    return response
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    return JSONResponse(
+    response = JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=jsonable_encoder({"detail": list(map(lambda error: customize_validation_error(error), exc.errors()))}),
     )
+    log_request(request, response, time.time_ns())
+    return response
 
 
 @app.exception_handler(AmbiguousIdentifierError)
 async def ambiguous_identifier_error_exception_handler(request: Request, exc: AmbiguousIdentifierError):
-    return JSONResponse(
-        status_code=400,
-        content={"message": str(exc)},
-    )
+    response = JSONResponse(status_code=400, content={"message": str(exc)})
+    log_request(request, response, time.time_ns())
+    return response
 
 
 @app.exception_handler(NonexistentIdentifierError)
 async def nonexistent_identifier_error_exception_handler(request: Request, exc: NonexistentIdentifierError):
-    return JSONResponse(
-        status_code=404,
-        content={"message": str(exc)},
-    )
+    response = JSONResponse(status_code=404, content={"message": str(exc)})
+    log_request(request, response, time.time_ns())
+    return response
 
 
 @app.exception_handler(EutilsRequestError)
 async def nonexistent_pmid_error_exception_handler(request: Request, exc: EutilsRequestError):
-    return JSONResponse(
-        status_code=404,
-        content={"message": str(exc)},
-    )
+    response = JSONResponse(status_code=404, content={"message": str(exc)})
+    log_request(request, response, time.time_ns())
+    return response
 
 
 @app.exception_handler(MixedTargetError)
 async def mixed_target_exception_handler(request: Request, exc: MixedTargetError):
-    return JSONResponse(
-        status_code=400,
-        content={"message": str(exc)},
-    )
+    response = JSONResponse(status_code=400, content={"message": str(exc)})
+    save_exc_info_to_context(exc)
+    log_request(request, response, time.time_ns())
+    return response
 
 
 def customize_validation_error(error):
@@ -149,10 +149,16 @@ def customize_validation_error(error):
 
 @app.exception_handler(Exception)
 async def exception_handler(request, err):
-    logger.error("Uncaught exception", exc_info=err)
-    send_slack_message(err=err, request=request)
+    save_exc_info_to_context(err)
+    response = JSONResponse(status_code=500, content={"message": "Internal server error"})
 
-    return JSONResponse(status_code=500, content={"message": "Internal server error"})
+    try:
+        logger.error(dump_context(message="Uncaught exception."), exc_info=err)
+        send_slack_message(err=err, request=request)
+    finally:
+        log_request(request, response, time.time_ns())
+
+    return response
 
 
 def customize_openapi_schema():
