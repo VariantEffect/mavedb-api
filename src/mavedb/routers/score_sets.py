@@ -609,6 +609,11 @@ async def upload_score_set_variant_data(
         counts_df = csv_data_to_df(counts_file.file)
 
     if scores_file:
+        # Although this is also updated within the variant creation job, update it here
+        # as well so that we can display the proper UI components (queue invocation delay
+        # races the score set GET request).
+        item.processing_state = ProcessingState.processing
+
         # await the insertion of this job into the worker queue, not the job itself.
         job = await worker.enqueue_job(
             "create_variants_for_score_set",
@@ -622,6 +627,9 @@ async def upload_score_set_variant_data(
             save_to_context({"worker_job_id": job.job_id})
         logger.info(dump_context(message="Enqueud variant creation job."))
 
+    db.add(item)
+    db.commit()
+    db.refresh(item)
     return item
 
 
@@ -832,6 +840,11 @@ async def update_score_set(
             count_data = pd.DataFrame(
                 variants_to_csv_rows(item.variants, columns=count_columns, dtype="count_data")
             ).replace("NA", pd.NA)
+
+            # Although this is also updated within the variant creation job, update it here
+            # as well so that we can display the proper UI components (queue invocation delay
+            # races the score set GET request).
+            item.processing_state = ProcessingState.processing
 
             # await the insertion of this job into the worker queue, not the job itself.
             job = await worker.enqueue_job(
