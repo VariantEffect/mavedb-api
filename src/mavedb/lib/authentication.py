@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.models.enums.user_role import UserRole
 from mavedb.lib.orcid import fetch_orcid_user_email
-from mavedb.lib.logging.context import dump_context, save_to_context
+from mavedb.lib.logging.context import dump_context, save_to_context, exc_info_as_dict
 from mavedb.models.access_key import AccessKey
 from mavedb.models.user import User
 
@@ -69,7 +69,7 @@ def decode_jwt(token: str) -> dict:
         return decoded_token
     # TODO: should catch specific exceptions, and should log them more usefully.
     except Exception as ex:
-        save_to_context({"authentication_exception": str(ex)})
+        save_to_context(exc_info_as_dict(ex))
         logger.debug(dump_context(message="Failed to authenticate user; Could not decode user token."))
         return {}
 

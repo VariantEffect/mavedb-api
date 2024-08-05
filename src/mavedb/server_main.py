@@ -17,7 +17,7 @@ from eutils._internal.exceptions import EutilsRequestError  # type: ignore
 from mavedb.models import *
 
 from mavedb import __version__
-from mavedb.lib.logging.context import PopulatedRawContextMiddleware, dump_context, save_exc_info_to_context
+from mavedb.lib.logging.context import PopulatedRawContextMiddleware, dump_context, exc_info_as_dict, save_to_context
 from mavedb.lib.logging.canonical import log_request
 from mavedb.routers import (
     access_keys,
@@ -92,6 +92,7 @@ app.include_router(users.router)
 @app.exception_handler(PermissionException)
 async def permission_exception_handler(request: Request, exc: PermissionException):
     response = JSONResponse({"detail": exc.message}, status_code=exc.http_code)
+    save_to_context(exc_info_as_dict(exc))
     log_request(request, response, time.time_ns())
     return response
 
@@ -102,6 +103,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=jsonable_encoder({"detail": list(map(lambda error: customize_validation_error(error), exc.errors()))}),
     )
+    save_to_context(exc_info_as_dict(exc))
     log_request(request, response, time.time_ns())
     return response
 
@@ -109,6 +111,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(AmbiguousIdentifierError)
 async def ambiguous_identifier_error_exception_handler(request: Request, exc: AmbiguousIdentifierError):
     response = JSONResponse(status_code=400, content={"message": str(exc)})
+    save_to_context(exc_info_as_dict(exc))
     log_request(request, response, time.time_ns())
     return response
 
@@ -116,6 +119,7 @@ async def ambiguous_identifier_error_exception_handler(request: Request, exc: Am
 @app.exception_handler(NonexistentIdentifierError)
 async def nonexistent_identifier_error_exception_handler(request: Request, exc: NonexistentIdentifierError):
     response = JSONResponse(status_code=404, content={"message": str(exc)})
+    save_to_context(exc_info_as_dict(exc))
     log_request(request, response, time.time_ns())
     return response
 
@@ -123,6 +127,7 @@ async def nonexistent_identifier_error_exception_handler(request: Request, exc: 
 @app.exception_handler(EutilsRequestError)
 async def nonexistent_pmid_error_exception_handler(request: Request, exc: EutilsRequestError):
     response = JSONResponse(status_code=404, content={"message": str(exc)})
+    save_to_context(exc_info_as_dict(exc))
     log_request(request, response, time.time_ns())
     return response
 
@@ -130,7 +135,7 @@ async def nonexistent_pmid_error_exception_handler(request: Request, exc: Eutils
 @app.exception_handler(MixedTargetError)
 async def mixed_target_exception_handler(request: Request, exc: MixedTargetError):
     response = JSONResponse(status_code=400, content={"message": str(exc)})
-    save_exc_info_to_context(exc)
+    save_to_context(exc_info_as_dict(exc))
     log_request(request, response, time.time_ns())
     return response
 
@@ -147,7 +152,7 @@ def customize_validation_error(error):
 
 @app.exception_handler(Exception)
 async def exception_handler(request, err):
-    save_exc_info_to_context(err)
+    save_to_context(exc_info_as_dict(err))
     response = JSONResponse(status_code=500, content={"message": "Internal server error"})
 
     try:
