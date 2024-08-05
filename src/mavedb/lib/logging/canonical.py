@@ -22,7 +22,14 @@ AWS_REGION_NAME = os.getenv("AWS_REGION_NAME", "")
 
 if AWS_REGION_NAME and CLOUDWATCH_LOG_GROUP:
     boto3_logs_client = boto3.client("logs", region_name=AWS_REGION_NAME)
-    logger.addHandler(CloudWatchLogHandler(boto3_client=boto3_logs_client, log_group_name=CLOUDWATCH_LOG_GROUP))
+
+    # NOTE: Worker shut down will prevent canonical logs from being emitted if queues are used. Since only one log event is output
+    #       per job, this shouldn't represent an oppressive performance issue. If it eventually does, we should look into how we
+    #       might log worker jobs without allowing worker shutdowns (Perhaps canonical log events are processed in their own jobs).
+    use_queues = False if "worker" in CLOUDWATCH_LOG_GROUP else True
+    logger.addHandler(
+        CloudWatchLogHandler(boto3_client=boto3_logs_client, log_group_name=CLOUDWATCH_LOG_GROUP, use_queues=use_queues)
+    )
 else:
     logger.warning("Canonical CloudWatch Handler is not defined. Canonical logs will only be emitted to stderr.")
 
@@ -67,7 +74,7 @@ async def log_job(ctx: dict):
     }
 
     if result is None:
-        log_context["message"] = "Job result coul not be found."
+        log_context["message"] = "Job result could not be found."
         logger.error(json.dumps(log_context))
     elif result.result == "success":
         log_context["message"] = "Job completed successfully."
