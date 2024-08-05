@@ -24,26 +24,28 @@ from mavedb.models.variant import Variant
 logger = logging.getLogger(__name__)
 
 
-def setup_job_state(ctx, invoker: int, resource: str, interaction_id: str):
+def setup_job_state(ctx, invoker: int, resource: str, correlation_id: str):
     ctx["state"][ctx["job_id"]] = {
         "application": "mavedb-worker",
         "user": invoker,
         "resource": resource,
-        "interaction_id": interaction_id,
+        "correlation_id": correlation_id,
     }
     return ctx["state"][ctx["job_id"]]
 
 
 async def create_variants_for_score_set(
-    ctx, interaction_id: str, score_set_urn: str, updater_id: int, scores: pd.DataFrame, counts: pd.DataFrame
+    ctx, correlation_id: str, score_set_urn: str, updater_id: int, scores: pd.DataFrame, counts: pd.DataFrame
 ):
     """
     Create variants for a score set. Intended to be run within a worker.
     On any raised exception, ensure ProcessingState of score set is set to `failed` prior
     to exiting.
     """
-    log_ctx = setup_job_state(ctx, updater_id, score_set_urn, interaction_id)
-    logger.info(f"Began processing of score set variants. {json.dumps(log_ctx)}")
+    log_ctx = setup_job_state(ctx, updater_id, score_set_urn, correlation_id)
+    log_ctx["message"] = "Began processing of score set variants."
+    logger.info(json.dumps(log_ctx))
+    log_ctx.pop("message")
 
     try:
         db: Session = ctx["db"]
@@ -61,9 +63,9 @@ async def create_variants_for_score_set(
         db.refresh(score_set)
 
         if not score_set.target_genes:
-            logger.warning(
-                f"No targets are associated with this score set; could not create variants. {json.dumps(log_ctx)}"
-            )
+            log_ctx["message"] = "No targets are associated with this score set; could not create variants."
+            logger.warning({json.dumps(log_ctx)})
+            log_ctx.pop("message")
             raise ValueError("Can't create variants when score set has no targets.")
 
         if score_set.variants:
@@ -71,7 +73,9 @@ async def create_variants_for_score_set(
             log_ctx["deleted_variants"] = score_set.num_variants
             score_set.num_variants = 0
 
-            logger.info(f"Deleted existing variants from score set. {json.dumps(log_ctx)}")
+            log_ctx["message"] = "Deleted existing variants from score set."
+            logger.info(json.dumps(log_ctx))
+            log_ctx.pop("message")
 
             db.commit()
             db.refresh(score_set)
@@ -97,19 +101,21 @@ async def create_variants_for_score_set(
 
         log_ctx["validation_error"] = str(e)
         log_ctx["processing_state"] = score_set.processing_state.name
-        logger.warning(f"Encountered a validation error while processing variants. {json.dumps(log_ctx)}")
+        log_ctx["message"] = "Encountered a validation error while processing variants."
+        logger.warning(json.dumps(log_ctx))
+        log_ctx.pop("message")
 
     # NOTE: Since these are likely to be internal errors, it makes less sense to add them to the DB and surface them to the end user.
     # Catch all non-system exiting exceptions.
     except Exception as e:
         db.rollback()
         score_set.processing_state = ProcessingState.failed
-        logger.error(f"Encountered an exception while processing variants for {score_set.urn}", exc_info=e)
-        score_set.processing_errors = {"exception": str(e), "detail": []}
 
         log_ctx["exception"] = str(e)
         log_ctx["processing_state"] = score_set.processing_state.name
-        logger.warning(f"Encountered an internal exception while processing variants. {json.dumps(log_ctx)}")
+        log_ctx["message"] = "Encountered an internal exception while processing variants."
+        logger.warning(json.dumps(log_ctx))
+        log_ctx.pop("message")
 
         send_slack_message(err=e)
 
@@ -121,20 +127,28 @@ async def create_variants_for_score_set(
 
         log_ctx["exception"] = str(e)
         log_ctx["processing_state"] = score_set.processing_state.name
-        logger.error(f"Encountered an unhandled exception while creating variants for score set. {json.dumps(log_ctx)}")
+        log_ctx["message"] = "Encountered an unhandled exception while creating variants for score set."
+        logger.error(json.dumps(log_ctx))
+        log_ctx.pop("message")
         raise e
+
     else:
         score_set.processing_state = ProcessingState.success
         score_set.processing_errors = null()
 
         log_ctx["created_variants"] = created_variants
         log_ctx["processing_state"] = score_set.processing_state.name
-        logger.info(f"Finished creating variants in score set. {json.dumps(log_ctx)}")
+        log_ctx["message"] = "Finished creating variants in score set."
+        logger.info(json.dumps(log_ctx))
+        log_ctx.pop("message")
+
     finally:
         db.add(score_set)
         db.commit()
         db.refresh(score_set)
 
-        logger.info(f"Committed new variants to score set. {json.dumps(log_ctx)}")
+        log_ctx["message"] = "Committed new variants to score set."
+        logger.info(json.dumps(log_ctx))
+        log_ctx.pop("message")
 
     return score_set.processing_state.name
