@@ -2,6 +2,9 @@ import json
 import logging
 import time
 import os
+import sys
+import traceback
+
 from contextlib import contextmanager
 from typing import Any, Union, Optional
 
@@ -119,3 +122,21 @@ def dump_context(message: Optional[str] = None, local_ctx: Optional[dict] = None
 
 def correlation_id_for_context() -> Optional[str]:
     return logging_context().get("X-Correlation-ID", None)
+
+
+def save_exc_info_to_context(err):
+    _, _, tb = sys.exc_info()
+    save_to_context(
+        {
+            "exc_info": {
+                "type": err.__class__.__name__,
+                "string": str(err),
+                **[
+                    {"file": fs.filename, "line": fs.lineno, "func": fs.name}
+                    for fs in traceback.extract_tb(tb)
+                    # attempt to show only *our* code, not the many layers of library code
+                    if "/mavedb/" in fs.filename and "/.direnv/" not in fs.filename
+                ][-1],
+            }
+        }
+    )
