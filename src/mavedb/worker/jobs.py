@@ -110,6 +110,7 @@ async def create_variants_for_score_set(
     except Exception as e:
         db.rollback()
         score_set.processing_state = ProcessingState.failed
+        score_set.processing_errors = {"exception": str(e), "detail": []}
 
         log_ctx["exception"] = str(e)
         log_ctx["processing_state"] = score_set.processing_state.name
