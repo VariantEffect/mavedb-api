@@ -87,7 +87,7 @@ def save_to_context(ctx: dict) -> dict:
             if isinstance(existing_ctx, list):
                 context[k].append(v)
             else:
-                context[k] = [existing_ctx, k]
+                context[k] = [existing_ctx, v]
         else:
             context[k] = v
 
