@@ -11,6 +11,7 @@ from mavedb.lib.score_sets import (
     create_variants,
     create_variants_data,
 )
+from mavedb.lib.logging.context import exc_info_as_dict
 from mavedb.lib.slack import send_slack_message
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.dataframe import (
@@ -90,7 +91,7 @@ async def create_variants_for_score_set(
         }
 
         variants_data = create_variants_data(validated_scores, validated_counts, None)
-        created_variants = create_variants(db, score_set, variants_data)
+        create_variants(db, score_set, variants_data)
 
     # Validation errors arise from problematic user data. These should be inserted into the database so failures can
     # be persisted to them.
@@ -99,7 +100,7 @@ async def create_variants_for_score_set(
         score_set.processing_state = ProcessingState.failed
         score_set.processing_errors = {"exception": str(e), "detail": e.triggering_exceptions}
 
-        log_ctx["validation_error"] = str(e)
+        log_ctx = {**log_ctx, **exc_info_as_dict(e)}
         log_ctx["processing_state"] = score_set.processing_state.name
         log_ctx["message"] = "Encountered a validation error while processing variants."
         logger.warning(json.dumps(log_ctx))
@@ -112,7 +113,7 @@ async def create_variants_for_score_set(
         score_set.processing_state = ProcessingState.failed
         score_set.processing_errors = {"exception": str(e), "detail": []}
 
-        log_ctx["exception"] = str(e)
+        log_ctx = {**log_ctx, **exc_info_as_dict(e)}
         log_ctx["processing_state"] = score_set.processing_state.name
         log_ctx["message"] = "Encountered an internal exception while processing variants."
         logger.warning(json.dumps(log_ctx))
@@ -126,7 +127,7 @@ async def create_variants_for_score_set(
         score_set.processing_state = ProcessingState.failed
         db.commit()
 
-        log_ctx["exception"] = str(e)
+        log_ctx = {**log_ctx, **exc_info_as_dict(e)}
         log_ctx["processing_state"] = score_set.processing_state.name
         log_ctx["message"] = "Encountered an unhandled exception while creating variants for score set."
         logger.error(json.dumps(log_ctx))
@@ -137,7 +138,7 @@ async def create_variants_for_score_set(
         score_set.processing_state = ProcessingState.success
         score_set.processing_errors = null()
 
-        log_ctx["created_variants"] = created_variants
+        log_ctx["created_variants"] = score_set.num_variants
         log_ctx["processing_state"] = score_set.processing_state.name
         log_ctx["message"] = "Finished creating variants in score set."
         logger.info(json.dumps(log_ctx))
@@ -152,4 +153,5 @@ async def create_variants_for_score_set(
         logger.info(json.dumps(log_ctx))
         log_ctx.pop("message")
 
+    ctx["state"][ctx["job_id"]] = log_ctx.copy()
     return score_set.processing_state.name
