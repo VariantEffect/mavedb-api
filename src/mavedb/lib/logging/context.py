@@ -124,10 +124,10 @@ def correlation_id_for_context() -> Optional[str]:
     return logging_context().get("X-Correlation-ID", None)
 
 
-def exc_info_as_dict(err: Exception) -> dict[str, dict[str, Any]]:
+def exc_info_as_dict(err: BaseException) -> dict:
     _, _, tb = sys.exc_info()
 
-    exc_ctx = {
+    exc_ctx: dict = {
         "exc_info": {
             "type": err.__class__.__name__,
             "string": str(err),
