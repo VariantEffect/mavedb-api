@@ -58,7 +58,7 @@ async def log_job(ctx: dict) -> None:
                 "duration_ns": (result.finish_time - result.start_time).microseconds,
                 "job_name": result.function,
                 "job_attempt": result.job_try,
-                "process_result": result.success,
+                "arq_success": result.success,
                 "job_result": result.result,
             },
         }

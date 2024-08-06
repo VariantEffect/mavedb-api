@@ -55,27 +55,26 @@ class PopulatedRawContextMiddleware(RawContextMiddleware):
 
 
 @contextmanager
-def managed_local_context(managed_ctx: dict, **kwargs) -> Generator[dict, Any, None]:
+def managed_global_context(managed_ctx: dict, **kwargs) -> Generator[dict, Any, None]:
     global_context = logging_context()
 
+    # Retain any colliding context.
     existing_data = {}
     for k, v in managed_ctx.items():
-        # Retain any colliding context.
         if k in global_context.keys():
-            existing_data[k] = context.pop(k)
+            existing_data[k] = global_context[k]
 
         global_context[k] = v
 
     try:
         yield global_context
 
-    # Clear data from managed keys and restore any colliding context.
+    # Return global context to its previous state.
     finally:
-        for k in managed_ctx.keys():
+        for k in set(managed_ctx.keys()).intersection(set(global_context.keys())):
             global_context.pop(k)
 
-            if k in existing_data.keys():
-                global_context[k] = existing_data[k]
+        global_context = {**global_context, **existing_data}
 
 
 def save_to_context(ctx: dict) -> dict:
@@ -116,7 +115,7 @@ def dump_context(message: Optional[str] = None, local_ctx: Optional[dict] = None
     if message:
         local_ctx = {**local_ctx, "message": message}
 
-    with managed_local_context(local_ctx) as managed_ctx:
+    with managed_global_context(local_ctx) as managed_ctx:
         return json.dumps(managed_ctx)
 
 
