@@ -36,9 +36,9 @@ else:
 
 # NOTE: Starlette context will not be initialized in the worker, so maintain a local dictionary of context. We
 #       may eventually want to harden this by using the backing Redis cache or with Python's contextvars.
-async def log_job(ctx: dict):
+async def log_job(ctx: dict) -> None:
     redis: ArqRedis = ctx["redis"]
-    job_id = ctx["job_id"]
+    job_id: str = ctx["job_id"]
 
     log_context: dict[str, Any] = ctx["state"].pop(job_id) if job_id in ctx["state"] else {}
 
@@ -89,7 +89,7 @@ async def log_job(ctx: dict):
     log_context.pop("message")
 
 
-def log_request(request: Request, response: Response, end: int):
+def log_request(request: Request, response: Response, end: int) -> None:
     start: Optional[int] = logging_context().get("time_ns")
 
     if start:

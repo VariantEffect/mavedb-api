@@ -6,7 +6,7 @@ import sys
 import traceback
 
 from contextlib import contextmanager
-from typing import Any, Union, Optional
+from typing import Any, Generator, Union, Optional
 
 
 from starlette.requests import Request, HTTPConnection
@@ -55,7 +55,7 @@ class PopulatedRawContextMiddleware(RawContextMiddleware):
 
 
 @contextmanager
-def managed_local_context(managed_ctx: dict, **kwargs):
+def managed_local_context(managed_ctx: dict, **kwargs) -> Generator[dict, Any, None]:
     global_context = logging_context()
 
     existing_data = {}
@@ -124,7 +124,7 @@ def correlation_id_for_context() -> Optional[str]:
     return logging_context().get("X-Correlation-ID", None)
 
 
-def exc_info_as_dict(err):
+def exc_info_as_dict(err: Exception) -> dict[str, dict[str, Any]]:
     _, _, tb = sys.exc_info()
     return {
         "exc_info": {
