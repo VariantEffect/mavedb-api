@@ -38,6 +38,9 @@ def populate_mapped_variant_data(db: Session, urns: Sequence[Optional[str]], all
     vrs = vrs_mapper()
 
     for idx, urn in enumerate(urns):
+        if not urn:
+            continue
+
         logger.info(f"Populating mapped variant data for {urn}. ({idx+1}/{len(urns)}).")
 
         mapped_scoreset = vrs.map_score_set(urn)
