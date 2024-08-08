@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError
 from mavedb.lib.external_publications import Rxiv, Crossref, CrossrefWork, RxivContentDetail, PublicationAuthors
-from mavedb.lib.validation.publication import identifier_valid_for, validate_db_name
+from mavedb.lib.validation.publication import identifier_valid_for, validate_db_name, infer_identifier_from_url
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset
@@ -259,6 +259,9 @@ async def find_generic_article(
         "bioRxiv": fetch_biorxiv_article,
         "medRxiv": fetch_medrxiv_article,
     }
+
+    # We also accept URLs from our accepted publications. Attempt to convert a potential URL to an identifier.
+    identifier = infer_identifier_from_url(identifier)
 
     # Only check entries with the appropriate `db_name` if one is provided.
     db_specific_match: dict[str, Union[PublicationIdentifier, ExternalPublication, None]] = {}
