@@ -3,6 +3,7 @@ from typing import Any, Collection, Optional, Sequence
 
 from mavedb.lib.validation import keywords
 from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.lib.validation.utilities import is_null
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.doi_identifier import (
@@ -70,6 +71,30 @@ class ExperimentModify(ExperimentBase):
     @validator("keywords")
     def validate_keywords(cls, v):
         keywords.validate_keywords(v)
+        return v
+
+    @validator("title")
+    def validate_title(cls, v):
+        if is_null(v) or not isinstance(v, str):
+            raise ValidationError("Invalid title. Title should not be None or space.")
+        return v
+
+    @validator("short_description")
+    def validate_short_description(cls, v):
+        if is_null(v) or not isinstance(v, str):
+            raise ValidationError("Invalid short description. Short description should not be None or space.")
+        return v
+
+    @validator("abstract_text")
+    def validate_abstract_text(cls, v):
+        if is_null(v) or not isinstance(v, str):
+            raise ValidationError("Invalid abstract text. Abstract text should not be None or space.")
+        return v
+
+    @validator("method_text")
+    def validate_method_text(cls, v):
+        if is_null(v) or not isinstance(v, str):
+            raise ValidationError("Invalid method text. Method text should not be None or space.")
         return v
 
 
