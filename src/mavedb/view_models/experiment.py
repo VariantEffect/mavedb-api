@@ -73,29 +73,11 @@ class ExperimentModify(ExperimentBase):
         keywords.validate_keywords(v)
         return v
 
-    @validator("title")
-    def validate_title(cls, v):
+    @validator("title", "short_description", "abstract_text", "method_text")
+    def validate_field_is_non_empty(cls, v, field):
         if is_null(v) or not isinstance(v, str):
-            raise ValidationError("Invalid title. Title should not be None or space.")
-        return v
-
-    @validator("short_description")
-    def validate_short_description(cls, v):
-        if is_null(v) or not isinstance(v, str):
-            raise ValidationError("Invalid short description. Short description should not be None or space.")
-        return v
-
-    @validator("abstract_text")
-    def validate_abstract_text(cls, v):
-        if is_null(v) or not isinstance(v, str):
-            raise ValidationError("Invalid abstract text. Abstract text should not be None or space.")
-        return v
-
-    @validator("method_text")
-    def validate_method_text(cls, v):
-        if is_null(v) or not isinstance(v, str):
-            raise ValidationError("Invalid method text. Method text should not be None or space.")
-        return v
+            raise ValidationError("This field is required and cannot be empty.")
+        return v.strip()
 
 
 class ExperimentCreate(ExperimentModify):
