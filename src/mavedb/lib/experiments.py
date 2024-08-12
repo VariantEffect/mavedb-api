@@ -4,8 +4,8 @@ from typing import Optional
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from mavedb.lib.logging.context import save_to_context, dump_context
 from mavedb.models.contributor import Contributor
+from mavedb.lib.logging.context import save_to_logging_context, dump_context
 from mavedb.models.experiment import Experiment
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 def search_experiments(db: Session, owner_or_contributor: Optional[User], search: ExperimentsSearch) -> list[Experiment]:
-    save_to_context({"experiment_search_criteria": search.dict()})
+    save_to_logging_context({"experiment_search_criteria": search.dict()})
 
     query = db.query(Experiment)
     # .filter(ScoreSet.private.is_(False))
@@ -101,7 +101,7 @@ def search_experiments(db: Session, owner_or_contributor: Optional[User], search
     if not items:
         items = []
 
-    save_to_context({"matching_resources": len(items)})
+    save_to_logging_context({"matching_resources": len(items)})
     logger.debug(dump_context(message="Experiment search yielded {len(items)} matching resources."))
 
     return items

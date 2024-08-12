@@ -10,7 +10,7 @@ from mavedb.lib.score_sets import (
     create_variants,
     create_variants_data,
 )
-from mavedb.lib.logging.context import exc_info_as_dict, dump_context
+from mavedb.lib.logging.context import format_raised_exception_info_as_dict, dump_context
 from mavedb.lib.slack import send_slack_message
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.dataframe import (
@@ -98,7 +98,7 @@ async def create_variants_for_score_set(
         score_set.processing_state = ProcessingState.failed
         score_set.processing_errors = {"exception": str(e), "detail": e.triggering_exceptions}
 
-        log_ctx = {**log_ctx, **exc_info_as_dict(e)}
+        log_ctx = {**log_ctx, **format_raised_exception_info_as_dict(e)}
         log_ctx["processing_state"] = score_set.processing_state.name
         logger.warning(
             dump_context(message="Encountered a validation error while processing variants.", local_ctx=log_ctx)
@@ -111,7 +111,7 @@ async def create_variants_for_score_set(
         score_set.processing_state = ProcessingState.failed
         score_set.processing_errors = {"exception": str(e), "detail": []}
 
-        log_ctx = {**log_ctx, **exc_info_as_dict(e)}
+        log_ctx = {**log_ctx, **format_raised_exception_info_as_dict(e)}
         log_ctx["processing_state"] = score_set.processing_state.name
         logger.warning(
             dump_context(message="Encountered an internal exception while processing variants.", local_ctx=log_ctx)
@@ -124,7 +124,7 @@ async def create_variants_for_score_set(
         score_set.processing_state = ProcessingState.failed
         db.commit()
 
-        log_ctx = {**log_ctx, **exc_info_as_dict(e)}
+        log_ctx = {**log_ctx, **format_raised_exception_info_as_dict(e)}
         log_ctx["processing_state"] = score_set.processing_state.name
         logger.error(
             dump_context(

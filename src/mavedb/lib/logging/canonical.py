@@ -12,7 +12,7 @@ from watchtower import CloudWatchLogHandler
 
 from mavedb import __version__
 from mavedb.lib.logging.models import Source, LogType
-from mavedb.lib.logging.context import save_to_context, dump_context, logging_context
+from mavedb.lib.logging.context import save_to_logging_context, dump_context, logging_context
 
 
 logger = logging.getLogger(__name__)
@@ -93,9 +93,9 @@ def log_request(request: Request, response: Response, end: int) -> None:
     start: Optional[int] = logging_context().get("time_ns")
 
     if start:
-        save_to_context({"duration_ns": end - start})
+        save_to_logging_context({"duration_ns": end - start})
 
-    save_to_context({"log_type": LogType.api_request, "response_code": response.status_code})
+    save_to_logging_context({"log_type": LogType.api_request, "response_code": response.status_code})
 
     if response.status_code < 400:
         logger.info(dump_context(message="Request completed."))

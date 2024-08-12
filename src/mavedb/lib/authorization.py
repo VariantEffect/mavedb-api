@@ -5,7 +5,7 @@ from fastapi import Depends, HTTPException
 from starlette import status
 
 from mavedb.lib.authentication import get_current_user, UserData
-from mavedb.lib.logging.context import dump_context, save_to_context
+from mavedb.lib.logging.context import dump_context, save_to_logging_context
 from mavedb.models.enums.user_role import UserRole
 
 
@@ -48,7 +48,7 @@ class RoleRequirer:
         self.roles = roles
 
     async def __call__(self, user_data: UserData = Depends(require_current_user)) -> UserData:
-        save_to_context({"required_roles": [role.name for role in self.roles]})
+        save_to_logging_context({"required_roles": [role.name for role in self.roles]})
         if not any(role in self.roles for role in user_data.active_roles):
             logger.info(dump_context(message="User attempted to access role protected route without a required role."))
             raise HTTPException(
@@ -60,7 +60,7 @@ class RoleRequirer:
 
 
 async def require_role(roles: list[UserRole], user_data: UserData = Depends(require_current_user)) -> UserData:
-    save_to_context({"required_roles": [role.name for role in roles]})
+    save_to_logging_context({"required_roles": [role.name for role in roles]})
     if not any(role.name in roles for role in user_data.active_roles):
         logger.info(dump_context(message="User attempted to access role protected route without a required role."))
         raise HTTPException(

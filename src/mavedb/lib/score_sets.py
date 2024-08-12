@@ -19,7 +19,7 @@ from mavedb.lib.mave.constants import (
     VARIANT_SCORE_DATA,
 )
 from mavedb.lib.validation.constants.general import null_values_list
-from mavedb.lib.logging.context import save_to_context, dump_context
+from mavedb.lib.logging.context import save_to_logging_context, dump_context
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
@@ -63,7 +63,7 @@ class HGVSColumns:
 
 
 def search_score_sets(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
-    save_to_context({"score_set_search_criteria": search.dict()})
+    save_to_logging_context({"score_set_search_criteria": search.dict()})
 
     query = db.query(ScoreSet)  # \
     # .filter(ScoreSet.private.is_(False))
@@ -256,7 +256,7 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
     if not score_sets:
         score_sets = []
 
-    save_to_context({"matching_resources": len(score_sets)})
+    save_to_logging_context({"matching_resources": len(score_sets)})
     logger.debug(dump_context(message=f"Score set search yielded {len(score_sets)} matching resources."))
 
     return score_sets  # filter_visible_score_sets(score_sets)

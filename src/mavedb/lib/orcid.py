@@ -5,7 +5,7 @@ from typing import Optional
 import orcid  # type: ignore
 
 from mavedb.view_models.orcid import OrcidUser
-from mavedb.lib.logging.context import dump_context, save_to_context
+from mavedb.lib.logging.context import dump_context, save_to_logging_context
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ def fetch_orcid_user_email(orcid_id: str) -> Optional[str]:
             logger.debug(dump_context(message="Failed to fetch ORCID email; User exists but email not visible."))
 
     except Exception as e:
-        save_to_context({"orcid_exception": str(e)})
+        save_to_logging_context({"orcid_exception": str(e)})
         logger.warn(dump_context(message="Encountered an error while looking up an ORCID user's email address."))
 
     return email

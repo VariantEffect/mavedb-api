@@ -20,7 +20,7 @@ from mavedb.lib.identifiers import (
     find_or_create_raw_read_identifier,
 )
 from mavedb.lib.logging import LoggedRoute
-from mavedb.lib.logging.context import dump_context, save_to_context
+from mavedb.lib.logging.context import dump_context, save_to_logging_context
 from mavedb.lib.permissions import assert_permission, Action
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import validate_keyword_list
@@ -64,7 +64,7 @@ def list_experiments(
     """
     query = db.query(Experiment)
     if q is not None:
-        save_to_context({"query_string": q})
+        save_to_logging_context({"query_string": q})
 
         if user_data is None or user_data.user is None:
             logger.debug(dump_context(message="User is anonymous; Cannot list their experiments."))
@@ -130,7 +130,7 @@ def fetch_experiment(
     """
     # item = db.query(Experiment).filter(Experiment.urn == urn).filter(Experiment.private.is_(False)).first()
     item = db.query(Experiment).filter(Experiment.urn == urn).first()
-    save_to_context({"requested_resource": urn})
+    save_to_logging_context({"requested_resource": urn})
 
     if not item:
         logger.debug(dump_context(message="The requested experiment does not exist."))
@@ -156,7 +156,7 @@ def get_experiment_score_sets(
     """
     Get all score sets belonging to an experiment.
     """
-    save_to_context({"requested_resource": urn, "resource_property": "score-sets"})
+    save_to_logging_context({"requested_resource": urn, "resource_property": "score-sets"})
 
     experiment = db.query(Experiment).filter(Experiment.urn == urn).first()
     if not experiment:
@@ -185,13 +185,13 @@ def get_experiment_score_sets(
         logger.debug(dump_context(message="User is anonymous; Filtering only public score sets will be shown."))
 
     if not score_set_result:
-        save_to_context({"associated_resources": []})
+        save_to_logging_context({"associated_resources": []})
         logger.info(dump_context(message="No score sets are associated with the requested experiment."))
 
         raise HTTPException(status_code=404, detail="no associated score sets")
     else:
         score_set_result.sort(key=attrgetter("urn"))
-        save_to_context({"associated_resources": [item.urn for item in score_set_result]})
+        save_to_logging_context({"associated_resources": [item.urn for item in score_set_result]})
 
     return score_set_result
 
@@ -227,7 +227,7 @@ async def create_experiment(
                 detail=f"experiment set with URN '{item_create.experiment_set_urn}' not found.",
             )
 
-        save_to_context({"experiment_set": experiment_set.urn})
+        save_to_logging_context({"experiment_set": experiment_set.urn})
         assert_permission(user_data, experiment_set, Action.ADD_EXPERIMENT)
 
     contributors: list[Contributor] = []
@@ -326,7 +326,7 @@ async def create_experiment(
     db.commit()
     db.refresh(item)
 
-    save_to_context({"created_resource": item.urn})
+    save_to_logging_context({"created_resource": item.urn})
     return item
 
 
@@ -346,7 +346,7 @@ async def update_experiment(
     """
     Update an experiment.
     """
-    save_to_context({"requested_resource": urn})
+    save_to_logging_context({"requested_resource": urn})
     logger.debug(dump_context(message="Began experiment update."))
 
     # item = db.query(Experiment).filter(Experiment.urn == urn).filter(Experiment.private.is_(False)).one_or_none()
@@ -431,7 +431,7 @@ async def update_experiment(
     db.commit()
     db.refresh(item)
 
-    save_to_context({"updated_resource": item.urn})
+    save_to_logging_context({"updated_resource": item.urn})
     return item
 
 
@@ -455,7 +455,7 @@ async def delete_experiment(
     communitcate to client whether the operation succeeded
     204 if successful but not returning content - likely going with this
     """
-    save_to_context({"requested_resource": urn})
+    save_to_logging_context({"requested_resource": urn})
 
     item = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
     if not item:

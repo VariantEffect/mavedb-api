@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.logging import LoggedRoute
-from mavedb.lib.logging.context import dump_context, save_to_context
+from mavedb.lib.logging.context import dump_context, save_to_logging_context
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.view_models import experiment_set
 
@@ -33,7 +33,7 @@ def fetch_experiment_set(*, urn: str, db: Session = Depends(deps.get_db)) -> Any
     """
     # item = db.query(ExperimentSet).filter(ExperimentSet.urn == urn).filter(ExperimentSet.private.is_(False)).first()
     item = db.query(ExperimentSet).filter(ExperimentSet.urn == urn).first()
-    save_to_context({"requested_resource": urn})
+    save_to_logging_context({"requested_resource": urn})
 
     if not item:
         # the exception is raised, not returned - you will get a validation

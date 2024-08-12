@@ -77,7 +77,7 @@ def managed_global_context(managed_ctx: dict, **kwargs) -> Generator[dict, Any, 
         global_context = {**global_context, **existing_data}
 
 
-def save_to_context(ctx: dict) -> dict:
+def save_to_logging_context(ctx: dict) -> dict:
     if not context.exists():
         logger.debug("Skipped saving to context. Context does not exist.")
         return {}
@@ -123,7 +123,7 @@ def correlation_id_for_context() -> Optional[str]:
     return logging_context().get("X-Correlation-ID", None)
 
 
-def exc_info_as_dict(err: BaseException) -> dict:
+def format_raised_exception_info_as_dict(err: BaseException) -> dict:
     _, _, tb = sys.exc_info()
 
     exc_ctx: dict = {

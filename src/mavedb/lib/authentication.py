@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.models.enums.user_role import UserRole
 from mavedb.lib.orcid import fetch_orcid_user_email
-from mavedb.lib.logging.context import dump_context, save_to_context, exc_info_as_dict
+from mavedb.lib.logging.context import dump_context, save_to_logging_context, format_raised_exception_info_as_dict
 from mavedb.models.access_key import AccessKey
 from mavedb.models.user import User
 
@@ -69,7 +69,7 @@ def decode_jwt(token: str) -> dict:
         return decoded_token
     # TODO: should catch specific exceptions, and should log them more usefully.
     except Exception as ex:
-        save_to_context(exc_info_as_dict(ex))
+        save_to_logging_context(format_raised_exception_info_as_dict(ex))
         logger.debug(dump_context(message="Failed to authenticate user; Could not decode user token."))
         return {}
 
@@ -87,7 +87,7 @@ class JWTBearer(HTTPBearer):
 
         if credentials:
             if not credentials.scheme == "Bearer":
-                save_to_context({"scheme": credentials.scheme})
+                save_to_logging_context({"scheme": credentials.scheme})
                 logger.info(dump_context(message="Failed to authenticate user; Invalid authentication scheme."))
                 raise HTTPException(status_code=403, detail="Invalid authentication scheme.")
 
@@ -139,7 +139,7 @@ async def get_current_user_data_from_api_key(
             if access_key.role is not None:
                 roles = [access_key.role] if access_key.role is not None else []
 
-            save_to_context(
+            save_to_logging_context(
                 {
                     "user": user.id,
                     "active_roles": [role.name for role in roles],
@@ -168,15 +168,15 @@ async def get_current_user(
     # Namespaced with x_ to indicate this is a custom application header.
     x_active_roles: Optional[str] = Header(default=None),
 ) -> Optional[UserData]:
-    save_to_context({"requested_roles": x_active_roles})
+    save_to_logging_context({"requested_roles": x_active_roles})
 
     if api_key_user_data is not None:
-        save_to_context({"auth_method": AuthenticationMethod.api_key, "user_authenticated": True})
+        save_to_logging_context({"auth_method": AuthenticationMethod.api_key, "user_authenticated": True})
         logger.info(dump_context(message="Successfully authenticated user via API key."))
         return api_key_user_data
 
     if token_payload is None:
-        save_to_context({"auth_method": None, "user_authenticated": False})
+        save_to_logging_context({"auth_method": None, "user_authenticated": False})
         logger.info(
             dump_context(message="Failed to authenticate user; Could not acquire credentials via API key or JWT.")
         )
@@ -184,14 +184,14 @@ async def get_current_user(
 
     username: Optional[str] = token_payload.get("sub")
     if username is None:
-        save_to_context({"auth_method": AuthenticationMethod.jwt, "user_authenticated": False})
+        save_to_logging_context({"auth_method": AuthenticationMethod.jwt, "user_authenticated": False})
         logger.info(dump_context(message="Failed to authenticate user; Username not present in token payload."))
         return None
 
     user = db.query(User).filter(User.username == username).one_or_none()
 
     # If there was a token payload, auth method must be JWT.
-    save_to_context({"auth_method": AuthenticationMethod.jwt})
+    save_to_logging_context({"auth_method": AuthenticationMethod.jwt})
 
     # A new user has just connected an ORCID iD. Create the user account.
     if user is None:
@@ -209,7 +209,7 @@ async def get_current_user(
             email=email,
             is_first_login=True,
         )
-        save_to_context(
+        save_to_logging_context(
             {
                 "user": user.id,
                 "first_login": user.is_first_login,
@@ -220,13 +220,13 @@ async def get_current_user(
         logger.debug(dump_context(message="Created new user."))
 
     elif not user.is_active:
-        save_to_context({"user": user.id, "user_authenticated": True})
+        save_to_logging_context({"user": user.id, "user_authenticated": True})
         logger.info(dump_context(message="Failed to authenticate user; User is inactive."))
         return None
     else:
         user.last_login = datetime.now()
         user.is_first_login = False
-        save_to_context(
+        save_to_logging_context(
             {
                 "user": user.id,
                 "first_login": user.is_first_login,
@@ -240,9 +240,9 @@ async def get_current_user(
     logger.info(dump_context(message="Successfully authenticated user via JWT."))
 
     # When no roles are requested, the user may act as any assigned role.
-    save_to_context({"available_roles": [role.name for role in user.roles]})
+    save_to_logging_context({"available_roles": [role.name for role in user.roles]})
     if x_active_roles is None:
-        save_to_context({"active_roles": [role.name for role in user.roles]})
+        save_to_logging_context({"active_roles": [role.name for role in user.roles]})
         logger.info(dump_context(message="Successfully assigned user roles to authenticated user."))
         return UserData(user, user.roles)
 
@@ -271,6 +271,6 @@ async def get_current_user(
         else:
             active_roles.append(enumerated_role)
 
-    save_to_context({"active_roles": [role.name for role in active_roles]})
+    save_to_logging_context({"active_roles": [role.name for role in active_roles]})
     logger.info(dump_context(message="Successfully assigned user roles to authenticated user."))
     return UserData(user, active_roles)

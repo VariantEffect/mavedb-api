@@ -14,7 +14,7 @@ from mavedb import deps
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import require_current_user
 from mavedb.lib.logging import LoggedRoute
-from mavedb.lib.logging.context import dump_context, save_to_context
+from mavedb.lib.logging.context import dump_context, save_to_logging_context
 from mavedb.models.access_key import AccessKey
 from mavedb.models.enums.user_role import UserRole
 from mavedb.view_models import access_key
@@ -99,7 +99,7 @@ async def create_my_access_key_with_role(
     """
     Create a new access key for the current user, with the specified role.
     """
-    save_to_context({"requested_role": role.name})
+    save_to_logging_context({"requested_role": role.name})
     # Allow the user to create an access key for any of their potential roles, not just their active one.
     if not any(user_role == role for user_role in user_data.user.roles):
         logger.warning(

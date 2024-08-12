@@ -10,7 +10,7 @@ from mavedb.lib.authorization import require_current_user
 from mavedb.lib.orcid import fetch_orcid_user
 from mavedb.models.user import User
 from mavedb.lib.logging import LoggedRoute
-from mavedb.lib.logging.context import dump_context, save_to_context
+from mavedb.lib.logging.context import dump_context, save_to_logging_context
 from mavedb.view_models import orcid
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,7 @@ async def get_token_from_code(*, request: orcid.OrcidAuthTokenRequest) -> Any:
             expires_in = data["expires_in"]
             id_token = data["id_token"]
 
-            save_to_context({"token_type": token_type, "expires_in": expires_in})
+            save_to_logging_context({"token_type": token_type, "expires_in": expires_in})
 
             if token_type is None or token_type.lower() != "bearer":
                 logger.warning(

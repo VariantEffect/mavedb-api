@@ -26,7 +26,7 @@ from mavedb.lib.identifiers import (
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
     dump_context,
-    save_to_context,
+    save_to_logging_context,
     correlation_id_for_context,
 )
 from mavedb.lib.permissions import Action, assert_permission
@@ -147,11 +147,8 @@ async def show_score_set(
     """
     Fetch a single score set by URN.
     """
-    save_to_context({"requested_resource": urn})
-    fetched_score_set = await fetch_score_set_by_urn(db, urn, user_data, None, False)
-
-    logger.info(f"Successfully fetched the requested score set. {dump_context()}")
-    return fetched_score_set
+    save_to_logging_context({"requested_resource": urn})
+    return await fetch_score_set_by_urn(db, urn, user_data, None, False)
 
 
 @router.get(
@@ -181,7 +178,7 @@ def get_score_set_scores_csv(
     /score-sets/{urn}/scores?start=0&limit=100
     /score-sets/{urn}/scores?start=100
     """
-    save_to_context(
+    save_to_logging_context(
         {
             "requested_resource": urn,
             "resource_property": "scores",
@@ -235,7 +232,7 @@ async def get_score_set_counts_csv(
     /score-sets/{urn}/counts?start=0&limit=100
     /score-sets/{urn}/counts?start=100
     """
-    save_to_context(
+    save_to_logging_context(
         {
             "requested_resource": urn,
             "resource_property": "counts",
@@ -276,7 +273,7 @@ def get_score_set_mapped_variants(
     """
     Return mapped variants from a score set, identified by URN.
     """
-    save_to_context({"requested_resource": urn, "resource_property": "mapped-variants"})
+    save_to_logging_context({"requested_resource": urn, "resource_property": "mapped-variants"})
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -327,18 +324,18 @@ async def create_score_set(
             logger.info(dump_context(message="Failed to create score set; The requested experiment does not exist."))
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
 
-        save_to_context({"experiment": experiment.urn})
+        save_to_logging_context({"experiment": experiment.urn})
         assert_permission(user_data, experiment, Action.UPDATE)
         assert_permission(user_data, experiment, Action.ADD_SCORE_SET)
 
     license_ = db.query(License).filter(License.id == item_create.license_id).one_or_none()
-    save_to_context({"requested_license": item_create.license_id})
+    save_to_logging_context({"requested_license": item_create.license_id})
 
     if not license_:
         logger.info(dump_context(message="Failed to create score set; The requested license does not exist."))
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
 
-    save_to_context({"requested_superseded_score_set": item_create.superseded_score_set_urn})
+    save_to_logging_context({"requested_superseded_score_set": item_create.superseded_score_set_urn})
     if item_create.superseded_score_set_urn is not None:
         superseded_score_set = await fetch_score_set_by_urn(db, item_create.superseded_score_set_urn, user_data, user_data, True)
 
@@ -360,7 +357,7 @@ async def create_score_set(
         if ss is not None
     ]
 
-    save_to_context({"requested_meta_analyzes_score_sets": distinct_meta_analyzes_score_set_urns})
+    save_to_logging_context({"requested_meta_analyzes_score_sets": distinct_meta_analyzes_score_set_urns})
     for i, meta_analyzes_score_set in enumerate(meta_analyzes_score_sets):
         if meta_analyzes_score_set is None:
             logger.info(
@@ -416,6 +413,9 @@ async def create_score_set(
                 modified_by=user_data.user,
             )
 
+        save_to_logging_context({"meta_analysis_experiment": experiment.urn})
+        logger.debug(f"Creating experiment within meta analysis experiment. {dump_context()}")
+
     contributors: list[Contributor] = []
     try:
         contributors = [
@@ -426,9 +426,6 @@ async def create_score_set(
             [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
             model=score_set.ScoreSetCreate,
         )
-
-    save_to_context({"meta_analysis_experiment": experiment.urn})
-    logger.info(f"Creating experiment within meta analysis experiment. {dump_context()}")
 
     doi_identifiers = [
         await find_or_create_doi_identifier(db, identifier.identifier)
@@ -463,7 +460,7 @@ async def create_score_set(
                     "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                 )
             upload_taxonomy = gene.target_sequence.taxonomy
-            save_to_context({"requested_taxonomy": gene.target_sequence.taxonomy.tax_id})
+            save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.tax_id})
             taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
 
             if not taxonomy:
@@ -517,7 +514,7 @@ async def create_score_set(
                 target_accession=target_accession,
             )
         else:
-            save_to_context({"failing_target": gene})
+            save_to_logging_context({"failing_target": gene})
             logger.info(dump_context(message="Failed to create score set; Could not infer target type."))
             raise ValueError("One of either `target_accession` or `target_gene` should be present")
 
@@ -569,7 +566,7 @@ async def create_score_set(
     db.commit()
     db.refresh(item)
 
-    save_to_context({"created_resource": item.urn})
+    save_to_logging_context({"created_resource": item.urn})
     return item
 
 
@@ -592,7 +589,7 @@ async def upload_score_set_variant_data(
     Upload scores and variant count files for a score set, and initiate processing these files to
     create variants.
     """
-    save_to_context({"requested_resource": urn, "resource_property": "variants"})
+    save_to_logging_context({"requested_resource": urn, "resource_property": "variants"})
 
     # item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(ScoreSet.private.is_(False)).one_or_none()
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
@@ -624,7 +621,7 @@ async def upload_score_set_variant_data(
             counts_df,
         )
         if job is not None:
-            save_to_context({"worker_job_id": job.job_id})
+            save_to_logging_context({"worker_job_id": job.job_id})
         logger.info(dump_context(message="Enqueud variant creation job."))
 
     db.add(item)
@@ -645,7 +642,7 @@ async def update_score_set(
     """
     Update a score set.
     """
-    save_to_context({"requested_resource": urn})
+    save_to_logging_context({"requested_resource": urn})
     logger.debug(dump_context(message="Began score set update."))
 
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
@@ -660,7 +657,7 @@ async def update_score_set(
         license_ = None
 
         if item_update.license_id is not None:
-            save_to_context({"license": item_update.license_id})
+            save_to_logging_context({"license": item_update.license_id})
             license_ = db.query(License).filter(License.id == item_update.license_id).one_or_none()
 
             if not license_:
@@ -738,7 +735,7 @@ async def update_score_set(
                     )
 
                 upload_taxonomy = gene.target_sequence.taxonomy
-                save_to_context({"requested_taxonomy": gene.target_sequence.taxonomy.tax_id})
+                save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.tax_id})
                 taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
 
                 if not taxonomy:
@@ -801,7 +798,7 @@ async def update_score_set(
                     target_accession=target_accession,
                 )
             else:
-                save_to_context({"failing_target": gene})
+                save_to_logging_context({"failing_target": gene})
                 logger.info(dump_context(message="Failed to create score set; Could not infer target type."))
                 raise ValueError("One of either `target_accession` or `target_gene` should be present")
 
@@ -856,7 +853,7 @@ async def update_score_set(
                 count_data,
             )
             if job is not None:
-                save_to_context({"worker_job_id": job.job_id})
+                save_to_logging_context({"worker_job_id": job.job_id})
             logger.info(dump_context(message="Enqueud variant creation job."))
 
         for var, value in vars(item_update).items():
@@ -890,7 +887,7 @@ async def update_score_set(
     db.commit()
     db.refresh(item)
 
-    save_to_context({"updated_resource": item.urn})
+    save_to_logging_context({"updated_resource": item.urn})
     return item
 
 
@@ -914,7 +911,7 @@ async def delete_score_set(
     communitcate to client whether the operation succeeded
     204 if successful but not returning content - likely going with this
     """
-    save_to_context({"requested_resource": urn})
+    save_to_logging_context({"requested_resource": urn})
 
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
@@ -942,7 +939,7 @@ def publish_score_set(
     """
     Publish a score set.
     """
-    save_to_context({"requested_resource": urn})
+    save_to_logging_context({"requested_resource": urn})
 
     item: Optional[ScoreSet] = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
@@ -992,7 +989,7 @@ def publish_score_set(
         item.experiment.experiment_set.published_date = published_date
         db.add(item.experiment.experiment_set)
 
-    save_to_context({"experiment_set": item.experiment.experiment_set.urn})
+    save_to_logging_context({"experiment_set": item.experiment.experiment_set.urn})
 
     if item.experiment.private or not item.experiment.published_date:
         item.experiment.urn = generate_experiment_urn(
@@ -1004,13 +1001,13 @@ def publish_score_set(
         item.experiment.published_date = published_date
         db.add(item.experiment)
 
-    save_to_context({"experiment": item.experiment.urn})
+    save_to_logging_context({"experiment": item.experiment.urn})
 
     item.urn = generate_score_set_urn(db, item.experiment)
     item.private = False
     item.published_date = published_date
 
-    save_to_context({"score_set": item.urn})
+    save_to_logging_context({"score_set": item.urn})
 
     db.add(item)
     db.commit()

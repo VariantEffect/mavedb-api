@@ -6,7 +6,7 @@ from typing import Callable
 import time
 
 from mavedb.lib.logging.canonical import log_request
-from mavedb.lib.logging.context import save_to_context
+from mavedb.lib.logging.context import save_to_logging_context
 
 
 class LoggedRoute(APIRoute):
@@ -14,7 +14,7 @@ class LoggedRoute(APIRoute):
         original_route_handler = super().get_route_handler()
 
         async def logging_route_handler(request: Request) -> Response:
-            save_to_context({"time_ns": time.time_ns()})
+            save_to_logging_context({"time_ns": time.time_ns()})
             response = await original_route_handler(request)
             end = time.time_ns()
 
