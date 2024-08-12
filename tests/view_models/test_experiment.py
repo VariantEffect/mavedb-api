@@ -2,6 +2,16 @@ import pytest
 from fastapi.encoders import jsonable_encoder
 
 from mavedb.view_models.experiment import ExperimentCreate
+from tests.helpers.constants import TEST_MINIMAL_EXPERIMENT
+
+
+# Test valid experiment
+def test_create_experiment():
+    experiment = ExperimentCreate(**jsonable_encoder(TEST_MINIMAL_EXPERIMENT))
+    assert experiment.title == "Test Experiment Title"
+    assert experiment.short_description == "Test experiment"
+    assert experiment.abstract_text == "Abstract"
+    assert experiment.method_text == "Methods"
 
 
 def test_cannot_create_experiment_without_a_title():
@@ -29,7 +39,7 @@ def test_cannot_create_experiment_with_a_space_title():
     with pytest.raises(ValueError) as exc_info:
         ExperimentCreate(**jsonable_encoder(invalid_experiment))
 
-    assert "Invalid title. Title should not be None or space." in str(exc_info.value)
+    assert "This field is required and cannot be empty." in str(exc_info.value)
     assert "title" in str(exc_info.value)
 
 
@@ -73,7 +83,7 @@ def test_cannot_create_experiment_with_a_space_short_description():
     with pytest.raises(ValueError) as exc_info:
         ExperimentCreate(**jsonable_encoder(invalid_experiment))
 
-    assert "Invalid short description. Short description should not be None or space" in str(exc_info.value)
+    assert "This field is required and cannot be empty." in str(exc_info.value)
     assert "shortDescription" in str(exc_info.value)
 
 
@@ -117,7 +127,7 @@ def test_cannot_create_experiment_with_a_space_abstract():
     with pytest.raises(ValueError) as exc_info:
         ExperimentCreate(**jsonable_encoder(invalid_experiment))
 
-    assert "Invalid abstract text. Abstract text should not be None or space." in str(exc_info.value)
+    assert "This field is required and cannot be empty." in str(exc_info.value)
     assert "abstractText" in str(exc_info.value)
 
 
@@ -161,7 +171,7 @@ def test_cannot_create_experiment_with_a_space_method():
     with pytest.raises(ValueError) as exc_info:
         ExperimentCreate(**jsonable_encoder(invalid_experiment))
 
-    assert "Invalid method text. Method text should not be None or space." in str(exc_info.value)
+    assert "This field is required and cannot be empty." in str(exc_info.value)
     assert "methodText" in str(exc_info.value)
 
 
