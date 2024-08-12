@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Optional
 
 from mavedb.lib.authentication import UserData
-from mavedb.lib.logging.context import save_to_logging_context, dump_context
+from mavedb.lib.logging.context import save_to_logging_context, logging_context
 from mavedb.db.base import Base
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment import Experiment
@@ -33,9 +33,9 @@ class PermissionResponse:
 
         save_to_logging_context({"permission_message": self.message, "access_permitted": self.permitted})
         if self.permitted:
-            logger.debug(dump_context(message="Access to the requested resource is permitted."))
+            logger.debug(msg="Access to the requested resource is permitted.", extra=logging_context())
         else:
-            logger.debug(dump_context(message="Access to the requested resource is not permitted."))
+            logger.debug(msg="Access to the requested resource is not permitted.", extra=logging_context())
 
 
 class PermissionException(Exception):
@@ -48,7 +48,7 @@ def roles_permitted(user_roles: list[UserRole], permitted_roles: list[UserRole])
     save_to_logging_context({"permitted_roles": [role.name for role in permitted_roles]})
 
     if not user_roles:
-        logger.debug(dump_context(message="User has no associated roles."))
+        logger.debug(msg="User has no associated roles.", extra=logging_context())
         return False
 
     return any(role in permitted_roles for role in user_roles)

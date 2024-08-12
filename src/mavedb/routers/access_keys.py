@@ -14,7 +14,7 @@ from mavedb import deps
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import require_current_user
 from mavedb.lib.logging import LoggedRoute
-from mavedb.lib.logging.context import dump_context, save_to_logging_context
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.models.access_key import AccessKey
 from mavedb.models.enums.user_role import UserRole
 from mavedb.view_models import access_key
@@ -103,8 +103,10 @@ async def create_my_access_key_with_role(
     # Allow the user to create an access key for any of their potential roles, not just their active one.
     if not any(user_role == role for user_role in user_data.user.roles):
         logger.warning(
-            dump_context(message="Could not create API key for user; User does not belong to the requested role.")
+            msg="Could not create API key for user; User does not belong to the requested role.",
+            extra=logging_context(),
         )
+
         raise HTTPException(
             status_code=403,
             detail="User cannot create an API key for a role they do not have.",
@@ -137,4 +139,4 @@ def delete_my_access_key(
     if item and item.user.id == user_data.user.id:
         db.delete(item)
         db.commit()
-        logger.debug(dump_context(message="Successfully deleted provided API key."))
+        logger.debug(msg="Successfully deleted provided API key.", extra=logging_context())

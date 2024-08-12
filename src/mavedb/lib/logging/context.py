@@ -1,12 +1,10 @@
-import json
 import logging
 import time
 import os
 import sys
 import traceback
 
-from contextlib import contextmanager
-from typing import Any, Generator, Union, Optional
+from typing import Any, Union, Optional
 
 
 from starlette.requests import Request, HTTPConnection
@@ -54,29 +52,6 @@ class PopulatedRawContextMiddleware(RawContextMiddleware):
         return {**ctx, **plugin_ctx}
 
 
-@contextmanager
-def managed_global_context(managed_ctx: dict, **kwargs) -> Generator[dict, Any, None]:
-    global_context = logging_context()
-
-    # Retain any colliding context.
-    existing_data = {}
-    for k, v in managed_ctx.items():
-        if k in global_context.keys():
-            existing_data[k] = global_context[k]
-
-        global_context[k] = v
-
-    try:
-        yield global_context
-
-    # Return global context to its previous state.
-    finally:
-        for k in set(managed_ctx.keys()).intersection(set(global_context.keys())):
-            global_context.pop(k)
-
-        global_context = {**global_context, **existing_data}
-
-
 def save_to_logging_context(ctx: dict) -> dict:
     if not context.exists():
         logger.debug("Skipped saving to context. Context does not exist.")
@@ -102,21 +77,6 @@ def logging_context() -> dict:
         return {}
 
     return context.data
-
-
-def dump_context(message: Optional[str] = None, local_ctx: Optional[dict] = None) -> str:
-    # No local context to manage.
-    if not message and not local_ctx:
-        return json.dumps(logging_context())
-
-    local_ctx = local_ctx if local_ctx else {}
-
-    # A passed message will take priority over an existing message in the local context.
-    if message:
-        local_ctx = {**local_ctx, "message": message}
-
-    with managed_global_context(local_ctx) as managed_ctx:
-        return json.dumps(managed_ctx)
 
 
 def correlation_id_for_context() -> Optional[str]:

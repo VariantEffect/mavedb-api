@@ -8,7 +8,7 @@ from mavedb import deps
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import require_current_user, RoleRequirer
 from mavedb.lib.logging import LoggedRoute
-from mavedb.lib.logging.context import dump_context, save_to_logging_context
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import assert_permission, Action
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.user import User
@@ -51,7 +51,7 @@ async def show_user(
     save_to_logging_context({"requested_user": id})
     item = db.query(User).filter(User.id == id).one_or_none()
     if not item:
-        logger.warning(dump_context(message="Could not show user; Requested user does not exist."))
+        logger.warning(msg="Could not show user; Requested user does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"User with ID {id} not found")
     return item
 
@@ -109,7 +109,7 @@ async def update_user(
     save_to_logging_context({"requested_user": id})
     item = db.query(User).filter(User.id == id).one_or_none()
     if not item:
-        logger.warning(dump_context(message="Could not update user; Requested user does not exist."))
+        logger.warning(msg="Could not update user; Requested user does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"User with id {id} not found.")
 
     assert_permission(user_data, item, Action.UPDATE)

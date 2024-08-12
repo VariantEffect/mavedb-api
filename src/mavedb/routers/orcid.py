@@ -10,7 +10,7 @@ from mavedb.lib.authorization import require_current_user
 from mavedb.lib.orcid import fetch_orcid_user
 from mavedb.models.user import User
 from mavedb.lib.logging import LoggedRoute
-from mavedb.lib.logging.context import dump_context, save_to_logging_context
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.view_models import orcid
 
 logger = logging.getLogger(__name__)
@@ -82,7 +82,8 @@ async def get_token_from_code(*, request: orcid.OrcidAuthTokenRequest) -> Any:
 
             if token_type is None or token_type.lower() != "bearer":
                 logger.warning(
-                    dump_context(message="Unexpected token type received from ORCID when exchanging code for token.")
+                    msg="Unexpected token type received from ORCID when exchanging code for token.",
+                    extra=logging_context(),
                 )
 
             return {

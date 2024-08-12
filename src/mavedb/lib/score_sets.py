@@ -19,7 +19,7 @@ from mavedb.lib.mave.constants import (
     VARIANT_SCORE_DATA,
 )
 from mavedb.lib.validation.constants.general import null_values_list
-from mavedb.lib.logging.context import save_to_logging_context, dump_context
+from mavedb.lib.logging.context import save_to_logging_context, logging_context
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
@@ -257,7 +257,7 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
         score_sets = []
 
     save_to_logging_context({"matching_resources": len(score_sets)})
-    logger.debug(dump_context(message=f"Score set search yielded {len(score_sets)} matching resources."))
+    logger.debug(msg=f"Score set search yielded {len(score_sets)} matching resources.", extra=logging_context())
 
     return score_sets  # filter_visible_score_sets(score_sets)
 

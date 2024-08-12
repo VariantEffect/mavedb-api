@@ -10,7 +10,7 @@ from mavedb.lib.score_sets import (
     create_variants,
     create_variants_data,
 )
-from mavedb.lib.logging.context import format_raised_exception_info_as_dict, dump_context
+from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.slack import send_slack_message
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.dataframe import (
@@ -43,8 +43,8 @@ async def create_variants_for_score_set(
     to exiting.
     """
     try:
-        log_ctx = setup_job_state(ctx, updater_id, score_set_urn, correlation_id)
-        logger.info(dump_context(message="Began processing of score set variants.", local_ctx=log_ctx))
+        logging_context = setup_job_state(ctx, updater_id, score_set_urn, correlation_id)
+        logger.info(msg="Began processing of score set variants.", extra=logging_context)
 
         db: Session = ctx["db"]
         hdp: RESTDataProvider = ctx["hdp"]
@@ -54,7 +54,7 @@ async def create_variants_for_score_set(
 
         score_set.modified_by = updated_by
         score_set.processing_state = ProcessingState.processing
-        log_ctx["processing_state"] = score_set.processing_state.name
+        logging_context["processing_state"] = score_set.processing_state.name
 
         db.add(score_set)
         db.commit()
@@ -62,19 +62,17 @@ async def create_variants_for_score_set(
 
         if not score_set.target_genes:
             logger.warning(
-                dump_context(
-                    message="No targets are associated with this score set; could not create variants.",
-                    local_ctx=log_ctx,
-                )
+                msg="No targets are associated with this score set; could not create variants.",
+                extra=logging_context,
             )
             raise ValueError("Can't create variants when score set has no targets.")
 
         if score_set.variants:
             db.execute(delete(Variant).where(Variant.score_set_id == score_set.id))
-            log_ctx["deleted_variants"] = score_set.num_variants
+            logging_context["deleted_variants"] = score_set.num_variants
             score_set.num_variants = 0
 
-            logger.info(dump_context(message="Deleted existing variants from score set.", local_ctx=log_ctx))
+            logger.info(msg="Deleted existing variants from score set.", extra=logging_context)
 
             db.commit()
             db.refresh(score_set)
@@ -98,11 +96,9 @@ async def create_variants_for_score_set(
         score_set.processing_state = ProcessingState.failed
         score_set.processing_errors = {"exception": str(e), "detail": e.triggering_exceptions}
 
-        log_ctx = {**log_ctx, **format_raised_exception_info_as_dict(e)}
-        log_ctx["processing_state"] = score_set.processing_state.name
-        logger.warning(
-            dump_context(message="Encountered a validation error while processing variants.", local_ctx=log_ctx)
-        )
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logging_context["processing_state"] = score_set.processing_state.name
+        logger.warning(msg="Encountered a validation error while processing variants.", extra=logging_context)
 
     # NOTE: Since these are likely to be internal errors, it makes less sense to add them to the DB and surface them to the end user.
     # Catch all non-system exiting exceptions.
@@ -111,11 +107,10 @@ async def create_variants_for_score_set(
         score_set.processing_state = ProcessingState.failed
         score_set.processing_errors = {"exception": str(e), "detail": []}
 
-        log_ctx = {**log_ctx, **format_raised_exception_info_as_dict(e)}
-        log_ctx["processing_state"] = score_set.processing_state.name
-        logger.warning(
-            dump_context(message="Encountered an internal exception while processing variants.", local_ctx=log_ctx)
-        )
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logging_context["processing_state"] = score_set.processing_state.name
+        logger.warning(msg="Encountered an internal exception while processing variants.", extra=logging_context)
+
         send_slack_message(err=e)
 
     # Catch all other exceptions and raise them. The exceptions caught here will be system exiting.
@@ -124,28 +119,27 @@ async def create_variants_for_score_set(
         score_set.processing_state = ProcessingState.failed
         db.commit()
 
-        log_ctx = {**log_ctx, **format_raised_exception_info_as_dict(e)}
-        log_ctx["processing_state"] = score_set.processing_state.name
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logging_context["processing_state"] = score_set.processing_state.name
         logger.error(
-            dump_context(
-                message="Encountered an unhandled exception while creating variants for score set.", local_ctx=log_ctx
-            )
+            msg="Encountered an unhandled exception while creating variants for score set.", extra=logging_context
         )
+
         raise e
 
     else:
         score_set.processing_state = ProcessingState.success
         score_set.processing_errors = null()
 
-        log_ctx["created_variants"] = score_set.num_variants
-        log_ctx["processing_state"] = score_set.processing_state.name
-        logger.info(dump_context(message="Finished creating variants in score set.", local_ctx=log_ctx))
+        logging_context["created_variants"] = score_set.num_variants
+        logging_context["processing_state"] = score_set.processing_state.name
+        logger.info(msg="Finished creating variants in score set.", extra=logging_context)
 
     finally:
         db.add(score_set)
         db.commit()
         db.refresh(score_set)
-        logger.info(dump_context(message="Committed new variants to score set.", local_ctx=log_ctx))
+        logger.info(msg="Committed new variants to score set.", extra=logging_context)
 
-    ctx["state"][ctx["job_id"]] = log_ctx.copy()
+    ctx["state"][ctx["job_id"]] = logging_context.copy()
     return score_set.processing_state.name

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.models.enums.user_role import UserRole
 from mavedb.lib.orcid import fetch_orcid_user_email
-from mavedb.lib.logging.context import dump_context, save_to_logging_context, format_raised_exception_info_as_dict
+from mavedb.lib.logging.context import logging_context, save_to_logging_context, format_raised_exception_info_as_dict
 from mavedb.models.access_key import AccessKey
 from mavedb.models.user import User
 
@@ -70,7 +70,7 @@ def decode_jwt(token: str) -> dict:
     # TODO: should catch specific exceptions, and should log them more usefully.
     except Exception as ex:
         save_to_logging_context(format_raised_exception_info_as_dict(ex))
-        logger.debug(dump_context(message="Failed to authenticate user; Could not decode user token."))
+        logger.debug(msg="Failed to authenticate user; Could not decode user token.", extra=logging_context())
         return {}
 
 
@@ -88,20 +88,20 @@ class JWTBearer(HTTPBearer):
         if credentials:
             if not credentials.scheme == "Bearer":
                 save_to_logging_context({"scheme": credentials.scheme})
-                logger.info(dump_context(message="Failed to authenticate user; Invalid authentication scheme."))
+                logger.info(msg="Failed to authenticate user; Invalid authentication scheme.", extra=logging_context())
                 raise HTTPException(status_code=403, detail="Invalid authentication scheme.")
 
             token_payload = self.verify_jwt(credentials.credentials)
 
             if not token_payload:
-                logger.info(dump_context(message="Failed to authenticate user; Invalid or expired token."))
+                logger.info(msg="Failed to authenticate user; Invalid or expired token.", extra=logging_context())
                 raise HTTPException(status_code=403, detail="Invalid token or expired token.")
 
-            logger.debug(dump_context(message="Successfully acquired JWT."))
+            logger.debug(msg="Successfully acquired JWT.", extra=logging_context())
             return token_payload
 
         else:
-            logger.debug(dump_context(message="Failed to authenticate user; No credentials were provided."))
+            logger.debug(msg="Failed to authenticate user; No credentials were provided.", extra=logging_context())
             return None
 
     @staticmethod
@@ -148,10 +148,10 @@ async def get_current_user_data_from_api_key(
             )
 
     if user is not None:
-        logger.debug(dump_context(message="Successfully authenticated API key for user."))
+        logger.debug(msg="Successfully authenticated API key for user.", extra=logging_context())
         return UserData(user, roles)
 
-    logger.debug(dump_context(message="Failed to authenticate user via API key; No key provided."))
+    logger.debug(msg="Failed to authenticate user via API key; No key provided.", extra=logging_context())
     return None
 
 
@@ -172,20 +172,21 @@ async def get_current_user(
 
     if api_key_user_data is not None:
         save_to_logging_context({"auth_method": AuthenticationMethod.api_key, "user_authenticated": True})
-        logger.info(dump_context(message="Successfully authenticated user via API key."))
+        logger.info(msg="Successfully authenticated user via API key.", extra=logging_context())
         return api_key_user_data
 
     if token_payload is None:
         save_to_logging_context({"auth_method": None, "user_authenticated": False})
         logger.info(
-            dump_context(message="Failed to authenticate user; Could not acquire credentials via API key or JWT.")
+            msg="Failed to authenticate user; Could not acquire credentials via API key or JWT.",
+            extra=logging_context(),
         )
         return None
 
     username: Optional[str] = token_payload.get("sub")
     if username is None:
         save_to_logging_context({"auth_method": AuthenticationMethod.jwt, "user_authenticated": False})
-        logger.info(dump_context(message="Failed to authenticate user; Username not present in token payload."))
+        logger.info(msg="Failed to authenticate user; Username not present in token payload.", extra=logging_context())
         return None
 
     user = db.query(User).filter(User.username == username).one_or_none()
@@ -217,11 +218,11 @@ async def get_current_user(
             }
         )
 
-        logger.debug(dump_context(message="Created new user."))
+        logger.debug(msg="Created new user.", extra=logging_context())
 
     elif not user.is_active:
         save_to_logging_context({"user": user.id, "user_authenticated": True})
-        logger.info(dump_context(message="Failed to authenticate user; User is inactive."))
+        logger.info(msg="Failed to authenticate user; User is inactive.", extra=logging_context())
         return None
     else:
         user.last_login = datetime.now()
@@ -237,13 +238,13 @@ async def get_current_user(
     db.add(user)
     db.commit()
     db.refresh(user)
-    logger.info(dump_context(message="Successfully authenticated user via JWT."))
+    logger.info(msg="Successfully authenticated user via JWT.", extra=logging_context())
 
     # When no roles are requested, the user may act as any assigned role.
     save_to_logging_context({"available_roles": [role.name for role in user.roles]})
     if x_active_roles is None:
         save_to_logging_context({"active_roles": [role.name for role in user.roles]})
-        logger.info(dump_context(message="Successfully assigned user roles to authenticated user."))
+        logger.info(msg="Successfully assigned user roles to authenticated user.", extra=logging_context())
         return UserData(user, user.roles)
 
     # FastAPI has poor support for headers of type list (really, they are just comma separated strings).
@@ -258,12 +259,12 @@ async def get_current_user(
         # Collectively, these are known to the client as the 'ordinary user' role. Because these permissions are supplied
         # by default, we do not need add the 'ordinary user' role to the list of active roles.
         if requested_role not in UserRole._member_names_:
-            logger.debug(dump_context(message=f"Ignoring unknown requested role {requested_role}."))
+            logger.debug(msg=f"Ignoring unknown requested role {requested_role}.", extra=logging_context())
             continue
 
         enumerated_role = UserRole[requested_role]
         if enumerated_role not in user.roles:
-            logger.warning(dump_context(message="User requested role to which they do not belong."))
+            logger.warning(msg="User requested role to which they do not belong.", extra=logging_context())
             raise HTTPException(
                 status_code=403,
                 detail="This user is not a member of the requested acting role.",
@@ -272,5 +273,5 @@ async def get_current_user(
             active_roles.append(enumerated_role)
 
     save_to_logging_context({"active_roles": [role.name for role in active_roles]})
-    logger.info(dump_context(message="Successfully assigned user roles to authenticated user."))
+    logger.info(msg="Successfully assigned user roles to authenticated user.", extra=logging_context())
     return UserData(user, active_roles)

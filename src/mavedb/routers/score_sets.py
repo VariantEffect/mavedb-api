@@ -25,7 +25,7 @@ from mavedb.lib.identifiers import (
 )
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
-    dump_context,
+    logging_context,
     save_to_logging_context,
     correlation_id_for_context,
 )
@@ -88,11 +88,13 @@ async def fetch_score_set_by_urn(db, urn: str, user: Optional[UserData], owner_o
             query.filter(ScoreSet.private.is_(False))
         item = query.one_or_none()
     except MultipleResultsFound:
-        logger.info(dump_context(message="Could not fetch the requested score set; Multiple such score sets exist."))
+        logger.info(
+            msg="Could not fetch the requested score set; Multiple such score sets exist.", extra=logging_context()
+        )
         raise HTTPException(status_code=500, detail=f"multiple score sets with URN '{urn}' were found")
 
     if not item:
-        logger.info(dump_context(message="Could not fetch the requested score set; No such score sets exist."))
+        logger.info(msg="Could not fetch the requested score set; No such score sets exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user, item, Action.READ)
@@ -188,15 +190,15 @@ def get_score_set_scores_csv(
     )
 
     if start and start < 0:
-        logger.info(dump_context(message="Could not fetch scores with negative start index."))
+        logger.info(msg="Could not fetch scores with negative start index.", extra=logging_context())
         raise HTTPException(status_code=400, detail="Start index must be non-negative")
     if limit is not None and limit <= 0:
-        logger.info(dump_context(message="Could not fetch scores with non-positive limit."))
+        logger.info(msg="Could not fetch scores with non-positive limit.", extra=logging_context())
         raise HTTPException(status_code=400, detail="Limit must be positive")
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
-        logger.info(dump_context(message="Could not fetch the requested scores; No such score set exists."))
+        logger.info(msg="Could not fetch the requested scores; No such score set exists.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user_data, score_set, Action.READ)
@@ -242,15 +244,15 @@ async def get_score_set_counts_csv(
     )
 
     if start and start < 0:
-        logger.info(dump_context(message="Could not fetch counts with negative start index."))
+        logger.info(msg="Could not fetch counts with negative start index.", extra=logging_context())
         raise HTTPException(status_code=400, detail="Start index must be non-negative")
     if limit is not None and limit <= 0:
-        logger.info(dump_context(message="Could not fetch counts with non-positive limit."))
+        logger.info(msg="Could not fetch counts with non-positive limit.", extra=logging_context())
         raise HTTPException(status_code=400, detail="Limit must be positive")
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
-        logger.info(dump_context(message="Could not fetch the requested counts; No such score set exist."))
+        logger.info(msg="Could not fetch the requested counts; No such score set exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
 
     assert_permission(user_data, score_set, Action.READ)
@@ -277,7 +279,9 @@ def get_score_set_mapped_variants(
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
-        logger.info(dump_context(message="Could not fetch the requested mapped variants; No such score set exist."))
+        logger.info(
+            msg="Could not fetch the requested mapped variants; No such score set exist.", extra=logging_context()
+        )
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
 
     assert_permission(user_data, score_set, Action.READ)
@@ -291,7 +295,7 @@ def get_score_set_mapped_variants(
     )
 
     if not mapped_variants:
-        logger.info(dump_context(message="No mapped variants are associated with the requested score set."))
+        logger.info(msg="No mapped variants are associated with the requested score set.", extra=logging_context())
         raise HTTPException(
             status_code=404,
             detail=f"No mapped variant associated with score set URN {urn} was found",
@@ -315,13 +319,15 @@ async def create_score_set(
     """
     Create a score set.
     """
-    logger.debug(dump_context(message="Began score set creation."))
+    logger.debug(msg="Began score set creation.", extra=logging_context())
 
     experiment: Optional[Experiment] = None
     if item_create.experiment_urn is not None:
         experiment = db.query(Experiment).filter(Experiment.urn == item_create.experiment_urn).one_or_none()
         if not experiment:
-            logger.info(dump_context(message="Failed to create score set; The requested experiment does not exist."))
+            logger.info(
+                msg="Failed to create score set; The requested experiment does not exist.", extra=logging_context()
+            )
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
 
         save_to_logging_context({"experiment": experiment.urn})
@@ -332,7 +338,7 @@ async def create_score_set(
     save_to_logging_context({"requested_license": item_create.license_id})
 
     if not license_:
-        logger.info(dump_context(message="Failed to create score set; The requested license does not exist."))
+        logger.info(msg="Failed to create score set; The requested license does not exist.", extra=logging_context())
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
 
     save_to_logging_context({"requested_superseded_score_set": item_create.superseded_score_set_urn})
@@ -341,7 +347,8 @@ async def create_score_set(
 
         if superseded_score_set is None:
             logger.info(
-                dump_context(message="Failed to create score set; The requested superseded score set does not exist.")
+                msg="Failed to create score set; The requested superseded score set does not exist.",
+                extra=logging_context(),
             )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -361,9 +368,8 @@ async def create_score_set(
     for i, meta_analyzes_score_set in enumerate(meta_analyzes_score_sets):
         if meta_analyzes_score_set is None:
             logger.info(
-                dump_context(
-                    message=f"Failed to create score set; The requested meta analyzed score set ({distinct_meta_analyzes_score_set_urns[i]}) does not exist."
-                )
+                msg=f"Failed to create score set; The requested meta analyzed score set ({distinct_meta_analyzes_score_set_urns[i]}) does not exist.",
+                extra=logging_context(),
             )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -452,9 +458,8 @@ async def create_score_set(
         if gene.target_sequence:
             if accessions and len(targets) > 0:
                 logger.info(
-                    dump_context(
-                        message="Failed to create score set; Both a sequence and accession based target were detected."
-                    )
+                    msg="Failed to create score set; Both a sequence and accession based target were detected.",
+                    extra=logging_context(),
                 )
                 raise MixedTargetError(
                     "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
@@ -464,7 +469,9 @@ async def create_score_set(
             taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
 
             if not taxonomy:
-                logger.info(dump_context(message="Failed to create score set; The requested taxonomy does not exist."))
+                logger.info(
+                    msg="Failed to create score set; The requested taxonomy does not exist.", extra=logging_context()
+                )
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown taxonomy")
 
             # If the target sequence has a label, use it. Otherwise, use the name from the target gene as the label.
@@ -492,10 +499,10 @@ async def create_score_set(
         elif gene.target_accession:
             if not accessions and len(targets) > 0:
                 logger.info(
-                    dump_context(
-                        message="Failed to create score set; Both a sequence and accession based target were detected."
-                    )
+                    msg="Failed to create score set; Both a sequence and accession based target were detected.",
+                    extra=logging_context(),
                 )
+
                 raise MixedTargetError(
                     "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                 )
@@ -515,7 +522,7 @@ async def create_score_set(
             )
         else:
             save_to_logging_context({"failing_target": gene})
-            logger.info(dump_context(message="Failed to create score set; Could not infer target type."))
+            logger.info(msg="Failed to create score set; Could not infer target type.", extra=logging_context())
             raise ValueError("One of either `target_accession` or `target_gene` should be present")
 
         for external_gene_identifier_offset_create in gene.external_identifiers:
@@ -594,7 +601,7 @@ async def upload_score_set_variant_data(
     # item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(ScoreSet.private.is_(False)).one_or_none()
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item or not item.urn:
-        logger.info(dump_context(message="Failed to create variants; The requested score set does not exist."))
+        logger.info(msg="Failed to create variants; The requested score set does not exist.", extra=logging_context())
         return None
 
     assert_permission(user_data, item, Action.UPDATE)
@@ -622,7 +629,7 @@ async def upload_score_set_variant_data(
         )
         if job is not None:
             save_to_logging_context({"worker_job_id": job.job_id})
-        logger.info(dump_context(message="Enqueud variant creation job."))
+        logger.info(msg="Enqueud variant creation job.", extra=logging_context())
 
     db.add(item)
     db.commit()
@@ -643,11 +650,11 @@ async def update_score_set(
     Update a score set.
     """
     save_to_logging_context({"requested_resource": urn})
-    logger.debug(dump_context(message="Began score set update."))
+    logger.debug(msg="Began score set update.", extra=logging_context())
 
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
-        logger.info(dump_context(message="Failed to update score set; The requested score set does not exist."))
+        logger.info(msg="Failed to update score set; The requested score set does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user_data, item, Action.UPDATE)
@@ -661,7 +668,9 @@ async def update_score_set(
             license_ = db.query(License).filter(License.id == item_update.license_id).one_or_none()
 
             if not license_:
-                logger.info(dump_context(message="Failed to update score set; The requested license does not exist."))
+                logger.info(
+                    msg="Failed to update score set; The requested license does not exist.", extra=logging_context()
+                )
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
 
             item.license = license_
@@ -726,10 +735,10 @@ async def update_score_set(
             if gene.target_sequence:
                 if accessions and len(targets) > 0:
                     logger.info(
-                        dump_context(
-                            message="Failed to update score set; Both a sequence and accession based target were detected."
-                        )
+                        msg="Failed to update score set; Both a sequence and accession based target were detected.",
+                        extra=logging_context(),
                     )
+
                     raise MixedTargetError(
                         "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                     )
@@ -740,7 +749,8 @@ async def update_score_set(
 
                 if not taxonomy:
                     logger.info(
-                        dump_context(message="Failed to create score set; The requested taxonomy does not exist.")
+                        msg="Failed to create score set; The requested taxonomy does not exist.",
+                        extra=logging_context(),
                     )
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
@@ -776,9 +786,8 @@ async def update_score_set(
             elif gene.target_accession:
                 if not accessions and len(targets) > 0:
                     logger.info(
-                        dump_context(
-                            message="Failed to create score set; Both a sequence and accession based target were detected."
-                        )
+                        msg="Failed to create score set; Both a sequence and accession based target were detected.",
+                        extra=logging_context(),
                     )
                     raise MixedTargetError(
                         "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
@@ -799,7 +808,7 @@ async def update_score_set(
                 )
             else:
                 save_to_logging_context({"failing_target": gene})
-                logger.info(dump_context(message="Failed to create score set; Could not infer target type."))
+                logger.info(msg="Failed to create score set; Could not infer target type.", extra=logging_context())
                 raise ValueError("One of either `target_accession` or `target_gene` should be present")
 
             for external_gene_identifier_offset_create in gene.external_identifiers:
@@ -854,7 +863,7 @@ async def update_score_set(
             )
             if job is not None:
                 save_to_logging_context({"worker_job_id": job.job_id})
-            logger.info(dump_context(message="Enqueud variant creation job."))
+            logger.info(msg="Enqueud variant creation job.", extra=logging_context())
 
         for var, value in vars(item_update).items():
             if var not in [
@@ -915,7 +924,7 @@ async def delete_score_set(
 
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
-        logger.info(dump_context(message="Failed to delete score set; The requested score set does not exist."))
+        logger.info(msg="Failed to delete score set; The requested score set does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user_data, item, Action.DELETE)
@@ -943,16 +952,15 @@ def publish_score_set(
 
     item: Optional[ScoreSet] = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
-        logger.info(dump_context(message="Failed to publish score set; The requested score set does not exist."))
+        logger.info(msg="Failed to publish score set; The requested score set does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user_data, item, Action.PUBLISH)
 
     if not item.experiment:
         logger.info(
-            dump_context(
-                message="Failed to publish score set; The requested score set does not belong to an experiment."
-            )
+            msg="Failed to publish score set; The requested score set does not belong to an experiment.",
+            extra=logging_context(),
         )
         raise HTTPException(
             status_code=500,
@@ -960,9 +968,8 @@ def publish_score_set(
         )
     if not item.experiment.experiment_set:
         logger.info(
-            dump_context(
-                message="Failed to publish score set; The requested score set's experiment does not belong to an experiment set."
-            )
+            msg="Failed to publish score set; The requested score set's experiment does not belong to an experiment set.",
+            extra=logging_context(),
         )
         raise HTTPException(
             status_code=500,
@@ -972,9 +979,8 @@ def publish_score_set(
     # generates when all we want is len(score_set.variants).
     if len(item.variants) == 0:
         logger.info(
-            dump_context(
-                message="Failed to publish score set; The requested score set does not contain any variant scores."
-            )
+            msg="Failed to publish score set; The requested score set does not contain any variant scores.",
+            extra=logging_context(),
         )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

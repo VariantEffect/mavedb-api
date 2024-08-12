@@ -5,7 +5,7 @@ from typing import Optional
 import orcid  # type: ignore
 
 from mavedb.view_models.orcid import OrcidUser
-from mavedb.lib.logging.context import dump_context, save_to_logging_context
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
 
 logger = logging.getLogger(__name__)
 
@@ -43,17 +43,17 @@ def fetch_orcid_user_email(orcid_id: str) -> Optional[str]:
     api = orcid.PublicAPI(ORCID_CLIENT_ID, ORCID_CLIENT_SECRET)
     search_token = api.get_search_token_from_orcid()
     email: Optional[str] = None
-    logger.debug(dump_context(message="Attempting to fetch user email from ORCID."))
+    logger.debug(msg="Attempting to fetch user email from ORCID.", extra=logging_context())
     try:
         record = api.read_record_public(orcid_id, "record", search_token)
         try:
             email = record["person"]["emails"]["email"][0]["email"]
-            logger.debug(dump_context(message="Successfully fetched ORCID email."))
+            logger.debug(msg="Successfully fetched ORCID email.", extra=logging_context())
         except:
-            logger.debug(dump_context(message="Failed to fetch ORCID email; User exists but email not visible."))
+            logger.debug(msg="Failed to fetch ORCID email; User exists but email not visible.", extra=logging_context())
 
     except Exception as e:
         save_to_logging_context({"orcid_exception": str(e)})
-        logger.warn(dump_context(message="Encountered an error while looking up an ORCID user's email address."))
+        logger.warn(msg="Encountered an error while looking up an ORCID user's email address.", extra=logging_context())
 
     return email

@@ -17,10 +17,9 @@ from eutils._internal.exceptions import EutilsRequestError  # type: ignore
 from mavedb.models import *
 
 from mavedb import __version__
-import mavedb.logging
 from mavedb.lib.logging.context import (
     PopulatedRawContextMiddleware,
-    dump_context,
+    logging_context,
     format_raised_exception_info_as_dict,
     save_to_logging_context,
 )
@@ -160,7 +159,7 @@ async def exception_handler(request, err):
     response = JSONResponse(status_code=500, content={"message": "Internal server error"})
 
     try:
-        logger.error(dump_context(message="Uncaught exception."), exc_info=err)
+        logger.error(msg="Uncaught exception.", extra=logging_context(), exc_info=err)
         send_slack_message(err=err, request=request)
     finally:
         log_request(request, response, time.time_ns())
