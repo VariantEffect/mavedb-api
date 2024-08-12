@@ -17,6 +17,7 @@ from eutils._internal.exceptions import EutilsRequestError  # type: ignore
 from mavedb.models import *
 
 from mavedb import __version__
+import mavedb.logging
 from mavedb.lib.logging.context import (
     PopulatedRawContextMiddleware,
     dump_context,
@@ -49,11 +50,7 @@ from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifie
 from mavedb.lib.permissions import PermissionException
 from mavedb.lib.slack import send_slack_message
 
-logging.basicConfig()
-# Un-comment this line to log all database queries:
-# logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 # Scan all our model classes and create backref attributes. Otherwise, these attributes only get added to classes once
 # an instance of the related class has been created.
