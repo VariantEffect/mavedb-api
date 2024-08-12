@@ -279,17 +279,17 @@ uvloop = ["uvloop (>=0.15.2)"]
 
 [[package]]
 name = "boto3"
-version = "1.34.158"
+version = "1.34.159"
 description = "The AWS SDK for Python"
 optional = true
 python-versions = ">=3.8"
 files = [
-    {file = "boto3-1.34.158-py3-none-any.whl", hash = "sha256:c29e9b7e1034e8734ccaffb9f2b3f3df2268022fd8a93d836604019f8759ce27"},
-    {file = "boto3-1.34.158.tar.gz", hash = "sha256:5b7b2ce0ec1e498933f600d29f3e1c641f8c44dd7e468c26795359d23d81fa39"},
+    {file = "boto3-1.34.159-py3-none-any.whl", hash = "sha256:21120d23cc37c0e80dc4f64434bc5664d2a5645dcd9bf8a8fa97ed5c82164ca0"},
+    {file = "boto3-1.34.159.tar.gz", hash = "sha256:ffe7bbb88ba81b5d54bc8fa0cfb2f3b7fe63a6cffa0f9207df2ef5c22a1c0587"},
 ]
 
 [package.dependencies]
-botocore = ">=1.34.158,<1.35.0"
+botocore = ">=1.34.159,<1.35.0"
 jmespath = ">=0.7.1,<2.0.0"
 s3transfer = ">=0.10.0,<0.11.0"
 
@@ -298,13 +298,13 @@ crt = ["botocore[crt] (>=1.21.0,<2.0a0)"]
 
 [[package]]
 name = "boto3-stubs"
-version = "1.34.158"
-description = "Type annotations for boto3 1.34.158 generated with mypy-boto3-builder 7.25.0"
+version = "1.34.159"
+description = "Type annotations for boto3 1.34.159 generated with mypy-boto3-builder 7.25.3"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "boto3_stubs-1.34.158-py3-none-any.whl", hash = "sha256:09801d3483b4325e14825579ccf3c44017c094559f22a5aafcce6fa9750cb939"},
-    {file = "boto3_stubs-1.34.158.tar.gz", hash = "sha256:00f102935993e0d090427ac792a4ec5390e4d670fac39c5b5cd43d99bd048dce"},
+    {file = "boto3_stubs-1.34.159-py3-none-any.whl", hash = "sha256:9d5b69db82dbc55fce3d58f5d39d0680ca5334d7df596447c29357b9a0669b09"},
+    {file = "boto3_stubs-1.34.159.tar.gz", hash = "sha256:d3a298f3b0a3a7758c2bfb8585089e18567c1eee695f939439ef0023e84b32ce"},
 ]
 
 [package.dependencies]
@@ -355,7 +355,7 @@ bedrock-agent = ["mypy-boto3-bedrock-agent (>=1.34.0,<1.35.0)"]
 bedrock-agent-runtime = ["mypy-boto3-bedrock-agent-runtime (>=1.34.0,<1.35.0)"]
 bedrock-runtime = ["mypy-boto3-bedrock-runtime (>=1.34.0,<1.35.0)"]
 billingconductor = ["mypy-boto3-billingconductor (>=1.34.0,<1.35.0)"]
-boto3 = ["boto3 (==1.34.158)", "botocore (==1.34.158)"]
+boto3 = ["boto3 (==1.34.159)", "botocore (==1.34.159)"]
 braket = ["mypy-boto3-braket (>=1.34.0,<1.35.0)"]
 budgets = ["mypy-boto3-budgets (>=1.34.0,<1.35.0)"]
 ce = ["mypy-boto3-ce (>=1.34.0,<1.35.0)"]
@@ -705,13 +705,13 @@ xray = ["mypy-boto3-xray (>=1.34.0,<1.35.0)"]
 
 [[package]]
 name = "botocore"
-version = "1.34.158"
+version = "1.34.159"
 description = "Low-level, data-driven core of boto 3."
 optional = true
 python-versions = ">=3.8"
 files = [
-    {file = "botocore-1.34.158-py3-none-any.whl", hash = "sha256:0e6fceba1e39bfa8feeba70ba3ac2af958b3387df4bd3b5f2db3f64c1754c756"},
-    {file = "botocore-1.34.158.tar.gz", hash = "sha256:5934082e25ad726673afbf466092fb1223dafa250e6e756c819430ba6b1b3da5"},
+    {file = "botocore-1.34.159-py3-none-any.whl", hash = "sha256:7633062491457419a49f5860c014251ae85689f78266a3ce020c2c8688a76b97"},
+    {file = "botocore-1.34.159.tar.gz", hash = "sha256:dc28806eb21e3c8d690c422530dff8b4b242ac033cbe98f160a9d37796c09cb1"},
 ]
 
 [package.dependencies]
@@ -727,13 +727,13 @@ crt = ["awscrt (==0.21.2)"]
 
 [[package]]
 name = "botocore-stubs"
-version = "1.34.158"
+version = "1.34.159"
 description = "Type annotations and code completion for botocore"
 optional = false
 python-versions = "<4.0,>=3.8"
 files = [
-    {file = "botocore_stubs-1.34.158-py3-none-any.whl", hash = "sha256:32fb2f944917d4765146a45ff4d13fa5407e9ce9d51f46d41a3ec1b421922afb"},
-    {file = "botocore_stubs-1.34.158.tar.gz", hash = "sha256:5de0c9e6e67870b1320664dc50bf53dbf6de52292cb96d8f081358914f0a010e"},
+    {file = "botocore_stubs-1.34.159-py3-none-any.whl", hash = "sha256:b2bf4ff8dd4a39556f6338bdc7e75485282dd7e2c0b7dacdcfc219352c7865ea"},
+    {file = "botocore_stubs-1.34.159.tar.gz", hash = "sha256:f9f51612960c0fa1b01638816ee3d1ca031f9efc3e1328e4f4d52253b573067a"},
 ]
 
 [package.dependencies]
@@ -3614,6 +3614,17 @@ files = [
 ]
 
 [[package]]
+name = "types-pyyaml"
+version = "6.0.12.20240808"
+description = "Typing stubs for PyYAML"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "types-PyYAML-6.0.12.20240808.tar.gz", hash = "sha256:b8f76ddbd7f65440a8bda5526a9607e4c7a322dc2f8e1a8c405644f9a6f4b9af"},
+    {file = "types_PyYAML-6.0.12.20240808-py3-none-any.whl", hash = "sha256:deda34c5c655265fc517b546c902aa6eed2ef8d3e921e4765fe606fe2afe8d35"},
+]
+
+[[package]]
 name = "types-requests"
 version = "2.31.0.6"
 description = "Typing stubs for requests"
@@ -4069,4 +4080,4 @@ server = ["alembic", "arq", "authlib", "boto3", "cryptography", "email-validator
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "8d1cd5980f6627a6c48010d2924687dbb908ab0e719c21e7bc6830fac8d88751"
+content-hash = "4d11304f6faddc9525e8861e6b5819f7945e6dcfd3f90fe77b5070ab894a6e70"
