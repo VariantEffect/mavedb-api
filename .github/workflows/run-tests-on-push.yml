@@ -2,6 +2,9 @@ name: Run Tests (On Push)
 on:
   push:
 
+env:
+  LOG_CONFIG: test
+
 jobs:
   run-tests-3_9:
     runs-on: ubuntu-20.04
