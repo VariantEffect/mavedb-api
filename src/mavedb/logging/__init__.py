@@ -33,7 +33,14 @@ def configure():
     sys.excepthook = lambda *args: logging.getLogger().critical("Uncaught exception:", exc_info=args)  # type: ignore
 
     # Formatter and handler are un-configurable via file config.
-    for handler in logging.getLogger("root").handlers:
+    cw_is_enabled = False
+    root_logger = logging.getLogger("root")
+    for handler in root_logger.handlers:
         if isinstance(handler, CloudWatchLogHandler):
             handler.addFilter(canonical_only)
             handler.formatter = MavedbJsonFormatter()
+
+            cw_is_enabled = True
+
+    if not cw_is_enabled:
+        root_logger.info("CloudWatch log handler is not enabled. Canonical logs will only be emitted to stdout.")
