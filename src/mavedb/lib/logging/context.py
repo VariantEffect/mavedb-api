@@ -87,15 +87,15 @@ def format_raised_exception_info_as_dict(err: BaseException) -> dict:
     _, _, tb = sys.exc_info()
 
     exc_ctx: dict = {
-        "exc_info": {
+        "captured_exception_info": {
             "type": err.__class__.__name__,
             "string": str(err),
         }
     }
 
     try:
-        exc_ctx["exc_info"] = {
-            **exc_ctx["exc_info"],
+        exc_ctx["captured_exception_info"] = {
+            **exc_ctx["captured_exception_info"],
             **[
                 {"file": fs.filename, "line": fs.lineno, "func": fs.name}
                 for fs in traceback.extract_tb(tb)
@@ -106,6 +106,6 @@ def format_raised_exception_info_as_dict(err: BaseException) -> dict:
 
     # We did our best to construct useful traceback info
     except IndexError:
-        exc_ctx["exc_info"]["stringified"] = str(err)
+        exc_ctx["captured_exception_info"]["stringified"] = str(err)
 
     return exc_ctx

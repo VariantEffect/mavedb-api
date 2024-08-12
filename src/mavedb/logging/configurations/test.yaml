@@ -12,21 +12,21 @@ root:
 
 loggers:
   urllib3:
-    level: INFO
+    level: ERROR
 
   botocore:
-    level: INFO
+    level: ERROR
 
   hgvs:
-    level: INFO
+    level: ERROR
 
   sqlalchemy:
-    level: INFO
+    level: ERROR
 
 handlers:
   console:
     class: logging.StreamHandler
-    level: DEBUG
+    level: WARNING
     stream: ext://sys.stdout
     formatter: json
 
