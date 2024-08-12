@@ -74,7 +74,7 @@ class ExperimentModify(ExperimentBase):
         return v
 
     @validator("title", "short_description", "abstract_text", "method_text")
-    def validate_field_is_non_empty(cls, v, field):
+    def validate_field_is_non_empty(cls, v):
         if is_null(v) or not isinstance(v, str):
             raise ValidationError("This field is required and cannot be empty.")
         return v.strip()
