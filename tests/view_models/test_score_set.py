@@ -8,8 +8,6 @@ from mavedb.view_models.publication_identifier import PublicationIdentifierCreat
 
 from tests.helpers.constants import TEST_MINIMAL_SEQ_SCORESET
 
-import datetime
-
 
 def test_cannot_create_score_set_without_a_target():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
