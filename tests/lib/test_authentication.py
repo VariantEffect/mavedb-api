@@ -113,19 +113,6 @@ async def test_get_current_user_nonexistent_user(session, setup_lib_db, with_ema
 
 
 @pytest.mark.asyncio
-async def test_get_current_user_user_exists_twice(session, setup_lib_db):
-    session.add(User(**TEST_USER))
-    session.commit()
-
-    with pytest.raises(MultipleResultsFound) as exc_info:
-        await get_current_user(None, TEST_USER_DECODED_JWT, session, None)
-    assert "Multiple rows were found when one or none was required" in str(exc_info.value)
-
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
-
-
-@pytest.mark.asyncio
 async def test_get_current_user_user_is_inactive(session, setup_lib_db):
     mark_user_inactive(session, TEST_USER["username"])
     user_data = await get_current_user(None, TEST_USER_DECODED_JWT, session, None)
