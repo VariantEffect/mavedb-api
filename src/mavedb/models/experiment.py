@@ -140,16 +140,21 @@ class Experiment(Base):
             self.keyword_objs = []
 
     async def set_keywords(self, db, keywords: list):
-        self.keyword_objs = []
-        for keyword_obj in keywords:
-            keyword = await self._find_keyword(db, keyword_obj.keyword.key, keyword_obj.keyword.value,
-                                               keyword_obj.keyword.vocabulary)
-            experiment_controlled_keyword = ExperimentControlledKeywordAssociation(
-                experiment=self,
-                controlled_keyword=keyword,
-                description=keyword_obj.description  # Ensure keyword_obj has a description attribute
-            )
-            self.keyword_objs.append(experiment_controlled_keyword)
+        if keywords:
+            self.keyword_objs = [
+                ExperimentControlledKeywordAssociation(
+                    experiment=self,
+                    controlled_keyword=await self._find_keyword(
+                        db,
+                        keyword_obj.keyword.key,
+                        keyword_obj.keyword.value,
+                        keyword_obj.keyword.vocabulary
+                    ),
+                    description=keyword_obj.description,
+                    ) for keyword_obj in keywords
+            ]
+        else:
+            self.keyword_objs = []
 
     # See https://gist.github.com/tachyondecay/e0fe90c074d6b6707d8f1b0b1dcc8e3a
     # @keywords.setter
@@ -161,7 +166,6 @@ class Experiment(Base):
         if not keyword_obj:
             keyword_obj = LegacyKeyword(text=keyword_text)
         return keyword_obj
-
 
     async def _find_keyword(self, db, key: str, value: str, vocabulary: Optional[str]):
         query = db.query(ControlledKeyword).filter(ControlledKeyword.key == key).filter(ControlledKeyword.value == value)

@@ -70,13 +70,65 @@ TEST_EXPERIMENT = {
     "method_text": "Methods",
 }
 
+# Add to db for testing.
+TEST_DB_KEYWORDS = [
+    {
+        "key": "Variant Library Creation Method",
+        "value": "Endogenous locus library method",
+        "special": False,
+        "description": "Description"
+    },
+    {
+        "key": "Variant Library Creation Method",
+        "value": "In vitro construct library method",
+        "special": False,
+        "description": "Description"
+    },
+    {
+        "key": "Variant Library Creation Method",
+        "value": "Other",
+        "special": False,
+        "description": "Description"
+    },
+    {
+        "key": "Endogenous Locus Library Method System",
+        "value": "SaCas9",
+        "special": False,
+        "description": "Description"
+    },
+    {
+        "key": "Endogenous Locus Library Method Mechanism",
+        "value": "Base editor",
+        "special": False,
+        "description": "Description"
+    },
+    {
+        "key": "In Vitro Construct Library Method System",
+        "value": "Oligo-directed mutagenic PCR",
+        "special": False,
+        "description": "Description"
+    },
+    {
+        "key": "In Vitro Construct Library Method Mechanism",
+        "value": "Native locus replacement",
+        "special": False,
+        "description": "Description"
+    },
+    {
+        "key": "Delivery method",
+        "value": "Other",
+        "special": False,
+        "description": "Description"
+    }
+]
+
 TEST_KEYWORDS = [
     {
         "keyword": {
             "key": "Variant Library Creation Method",
             "value": "Endogenous locus library method",
             "special": False,
-            "description": "Description 1"
+            "description": "Description"
         },
     },
     {
@@ -84,7 +136,7 @@ TEST_KEYWORDS = [
             "key": "Endogenous Locus Library Method System",
             "value": "SaCas9",
             "special": False,
-            "description": "Description 2"
+            "description": "Description"
         },
     },
     {
@@ -92,7 +144,7 @@ TEST_KEYWORDS = [
             "key": "Endogenous Locus Library Method Mechanism",
             "value": "Base editor",
             "special": False,
-            "description": "Description 3"
+            "description": "Description"
         },
     },
     {
@@ -100,11 +152,29 @@ TEST_KEYWORDS = [
             "key": "Delivery method",
             "value": "Other",
             "special": False,
-            "description": "Description 4"
+            "description": "Description"
         },
         "description": "Details of delivery method"
     },
 ]
+
+TEST_EXPERIMENT_WITH_KEYWORD = {
+    "title": "Test Experiment Title",
+    "shortDescription": "Test experiment",
+    "abstractText": "Abstract",
+    "methodText": "Methods",
+    "keywords": [
+        {
+            "keyword": {
+                "key": "Delivery method",
+                "value": "Other",
+                "special": False,
+                "description": "Description"
+            },
+            "description": "Details of delivery method"
+        },
+    ]
+}
 
 TEST_MINIMAL_EXPERIMENT = {
     "title": "Test Experiment Title",
@@ -132,6 +202,90 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     "modificationDate": date.today().isoformat(),
     "scoreSetUrns": [],
     "keywords": [],
+    "doiIdentifiers": [],
+    "primaryPublicationIdentifiers": [],
+    "secondaryPublicationIdentifiers": [],
+    "rawReadIdentifiers": [],
+    # keys to be set after receiving response
+    "urn": None,
+    "experimentSetUrn": None,
+}
+
+TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
+    "title": "Test Experiment Title",
+    "shortDescription": "Test experiment",
+    "abstractText": "Abstract",
+    "methodText": "Methods",
+    "createdBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "modifiedBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
+    "scoreSetUrns": [],
+    "keywords": [{
+                "keyword": {
+                    "key": "Delivery method",
+                    "value": "Other",
+                    "special": False,
+                    "description": "Description"
+                },
+                "description": "Details of delivery method"
+            },
+    ],
+    "doiIdentifiers": [],
+    "primaryPublicationIdentifiers": [],
+    "secondaryPublicationIdentifiers": [],
+    "rawReadIdentifiers": [],
+    # keys to be set after receiving response
+    "urn": None,
+    "experimentSetUrn": None,
+}
+
+TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
+    "title": "Test Experiment Title",
+    "shortDescription": "Test experiment",
+    "abstractText": "Abstract",
+    "methodText": "Methods",
+    "createdBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "modifiedBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
+    "scoreSetUrns": [],
+    "keywords": [
+        {
+            "keyword": {
+                "key": "Variant Library Creation Method",
+                "value": "Other",
+                "special": False,
+                "description": "Description"
+            },
+            "description": "Description"
+        },
+        {
+            "keyword": {
+                "key": "Delivery method",
+                "value": "Other",
+                "special": False,
+                "description": "Description"
+            },
+            "description": "Description"
+        },
+    ],
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],

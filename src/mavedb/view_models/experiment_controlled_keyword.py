@@ -17,6 +17,7 @@ class ExperimentControlledKeywordBase(BaseModel):
         validated_description = values.get("description")
 
         # validated_keyword possible value: {'key': 'Delivery method', 'value': None}
+        # Validate if keyword value is other, whether description is None.
         if validated_keyword and validated_keyword['value']:
             keywords.validate_description(validated_keyword['value'], validated_keyword['key'], validated_description)
         return values

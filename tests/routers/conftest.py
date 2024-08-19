@@ -6,12 +6,15 @@ import cdot.hgvs.dataproviders
 import pytest
 import requests_mock
 
+from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.license import License
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.role import Role
 from mavedb.models.user import User
-from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_CDOT_TRANSCRIPT, TEST_LICENSE, TEST_TAXONOMY, TEST_USER
+from tests.helpers.constants import (
+    ADMIN_USER, EXTRA_USER, TEST_CDOT_TRANSCRIPT, TEST_DB_KEYWORDS, TEST_LICENSE, TEST_TAXONOMY, TEST_USER
+)
 from tests.helpers.util import (
     create_acc_score_set_with_variants,
     create_experiment,
@@ -33,6 +36,7 @@ def setup_router_db(session):
     db.add(User(**ADMIN_USER, role_objs=[Role(name=UserRole.admin)]))
     db.add(Taxonomy(**TEST_TAXONOMY))
     db.add(License(**TEST_LICENSE))
+    db.bulk_save_objects([ControlledKeyword(**keyword_obj) for keyword_obj in TEST_DB_KEYWORDS])
     db.commit()
 
 

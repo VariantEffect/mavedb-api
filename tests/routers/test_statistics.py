@@ -273,22 +273,6 @@ def test_record_keyword_statistics(session, data_provider, client, setup_router_
     Experiment._find_keyword does not have create new keyword function anymore.
     Hence we need temporary keywords in mock database to do the test.
     """
-    # Create and add the new keywords to the session
-    new_keywords = [
-        ControlledKeyword(key="Variant Library Creation Method", value="Endogenous locus library method",
-                          vocabulary=None, special=True, description="Description 1"),
-        ControlledKeyword(key="Endogenous Locus Library Method System", value="SaCas9",
-                          vocabulary=None, special=True, description="Description 2"),
-        ControlledKeyword(key="Endogenous Locus Library Method Mechanism", value="Base editor",
-                          vocabulary=None, special=True, description="Description 3"),
-        ControlledKeyword(key="Delivery method", value="Other",
-                          vocabulary=None, special=False, description="Description 4")
-    ]
-    for keyword in new_keywords:
-        session.add(keyword)
-    # Commit the changes to the session
-    session.commit()
-
     record_update = {"keywords": TEST_KEYWORDS}
     # Create experiment and score set resources. The fixtures are more useful for the simple cases that don't need scoreset / experiment
     # updates. Folding these more complex setup steps into a fixture is more trouble than it's worth.
