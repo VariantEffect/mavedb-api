@@ -7,7 +7,7 @@ from mavedb.models.controlled_keyword import ControlledKeyword
 
 def search_keyword(db: Session, key: str, value: Optional[str]):
     lower_key = key.lower().strip()
-    lower_value = value.lower().strip()
+    lower_value = value.lower().strip() if value is not None else None
     query = db.query(ControlledKeyword)
     if lower_key:
         query = query.filter(func.lower(ControlledKeyword.key) == lower_key)
