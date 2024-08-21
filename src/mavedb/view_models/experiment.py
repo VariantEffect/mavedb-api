@@ -2,6 +2,7 @@ from datetime import date
 from typing import Any, Collection, Optional, Sequence
 
 from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.lib.validation.utilities import is_null
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.doi_identifier import (
@@ -70,6 +71,17 @@ class ExperimentModify(ExperimentBase):
             if len(v) > 1:
                 raise ValidationError("multiple primary publication identifiers are not allowed")
         return v
+
+    @validator("keywords")
+    def validate_keywords(cls, v):
+        keywords.validate_keywords(v)
+        return v
+
+    @validator("title", "short_description", "abstract_text", "method_text")
+    def validate_field_is_non_empty(cls, v):
+        if is_null(v) or not isinstance(v, str):
+            raise ValidationError("This field is required and cannot be empty.")
+        return v.strip()
 
 
 class ExperimentCreate(ExperimentModify):

@@ -8,6 +8,7 @@ from humps import camelize
 
 from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.lib.validation.utilities import is_null
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.view_models import PublicationIdentifiersGetter
@@ -66,6 +67,12 @@ class ScoreSetModify(ScoreSetBase):
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     target_genes: list[TargetGeneCreate]
+
+    @validator("title", "short_description", "abstract_text", "method_text")
+    def validate_field_is_non_empty(cls, v):
+        if is_null(v) or not isinstance(v, str):
+            raise ValidationError("This field is required and cannot be empty.")
+        return v.strip()
 
     @validator("primary_publication_identifiers")
     def max_one_primary_publication_identifier(cls, v):

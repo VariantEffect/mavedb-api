@@ -617,6 +617,7 @@ def csv_data_to_df(file_data: BinaryIO) -> pd.DataFrame:
         sep=",",
         encoding="utf-8",
         quotechar="'",
+        index_col=False,
         na_values=extra_na_values,
         keep_default_na=True,
         dtype={**{col: str for col in HGVSColumns.options()}, "scores": float},
