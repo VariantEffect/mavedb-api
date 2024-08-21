@@ -8,6 +8,7 @@ import requests
 import requests_mock
 from unittest import mock
 
+from mavedb.lib.orcid import fetch_orcid_user
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
@@ -30,6 +31,7 @@ from tests.helpers.constants import (
     TEST_MEDRXIV_IDENTIFIER,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_EXPERIMENT_RESPONSE,
+    TEST_ORCID_ID,
     TEST_PUBMED_IDENTIFIER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
@@ -53,13 +55,13 @@ def test_create_minimal_experiment(client, setup_router_db):
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
-def test_create_experiment_with_contributor(client):
+def test_create_experiment_with_contributor(client, setup_router_db):
     experiment = deepcopy(TEST_MINIMAL_EXPERIMENT)
-    experiment.update({"contributors": [{"orcid_id": "1111-1111-1111-1111"}]})
+    experiment.update({"contributors": [{"orcid_id": TEST_ORCID_ID}]})
 
     with mock.patch(
         "mavedb.lib.orcid.fetch_orcid_user",
-        lambda orcid_id: OrcidUser(orcid_id=orcid_id, given_name="ORCID", family_name="User")
+        lambda orcid_id: OrcidUser(orcid_id=orcid_id, given_name="ORCID", family_name="User"),
     ):
         response = client.post("/api/v1/experiments/", json=experiment)
     assert response.status_code == 200
