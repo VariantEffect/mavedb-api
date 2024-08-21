@@ -19,6 +19,7 @@ from mavedb.lib.mave.constants import (
 )
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.mave.utils import is_csv_null
+from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
@@ -179,6 +180,11 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
             ScoreSet.target_genes.any(
                 TargetGene.target_accession.has(TargetAccession.accession.in_(search.target_accessions))
             )
+        )
+
+    if search.keywords:
+        query = query.filter(
+            ScoreSet.experiment.has(Experiment.keyword_objs.any(ControlledKeyword.value.in_(search.keywords)))
         )
 
     score_sets: list[ScoreSet] = (

@@ -9,6 +9,7 @@ from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.view_models.search import ExperimentsSearch
 from mavedb.models.publication_identifier import PublicationIdentifier
+from mavedb.models.controlled_keyword import ControlledKeyword
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,9 @@ def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSe
                     func.lower(PublicationIdentifier.publication_journal).icontains(lower_search_text)
                 ),
                 Experiment.publication_identifiers.any(
-                    func.jsonb_path_exists(PublicationIdentifier.authors, f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")""")
+                    func.jsonb_path_exists(
+                        PublicationIdentifier.authors, f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")"""
+                    )
                 ),
             )
         )
@@ -73,6 +76,9 @@ def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSe
         query = query.filter(
             Experiment.publication_identifiers.any(PublicationIdentifier.publication_journal.in_(search.journals))
         )
+
+    if search.keywords:
+        query = query.filter(Experiment.keyword_objs.any(ControlledKeyword.value.in_(search.keywords)))
 
     items: list[Experiment] = query.order_by(Experiment.title).all()
     if not items:
