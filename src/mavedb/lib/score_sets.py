@@ -184,7 +184,13 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
 
     if search.keywords:
         query = query.filter(
-            ScoreSet.experiment.has(Experiment.keyword_objs.any(ControlledKeyword.value.in_(search.keywords)))
+            ScoreSet.experiment.has(
+                Experiment.keyword_objs.any(
+                    ExperimentControlledKeywordAssociation.controlled_keyword.has(
+                        ControlledKeyword.value.in_(search.keywords)
+                    )
+                )
+            )
         )
 
     score_sets: list[ScoreSet] = (
