@@ -133,7 +133,9 @@ def get_experiment_score_sets(
     #
     # TODO(#182): A side effect of this implementation is that only the user who has created the experiment may view all the Score sets
     # associated with a given experiment. This could be solved with user impersonation for certain user roles.
-    score_sets = db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(~ScoreSet.superseding_score_set.has())
+    score_sets = (
+        db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(~ScoreSet.superseding_score_set.has())
+    )
     if user_data is not None:
         score_set_result = score_sets.filter(
             or_(ScoreSet.private.is_(False), and_(ScoreSet.private.is_(True), ScoreSet.created_by == user_data.user))
