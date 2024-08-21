@@ -6,12 +6,14 @@ import jsonschema
 import pytest
 import requests
 import requests_mock
+from unittest import mock
 
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
+from mavedb.view_models.orcid import OrcidUser
 from tests.helpers.util import (
     change_ownership,
     create_experiment,
@@ -49,6 +51,21 @@ def test_create_minimal_experiment(client, setup_router_db):
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
+
+
+def test_create_experiment_with_contributor(client):
+    experiment = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    experiment.update({"contributors": [{"orcid_id": "1111-1111-1111-1111"}]})
+
+    with mock.patch(
+        "mavedb.lib.orcid.fetch_orcid_user",
+        lambda orcid_id: OrcidUser(orcid_id=orcid_id, given_name="ORCID", family_name="User")
+    ):
+        response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    assert len(response_data["contributors"]) == 1
 
 
 def test_create_experiment_with_keywords(session, client, setup_router_db):
