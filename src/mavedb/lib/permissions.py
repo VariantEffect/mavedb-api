@@ -54,7 +54,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
         published = item.published_date is not None
 
         user_is_owner = item.created_by_id == user_data.user.id if user_data is not None else False
-        user_may_edit = user_is_owner or (user_data is not None and user_data.username in [c.orcid_id for c in item.contributors])
+        user_may_edit = user_is_owner or (user_data is not None and user_data.user.username in [c.orcid_id for c in item.contributors])
 
     if isinstance(item, User):
         user_is_self = item.id == user_data.user.id if user_data is not None else False
