@@ -69,8 +69,8 @@ async def fetch_score_set_by_urn(db, urn: str, owner: Optional[UserData]) -> Opt
         if owner is not None:
             permission_filter = or_(
                 ScoreSet.private.is_(False),
-                ScoreSet.created_by_id == owner.id,
-                ScoreSet.contributors.any(Contributor.orcid_id == owner.username),
+                ScoreSet.created_by_id == owner.user.id,
+                ScoreSet.contributors.any(Contributor.orcid_id == owner.user.username),
             )
         else:
             permission_filter = ScoreSet.private.is_(False)
