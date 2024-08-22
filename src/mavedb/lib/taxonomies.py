@@ -13,6 +13,7 @@ async def find_or_create_taxonomy(db: Session, taxonomy: TaxonomyCreate):
 
     :param db: An active database session
     :param tax_id: A valid taxonomy ID from NCBI
+    :param taxonomy: A TaxonomyCreate object containing the taxonomy details to search for or create.
     :return: An existing Taxonomy containing the specified taxonomy ID, or a new, unsaved Taxonomy
     """
     taxonomy_record = db.query(Taxonomy).filter(Taxonomy.tax_id == taxonomy.tax_id).one_or_none()
@@ -37,6 +38,11 @@ async def search_NCBI_taxonomy(db: Session, search: str) -> Any:
             response = await client.get(url)
             if response.status_code == 200:
                 data = response.json()
+
+                # response status code is 200 even no match data in NCBI.
+                if "errors" in data.get("taxonomy_nodes", [{}])[0]:
+                    return None
+
                 # Process the retrieved data as needed
                 ncbi_taxonomy = data['taxonomy_nodes'][0]['taxonomy']
                 ncbi_taxonomy.setdefault('organism_name', 'NULL')
