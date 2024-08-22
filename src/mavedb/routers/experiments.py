@@ -13,7 +13,7 @@ from mavedb.lib.authentication import get_current_user, UserData
 from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import require_current_user, require_current_user_with_email
 from mavedb.lib.contributors import find_or_create_contributor
-from mavedb.lib.exceptions import NonexistentOrcidUserError, ValidationError
+from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.experiments import search_experiments as _search_experiments
 from mavedb.lib.identifiers import (
     find_or_create_doi_identifier,
