@@ -22,6 +22,9 @@ from tests.helpers.constants import (
     EXTRA_USER,
     TEST_BIORXIV_IDENTIFIER,
     TEST_CROSSREF_IDENTIFIER,
+    TEST_EXPERIMENT_WITH_KEYWORD,
+    TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE,
+    TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE,
     TEST_MEDRXIV_IDENTIFIER,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_EXPERIMENT_RESPONSE,
@@ -48,12 +51,308 @@ def test_create_minimal_experiment(client, setup_router_db):
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
+def test_create_experiment_with_keywords(session, client, setup_router_db):
+    response = client.post("/api/v1/experiments/", json=TEST_EXPERIMENT_WITH_KEYWORD)
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
+    expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE)
+    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+
+
 def test_cannot_create_experiment_without_email(client, setup_router_db):
     client.put("api/v1/users/me", json={"email": None})
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     assert response.status_code == 400
     response_data = response.json()
     assert response_data["detail"] == "There must be an email address associated with your account to use this feature."
+
+
+def test_cannot_create_experiment_that_keyword_does_not_match_db_keyword(client, setup_router_db):
+    # Database does not have this keyword.
+    invalid_keyword = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Invalid key",
+                    "value": "Invalid value",
+                },
+            }
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **invalid_keyword}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert response_data["detail"] == "Invalid keyword Invalid key or Invalid value"
+
+
+def test_cannot_create_experiment_that_keywords_has_wrong_combination1(client, setup_router_db):
+    # Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
+    wrong_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "Endogenous locus library method",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+            {
+                "keyword": {
+                    "key": "In Vitro Construct Library Method System",
+                    "value": "Oligo-directed mutagenic PCR",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **wrong_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert response_data["detail"] == \
+           "If 'Variant Library Creation Method' is 'Endogenous locus library method', both 'Endogenous Locus " \
+           "Library Method System' and 'Endogenous Locus Library Method Mechanism' must be present."
+
+
+def test_cannot_create_experiment_that_keywords_has_wrong_combination2(client, setup_router_db):
+    # Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
+    wrong_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "In vitro construct library method",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+            {
+                "keyword": {
+                    "key": "Endogenous Locus Library Method System",
+                    "value": "SaCas9",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **wrong_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert response_data["detail"] == \
+           "If 'Variant Library Creation Method' is 'In vitro construct library method', both 'In Vitro Construct " \
+           "Library Method System' and 'In Vitro Construct Library Method Mechanism' must be present."
+
+
+def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
+    If choose Other in Variant Library Creation Method, should not have Endogenous
+    """
+    wrong_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "Other",
+                    "special": False,
+                    "description": "Description"
+                },
+                "description": "Description"
+            },
+            {
+                "keyword": {
+                    "key": "Endogenous Locus Library Method System",
+                    "value": "SaCas9",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **wrong_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert response_data["detail"] == \
+           "If 'Variant Library Creation Method' is 'Other', none of 'Endogenous Locus Library Method System', " \
+           "'Endogenous Locus Library Method Mechanism', 'In Vitro Construct Library Method System', or 'In Vitro " \
+           "Construct Library Method Mechanism' should be present."
+
+
+def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
+    If choose Other in Variant Library Creation Method, should not have in vitro
+    """
+    wrong_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "Other",
+                    "special": False,
+                    "description": "Description"
+                },
+                "description": "Description"
+            },
+            {
+                "keyword": {
+                    "key": "In Vitro Construct Library Method System",
+                    "value": "Error-prone PCR",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **wrong_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert response_data["detail"] == \
+           "If 'Variant Library Creation Method' is 'Other', none of 'Endogenous Locus Library Method System', " \
+           "'Endogenous Locus Library Method Mechanism', 'In Vitro Construct Library Method System', or 'In Vitro " \
+           "Construct Library Method Mechanism' should be present."
+
+
+def test_cannot_create_experiment_that_keyword_value_is_other_without_description(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_description function
+    If choose other, description should not be null.
+    """
+    invalid_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "Other",
+                    "special": False,
+                    "description": "Description"
+                },
+                "description": None
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **invalid_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    error_messages = [error['msg'] for error in response_data["detail"]]
+    assert "Other option does not allow empty description." in error_messages
+
+
+def test_cannot_create_experiment_that_keywords_have_duplicate_keys(client, setup_router_db):
+    # Test src/mavedb/lib/validation/keywords.validate_duplicates function
+    invalid_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "Other",
+                    "special": False,
+                    "description": "Description"
+                },
+                "description": "Description"
+            },
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "In vitro construct library method",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **invalid_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert response_data["detail"] == "Duplicate keys found in keywords."
+
+
+def test_cannot_create_experiment_that_keywords_have_duplicate_values(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_duplicates function
+    Keyword values are not allowed duplicates except Other.
+    """
+    invalid_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Delivery method",
+                    "value": "In vitro construct library method",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "In vitro construct library method",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **invalid_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert response_data["detail"] == "Duplicate values found in keywords."
+
+
+def test_create_experiment_that_keywords_have_duplicate_others(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_duplicates function
+    Keyword values are not allowed duplicates except Other.
+    """
+    keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "Other",
+                    "special": False,
+                    "description": "Description"
+                },
+                "description": "Description"
+            },
+            {
+                "keyword": {
+                    "key": "Delivery method",
+                    "value": "Other",
+                    "special": False,
+                    "description": "Description"
+                },
+                "description": "Description"
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
+    expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE)
+    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
 
 
 def test_can_delete_experiment(client, setup_router_db):

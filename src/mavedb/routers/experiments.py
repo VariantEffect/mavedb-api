@@ -18,7 +18,11 @@ from mavedb.lib.identifiers import (
     find_or_create_raw_read_identifier,
 )
 from mavedb.lib.permissions import assert_permission, Action
+from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.lib.validation.keywords import validate_keyword_list
+from mavedb.lib.keywords import search_keyword
 from mavedb.models.experiment import Experiment
+from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
 from mavedb.view_models import experiment, score_set
@@ -192,6 +196,30 @@ async def create_experiment(
     for publication in publication_identifiers:
         setattr(publication, "primary", publication.identifier in primary_identifiers)
 
+    # TODO: Controlled keywords currently is allowed none value.
+    #  Will be changed in the future when we get the final list.
+    keywords: list[ExperimentControlledKeywordAssociation] = []
+    if item_create.keywords:
+        all_values_none = all(k.keyword.value is None for k in item_create.keywords)
+        if all_values_none is False:
+            # Users may choose part of keywords from dropdown menu. Remove not chosen keywords from the list.
+            filtered_keywords = list(filter(lambda k: k.keyword.value is not None, item_create.keywords))
+            try:
+                validate_keyword_list(filtered_keywords)
+            except ValidationError as e:
+                raise HTTPException(status_code=422, detail=str(e))
+            for upload_keyword in filtered_keywords:
+                try:
+                    description = upload_keyword.description
+                    controlled_keyword = search_keyword(db, upload_keyword.keyword.key, upload_keyword.keyword.value)
+                    experiment_controlled_keyword = ExperimentControlledKeywordAssociation(
+                        controlled_keyword=controlled_keyword,
+                        description=description,
+                    )
+                    keywords.append(experiment_controlled_keyword)
+                except ValueError as e:
+                    raise HTTPException(status_code=422, detail=str(e))
+
     item = Experiment(
         **jsonable_encoder(
             item_create,
@@ -211,8 +239,9 @@ async def create_experiment(
         raw_read_identifiers=raw_read_identifiers,
         created_by=user_data.user,
         modified_by=user_data.user,
+        keyword_objs=keywords
     )  # type: ignore
-    await item.set_keywords(db, item_create.keywords)
+
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -282,7 +311,20 @@ async def update_experiment(
     item.publication_identifiers = publication_identifiers
     item.raw_read_identifiers = raw_read_identifiers
 
-    await item.set_keywords(db, item_update.keywords)
+    if item_update.keywords:
+        all_values_none = all(k.keyword.value is None for k in item_update.keywords)
+        if all_values_none is False:
+            # Users may choose part of keywords from dropdown menu. Remove not chosen keywords from the list.
+            filtered_keywords = list(filter(lambda k: k.keyword.value is not None, item_update.keywords))
+            try:
+                validate_keyword_list(filtered_keywords)
+            except ValidationError as e:
+                raise HTTPException(status_code=422, detail=str(e))
+            try:
+                await item.set_keywords(db, filtered_keywords)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Invalid keywords: {str(e)}")
+
     item.modified_by = user_data.user
 
     db.add(item)

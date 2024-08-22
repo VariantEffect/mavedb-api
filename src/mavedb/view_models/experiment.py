@@ -1,7 +1,6 @@
 from datetime import date
 from typing import Any, Collection, Optional, Sequence
 
-from mavedb.lib.validation import keywords
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import is_null
 from mavedb.view_models import PublicationIdentifiersGetter
@@ -10,6 +9,11 @@ from mavedb.view_models.doi_identifier import (
     DoiIdentifier,
     DoiIdentifierCreate,
     SavedDoiIdentifier,
+)
+from mavedb.view_models.experiment_controlled_keyword import (
+    ExperimentControlledKeyword,
+    ExperimentControlledKeywordCreate,
+    SavedExperimentControlledKeyword,
 )
 from mavedb.view_models.publication_identifier import (
     PublicationIdentifier,
@@ -55,7 +59,7 @@ class ExperimentBase(BaseModel):
 class ExperimentModify(ExperimentBase):
     abstract_text: str
     method_text: str
-    keywords: Optional[list[str]]
+    keywords: Optional[list[ExperimentControlledKeywordCreate]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
@@ -66,11 +70,6 @@ class ExperimentModify(ExperimentBase):
         if isinstance(v, list):
             if len(v) > 1:
                 raise ValidationError("multiple primary publication identifiers are not allowed")
-        return v
-
-    @validator("keywords")
-    def validate_keywords(cls, v):
-        keywords.validate_keywords(v)
         return v
 
     @validator("title", "short_description", "abstract_text", "method_text")
@@ -101,7 +100,7 @@ class SavedExperiment(ExperimentBase):
     primary_publication_identifiers: Sequence[SavedPublicationIdentifier]
     secondary_publication_identifiers: Sequence[SavedPublicationIdentifier]
     raw_read_identifiers: Sequence[SavedRawReadIdentifier]
-    keywords: list[str]
+    keywords: Sequence[SavedExperimentControlledKeyword]
 
     class Config:
         orm_mode = True
@@ -122,6 +121,7 @@ class Experiment(SavedExperiment):
     doi_identifiers: Sequence[DoiIdentifier]
     primary_publication_identifiers: Sequence[PublicationIdentifier]
     secondary_publication_identifiers: Sequence[PublicationIdentifier]
+    keywords: Sequence[ExperimentControlledKeyword]
     raw_read_identifiers: Sequence[RawReadIdentifier]
     created_by: User
     modified_by: User

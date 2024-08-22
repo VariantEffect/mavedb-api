@@ -19,13 +19,14 @@ from mavedb.lib.mave.constants import (
 )
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.mave.utils import is_csv_null
+from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
 from mavedb.models.experiment import Experiment
+from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
-from mavedb.models.keyword import Keyword
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.refseq_offset import RefseqOffset
@@ -80,7 +81,6 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ScoreSet.abstract_text.icontains(lower_search_text),
                 ScoreSet.target_genes.any(func.lower(TargetGene.name).icontains(lower_search_text)),
                 ScoreSet.target_genes.any(func.lower(TargetGene.category).icontains(lower_search_text)),
-                ScoreSet.keyword_objs.any(func.lower(Keyword.text).icontains(lower_search_text)),
                 ScoreSet.target_genes.any(
                     TargetGene.target_sequence.has(
                         TargetSequence.taxonomy.has(func.lower(Taxonomy.organism_name).icontains(lower_search_text))
@@ -182,22 +182,33 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
             )
         )
 
+    if search.keywords:
+        query = query.filter(
+            ScoreSet.experiment.has(
+                Experiment.keyword_objs.any(
+                    ExperimentControlledKeywordAssociation.controlled_keyword.has(
+                        ControlledKeyword.value.in_(search.keywords)
+                    )
+                )
+            )
+        )
+
     score_sets: list[ScoreSet] = (
         query.join(ScoreSet.experiment)
         .options(
             contains_eager(ScoreSet.experiment).options(
                 joinedload(Experiment.experiment_set),
-                joinedload(Experiment.keyword_objs),
+                joinedload(Experiment.keyword_objs).joinedload(
+                    ExperimentControlledKeywordAssociation.controlled_keyword
+                ),
                 joinedload(Experiment.created_by),
                 joinedload(Experiment.modified_by),
-                joinedload(Experiment.keyword_objs),
                 joinedload(Experiment.doi_identifiers),
                 joinedload(Experiment.publication_identifier_associations).joinedload(
                     ExperimentPublicationIdentifierAssociation.publication
                 ),
                 joinedload(Experiment.raw_read_identifiers),
                 selectinload(Experiment.score_sets).options(
-                    joinedload(ScoreSet.keyword_objs),
                     joinedload(ScoreSet.doi_identifiers),
                     joinedload(ScoreSet.publication_identifier_associations).joinedload(
                         ScoreSetPublicationIdentifierAssociation.publication
@@ -211,7 +222,6 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                     ),
                 ),
             ),
-            joinedload(ScoreSet.keyword_objs),
             joinedload(ScoreSet.license),
             joinedload(ScoreSet.doi_identifiers),
             joinedload(ScoreSet.publication_identifier_associations).joinedload(

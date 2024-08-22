@@ -6,7 +6,7 @@ from pydantic import root_validator
 from typing import Collection, Dict, Optional, Any, Sequence
 from humps import camelize
 
-from mavedb.lib.validation import keywords, urn_re
+from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import is_null
 from mavedb.models.enums.processing_state import ProcessingState
@@ -63,7 +63,6 @@ class ScoreSetBase(BaseModel):
 
 
 class ScoreSetModify(ScoreSetBase):
-    keywords: Optional[list[str]]
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
@@ -121,11 +120,6 @@ class ScoreSetModify(ScoreSetBase):
             raise ValidationError("Score sets should define at least one target.")
 
         return field_value
-
-    @validator("keywords")
-    def validate_keywords(cls, v):
-        keywords.validate_keywords(v)
-        return v
 
 
 class ScoreSetCreate(ScoreSetModify):
@@ -241,7 +235,6 @@ class SavedScoreSet(ScoreSetBase):
     target_genes: Sequence[SavedTargetGene]
     dataset_columns: Dict
     external_links: Dict[str, ExternalLink]
-    keywords: list[str]
 
     class Config:
         orm_mode = True
