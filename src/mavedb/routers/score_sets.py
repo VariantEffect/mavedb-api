@@ -54,34 +54,38 @@ from mavedb.view_models.search import ScoreSetsSearch
 logger = logging.getLogger(__name__)
 
 
-async def fetch_score_set_by_urn(db, urn: str, owner: Optional[UserData]) -> Optional[ScoreSet]:
+async def fetch_score_set_by_urn(db, urn: str, user: Optional[UserData], owner_or_contributor: Optional[UserData], only_published: bool) -> Optional[ScoreSet]:
     """
-    Fetch one score set by URN, ensuring that it is either published or owned by a specified user.
+    Fetch one score set by URN, ensuring that the user has read permission.
 
     :param db: An active database session.
     :param urn: The score set URN.
-    :param owner: A user whose private score sets may be included in the search. If None, then the score set will only
-        be returned if it is public.
+    :param user: The user who has requested the score set. If the user does not have read permission, the score set will
+      not be returned. If None, the score set is returned only if publicly visible.
+    :param owner_or_contributor: If not None, require that the result be a score set of which this user is owner or
+      contributor.
+    :param only_published: If true, only return the score set if it is published.
     :return: The score set, or None if the URL was not found or refers to a private score set not owned by the specified
         user.
     """
     try:
-        if owner is not None:
-            permission_filter = or_(
+        query = db.query(ScoreSet).filter(ScoreSet.urn == urn)
+        if owner_or_contributor is not None:
+            query.filter(or_(
                 ScoreSet.private.is_(False),
-                ScoreSet.created_by_id == owner.user.id,
-                ScoreSet.contributors.any(Contributor.orcid_id == owner.user.username),
-            )
-        else:
-            permission_filter = ScoreSet.private.is_(False)
-        item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(permission_filter).one_or_none()
+                ScoreSet.created_by_id == owner_or_contributor.user.id,
+                ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.user.username),
+            ))
+        if only_published:
+            query.filter(ScoreSet.private.is_(False))
+        item = query.one_or_none()
     except MultipleResultsFound:
         raise HTTPException(status_code=500, detail=f"multiple score sets with URN '{urn}' were found")
 
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
-    assert_permission(owner, item, Action.READ)
+    assert_permission(user, item, Action.READ)
     return item
 
 
@@ -124,7 +128,7 @@ async def show_score_set(
     Fetch a single score set by URN.
     """
 
-    return await fetch_score_set_by_urn(db, urn, user_data)
+    return await fetch_score_set_by_urn(db, urn, user_data, None, False)
 
 
 @router.get(
@@ -266,7 +270,8 @@ async def create_score_set(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
 
     if item_create.superseded_score_set_urn is not None:
-        superseded_score_set = await fetch_score_set_by_urn(db, item_create.superseded_score_set_urn, user_data)
+        superseded_score_set = await fetch_score_set_by_urn(db, item_create.superseded_score_set_urn, user_data, user_data, True)
+
         if superseded_score_set is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown superseded score set")
     else:
@@ -275,7 +280,7 @@ async def create_score_set(
     distinct_meta_analyzes_score_set_urns = list(set(item_create.meta_analyzes_score_set_urns or []))
     meta_analyzes_score_sets = [
         ss
-        for ss in [await fetch_score_set_by_urn(db, urn, None) for urn in distinct_meta_analyzes_score_set_urns]
+        for ss in [await fetch_score_set_by_urn(db, urn, user_data, None, True) for urn in distinct_meta_analyzes_score_set_urns]
         if ss is not None
     ]
 
