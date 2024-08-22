@@ -68,7 +68,20 @@ def test_create_experiment_with_contributor(client, setup_router_db):
     assert response.status_code == 200
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=Experiment.schema())
-    assert len(response_data["contributors"]) == 1
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
+    expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
+    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
+    expected_response["contributors"] = [
+        {
+            "orcidId": TEST_ORCID_ID,
+            "givenName": "ORCID",
+            "familyName": "User",
+        }
+    ]
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
 
 
 def test_create_experiment_with_keywords(session, client, setup_router_db):
