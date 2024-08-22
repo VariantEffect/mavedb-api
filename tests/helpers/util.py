@@ -6,6 +6,7 @@ import jsonschema
 from arq import ArqRedis
 from sqlalchemy import select
 
+from mavedb.models.contributor import Contributor
 from mavedb.models.user import User
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_pair
@@ -20,6 +21,17 @@ from tests.helpers.constants import (
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_SEQ_SCORESET,
 )
+
+
+def add_contributor(db, urn, model, orcid_id: str, given_name: str, family_name: str):
+    """Without making an API call, add a new contributor to the record (experiment or score set) with given urn and model."""
+    item = db.query(model).filter(model.urn == urn).one_or_none()
+    assert item is not None
+    contributor = Contributor(orcid_id=orcid_id, given_name=given_name, family_name=family_name)
+    db.add(contributor)
+    item.contributors = [contributor]
+    db.add(item)
+    db.commit()
 
 
 def change_ownership(db, urn, model):

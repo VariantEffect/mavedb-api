@@ -9,14 +9,19 @@ from arq import ArqRedis
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 
 from tests.helpers.constants import (
+    EXTRA_USER,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
+    TEST_ORCID_ID,
+    TEST_USER,
 )
 from tests.helpers.util import (
+    add_contributor,
     change_ownership,
     create_experiment,
     create_seq_score_set,
@@ -56,6 +61,24 @@ def test_create_minimal_score_set(client, setup_router_db):
         assert (key, expected_response[key]) == (key, response_data[key])
     response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
     assert response.status_code == 200
+
+
+def test_create_score_set_with_contributor(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    score_set.update({"contributors": [{"orcid_id": TEST_ORCID_ID}]})
+
+    with patch(
+        "mavedb.lib.orcid.fetch_orcid_user",
+        lambda orcid_id: OrcidUser(orcid_id=orcid_id, given_name="ORCID", family_name="User"),
+    ):
+        response = client.post("/api/v1/score-sets/", json=score_set)
+
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    assert len(response_data["contributors"]) == 1
 
 
 def test_cannot_create_score_set_without_email(client, setup_router_db):
@@ -109,6 +132,53 @@ def test_anonymous_user_cannot_get_user_private_score_set(session, client, setup
     assert response.status_code == 404
     response_data = response.json()
     assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
+
+
+def test_contributor_can_get_other_users_private_score_set(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+
+    expected_response = deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE)
+    expected_response.update({"urn": score_set["urn"]})
+    expected_response["experiment"].update(
+        {
+            "urn": experiment["urn"],
+            "experimentSetUrn": experiment["experimentSetUrn"],
+            "scoreSetUrns": [score_set["urn"]],
+        }
+    )
+    expected_response["contributors"] = [
+        {
+            "orcidId": TEST_USER["username"],
+            "givenName": TEST_USER["first_name"],
+            "familyName": TEST_USER["last_name"],
+        }
+    ]
+    expected_response["createdBy"] = {
+        "orcidId": EXTRA_USER["username"],
+        "firstName": EXTRA_USER["first_name"],
+        "lastName": EXTRA_USER["last_name"],
+    }
+    expected_response["modifiedBy"] = {
+        "orcidId": EXTRA_USER["username"],
+        "firstName": EXTRA_USER["first_name"],
+        "lastName": EXTRA_USER["last_name"],
+    }
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
 
 
 def test_admin_can_get_other_user_private_score_set(session, client, admin_app_overrides, setup_router_db):
@@ -239,6 +309,113 @@ def test_anonymous_cannot_add_scores_to_other_user_score_set(
     assert response.status_code == 401
     response_data = response.json()
     assert "Could not validate credentials" in response_data["detail"]
+
+
+def test_contributor_can_add_scores_to_other_user_score_set(session, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    scores_csv_path = data_files / "scores.csv"
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch.object(ArqRedis, "enqueue_job", return_value=None) as queue,
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+        queue.assert_called_once()
+
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+
+    # We test the worker process that actually adds the variant data separately. Here, we take it as
+    # fact that it would have succeeded.
+    score_set.update({"processingState": "processing"})
+    score_set["contributors"] = [
+        {
+            "orcidId": TEST_USER["username"],
+            "givenName": TEST_USER["first_name"],
+            "familyName": TEST_USER["last_name"],
+        }
+    ]
+    score_set["createdBy"] = {
+        "orcidId": EXTRA_USER["username"],
+        "firstName": EXTRA_USER["first_name"],
+        "lastName": EXTRA_USER["last_name"],
+    }
+    score_set["modifiedBy"] = {
+        "orcidId": EXTRA_USER["username"],
+        "firstName": EXTRA_USER["first_name"],
+        "lastName": EXTRA_USER["last_name"],
+    }
+    assert score_set == response_data
+
+
+def test_contributor_can_add_scores_and_counts_to_other_user_score_set(session, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    scores_csv_path = data_files / "scores.csv"
+    counts_csv_path = data_files / "counts.csv"
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        open(counts_csv_path, "rb") as counts_file,
+        patch.object(ArqRedis, "enqueue_job", return_value=None) as queue,
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={
+                "scores_file": (scores_csv_path.name, scores_file, "text/csv"),
+                "counts_file": (counts_csv_path.name, counts_file, "text/csv"),
+            },
+        )
+        queue.assert_called_once()
+
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+
+    # We test the worker process that actually adds the variant data separately. Here, we take it as
+    # fact that it would have succeeded.
+    score_set.update({"processingState": "processing"})
+    score_set["contributors"] = [
+        {
+            "orcidId": TEST_USER["username"],
+            "givenName": TEST_USER["first_name"],
+            "familyName": TEST_USER["last_name"],
+        }
+    ]
+    score_set["createdBy"] = {
+        "orcidId": EXTRA_USER["username"],
+        "firstName": EXTRA_USER["first_name"],
+        "lastName": EXTRA_USER["last_name"],
+    }
+    score_set["modifiedBy"] = {
+        "orcidId": EXTRA_USER["username"],
+        "firstName": EXTRA_USER["first_name"],
+        "lastName": EXTRA_USER["last_name"],
+    }
+    assert score_set == response_data
 
 
 def test_admin_can_add_scores_to_other_user_score_set(
@@ -404,6 +581,71 @@ def test_anonymous_cannot_publish_user_private_score_set(
     assert response.status_code == 401
     response_data = response.json()
     assert "Could not validate credentials" in response_data["detail"]
+
+
+def test_contributor_can_publish_other_users_score_set(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+
+    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["urn"] == "urn:mavedb:00000001-a-1"
+    assert response_data["experiment"]["urn"] == "urn:mavedb:00000001-a"
+
+    expected_response = deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE)
+    expected_response.update(
+        {
+            "urn": response_data["urn"],
+            "publishedDate": date.today().isoformat(),
+            "numVariants": 3,
+            "private": False,
+            "datasetColumns": {"countColumns": [], "scoreColumns": ["score"]},
+            "processingState": ProcessingState.success.name,
+        }
+    )
+    expected_response["experiment"].update(
+        {
+            "urn": response_data["experiment"]["urn"],
+            "experimentSetUrn": response_data["experiment"]["experimentSetUrn"],
+            "scoreSetUrns": [response_data["urn"]],
+            "publishedDate": date.today().isoformat(),
+        }
+    )
+    expected_response["contributors"] = [
+        {
+            "orcidId": TEST_USER["username"],
+            "givenName": TEST_USER["first_name"],
+            "familyName": TEST_USER["last_name"],
+        }
+    ]
+    expected_response["createdBy"] = {
+        "orcidId": EXTRA_USER["username"],
+        "firstName": EXTRA_USER["first_name"],
+        "lastName": EXTRA_USER["last_name"],
+    }
+    expected_response["modifiedBy"] = {
+        "orcidId": EXTRA_USER["username"],
+        "firstName": EXTRA_USER["first_name"],
+        "lastName": EXTRA_USER["last_name"],
+    }
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+
+    # refresh score set to post worker state
+    score_set = (client.get(f"/api/v1/score-sets/{response_data['urn']}")).json()
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, score_set[key])
 
 
 def test_admin_cannot_publish_other_user_private_score_set(
@@ -738,6 +980,28 @@ def test_cannot_delete_own_published_scoreset(session, data_provider, client, se
     assert del_response.status_code == 403
     del_response_data = del_response.json()
     assert f"insufficient permissions for URN '{response_data['urn']}'" in del_response_data["detail"]
+
+
+def test_contributor_can_delete_other_users_private_scoreset(
+    session, data_provider, client, setup_router_db, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+
+    response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
+
+    assert response.status_code == 200
 
 
 def test_admin_can_delete_other_users_private_scoreset(
