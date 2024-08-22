@@ -72,11 +72,6 @@ class ExperimentModify(ExperimentBase):
                 raise ValidationError("multiple primary publication identifiers are not allowed")
         return v
 
-    @validator("keywords")
-    def validate_keywords(cls, v):
-        keywords.validate_keywords(v)
-        return v
-
     @validator("title", "short_description", "abstract_text", "method_text")
     def validate_field_is_non_empty(cls, v):
         if is_null(v) or not isinstance(v, str):
