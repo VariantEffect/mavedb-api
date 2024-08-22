@@ -231,6 +231,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
     "scoreSetUrns": [],
+    "contributors": [],
     "keywords": [{
                 "keyword": {
                     "key": "Delivery method",
@@ -268,6 +269,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
     "scoreSetUrns": [],
+    "contributors": [],
     "keywords": [
         {
             "keyword": {
