@@ -56,18 +56,18 @@ class HGVSColumns:
         return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
-def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
+def search_score_sets(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
     query = db.query(ScoreSet)  # \
     # .filter(ScoreSet.private.is_(False))
 
     #  filter out the score sets that are replaced by other score sets
     query = query.filter(~ScoreSet.superseding_score_set.has())
 
-    if owner is not None:
+    if owner_or_contributor is not None:
         query = query.filter(
             or_(
-                ScoreSet.created_by_id == owner.id,
-                ScoreSet.contributors.has(Contributor.orcid_id == owner.username),
+                ScoreSet.created_by_id == owner_or_contributor.id,
+                ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.username),
             )
         )
 

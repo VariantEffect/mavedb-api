@@ -16,15 +16,15 @@ from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeyw
 logger = logging.getLogger(__name__)
 
 
-def search_experiments(db: Session, owner: Optional[User], search: ExperimentsSearch) -> list[Experiment]:
+def search_experiments(db: Session, owner_or_contributor: Optional[User], search: ExperimentsSearch) -> list[Experiment]:
     query = db.query(Experiment)
     # .filter(ScoreSet.private.is_(False))
 
-    if owner is not None:
+    if owner_or_contributor is not None:
         query = query.filter(
             or_(
-                Experiment.created_by_id == owner.id,
-                Experiment.contributors.any(Contributor.orcid_id == owner.username),
+                Experiment.created_by_id == owner_or_contributor.id,
+                Experiment.contributors.any(Contributor.orcid_id == owner_or_contributor.username),
             )
         )
 
