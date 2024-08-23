@@ -1,6 +1,8 @@
 import idutils
 import datetime
 
+from urllib.parse import urlparse
+
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.constants.publication import valid_dbnames
 
@@ -35,7 +37,44 @@ def identifier_valid_for(identifier: str) -> dict[str, bool]:
         "PubMed": validate_pubmed(identifier),
         "bioRxiv": validate_biorxiv(identifier),
         "medRxiv": validate_medrxiv(identifier),
+        "Crossref": idutils.is_doi(identifier) is not None,
     }
+
+
+def infer_identifier_from_url(identifier: str) -> str:
+    """
+    Infers an identifier from a potential URL based on the database we believe the URL
+    to be from.
+
+    Parameters
+    __________
+    identifier : str
+        The identifier / URL to parse
+
+    Returns
+    _______
+    str
+        The parsed identifier from the url or the original identifier.
+    """
+    url = urlparse(identifier)
+    if url.netloc:
+        # http://www.dx.doi.org/{DOI}
+        if "dx.doi.org" in url.netloc:
+            identifier = url.path.strip("/")
+
+        # https://www.biorxiv.org/content/10.1101/2024.04.26.591310, # https://www.medrxiv.org/content/10.1101/2024.04.26.59131023
+        elif "biorxiv.org" in url.netloc or "medrxiv.org" in url.netloc:
+            identifier = url.path.strip("/").split("/")[-1]
+
+        # https://pubmed.ncbi.nlm.nih.gov/24567513/, http://www.ncbi.nlm.nih.gov/pubmed/432
+        elif "ncbi.nlm.nih.gov" in url.netloc:
+            identifier = url.path.strip("/").split("/")[-1]
+
+        # The url does not come from an accepted database.
+        else:
+            return identifier
+
+    return identifier
 
 
 def validate_publication(identifier: str) -> None:
