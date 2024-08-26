@@ -727,7 +727,7 @@ def summarize_pro_mutations_in_variant(variant: Variant):
             else:
                 has_missense_mutations = True
         else:
-            print(variation_type)
+            # print(variation_type)
             has_other_mutations = True
 
     # Set the variant type only if all variations are of the same type.
@@ -824,7 +824,7 @@ def calculate_score_set_statistics(score_set: ScoreSet):
         elif most_severe_pro_mutation_type == "synonymous":
             num_synonymous_variants += 1
 
-        print(f"{v.hgvs_pro}: {num_nt_mutations}/{num_pro_mutations} ({most_severe_pro_mutation_type})")
+        # print(f"{v.hgvs_pro}: {num_nt_mutations}/{num_pro_mutations} ({most_severe_pro_mutation_type})")
 
     statistics = {
         "num_splice_variants": num_splice_variants,
