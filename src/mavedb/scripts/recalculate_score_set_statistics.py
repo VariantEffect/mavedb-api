@@ -4,6 +4,8 @@ Recalculate and update statistics for all score sets.
 Usage:
 ```
 python3 -m mavedb.scripts.recalculate_score_set_statistics
+
+python3 -m mavedb.scripts.recalculate_score_set_statistics -urn <score set URN>
 ```
 """
 
@@ -35,7 +37,6 @@ else:
 
 for score_set in score_sets:
     statistics = calculate_score_set_statistics(score_set)
-    print(statistics)
     score_set.statistics = statistics
     db.add(score_set)
     db.commit()
