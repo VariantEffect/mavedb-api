@@ -5,6 +5,7 @@ import re
 from typing import Any, BinaryIO, Iterable, List, Optional, Sequence, Tuple, Union
 
 import mavehgvs
+from mavehgvs import util as mavehgvs_util
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
@@ -647,11 +648,11 @@ def get_score_set_target_lengths(score_set: ScoreSet):
     for target_gene in score_set.target_genes:
         if target_gene.target_sequence is not None:
             if target_gene.target_sequence.sequence_type == "protein":  # or "dna"
-                protein_length = len(target_gene.target_sequence.sequence)
+                protein_length = len(target_gene.target_sequence.sequence) if target_gene.target_sequence.sequence else 0
                 protein_lengths.append(protein_length)
                 dna_lengths.append(protein_length * 3)  # Infer DNA target length from protein.
             elif target_gene.target_sequence.sequence_type == "dna":
-                dna_length = len(target_gene.target_sequence.sequence)
+                dna_length = len(target_gene.target_sequence.sequence) if target_gene.target_sequence.sequence else 0
                 protein_lengths.append(0)  # Do not infer a protein target length from DNA.
                 dna_lengths.append(dna_length)
             else:
@@ -666,7 +667,7 @@ def get_score_set_target_lengths(score_set: ScoreSet):
 def summarize_nt_mutations_in_variant(variant: Variant):
     if variant.hgvs_nt is None:
         return {"num_mutations": 0}
-    nt_variants: Tuple[List[Optional[mavehgvs.Variant]], List[Optional[str]]] = mavehgvs.util.parse_variant_strings(
+    nt_variants: Tuple[List[Optional[mavehgvs.Variant]], List[Optional[str]]] = mavehgvs_util.parse_variant_strings(
         [variant.hgvs_nt]
     )
     nt_variant: Optional[mavehgvs.Variant] = nt_variants[0][0]
@@ -680,7 +681,7 @@ def summarize_nt_mutations_in_variant(variant: Variant):
 def summarize_pro_mutations_in_variant(variant: Variant):
     if variant.hgvs_pro is None:
         return {"num_mutations": 0, "most_severe_mutation_type": None}
-    pro_variants: Tuple[List[Optional[mavehgvs.Variant]], List[Optional[str]]] = mavehgvs.util.parse_variant_strings(
+    pro_variants: Tuple[List[Optional[mavehgvs.Variant]], List[Optional[str]]] = mavehgvs_util.parse_variant_strings(
         [variant.hgvs_pro]
     )
     pro_variant: Optional[mavehgvs.Variant] = pro_variants[0][0]
