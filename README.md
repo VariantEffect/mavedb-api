@@ -135,3 +135,43 @@ We maintain deployment configuration options and steps within a [private reposit
 the production MaveDB environment. The main difference between the production setup and these local setups is that
 the worker and api services are split into distinct environments, allowing them to scale up or down individually
 dependent on need.
+
+## Scripts
+
+### export_public_data.py
+
+Usage:
+
+```
+python3 -m mavedb.scripts.export_public_data
+```
+
+This generates a ZIP archive named `mavedb-dump.zip` in the working directory. the ZIP file has the following contents:
+- main.json: A JSON file providing metadata for all of the published experiment sets, experiments, and score sets
+- variants/
+  - [URN].counts.csv (for each variant URN): The score set's variant count columns,
+    sorted by variant number
+  - [URN].scores.csv (for each variant URN): The score set's variant count columns,
+    sorted by variant number
+
+In the exported JSON metadata, the root object's `experimentSets` property gives an array of experiment sets.
+Experiments are nested in their parent experiment sets, and score sets in their parent experiments.
+
+The variant URNs used in filenames do not include the `urn:mavedb:` scheme identifier, so they look like
+`00000001-a-1.counts.csv` and `00000001-a-1.scores.csv`, for instance.
+
+Unpublished data and data sets licensed other than under the Create Commmons Zero license are not included in the dump,
+and user details are limited to ORCID IDs and names of contributors to published data sets.
+
+
+### recalculate_score_set_statistics.py
+
+Usage:
+
+```
+python3 -m mavedb.scripts.recalculate_score_set_statistics
+
+python3 -m mavedb.scripts.recalculate_score_set_statistics -urn <score set URN>
+```
+
+This script recalculates statistics for all score sets or, if a URN is specified, for one score set. Statistics are stored as a JSON object in each score set's `statistics` property.

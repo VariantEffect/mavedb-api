@@ -6,6 +6,7 @@ from sqlalchemy import delete, select, null
 from sqlalchemy.orm import Session
 
 from mavedb.lib.score_sets import (
+    calculate_score_set_statistics,
     columns_for_dataset,
     create_variants,
     create_variants_data,
@@ -67,7 +68,8 @@ async def create_variants_for_score_set(
 
         variants_data = create_variants_data(validated_scores, validated_counts, None)
         create_variants(db, score_set, variants_data)
-
+        score_set.statistics = calculate_score_set_statistics(score_set)
+    
     # Validation errors arise from problematic user data. These should be inserted into the database so failures can
     # be persisted to them.
     except ValidationError as e:

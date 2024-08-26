@@ -51,6 +51,43 @@ class ScoreSetGetter(PublicationIdentifiersGetter):
             return super().get(key, default)
 
 
+class ScoreSetStatisticsMutationCountDistribution(BaseModel):
+    single: int
+    double: int
+    triple_or_more: int
+
+
+class ScoreSetStatisticsMutationCountDistributions(BaseModel):
+    nt: Optional[ScoreSetStatisticsMutationCountDistribution]
+    pro: Optional[ScoreSetStatisticsMutationCountDistribution]
+
+
+class ScoreSetStatisticsMutationTypeDistribution(BaseModel):
+    missense: int
+    nonsense: int
+    synonymous: int
+
+
+class ScoreSetStatisticsTargetLengths(BaseModel):
+    dna: Optional[int]
+    protein: Optional[int]
+
+
+class ScoreSetStatisticsMutationsPerPosition(BaseModel):
+    dna: Optional[int]
+    protein: Optional[int]
+
+
+class ScoreSetStatistics(BaseModel):
+    """Score set statistics generated as a dict by calculate_score_set_statistics."""
+
+    num_splice_variants: Optional[int]
+    num_variants_by_mutation_count: Optional[ScoreSetStatisticsMutationCountDistributions]
+    num_variants_by_mutation_type: Optional[ScoreSetStatisticsMutationTypeDistribution]
+    target_length: Optional[ScoreSetStatisticsTargetLengths]
+    mean_num_mutations_per_position: Optional[ScoreSetStatisticsMutationsPerPosition]
+
+
 class ScoreSetBase(BaseModel):
     """Base class for score set view models."""
 
@@ -266,6 +303,7 @@ class ScoreSet(SavedScoreSet):
     private: bool
     processing_state: Optional[ProcessingState]
     processing_errors: Optional[dict]
+    statistics: Optional[ScoreSetStatistics]
 
 
 class ScoreSetWithVariants(ScoreSet):
@@ -296,3 +334,4 @@ class ScoreSetPublicDump(SavedScoreSet):
     private: bool
     processing_state: Optional[ProcessingState]
     processing_errors: Optional[Dict]
+    statistics: Optional[ScoreSetStatistics]
