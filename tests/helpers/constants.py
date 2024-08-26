@@ -534,4 +534,6 @@ TEST_VARIANT_MAPPING_SCAFFOLD = {
         "sequence_accessions": ["NC_000001.11"],
     },
     "mapped_scores": [],
+    "vrs_version": "2.0",
+    "api_version": "0.0.0",
 }

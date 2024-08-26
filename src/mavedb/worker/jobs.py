@@ -2,7 +2,7 @@ import asyncio
 import functools
 import logging
 import requests
-from datetime import timedelta
+from datetime import timedelta, date
 from typing import Optional
 
 import pandas as pd
@@ -192,6 +192,10 @@ async def map_variants_for_score_set(ctx, score_set_urn: str):
             pre_mapped=mapped_score["pre_mapped_2_0"],
             post_mapped=mapped_score["post_mapped_2_0"],
             variant_id=variant.id,
+            modification_date=date.today(),
+            mapped_date=date.today(),
+            vrs_version=mapping_results["vrs_version"],
+            mapping_api_version=mapping_results["api_version"],
         )
         db.add(mapped_variant)
 

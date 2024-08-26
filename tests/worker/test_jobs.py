@@ -1,3 +1,5 @@
+from datetime import date
+
 from asyncio.unix_events import _UnixSelectorEventLoop
 from copy import deepcopy
 from requests import HTTPError
@@ -415,6 +417,10 @@ async def test_create_mapped_variants_for_scoreset_with_existing_mapped_variants
                 pre_mapped={"preexisting": "variant"},
                 post_mapped={"preexisting": "variant"},
                 variant_id=existing_variant.id,
+                modification_date=date.today(),
+                mapped_date=date.today(),
+                vrs_version="2.0",
+                mapping_api_version="0.0.0",
             )
         )
         session.commit()
