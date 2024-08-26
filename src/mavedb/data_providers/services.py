@@ -1,5 +1,5 @@
 import requests
-from typing import Optional, Union
+from typing import Optional, Union, TypedDict
 
 from cdot.hgvs.dataproviders import ChainedSeqFetcher, FastaSeqFetcher, RESTDataProvider
 
@@ -22,10 +22,18 @@ def cdot_rest() -> RESTDataProvider:
 class VRSMap:
     url: str
 
+    class ScoreSetMappingResults(TypedDict):
+        metadata: dict[str, str]
+        computed_reference_sequence: dict[str, str]
+        mapped_reference_sequence: dict[str, str]
+        mapped_scores: list[dict]
+        vrs_version: str
+        api_version: str
+
     def __init__(self, url: str) -> None:
         self.url = url
 
-    def map_score_set(self, score_set_urn: str) -> dict[str, Union[dict, list]]:
+    def map_score_set(self, score_set_urn: str) -> ScoreSetMappingResults:
         uri = f"{self.url}/api/v1/map/{score_set_urn}"
         response = requests.post(uri)
         response.raise_for_status()

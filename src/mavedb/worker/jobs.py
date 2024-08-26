@@ -3,7 +3,7 @@ import functools
 import logging
 import requests
 from datetime import timedelta, date
-from typing import Optional
+from typing import Optional, Union
 
 import pandas as pd
 from arq import ArqRedis
