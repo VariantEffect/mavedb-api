@@ -15,176 +15,139 @@ def test_create_experiment():
 
 
 def test_cannot_create_experiment_without_a_title():
-    invalid_experiment = {
-        "shortDescription": "Test experiment",
-        "abstractText": "Abstract",
-        "methodText": "Methods",
-    }
-
+    experiment = TEST_MINIMAL_EXPERIMENT.copy()
+    invalid_experiment = jsonable_encoder(experiment, exclude={"title"})
     with pytest.raises(ValueError) as exc_info:
-        ExperimentCreate(**jsonable_encoder(invalid_experiment))
+        ExperimentCreate(**invalid_experiment)
 
     assert "field required" in str(exc_info.value)
     assert "title" in str(exc_info.value)
 
 
 def test_cannot_create_experiment_with_a_space_title():
-    invalid_experiment = {
-        "title": " ",
-        "shortDescription": "Test experiment",
-        "abstractText": "Abstract",
-        "methodText": "Methods",
-    }
+    experiment = TEST_MINIMAL_EXPERIMENT.copy()
+    invalid_experiment = jsonable_encoder(experiment, exclude={"title"})
+    invalid_experiment["title"] = " "
 
     with pytest.raises(ValueError) as exc_info:
-        ExperimentCreate(**jsonable_encoder(invalid_experiment))
+        ExperimentCreate(**invalid_experiment)
 
     assert "This field is required and cannot be empty." in str(exc_info.value)
     assert "title" in str(exc_info.value)
 
 
 def test_cannot_create_experiment_with_an_empty_title():
-    invalid_experiment = {
-        "title": "",
-        "shortDescription": "Test experiment",
-        "abstractText": "Abstract",
-        "methodText": "Methods",
-    }
+    experiment = TEST_MINIMAL_EXPERIMENT.copy()
+    invalid_experiment = jsonable_encoder(experiment, exclude={"title"})
+    invalid_experiment["title"] = ""
 
     with pytest.raises(ValueError) as exc_info:
-        ExperimentCreate(**jsonable_encoder(invalid_experiment))
+        ExperimentCreate(**invalid_experiment)
 
     assert "none is not an allowed value" in str(exc_info.value)
     assert "title" in str(exc_info.value)
 
 
 def test_cannot_create_experiment_without_a_short_description():
-    invalid_experiment = {
-        "title": "title",
-        "abstractText": "Abstract",
-        "methodText": "Methods",
-    }
+    experiment = TEST_MINIMAL_EXPERIMENT.copy()
+    invalid_experiment = jsonable_encoder(experiment, exclude={"shortDescription"})
 
     with pytest.raises(ValueError) as exc_info:
-        ExperimentCreate(**jsonable_encoder(invalid_experiment))
+        ExperimentCreate(**invalid_experiment)
 
     assert "field required" in str(exc_info.value)
     assert "shortDescription" in str(exc_info.value)
 
 
 def test_cannot_create_experiment_with_a_space_short_description():
-    invalid_experiment = {
-        "title": "title",
-        "shortDescription": " ",
-        "abstractText": "Abstract",
-        "methodText": "Methods",
-    }
+    experiment = TEST_MINIMAL_EXPERIMENT.copy()
+    invalid_experiment = jsonable_encoder(experiment, exclude={"shortDescription"})
+    invalid_experiment["shortDescription"] = "  "
 
     with pytest.raises(ValueError) as exc_info:
-        ExperimentCreate(**jsonable_encoder(invalid_experiment))
+        ExperimentCreate(**invalid_experiment)
 
     assert "This field is required and cannot be empty." in str(exc_info.value)
     assert "shortDescription" in str(exc_info.value)
 
 
 def test_cannot_create_experiment_with_an_empty_short_description():
-    invalid_experiment = {
-        "title": "title",
-        "shortDescription": "",
-        "abstractText": "Abstract",
-        "methodText": "Methods",
-    }
+    experiment = TEST_MINIMAL_EXPERIMENT.copy()
+    invalid_experiment = jsonable_encoder(experiment, exclude={"shortDescription"})
+    invalid_experiment["shortDescription"] = ""
 
     with pytest.raises(ValueError) as exc_info:
-        ExperimentCreate(**jsonable_encoder(invalid_experiment))
+        ExperimentCreate(**invalid_experiment)
 
     assert "none is not an allowed value" in str(exc_info.value)
     assert "shortDescription" in str(exc_info.value)
 
 
 def test_cannot_create_experiment_without_an_abstract():
-    invalid_experiment = {
-        "title": "title",
-        "shortDescription": "Test experiment",
-        "methodText": "Methods",
-    }
+    experiment = TEST_MINIMAL_EXPERIMENT.copy()
+    invalid_experiment = jsonable_encoder(experiment, exclude={"abstractText"})
 
     with pytest.raises(ValueError) as exc_info:
-        ExperimentCreate(**jsonable_encoder(invalid_experiment))
+        ExperimentCreate(**invalid_experiment)
 
     assert "field required" in str(exc_info.value)
     assert "abstractText" in str(exc_info.value)
 
 
 def test_cannot_create_experiment_with_a_space_abstract():
-    invalid_experiment = {
-        "title": "title",
-        "shortDescription": "Test experiment",
-        "abstractText": " ",
-        "methodText": "Methods",
-    }
+    experiment = TEST_MINIMAL_EXPERIMENT.copy()
+    invalid_experiment = jsonable_encoder(experiment, exclude={"abstractText"})
+    invalid_experiment["abstractText"] = "  "
 
     with pytest.raises(ValueError) as exc_info:
-        ExperimentCreate(**jsonable_encoder(invalid_experiment))
+        ExperimentCreate(**invalid_experiment)
 
     assert "This field is required and cannot be empty." in str(exc_info.value)
     assert "abstractText" in str(exc_info.value)
 
 
 def test_cannot_create_experiment_with_an_empty_abstract():
-    invalid_experiment = {
-        "title": "title",
-        "shortDescription": "Test experiment",
-        "abstractText": "",
-        "methodText": "Methods",
-    }
+    experiment = TEST_MINIMAL_EXPERIMENT.copy()
+    invalid_experiment = jsonable_encoder(experiment, exclude={"abstractText"})
+    invalid_experiment["abstractText"] = ""
 
     with pytest.raises(ValueError) as exc_info:
-        ExperimentCreate(**jsonable_encoder(invalid_experiment))
+        ExperimentCreate(**invalid_experiment)
 
     assert "none is not an allowed value" in str(exc_info.value)
     assert "abstractText" in str(exc_info.value)
 
 
 def test_cannot_create_experiment_without_a_method():
-    invalid_experiment = {
-        "title": "title",
-        "shortDescription": "Test experiment",
-        "abstractText": "Abstract",
-    }
+    experiment = TEST_MINIMAL_EXPERIMENT.copy()
+    invalid_experiment = jsonable_encoder(experiment, exclude={"methodText"})
 
     with pytest.raises(ValueError) as exc_info:
-        ExperimentCreate(**jsonable_encoder(invalid_experiment))
+        ExperimentCreate(**invalid_experiment)
 
     assert "field required" in str(exc_info.value)
     assert "methodText" in str(exc_info.value)
 
 
 def test_cannot_create_experiment_with_a_space_method():
-    invalid_experiment = {
-        "title": "title",
-        "shortDescription": "Test experiment",
-        "abstractText": "Abstract",
-        "methodText": " ",
-    }
+    experiment = TEST_MINIMAL_EXPERIMENT.copy()
+    invalid_experiment = jsonable_encoder(experiment, exclude={"methodText"})
+    invalid_experiment["methodText"] = "  "
 
     with pytest.raises(ValueError) as exc_info:
-        ExperimentCreate(**jsonable_encoder(invalid_experiment))
+        ExperimentCreate(**invalid_experiment)
 
     assert "This field is required and cannot be empty." in str(exc_info.value)
     assert "methodText" in str(exc_info.value)
 
 
 def test_cannot_create_experiment_with_an_empty_method():
-    invalid_experiment = {
-        "title": "title",
-        "shortDescription": "Test experiment",
-        "abstractText": "Abstract",
-        "methodText": "",
-    }
+    experiment = TEST_MINIMAL_EXPERIMENT.copy()
+    invalid_experiment = jsonable_encoder(experiment, exclude={"methodText"})
+    invalid_experiment["methodText"] = ""
 
     with pytest.raises(ValueError) as exc_info:
-        ExperimentCreate(**jsonable_encoder(invalid_experiment))
+        ExperimentCreate(**invalid_experiment)
 
     assert "none is not an allowed value" in str(exc_info.value)
     assert "methodText" in str(exc_info.value)
