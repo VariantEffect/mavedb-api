@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.authentication import get_current_user, UserData
-from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import require_current_user, require_current_user_with_email
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import NonexistentOrcidUserError
@@ -20,6 +19,8 @@ from mavedb.lib.identifiers import (
     find_or_create_publication_identifier,
     find_or_create_raw_read_identifier,
 )
+from mavedb.lib.logging import LoggedRoute
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import assert_permission, Action
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import validate_keyword_list
@@ -36,37 +37,58 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1", tags=["experiments"], responses={404: {"description": "Not found"}})
+router = APIRouter(
+    prefix="/api/v1",
+    tags=["experiments"],
+    responses={404: {"description": "Not found"}},
+    route_class=LoggedRoute,
+)
 
 
+# TODO: Rewrite this function.
 @router.get(
-    "/experiments/", status_code=200, response_model=list[experiment.Experiment], response_model_exclude_none=True
+    "/experiments/",
+    status_code=200,
+    response_model=list[experiment.Experiment],
+    response_model_exclude_none=True,
 )
 def list_experiments(
     *,
     editable: Optional[bool] = None,
     q: Optional[str] = None,
     db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(get_current_user),
+    user_data: Optional[UserData] = Depends(get_current_user),
 ) -> list[Experiment]:
     """
     List experiments.
     """
     query = db.query(Experiment)
     if q is not None:
-        if user_data is None:
+        save_to_logging_context({"query_string": q})
+
+        if user_data is None or user_data.user is None:
+            logger.debug(msg="User is anonymous; Cannot list their experiments.", extra=logging_context())
             return []
+
         if len(q) > 0:
+            logger.debug(msg="Listing experiments for the current user.", extra=logging_context())
             query = query.filter(
                 Experiment.created_by_id == user_data.user.id
             )  # .filter(Experiment.published_date is None)
         # else:
         #     query = query.filter(Experiment.created_by_id == user.id).filter(Experiment.published_date is None)
+    else:
+        logger.debug(msg="No query string was provided; Listing all experiments.", extra=logging_context())
+
     items = query.order_by(Experiment.urn).all()
     return items
 
 
-@router.post("/experiments/search", status_code=200, response_model=list[experiment.ShortExperiment])
+@router.post(
+    "/experiments/search",
+    status_code=200,
+    response_model=list[experiment.ShortExperiment],
+)
 def search_experiments(search: ExperimentsSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
     Search experiments.
@@ -74,9 +96,15 @@ def search_experiments(search: ExperimentsSearch, db: Session = Depends(deps.get
     return _search_experiments(db, None, search)
 
 
-@router.post("/me/experiments/search", status_code=200, response_model=list[experiment.ShortExperiment])
+@router.post(
+    "/me/experiments/search",
+    status_code=200,
+    response_model=list[experiment.ShortExperiment],
+)
 def search_my_experiments(
-    search: ExperimentsSearch, db: Session = Depends(deps.get_db), user_data: UserData = Depends(require_current_user)
+    search: ExperimentsSearch,
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(require_current_user),
 ) -> Any:
     """
     Search experiments created by the current user..
@@ -102,8 +130,12 @@ def fetch_experiment(
     """
     # item = db.query(Experiment).filter(Experiment.urn == urn).filter(Experiment.private.is_(False)).first()
     item = db.query(Experiment).filter(Experiment.urn == urn).first()
+    save_to_logging_context({"requested_resource": urn})
+
     if not item:
+        logger.debug(msg="The requested experiment does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"Experiment with URN {urn} not found")
+
     assert_permission(user_data, item, Action.READ)
     return item
 
@@ -124,10 +156,15 @@ def get_experiment_score_sets(
     """
     Get all score sets belonging to an experiment.
     """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "score-sets"})
+
     experiment = db.query(Experiment).filter(Experiment.urn == urn).first()
     if not experiment:
+        logger.debug(msg="The requested experiment does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"experiment with URN '{urn}' not found")
+
     assert_permission(user_data, experiment, Action.READ)
+
     # If there is a current user with score sets associated with this experiment, return all of them. Otherwise, only show
     # the public / published score sets.
     #
@@ -138,20 +175,32 @@ def get_experiment_score_sets(
     )
     if user_data is not None:
         score_set_result = score_sets.filter(
-            or_(ScoreSet.private.is_(False), and_(ScoreSet.private.is_(True), ScoreSet.created_by == user_data.user))
+            or_(
+                ScoreSet.private.is_(False),
+                and_(ScoreSet.private.is_(True), ScoreSet.created_by == user_data.user),
+            )
         ).all()
     else:
         score_set_result = score_sets.filter(ScoreSet.private.is_(False)).all()
+        logger.debug(msg="User is anonymous; Filtering only public score sets will be shown.", extra=logging_context())
 
     if not score_set_result:
+        save_to_logging_context({"associated_resources": []})
+        logger.info(msg="No score sets are associated with the requested experiment.", extra=logging_context())
+
         raise HTTPException(status_code=404, detail="no associated score sets")
     else:
         score_set_result.sort(key=attrgetter("urn"))
+        save_to_logging_context({"associated_resources": [item.urn for item in score_set_result]})
+
     return score_set_result
 
 
 @router.post(
-    "/experiments/", response_model=experiment.Experiment, responses={422: {}}, response_model_exclude_none=True
+    "/experiments/",
+    response_model=experiment.Experiment,
+    responses={422: {}},
+    response_model_exclude_none=True,
 )
 async def create_experiment(
     *,
@@ -162,18 +211,26 @@ async def create_experiment(
     """
     Create an experiment.
     """
-    if item_create is None:
-        return None
+    logger.debug(msg="Began creation of new experiment.", extra=logging_context())
+
     experiment_set = None
     if item_create.experiment_set_urn is not None:
         experiment_set = (
             db.query(ExperimentSet).filter(ExperimentSet.urn == item_create.experiment_set_urn).one_or_none()
         )
         if not experiment_set:
-            raise HTTPException(
-                status_code=404, detail=f"experiment set with URN '{item_create.experiment_set_urn}' not found."
+            logger.info(
+                msg="Could not create experiment; The requested experiment set does not exist.", extra=logging_context()
             )
+            raise HTTPException(
+                status_code=404,
+                detail=f"experiment set with URN '{item_create.experiment_set_urn}' not found.",
+            )
+
+        save_to_logging_context({"experiment_set": experiment_set.urn})
         assert_permission(user_data, experiment_set, Action.ADD_EXPERIMENT)
+
+        logger.debug(msg="Creating experiment within existing experiment set.", extra=logging_context())
 
     contributors: list[Contributor] = []
     try:
@@ -181,6 +238,7 @@ async def create_experiment(
             await find_or_create_contributor(db, contributor.orcid_id) for contributor in item_create.contributors or []
         ]
     except NonexistentOrcidUserError as e:
+        logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
         raise pydantic.ValidationError(
             [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
             model=experiment.ExperimentCreate,
@@ -203,9 +261,13 @@ async def create_experiment(
             await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             for identifier in item_create.secondary_publication_identifiers or []
         ] + primary_publication_identifiers
+
     except requests.exceptions.ConnectTimeout:
+        logger.error(msg="Gateway timed out while creating experiment identifiers.", extra=logging_context())
         raise HTTPException(status_code=504, detail="Gateway Timeout")
+
     except requests.exceptions.HTTPError:
+        logger.error(msg="Encountered bad gateway while creating experiment identifiers.", extra=logging_context())
         raise HTTPException(status_code=502, detail="Bad Gateway")
 
     # create a temporary `primary` attribute on each of our publications that indicates
@@ -259,17 +321,22 @@ async def create_experiment(
         raw_read_identifiers=raw_read_identifiers,
         created_by=user_data.user,
         modified_by=user_data.user,
-        keyword_objs=keywords
+        keyword_objs=keywords,
     )  # type: ignore
 
     db.add(item)
     db.commit()
     db.refresh(item)
+
+    save_to_logging_context({"created_resource": item.urn})
     return item
 
 
 @router.put(
-    "/experiments/{urn}", response_model=experiment.Experiment, responses={422: {}}, response_model_exclude_none=True
+    "/experiments/{urn}",
+    response_model=experiment.Experiment,
+    responses={422: {}},
+    response_model_exclude_none=True,
 )
 async def update_experiment(
     *,
@@ -281,12 +348,17 @@ async def update_experiment(
     """
     Update an experiment.
     """
-    if item_update is None:
-        return None
+    save_to_logging_context({"requested_resource": urn})
+    logger.debug(msg="Began experiment update.", extra=logging_context())
+
     # item = db.query(Experiment).filter(Experiment.urn == urn).filter(Experiment.private.is_(False)).one_or_none()
     item = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
     if item is None:
+        logger.info(
+            msg="Failed to update experiment; The requested experiment does not exist.", extra=logging_context()
+        )
         raise HTTPException(status_code=404, detail=f"experiment with URN {urn} not found")
+
     assert_permission(user_data, item, Action.UPDATE)
 
     pairs = {
@@ -310,6 +382,7 @@ async def update_experiment(
             await find_or_create_contributor(db, contributor.orcid_id) for contributor in item_update.contributors or []
         ]
     except NonexistentOrcidUserError as e:
+        logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
         raise pydantic.ValidationError(
             [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
             model=experiment.ExperimentUpdate,
@@ -332,6 +405,7 @@ async def update_experiment(
         await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
         for identifier in item_update.secondary_publication_identifiers or []
     ] + primary_publication_identifiers
+
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
     primary_identifiers = [pub.identifier for pub in primary_publication_identifiers]
@@ -361,6 +435,8 @@ async def update_experiment(
     db.add(item)
     db.commit()
     db.refresh(item)
+
+    save_to_logging_context({"updated_resource": item.urn})
     return item
 
 
@@ -384,9 +460,16 @@ async def delete_experiment(
     communitcate to client whether the operation succeeded
     204 if successful but not returning content - likely going with this
     """
+    save_to_logging_context({"requested_resource": urn})
+
     item = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
     if not item:
+        logger.info(
+            msg="Could not delete the requested experiment; The requested experiment does not exist.",
+            extra=logging_context(),
+        )
         raise HTTPException(status_code=404, detail=f"experiment with URN '{urn}' not found.")
+
     assert_permission(user_data, item, Action.DELETE)
 
     db.delete(item)

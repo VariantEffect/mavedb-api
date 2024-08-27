@@ -1,0 +1,53 @@
+version: 1
+disable_existing_loggers: False
+
+root:
+  # Filtering of messages by level is done at the handler level by using NOTSET
+  # on the root logger to emit everything.  This lets us keep console output
+  # readable while emitting verbose output to alternate handlers.
+  level: NOTSET
+  propagate: true
+  handlers:
+    - console
+    - watchtower
+
+loggers:
+  urllib3:
+    level: INFO
+
+  botocore:
+    level: INFO
+
+  # HGVS emits a log line on startup, silence it.
+  hgvs:
+    level: WARNING
+
+  # To log all database queries, set this to INFO
+  sqlalchemy:
+    level: WARNING
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: !coalesce
+      - !LOG_LEVEL
+      - INFO
+    stream: ext://sys.stdout
+    formatter: json
+
+  watchtower:
+    class: watchtower.CloudWatchLogHandler
+    level: !coalesce
+      - !LOG_LEVEL
+      - INFO
+    log_group_name: !CLOUD_WATCH_LOG_GROUP
+    log_stream_name: "{machine_name}/{logger_name}/{strftime:%y-%m-%d}"
+    send_interval: 10
+    use_queues: !CLOUD_WATCH_USE_QUEUES
+    create_log_group: True
+    formatter: json
+
+formatters:
+  json:
+    class: mavedb.logging.MavedbJsonFormatter
+    format: "%(message)s"

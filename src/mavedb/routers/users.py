@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,12 +7,18 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import require_current_user, RoleRequirer
+from mavedb.lib.logging import LoggedRoute
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import assert_permission, Action
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.user import User
 from mavedb.view_models import user
 
-router = APIRouter(prefix="/api/v1", tags=["access keys"], responses={404: {"description": "Not found"}})
+router = APIRouter(
+    prefix="/api/v1", tags=["access keys"], responses={404: {"description": "Not found"}}, route_class=LoggedRoute
+)
+
+logger = logging.getLogger(__name__)
 
 
 # Trailing slash is deliberate
@@ -41,8 +48,10 @@ async def show_user(
     """
     Fetch a single user by ID.
     """
+    save_to_logging_context({"requested_user": id})
     item = db.query(User).filter(User.id == id).one_or_none()
     if not item:
+        logger.warning(msg="Could not show user; Requested user does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"User with ID {id} not found")
     return item
 
@@ -74,7 +83,7 @@ async def user_has_logged_in(
     user_data: UserData = Depends(require_current_user),
 ) -> Any:
     """
-    Update the current user's.
+    Update the current users log in state.
     """
     current_user = user_data.user
     assert_permission(user_data, current_user, Action.UPDATE)
@@ -97,8 +106,10 @@ async def update_user(
     """
     Update a user.
     """
+    save_to_logging_context({"requested_user": id})
     item = db.query(User).filter(User.id == id).one_or_none()
     if not item:
+        logger.warning(msg="Could not update user; Requested user does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"User with id {id} not found.")
 
     assert_permission(user_data, item, Action.UPDATE)

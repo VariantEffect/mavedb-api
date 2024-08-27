@@ -1,6 +1,7 @@
 import csv
 import io
 import re
+import logging
 from typing import Any, BinaryIO, Iterable, Optional, Sequence
 
 import numpy as np
@@ -18,6 +19,7 @@ from mavedb.lib.mave.constants import (
     VARIANT_SCORE_DATA,
 )
 from mavedb.lib.validation.constants.general import null_values_list
+from mavedb.lib.logging.context import save_to_logging_context, logging_context
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
@@ -29,7 +31,9 @@ from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeyw
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.publication_identifier import PublicationIdentifier
-from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
+from mavedb.models.score_set_publication_identifier import (
+    ScoreSetPublicationIdentifierAssociation,
+)
 from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.refseq_identifier import RefseqIdentifier
 from mavedb.models.score_set import ScoreSet
@@ -45,6 +49,8 @@ from mavedb.view_models.search import ScoreSetsSearch
 
 VariantData = dict[str, Optional[dict[str, dict]]]
 
+logger = logging.getLogger(__name__)
+
 
 class HGVSColumns:
     NUCLEOTIDE: str = "hgvs_nt"  # dataset.constants.hgvs_nt_column
@@ -57,6 +63,8 @@ class HGVSColumns:
 
 
 def search_score_sets(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
+    save_to_logging_context({"score_set_search_criteria": search.dict()})
+
     query = db.query(ScoreSet)  # \
     # .filter(ScoreSet.private.is_(False))
 
@@ -118,7 +126,8 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
                 ),
                 ScoreSet.publication_identifiers.any(
                     func.jsonb_path_exists(
-                        PublicationIdentifier.authors, f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")"""
+                        PublicationIdentifier.authors,
+                        f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")""",
                     )
                 ),
                 ScoreSet.doi_identifiers.any(func.lower(DoiIdentifier.identifier).icontains(lower_search_text)),
@@ -246,6 +255,10 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
     )
     if not score_sets:
         score_sets = []
+
+    save_to_logging_context({"matching_resources": len(score_sets)})
+    logger.debug(msg=f"Score set search yielded {len(score_sets)} matching resources.", extra=logging_context())
+
     return score_sets  # filter_visible_score_sets(score_sets)
 
 
@@ -294,7 +307,10 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
 
 
 def get_score_set_counts_as_csv(
-    db: Session, score_set: ScoreSet, start: Optional[int] = None, limit: Optional[int] = None
+    db: Session,
+    score_set: ScoreSet,
+    start: Optional[int] = None,
+    limit: Optional[int] = None,
 ) -> str:
     assert type(score_set.dataset_columns) is dict
     count_columns = [str(x) for x in list(score_set.dataset_columns.get("count_columns", []))]
@@ -321,7 +337,10 @@ def get_score_set_counts_as_csv(
 
 
 def get_score_set_scores_as_csv(
-    db: Session, score_set: ScoreSet, start: Optional[int] = None, limit: Optional[int] = None
+    db: Session,
+    score_set: ScoreSet,
+    start: Optional[int] = None,
+    limit: Optional[int] = None,
 ) -> str:
     assert type(score_set.dataset_columns) is dict
     score_columns = [str(x) for x in list(score_set.dataset_columns.get("score_columns", []))]

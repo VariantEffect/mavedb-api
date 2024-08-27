@@ -2,6 +2,9 @@ name: Run Tests (On Push)
 on:
   push:
 
+env:
+  LOG_CONFIG: test
+
 jobs:
   run-tests-3_9:
     runs-on: ubuntu-20.04
@@ -15,7 +18,7 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev --extras server
-    - run: poetry run pytest tests/
+    - run: poetry run pytest tests/ --show-capture=stdout
 
   run-tests-3_10:
     runs-on: ubuntu-latest
@@ -29,7 +32,7 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev --extras server
-    - run: poetry run pytest tests/
+    - run: poetry run pytest tests/ --show-capture=stdout
 
   run-tests-3_11:
     runs-on: ubuntu-latest
@@ -43,7 +46,7 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev --extras server
-    - run: poetry run pytest tests/
+    - run: poetry run pytest tests/ --show-capture=stdout
 
   run-mypy-3_10:
     runs-on: ubuntu-latest

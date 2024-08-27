@@ -18,6 +18,7 @@ services:
       REDIS_IP: redis
       REDIS_PORT: 6379
       REDIS_SSL: "false"
+      LOG_CONFIG: dev
     ports:
       - "8002:8000"
     volumes:
@@ -37,6 +38,7 @@ services:
       REDIS_IP: redis
       REDIS_PORT: 6379
       REDIS_SSL: "false"
+      LOG_CONFIG: dev
     volumes:
       - .:/code
     depends_on:

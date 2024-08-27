@@ -1,13 +1,17 @@
+import logging
 from enum import Enum
 from typing import Optional
 
 from mavedb.lib.authentication import UserData
+from mavedb.lib.logging.context import save_to_logging_context, logging_context
 from mavedb.db.base import Base
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
+
+logger = logging.getLogger(__name__)
 
 
 class Action(Enum):
@@ -27,6 +31,12 @@ class PermissionResponse:
         self.http_code = http_code if not permitted else None
         self.message = message if not permitted else None
 
+        save_to_logging_context({"permission_message": self.message, "access_permitted": self.permitted})
+        if self.permitted:
+            logger.debug(msg="Access to the requested resource is permitted.", extra=logging_context())
+        else:
+            logger.debug(msg="Access to the requested resource is not permitted.", extra=logging_context())
+
 
 class PermissionException(Exception):
     def __init__(self, http_code: int, message: str):
@@ -35,7 +45,10 @@ class PermissionException(Exception):
 
 
 def roles_permitted(user_roles: list[UserRole], permitted_roles: list[UserRole]) -> bool:
+    save_to_logging_context({"permitted_roles": [role.name for role in permitted_roles]})
+
     if not user_roles:
+        logger.debug(msg="User has no associated roles.", extra=logging_context())
         return False
 
     return any(role in permitted_roles for role in user_roles)
@@ -52,13 +65,25 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
         assert item.private is not None
         private = item.private
         published = item.published_date is not None
-
         user_is_owner = item.created_by_id == user_data.user.id if user_data is not None else False
-        user_may_edit = user_is_owner or (user_data is not None and user_data.user.username in [c.orcid_id for c in item.contributors])
+        user_may_edit = user_is_owner or (
+            user_data is not None and user_data.user.username in [c.orcid_id for c in item.contributors]
+        )
+
+        save_to_logging_context({"resource_is_published": published})
 
     if isinstance(item, User):
         user_is_self = item.id == user_data.user.id if user_data is not None else False
         user_may_edit = user_is_self
+
+    save_to_logging_context(
+        {
+            "resource_is_private": private,
+            "user_is_owner_of_resource": user_is_owner,
+            "user_is_may_edit_resource": user_may_edit,
+            "user_is_self": user_is_self,
+        }
+    )
 
     if isinstance(item, ExperimentSet):
         if action == Action.READ:
@@ -245,7 +270,9 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
 
 
 def assert_permission(user_data: Optional[UserData], item: Base, action: Action) -> PermissionResponse:
+    save_to_logging_context({"permission_boundary": action.name})
     permission = has_permission(user_data, item, action)
+
     if not permission.permitted:
         assert permission.http_code and permission.message
         raise PermissionException(http_code=permission.http_code, message=permission.message)

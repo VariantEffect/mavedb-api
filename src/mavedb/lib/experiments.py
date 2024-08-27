@@ -5,6 +5,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from mavedb.models.contributor import Contributor
+from mavedb.lib.logging.context import save_to_logging_context, logging_context
 from mavedb.models.experiment import Experiment
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
@@ -17,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 def search_experiments(db: Session, owner_or_contributor: Optional[User], search: ExperimentsSearch) -> list[Experiment]:
+    save_to_logging_context({"experiment_search_criteria": search.dict()})
+
     query = db.query(Experiment)
     # .filter(ScoreSet.private.is_(False))
 
@@ -56,7 +59,8 @@ def search_experiments(db: Session, owner_or_contributor: Optional[User], search
                 ),
                 Experiment.publication_identifiers.any(
                     func.jsonb_path_exists(
-                        PublicationIdentifier.authors, f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")"""
+                        PublicationIdentifier.authors,
+                        f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")""",
                     )
                 ),
             )
@@ -96,4 +100,8 @@ def search_experiments(db: Session, owner_or_contributor: Optional[User], search
     items: list[Experiment] = query.order_by(Experiment.title).all()
     if not items:
         items = []
+
+    save_to_logging_context({"matching_resources": len(items)})
+    logger.debug(msg="Experiment search yielded {len(items)} matching resources.", extra=logging_context())
+
     return items

@@ -1,0 +1,36 @@
+version: 1
+disable_existing_loggers: False
+
+root:
+  # Filtering of messages by level is done at the handler level by using NOTSET
+  # on the root logger to emit everything.  This lets us keep console output
+  # readable while emitting verbose output to alternate handlers.
+  level: NOTSET
+  propagate: true
+  handlers:
+    - console
+
+loggers:
+  urllib3:
+    level: ERROR
+
+  botocore:
+    level: ERROR
+
+  hgvs:
+    level: ERROR
+
+  sqlalchemy:
+    level: ERROR
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: WARNING
+    stream: ext://sys.stdout
+    formatter: json
+
+formatters:
+  json:
+    class: pythonjsonlogger.jsonlogger.JsonFormatter
+    format: "%(message)s"

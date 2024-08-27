@@ -1,4 +1,5 @@
 import secrets
+import logging
 from typing import Any
 
 from cryptography.hazmat.backends import default_backend as crypto_default_backend
@@ -12,18 +13,29 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import require_current_user
+from mavedb.lib.logging import LoggedRoute
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.models.access_key import AccessKey
 from mavedb.models.enums.user_role import UserRole
 from mavedb.view_models import access_key
 
-router = APIRouter(prefix="/api/v1", tags=["access keys"], responses={404: {"description": "Not found"}})
+router = APIRouter(
+    prefix="/api/v1",
+    tags=["access keys"],
+    responses={404: {"description": "Not found"}},
+    route_class=LoggedRoute,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def generate_key_pair():
     key = rsa.generate_private_key(backend=crypto_default_backend(), public_exponent=65537, key_size=2048)
 
     private_key = key.private_bytes(
-        crypto_serialization.Encoding.PEM, crypto_serialization.PrivateFormat.PKCS8, crypto_serialization.NoEncryption()
+        crypto_serialization.Encoding.PEM,
+        crypto_serialization.PrivateFormat.PKCS8,
+        crypto_serialization.NoEncryption(),
     )
 
     public_key = key.public_key().public_bytes(
@@ -34,7 +46,10 @@ def generate_key_pair():
 
 
 @router.get(
-    "/users/me/access-keys", status_code=200, response_model=list[access_key.AccessKey], responses={404: {}, 500: {}}
+    "/users/me/access-keys",
+    status_code=200,
+    response_model=list[access_key.AccessKey],
+    responses={404: {}, 500: {}},
 )
 def list_my_access_keys(*, user_data: UserData = Depends(require_current_user)) -> Any:
     """
@@ -44,10 +59,15 @@ def list_my_access_keys(*, user_data: UserData = Depends(require_current_user)) 
 
 
 @router.post(
-    "/users/me/access-keys", status_code=200, response_model=access_key.NewAccessKey, responses={404: {}, 500: {}}
+    "/users/me/access-keys",
+    status_code=200,
+    response_model=access_key.NewAccessKey,
+    responses={404: {}, 500: {}},
 )
 def create_my_access_key(
-    *, db: Session = Depends(deps.get_db), user_data: UserData = Depends(require_current_user)
+    *,
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(require_current_user),
 ) -> Any:
     """
     Create a new access key for the current user, with the default user role.
@@ -71,14 +91,26 @@ def create_my_access_key(
     responses={404: {}, 500: {}},
 )
 async def create_my_access_key_with_role(
-    *, role: UserRole, db: Session = Depends(deps.get_db), user_data: UserData = Depends(require_current_user)
+    *,
+    role: UserRole,
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(require_current_user),
 ) -> Any:
     """
     Create a new access key for the current user, with the specified role.
     """
+    save_to_logging_context({"requested_role": role.name})
     # Allow the user to create an access key for any of their potential roles, not just their active one.
     if not any(user_role == role for user_role in user_data.user.roles):
-        raise HTTPException(status_code=403, detail="User cannot create an API key for a role they do not have.")
+        logger.warning(
+            msg="Could not create API key for user; User does not belong to the requested role.",
+            extra=logging_context(),
+        )
+
+        raise HTTPException(
+            status_code=403,
+            detail="User cannot create an API key for a role they do not have.",
+        )
 
     private_key, public_key = generate_key_pair()
 
@@ -95,7 +127,10 @@ async def create_my_access_key_with_role(
 
 @router.delete("/users/me/access-keys/{key_id}", status_code=200, responses={404: {}, 500: {}})
 def delete_my_access_key(
-    *, key_id: str, db: Session = Depends(deps.get_db), user_data: UserData = Depends(require_current_user)
+    *,
+    key_id: str,
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(require_current_user),
 ) -> Any:
     """
     Delete one of the current user's access keys.
@@ -103,4 +138,5 @@ def delete_my_access_key(
     item = db.query(AccessKey).filter(AccessKey.key_id == key_id).one_or_none()
     if item and item.user.id == user_data.user.id:
         db.delete(item)
-    db.commit()
+        db.commit()
+        logger.debug(msg="Successfully deleted provided API key.", extra=logging_context())
