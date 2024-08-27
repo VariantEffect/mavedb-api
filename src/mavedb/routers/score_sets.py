@@ -62,7 +62,9 @@ from mavedb.view_models.search import ScoreSetsSearch
 logger = logging.getLogger(__name__)
 
 
-async def fetch_score_set_by_urn(db, urn: str, user: Optional[UserData], owner_or_contributor: Optional[UserData], only_published: bool) -> Optional[ScoreSet]:
+async def fetch_score_set_by_urn(
+    db, urn: str, user: Optional[UserData], owner_or_contributor: Optional[UserData], only_published: bool
+) -> Optional[ScoreSet]:
     """
     Fetch one score set by URN, ensuring that the user has read permission.
 
@@ -79,11 +81,13 @@ async def fetch_score_set_by_urn(db, urn: str, user: Optional[UserData], owner_o
     try:
         query = db.query(ScoreSet).filter(ScoreSet.urn == urn)
         if owner_or_contributor is not None:
-            query.filter(or_(
-                ScoreSet.private.is_(False),
-                ScoreSet.created_by_id == owner_or_contributor.user.id,
-                ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.user.username),
-            ))
+            query.filter(
+                or_(
+                    ScoreSet.private.is_(False),
+                    ScoreSet.created_by_id == owner_or_contributor.user.id,
+                    ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.user.username),
+                )
+            )
         if only_published:
             query.filter(ScoreSet.private.is_(False))
         item = query.one_or_none()
@@ -343,7 +347,9 @@ async def create_score_set(
 
     save_to_logging_context({"requested_superseded_score_set": item_create.superseded_score_set_urn})
     if item_create.superseded_score_set_urn is not None:
-        superseded_score_set = await fetch_score_set_by_urn(db, item_create.superseded_score_set_urn, user_data, user_data, True)
+        superseded_score_set = await fetch_score_set_by_urn(
+            db, item_create.superseded_score_set_urn, user_data, user_data, True
+        )
 
         if superseded_score_set is None:
             logger.info(
@@ -360,7 +366,10 @@ async def create_score_set(
     distinct_meta_analyzes_score_set_urns = list(set(item_create.meta_analyzes_score_set_urns or []))
     meta_analyzes_score_sets = [
         ss
-        for ss in [await fetch_score_set_by_urn(db, urn, user_data, None, True) for urn in distinct_meta_analyzes_score_set_urns]
+        for ss in [
+            await fetch_score_set_by_urn(db, urn, user_data, None, True)
+            for urn in distinct_meta_analyzes_score_set_urns
+        ]
         if ss is not None
     ]
 
@@ -420,7 +429,7 @@ async def create_score_set(
             )
 
         save_to_logging_context({"meta_analysis_experiment": experiment.urn})
-        logger.debug(f"Creating experiment within meta analysis experiment. {dump_context()}")
+        logger.debug(msg="Creating experiment within meta analysis experiment.", extra=logging_context())
 
     contributors: list[Contributor] = []
     try:
@@ -428,6 +437,7 @@ async def create_score_set(
             await find_or_create_contributor(db, contributor.orcid_id) for contributor in item_create.contributors or []
         ]
     except NonexistentOrcidUserError as e:
+        logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
         raise pydantic.ValidationError(
             [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
             model=score_set.ScoreSetCreate,
@@ -693,6 +703,7 @@ async def update_score_set(
                 for contributor in item_update.contributors or []
             ]
         except NonexistentOrcidUserError as e:
+            logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
             raise pydantic.ValidationError(
                 [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
                 model=score_set.ScoreSetUpdate,
@@ -887,6 +898,7 @@ async def update_score_set(
                 for contributor in item_update.contributors or []
             ]
         except NonexistentOrcidUserError as e:
+            logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
             raise pydantic.ValidationError(
                 [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
                 model=score_set.ScoreSetUpdate,

@@ -39,6 +39,7 @@ def lookup_orcid_user(
 
     Access is limited to signed-in users to prevent abuse.
     """
+    save_to_logging_context({"requested_resource": orcid_id})
     orcid_user = fetch_orcid_user(orcid_id)
     if orcid_user is None:
         return JSONResponse(
@@ -78,7 +79,7 @@ async def get_token_from_code(*, request: orcid.OrcidAuthTokenRequest) -> Any:
             expires_in = data["expires_in"]
             id_token = data["id_token"]
 
-            save_to_logging_context({"token_type": token_type, "expires_in": expires_in})
+            save_to_logging_context({"token_type": token_type})
 
             if token_type is None or token_type.lower() != "bearer":
                 logger.warning(

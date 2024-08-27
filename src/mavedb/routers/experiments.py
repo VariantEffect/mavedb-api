@@ -232,13 +232,13 @@ async def create_experiment(
 
         logger.debug(msg="Creating experiment within existing experiment set.", extra=logging_context())
 
-
     contributors: list[Contributor] = []
     try:
         contributors = [
             await find_or_create_contributor(db, contributor.orcid_id) for contributor in item_create.contributors or []
         ]
     except NonexistentOrcidUserError as e:
+        logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
         raise pydantic.ValidationError(
             [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
             model=experiment.ExperimentCreate,
@@ -321,7 +321,7 @@ async def create_experiment(
         raw_read_identifiers=raw_read_identifiers,
         created_by=user_data.user,
         modified_by=user_data.user,
-        keyword_objs=keywords
+        keyword_objs=keywords,
     )  # type: ignore
 
     db.add(item)
@@ -382,6 +382,7 @@ async def update_experiment(
             await find_or_create_contributor(db, contributor.orcid_id) for contributor in item_update.contributors or []
         ]
     except NonexistentOrcidUserError as e:
+        logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
         raise pydantic.ValidationError(
             [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
             model=experiment.ExperimentUpdate,

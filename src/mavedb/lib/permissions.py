@@ -66,7 +66,9 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
         private = item.private
         published = item.published_date is not None
         user_is_owner = item.created_by_id == user_data.user.id if user_data is not None else False
-        user_may_edit = user_is_owner or (user_data is not None and user_data.user.username in [c.orcid_id for c in item.contributors])
+        user_may_edit = user_is_owner or (
+            user_data is not None and user_data.user.username in [c.orcid_id for c in item.contributors]
+        )
 
         save_to_logging_context({"resource_is_published": published})
 
@@ -78,6 +80,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
         {
             "resource_is_private": private,
             "user_is_owner_of_resource": user_is_owner,
+            "user_is_may_edit_resource": user_may_edit,
             "user_is_self": user_is_self,
         }
     )
