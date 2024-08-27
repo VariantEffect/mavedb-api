@@ -6,6 +6,7 @@ TEST_PUBMED_IDENTIFIER = "20711194"
 TEST_BIORXIV_IDENTIFIER = "2021.06.21.212592"
 TEST_MEDRXIV_IDENTIFIER = "2021.06.22.21259265"
 TEST_CROSSREF_IDENTIFIER = "10.1371/2021.06.22.21259265"
+TEST_ORCID_ID = "1111-1111-1111-1111"
 
 VALID_ACCESSION = "NM_001637.3"
 VALID_GENE = "BRCA1"
@@ -201,6 +202,7 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
     "scoreSetUrns": [],
+    "contributors": [],
     "keywords": [],
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
@@ -229,6 +231,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
     "scoreSetUrns": [],
+    "contributors": [],
     "keywords": [{
                 "keyword": {
                     "key": "Delivery method",
@@ -266,6 +269,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
     "scoreSetUrns": [],
+    "contributors": [],
     "keywords": [
         {
             "keyword": {
@@ -414,6 +418,7 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     ],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
+    "contributors": [],
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],

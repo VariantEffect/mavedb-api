@@ -2,9 +2,13 @@ import logging
 import os
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 import httpx
+from starlette.responses import JSONResponse
 
+from mavedb.lib.authorization import require_current_user
+from mavedb.lib.orcid import fetch_orcid_user
+from mavedb.models.user import User
 from mavedb.view_models import orcid
 
 logger = logging.getLogger(__name__)
@@ -13,6 +17,29 @@ router = APIRouter(prefix="/api/v1/orcid", tags=["orcid"], responses={404: {"des
 
 ORCID_CLIENT_ID = os.getenv("ORCID_CLIENT_ID")
 ORCID_CLIENT_SECRET = os.getenv("ORCID_CLIENT_SECRET")
+
+
+@router.get("/users/{orcid_id}", status_code=200, response_model=orcid.OrcidUser)
+def lookup_orcid_user(
+    orcid_id: str,
+    user: User = Depends(require_current_user),
+) -> Any:
+    """
+    Look an ORCID user up by ORCID ID.
+
+    This capability is needed when adding contributors to an experiment or score set, who may not necessarily be MaveDB
+    users.
+
+    Access is limited to signed-in users to prevent abuse.
+    """
+    orcid_user = fetch_orcid_user(orcid_id)
+    if orcid_user is None:
+        return JSONResponse(
+            status_code=404,
+            content={},
+        )
+    else:
+        return orcid_user
 
 
 @router.post(
@@ -46,7 +73,7 @@ async def get_token_from_code(*, request: orcid.OrcidAuthTokenRequest) -> Any:
 
             if token_type is None or token_type.lower() != "bearer":
                 logger.warning(
-                    f"Unexpected token type \"{token_type}\" received from ORCID when exchanging code for token."
+                    f'Unexpected token type "{token_type}" received from ORCID when exchanging code for token.'
                 )
 
             return {

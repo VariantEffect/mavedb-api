@@ -1,6 +1,7 @@
 import re
 from copy import deepcopy
 from datetime import date
+from unittest.mock import patch
 
 import jsonschema
 import pytest
@@ -12,7 +13,9 @@ from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
+from mavedb.view_models.orcid import OrcidUser
 from tests.helpers.util import (
+    add_contributor,
     change_ownership,
     create_experiment,
     create_seq_score_set,
@@ -28,7 +31,9 @@ from tests.helpers.constants import (
     TEST_MEDRXIV_IDENTIFIER,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_EXPERIMENT_RESPONSE,
+    TEST_ORCID_ID,
     TEST_PUBMED_IDENTIFIER,
+    TEST_USER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 
@@ -46,6 +51,34 @@ def test_create_minimal_experiment(client, setup_router_db):
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
     expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+
+
+def test_create_experiment_with_contributor(client, setup_router_db):
+    experiment = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    experiment.update({"contributors": [{"orcid_id": TEST_ORCID_ID}]})
+
+    with patch(
+        "mavedb.lib.orcid.fetch_orcid_user",
+        lambda orcid_id: OrcidUser(orcid_id=orcid_id, given_name="ORCID", family_name="User"),
+    ):
+        response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
+    expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
+    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
+    expected_response["contributors"] = [
+        {
+            "orcidId": TEST_ORCID_ID,
+            "givenName": "ORCID",
+            "familyName": "User",
+        }
+    ]
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
@@ -604,6 +637,37 @@ def test_anonymous_cannot_update_other_users_private_experiment(
         ("methodText", "Edited Methods"),
     ],
 )
+def test_contributor_can_update_other_users_private_experiment(
+    session, client, test_field, test_value, setup_router_db
+):
+    experiment = create_experiment(client)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    add_contributor(
+        session,
+        experiment["urn"],
+        ExperimentDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    experiment_post_payload = experiment.copy()
+    experiment_post_payload.update({test_field: test_value, "urn": experiment["urn"]})
+    response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    assert (test_field, response_data[test_field]) == (test_field, test_value)
+
+
+@pytest.mark.parametrize(
+    "test_field,test_value",
+    [
+        ("title", "Edited Title"),
+        ("shortDescription", "Edited Short Description"),
+        ("abstractText", "Edited Abstract"),
+        ("methodText", "Edited Methods"),
+    ],
+)
 def test_admin_can_update_other_users_private_experiment(
     client, admin_app_overrides, setup_router_db, test_field, test_value
 ):
@@ -1028,12 +1092,50 @@ def test_cannot_delete_own_published_experiment(session, data_provider, client, 
     assert f"insufficient permissions for URN '{experiment_urn}'" in del_response_data["detail"]
 
 
+def test_contributor_can_delete_other_users_private_experiment(session, client, setup_router_db, admin_app_overrides):
+    experiment = create_experiment(client)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    add_contributor(
+        session,
+        experiment["urn"],
+        ExperimentDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert response.status_code == 200
+
+
 def test_admin_can_delete_other_users_private_experiment(session, client, setup_router_db, admin_app_overrides):
     experiment = create_experiment(client)
     with DependencyOverrider(admin_app_overrides):
         response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
 
     assert response.status_code == 200
+
+
+def test_contributor_can_delete_other_users_published_experiment(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    client.post(f"/api/v1/experiments/{score_set['urn']}/publish")
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    add_contributor(
+        session,
+        experiment["urn"],
+        ExperimentDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    del_response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert del_response.status_code == 200
 
 
 def test_admin_can_delete_other_users_published_experiment(

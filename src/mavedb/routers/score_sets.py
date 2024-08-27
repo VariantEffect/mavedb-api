@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, status, UploadFile, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
+import pydantic
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import MultipleResultsFound
@@ -15,6 +16,8 @@ from sqlalchemy.exc import MultipleResultsFound
 from mavedb import deps
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import get_current_user, require_current_user, require_current_user_with_email
+from mavedb.lib.contributors import find_or_create_contributor
+from mavedb.lib.exceptions import NonexistentOrcidUserError, ValidationError
 from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
     find_or_create_doi_identifier,
@@ -33,6 +36,7 @@ from mavedb.lib.score_sets import (
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.urns import generate_experiment_set_urn, generate_experiment_urn, generate_score_set_urn
 from mavedb.lib.exceptions import MixedTargetError
+from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
@@ -50,26 +54,38 @@ from mavedb.view_models.search import ScoreSetsSearch
 logger = logging.getLogger(__name__)
 
 
-async def fetch_score_set_by_urn(db, urn: str, owner: Optional[UserData]) -> Optional[ScoreSet]:
+async def fetch_score_set_by_urn(db, urn: str, user: Optional[UserData], owner_or_contributor: Optional[UserData], only_published: bool) -> Optional[ScoreSet]:
     """
-    Fetch one score set by URN, ensuring that it is either published or owned by a specified user.
+    Fetch one score set by URN, ensuring that the user has read permission.
 
     :param db: An active database session.
     :param urn: The score set URN.
-    :param owner: A user whose private score sets may be included in the search. If None, then the score set will only
-        be returned if it is public.
+    :param user: The user who has requested the score set. If the user does not have read permission, the score set will
+      not be returned. If None, the score set is returned only if publicly visible.
+    :param owner_or_contributor: If not None, require that the result be a score set of which this user is owner or
+      contributor.
+    :param only_published: If true, only return the score set if it is published.
     :return: The score set, or None if the URL was not found or refers to a private score set not owned by the specified
         user.
     """
     try:
-        item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
+        query = db.query(ScoreSet).filter(ScoreSet.urn == urn)
+        if owner_or_contributor is not None:
+            query.filter(or_(
+                ScoreSet.private.is_(False),
+                ScoreSet.created_by_id == owner_or_contributor.user.id,
+                ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.user.username),
+            ))
+        if only_published:
+            query.filter(ScoreSet.private.is_(False))
+        item = query.one_or_none()
     except MultipleResultsFound:
         raise HTTPException(status_code=500, detail=f"multiple score sets with URN '{urn}' were found")
 
     if not item:
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
-    assert_permission(owner, item, Action.READ)
+    assert_permission(user, item, Action.READ)
     return item
 
 
@@ -112,7 +128,7 @@ async def show_score_set(
     Fetch a single score set by URN.
     """
 
-    return await fetch_score_set_by_urn(db, urn, user_data)
+    return await fetch_score_set_by_urn(db, urn, user_data, None, False)
 
 
 @router.get(
@@ -254,7 +270,8 @@ async def create_score_set(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
 
     if item_create.superseded_score_set_urn is not None:
-        superseded_score_set = await fetch_score_set_by_urn(db, item_create.superseded_score_set_urn, user_data)
+        superseded_score_set = await fetch_score_set_by_urn(db, item_create.superseded_score_set_urn, user_data, user_data, True)
+
         if superseded_score_set is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown superseded score set")
     else:
@@ -263,7 +280,7 @@ async def create_score_set(
     distinct_meta_analyzes_score_set_urns = list(set(item_create.meta_analyzes_score_set_urns or []))
     meta_analyzes_score_sets = [
         ss
-        for ss in [await fetch_score_set_by_urn(db, urn, None) for urn in distinct_meta_analyzes_score_set_urns]
+        for ss in [await fetch_score_set_by_urn(db, urn, user_data, None, True) for urn in distinct_meta_analyzes_score_set_urns]
         if ss is not None
     ]
 
@@ -316,6 +333,17 @@ async def create_score_set(
                 created_by=user_data.user,
                 modified_by=user_data.user,
             )
+
+    contributors: list[Contributor] = []
+    try:
+        contributors = [
+            await find_or_create_contributor(db, contributor.orcid_id) for contributor in item_create.contributors or []
+        ]
+    except NonexistentOrcidUserError as e:
+        raise pydantic.ValidationError(
+            [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
+            model=score_set.ScoreSetCreate,
+        )
 
     doi_identifiers = [
         await find_or_create_doi_identifier(db, identifier.identifier)
@@ -401,6 +429,7 @@ async def create_score_set(
             item_create,
             by_alias=False,
             exclude={
+                "contributors",
                 "doi_identifiers",
                 "experiment_urn",
                 "license_id",
@@ -416,6 +445,7 @@ async def create_score_set(
         superseded_score_set=superseded_score_set,
         meta_analyzes_score_sets=meta_analyzes_score_sets,
         target_genes=targets,
+        contributors=contributors,
         doi_identifiers=doi_identifiers,
         publication_identifiers=publication_identifiers,
         processing_state=ProcessingState.incomplete,
@@ -508,6 +538,7 @@ async def update_score_set(
 
         for var, value in vars(item_update).items():
             if var not in [
+                "contributors",
                 "doi_identifiers",
                 "experiment_urn",
                 "license_id",
@@ -516,6 +547,17 @@ async def update_score_set(
                 "target_genes",
             ]:
                 setattr(item, var, value) if value else None
+
+        try:
+            item.contributors = [
+                await find_or_create_contributor(db, contributor.orcid_id)
+                for contributor in item_update.contributors or []
+            ]
+        except NonexistentOrcidUserError as e:
+            raise pydantic.ValidationError(
+                [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
+                model=score_set.ScoreSetUpdate,
+            )
 
         item.doi_identifiers = [
             await find_or_create_doi_identifier(db, identifier.identifier)
@@ -631,6 +673,7 @@ async def update_score_set(
 
         for var, value in vars(item_update).items():
             if var not in [
+                "contributors",
                 "doi_identifiers",
                 "experiment_urn",
                 "primary_publication_identifiers",
@@ -644,6 +687,16 @@ async def update_score_set(
         for var, value in vars(item_update).items():
             if var in ["title", "method_text", "abstract_text", "short_description"]:
                 setattr(item, var, value) if value else None
+        try:
+            item.contributors = [
+                await find_or_create_contributor(db, contributor.orcid_id)
+                for contributor in item_update.contributors or []
+            ]
+        except NonexistentOrcidUserError as e:
+            raise pydantic.ValidationError(
+                [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
+                model=score_set.ScoreSetUpdate,
+            )
 
     db.add(item)
     db.commit()

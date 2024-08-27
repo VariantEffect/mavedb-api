@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 from mavedb.db.base import Base
 from mavedb.lib.temp_urns import generate_temp_urn
+from mavedb.models.contributor import Contributor
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.controlled_keyword import ControlledKeyword
@@ -24,6 +25,12 @@ from mavedb.models.publication_identifier import PublicationIdentifier
 if TYPE_CHECKING:
     from mavedb.models.score_set import ScoreSet
 
+experiments_contributors_association_table = Table(
+    "experiment_contributors",
+    Base.metadata,
+    Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
+    Column("contributor_id", ForeignKey("contributors.id"), primary_key=True),
+)
 
 experiments_doi_identifiers_association_table = Table(
     "experiment_doi_identifiers",
@@ -78,6 +85,9 @@ class Experiment(Base):
     modified_by: Mapped[User] = relationship("User", foreign_keys="Experiment.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
+    contributors: Mapped[list["Contributor"]] = relationship(
+        "Contributor", secondary=experiments_contributors_association_table, backref="experiments"
+    )
     keyword_objs: Mapped[list["ExperimentControlledKeywordAssociation"]] = relationship(
         back_populates="experiment", cascade="all, delete-orphan"
     )
@@ -185,4 +195,5 @@ def create_parent_object(mapper, connect, target):
             num_experiments=1,
             created_by=target.created_by,
             modified_by=target.modified_by,
+            contributors=target.contributors,
         )

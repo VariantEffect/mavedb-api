@@ -45,6 +45,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
     private = False
     user_is_owner = False
     user_is_self = False
+    user_may_edit = False
     active_roles = user_data.active_roles if user_data else []
 
     if isinstance(item, ExperimentSet) or isinstance(item, Experiment) or isinstance(item, ScoreSet):
@@ -53,13 +54,15 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
         published = item.published_date is not None
 
         user_is_owner = item.created_by_id == user_data.user.id if user_data is not None else False
+        user_may_edit = user_is_owner or (user_data is not None and user_data.user.username in [c.orcid_id for c in item.contributors])
 
     if isinstance(item, User):
         user_is_self = item.id == user_data.user.id if user_data is not None else False
+        user_may_edit = user_is_self
 
     if isinstance(item, ExperimentSet):
         if action == Action.READ:
-            if user_is_owner or not private:
+            if user_may_edit or not private:
                 return PermissionResponse(True)
             # Roles which may perform this operation.
             elif roles_permitted(active_roles, [UserRole.admin]):
@@ -70,7 +73,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             else:
                 return PermissionResponse(False)
         elif action == Action.UPDATE:
-            if user_is_owner:
+            if user_may_edit:
                 return PermissionResponse(True)
             # Roles which may perform this operation.
             elif roles_permitted(active_roles, [UserRole.admin]):
@@ -82,7 +85,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(False)
         elif action == Action.DELETE:
             # Owner may only delete an experiment set if it has not already been published.
-            if user_is_owner:
+            if user_may_edit:
                 return PermissionResponse(not published, 403, f"insufficient permissions for URN '{item.urn}'")
             # Roles which may perform this operation.
             elif roles_permitted(active_roles, [UserRole.admin]):
@@ -94,7 +97,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(False)
         elif action == Action.ADD_EXPERIMENT:
             return PermissionResponse(
-                user_is_owner or roles_permitted(active_roles, [UserRole.admin]),
+                user_may_edit or roles_permitted(active_roles, [UserRole.admin]),
                 404 if private else 403,
                 (
                     f"experiment set with URN '{item.urn}' not found"
@@ -107,7 +110,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
 
     elif isinstance(item, Experiment):
         if action == Action.READ:
-            if user_is_owner or not private:
+            if user_may_edit or not private:
                 return PermissionResponse(True)
             # Roles which may perform this operation.
             elif roles_permitted(active_roles, [UserRole.admin]):
@@ -118,7 +121,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             else:
                 return PermissionResponse(False)
         elif action == Action.UPDATE:
-            if user_is_owner:
+            if user_may_edit:
                 return PermissionResponse(True)
             # Roles which may perform this operation.
             elif roles_permitted(active_roles, [UserRole.admin]):
@@ -130,7 +133,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(False)
         elif action == Action.DELETE:
             # Owner may only delete an experiment if it has not already been published.
-            if user_is_owner:
+            if user_may_edit:
                 return PermissionResponse(not published, 403, f"insufficient permissions for URN '{item.urn}'")
             # Roles which may perform this operation.
             elif roles_permitted(active_roles, [UserRole.admin]):
@@ -142,7 +145,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(False)
         elif action == Action.ADD_SCORE_SET:
             return PermissionResponse(
-                (user_is_owner or roles_permitted(active_roles, [UserRole.admin])),
+                (user_may_edit or roles_permitted(active_roles, [UserRole.admin])),
                 404 if private else 403,
                 (
                     f"experiment with URN '{item.urn}' not found"
@@ -155,7 +158,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
 
     elif isinstance(item, ScoreSet):
         if action == Action.READ:
-            if user_is_owner or not private:
+            if user_may_edit or not private:
                 return PermissionResponse(True)
             # Roles which may perform this operation.
             elif roles_permitted(active_roles, [UserRole.admin]):
@@ -166,7 +169,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             else:
                 return PermissionResponse(False)
         elif action == Action.UPDATE:
-            if user_is_owner:
+            if user_may_edit:
                 return PermissionResponse(True)
             # Roles which may perform this operation.
             elif roles_permitted(active_roles, [UserRole.admin]):
@@ -178,7 +181,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(False)
         elif action == Action.DELETE:
             # Owner may only delete a score set if it has not already been published.
-            if user_is_owner:
+            if user_may_edit:
                 return PermissionResponse(not published, 403, f"insufficient permissions for URN '{item.urn}'")
             # Roles which may perform this operation.
             elif roles_permitted(active_roles, [UserRole.admin]):
@@ -190,7 +193,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(False)
         # Only the owner may publish a private score set.
         elif action == Action.PUBLISH:
-            if user_is_owner:
+            if user_may_edit:
                 return PermissionResponse(True)
             elif roles_permitted(active_roles, []):
                 return PermissionResponse(True)
@@ -201,7 +204,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(False)
         elif action == Action.SET_SCORES:
             return PermissionResponse(
-                (user_is_owner or roles_permitted(active_roles, [UserRole.admin])),
+                (user_may_edit or roles_permitted(active_roles, [UserRole.admin])),
                 404 if private else 403,
                 (
                     f"score set with URN '{item.urn}' not found"
