@@ -12,9 +12,9 @@ async def find_or_create_taxonomy(db: Session, taxonomy: TaxonomyCreate):
     Find an existing taxonomy ID record with the specified tax_id int, or create a new one.
 
     :param db: An active database session
-    :param tax_id: A valid taxonomy ID from NCBI
     :param taxonomy: A TaxonomyCreate object containing the taxonomy details to search for or create.
     :return: An existing Taxonomy containing the specified taxonomy ID, or a new, unsaved Taxonomy
+    tax_id: A valid taxonomy ID from NCBI
     """
     taxonomy_record = db.query(Taxonomy).filter(Taxonomy.tax_id == taxonomy.tax_id).one_or_none()
     if not taxonomy_record:
