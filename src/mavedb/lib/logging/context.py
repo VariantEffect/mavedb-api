@@ -106,6 +106,6 @@ def format_raised_exception_info_as_dict(err: BaseException) -> dict:
 
     # We did our best to construct useful traceback info
     except IndexError:
-        exc_ctx["captured_exception_info"]["stringified"] = str(err)
+        pass
 
     return exc_ctx
