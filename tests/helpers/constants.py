@@ -6,6 +6,7 @@ TEST_PUBMED_IDENTIFIER = "20711194"
 TEST_BIORXIV_IDENTIFIER = "2021.06.21.212592"
 TEST_MEDRXIV_IDENTIFIER = "2021.06.22.21259265"
 TEST_CROSSREF_IDENTIFIER = "10.1371/2021.06.22.21259265"
+TEST_ORCID_ID = "1111-1111-1111-1111"
 
 VALID_ACCESSION = "NM_001637.3"
 VALID_GENE = "BRCA1"
@@ -55,6 +56,8 @@ ADMIN_USER = {
     "is_first_login": True,
 }
 
+TEST_DESCRIPTION = 'description'
+
 ADMIN_USER_DECODED_JWT = {
     "sub": ADMIN_USER["username"],
     "given_name": ADMIN_USER["first_name"],
@@ -66,6 +69,112 @@ TEST_EXPERIMENT = {
     "short_description": "Test experiment",
     "abstract_text": "Abstract",
     "method_text": "Methods",
+}
+
+# Add to db for testing.
+TEST_DB_KEYWORDS = [
+    {
+        "key": "Variant Library Creation Method",
+        "value": "Endogenous locus library method",
+        "special": False,
+        "description": "Description"
+    },
+    {
+        "key": "Variant Library Creation Method",
+        "value": "In vitro construct library method",
+        "special": False,
+        "description": "Description"
+    },
+    {
+        "key": "Variant Library Creation Method",
+        "value": "Other",
+        "special": False,
+        "description": "Description"
+    },
+    {
+        "key": "Endogenous Locus Library Method System",
+        "value": "SaCas9",
+        "special": False,
+        "description": "Description"
+    },
+    {
+        "key": "Endogenous Locus Library Method Mechanism",
+        "value": "Base editor",
+        "special": False,
+        "description": "Description"
+    },
+    {
+        "key": "In Vitro Construct Library Method System",
+        "value": "Oligo-directed mutagenic PCR",
+        "special": False,
+        "description": "Description"
+    },
+    {
+        "key": "In Vitro Construct Library Method Mechanism",
+        "value": "Native locus replacement",
+        "special": False,
+        "description": "Description"
+    },
+    {
+        "key": "Delivery method",
+        "value": "Other",
+        "special": False,
+        "description": "Description"
+    }
+]
+
+TEST_KEYWORDS = [
+    {
+        "keyword": {
+            "key": "Variant Library Creation Method",
+            "value": "Endogenous locus library method",
+            "special": False,
+            "description": "Description"
+        },
+    },
+    {
+        "keyword": {
+            "key": "Endogenous Locus Library Method System",
+            "value": "SaCas9",
+            "special": False,
+            "description": "Description"
+        },
+    },
+    {
+        "keyword": {
+            "key": "Endogenous Locus Library Method Mechanism",
+            "value": "Base editor",
+            "special": False,
+            "description": "Description"
+        },
+    },
+    {
+        "keyword": {
+            "key": "Delivery method",
+            "value": "Other",
+            "special": False,
+            "description": "Description"
+        },
+        "description": "Details of delivery method"
+    },
+]
+
+TEST_EXPERIMENT_WITH_KEYWORD = {
+    "title": "Test Experiment Title",
+    "shortDescription": "Test experiment",
+    "abstractText": "Abstract",
+    "methodText": "Methods",
+    "keywords": [
+        {
+            "keyword": {
+                "key": "Delivery method",
+                "value": "Other",
+                "special": False,
+                "description": "Description"
+            },
+            "description": "Details of delivery method"
+        },
+    ]
 }
 
 TEST_MINIMAL_EXPERIMENT = {
@@ -93,7 +202,94 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
     "scoreSetUrns": [],
+    "contributors": [],
     "keywords": [],
+    "doiIdentifiers": [],
+    "primaryPublicationIdentifiers": [],
+    "secondaryPublicationIdentifiers": [],
+    "rawReadIdentifiers": [],
+    # keys to be set after receiving response
+    "urn": None,
+    "experimentSetUrn": None,
+}
+
+TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
+    "title": "Test Experiment Title",
+    "shortDescription": "Test experiment",
+    "abstractText": "Abstract",
+    "methodText": "Methods",
+    "createdBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "modifiedBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
+    "scoreSetUrns": [],
+    "contributors": [],
+    "keywords": [{
+                "keyword": {
+                    "key": "Delivery method",
+                    "value": "Other",
+                    "special": False,
+                    "description": "Description"
+                },
+                "description": "Details of delivery method"
+            },
+    ],
+    "doiIdentifiers": [],
+    "primaryPublicationIdentifiers": [],
+    "secondaryPublicationIdentifiers": [],
+    "rawReadIdentifiers": [],
+    # keys to be set after receiving response
+    "urn": None,
+    "experimentSetUrn": None,
+}
+
+TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
+    "title": "Test Experiment Title",
+    "shortDescription": "Test experiment",
+    "abstractText": "Abstract",
+    "methodText": "Methods",
+    "createdBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "modifiedBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
+    "scoreSetUrns": [],
+    "contributors": [],
+    "keywords": [
+        {
+            "keyword": {
+                "key": "Variant Library Creation Method",
+                "value": "Other",
+                "special": False,
+                "description": "Description"
+            },
+            "description": "Description"
+        },
+        {
+            "keyword": {
+                "key": "Delivery method",
+                "value": "Other",
+                "special": False,
+                "description": "Description"
+            },
+            "description": "Description"
+        },
+    ],
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
@@ -148,7 +344,6 @@ TEST_SEQ_SCORESET = {
         }
     ],
 }
-
 
 TEST_MINIMAL_SEQ_SCORESET = {
     "title": "Test Score Set Title",
@@ -223,7 +418,7 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     ],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
-    "keywords": [],
+    "contributors": [],
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
@@ -235,7 +430,6 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "urn": None,
     "processingState": ProcessingState.incomplete.name,
 }
-
 
 TEST_MINIMAL_ACC_SCORESET = {
     "title": "Test Score Set Acc Title",
@@ -252,7 +446,6 @@ TEST_MINIMAL_ACC_SCORESET = {
         }
     ],
 }
-
 
 TEST_ACC_SCORESET = {
     "title": "Test Score Set Acc Title",
@@ -298,7 +491,6 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     ],
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
-    "keywords": [],
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
@@ -309,7 +501,6 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     "urn": None,
     "processingState": ProcessingState.incomplete.name,
 }
-
 
 TEST_CDOT_TRANSCRIPT = {
     "start_codon": 0,

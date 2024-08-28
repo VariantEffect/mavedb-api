@@ -3,10 +3,12 @@ from unittest.mock import patch
 import cdot.hgvs.dataproviders
 import pytest
 from humps import camelize
+from mavedb.models.controlled_keyword import ControlledKeyword
 
 from tests.helpers.constants import (
     TEST_BIORXIV_IDENTIFIER,
     TEST_CDOT_TRANSCRIPT,
+    TEST_KEYWORDS,
     TEST_MEDRXIV_IDENTIFIER,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET,
@@ -73,7 +75,6 @@ def test_empty_database_statistics(client):
         "record/experiment/raw-read-identifiers",
         "record/experiment/created-by",
         "record/score-set/publication-identifiers",
-        "record/score-set/keywords",
         "record/score-set/doi-identifiers",
         "record/score-set/raw-read-identifiers",
         "record/score-set/created-by",
@@ -265,23 +266,26 @@ def test_record_publication_identifier_statistics(
     assert response.json()[desired_db_value][desired_field_value] == 1
 
 
-@pytest.mark.parametrize("model_value", RECORD_MODELS)
-def test_record_keyword_statistics(session, data_provider, client, setup_router_db, model_value, data_files):
-    """Test record model statistics for keywords endpoint for published experiments and score sets."""
-    record_update = {"keywords": ["test_keyword"]}
-
+def test_record_keyword_statistics(session, data_provider, client, setup_router_db, data_files):
+    """
+    Test record model statistics for keywords endpoint for published experiments.
+    Score set does not have controlled keyword.
+    Experiment._find_keyword does not have create new keyword function anymore.
+    Hence we need temporary keywords in mock database to do the test.
+    """
+    record_update = {"keywords": TEST_KEYWORDS}
     # Create experiment and score set resources. The fixtures are more useful for the simple cases that don't need scoreset / experiment
     # updates. Folding these more complex setup steps into a fixture is more trouble than it's worth.
     experiment = create_experiment(client, record_update)
     score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv", record_update
-    )
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv")
 
     publish_score_set(client, score_set["urn"])
 
-    response = client.get(f"/api/v1/statistics/record/{model_value}/keywords")
-    desired_field_value = "test_keyword"
-    assert_statistic(desired_field_value, response)
+    response = client.get(f"/api/v1/statistics/record/experiment/keywords")
+    desired_field_values = ["SaCas9", "Endogenous locus library method", "Base editor", "Other"]
+    for desired_field_value in desired_field_values:
+        assert_statistic(desired_field_value, response)
 
 
 @pytest.mark.parametrize("model_value", RECORD_MODELS)

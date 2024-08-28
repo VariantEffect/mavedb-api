@@ -4,6 +4,7 @@ from pydantic.types import Optional
 
 from .base.base import BaseModel
 
+
 class TaxonomyBase(BaseModel):
     tax_id: int
     organism_name: Optional[str]
@@ -17,6 +18,7 @@ class TaxonomyBase(BaseModel):
 class TaxonomyCreate(TaxonomyBase):
     pass
 
+
 class TaxonomyUpdate(TaxonomyBase):
     pass
 
@@ -29,9 +31,11 @@ class SavedTaxonomy(TaxonomyBase):
     class Config:
         orm_mode = True
 
+
 # Properties to return to non-admin clients
 class Taxonomy(SavedTaxonomy):
     pass
+
 
 # Properties to return to admin clients
 class AdminTaxonomy(SavedTaxonomy):

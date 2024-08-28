@@ -145,11 +145,19 @@ async def arq_worker(data_provider, session, arq_redis):
     """
 
     async def on_startup(ctx):
+        pass
+
+    async def on_job(ctx):
         ctx["db"] = session
         ctx["hdp"] = data_provider
 
     worker_ = Worker(
-        functions=[create_variants_for_score_set], redis_pool=arq_redis, burst=True, poll_delay=0, on_startup=on_startup
+        functions=[create_variants_for_score_set],
+        redis_pool=arq_redis,
+        burst=True,
+        poll_delay=0,
+        on_startup=on_startup,
+        on_job_start=on_job,
     )
     # `fakeredis` does not support `INFO`
     with patch("arq.worker.log_redis_info"):
@@ -161,7 +169,7 @@ async def arq_worker(data_provider, session, arq_redis):
 
 @pytest.fixture
 def standalone_worker_context(session, data_provider):
-    yield {"db": session, "hdp": data_provider}
+    yield {"db": session, "hdp": data_provider, "state": {}, "job_id": "test_job"}
 
 
 @pytest.fixture()

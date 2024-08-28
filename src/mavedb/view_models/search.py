@@ -9,6 +9,7 @@ class ExperimentsSearch(BaseModel):
     databases: Optional[list[str]]
     journals: Optional[list[str]]
     publication_identifiers: Optional[list[str]]
+    keywords: Optional[list[str]]
     text: Optional[str]
 
 
@@ -22,6 +23,7 @@ class ScoreSetsSearch(BaseModel):
     databases: Optional[list[str]]
     journals: Optional[list[str]]
     publication_identifiers: Optional[list[str]]
+    keywords: Optional[list[str]]
     text: Optional[str]
 
 

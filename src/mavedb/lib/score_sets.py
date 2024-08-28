@@ -1,6 +1,7 @@
 import csv
 import io
 import re
+import logging
 from typing import Any, BinaryIO, Iterable, Optional, Sequence
 
 import numpy as np
@@ -18,16 +19,21 @@ from mavedb.lib.mave.constants import (
     VARIANT_SCORE_DATA,
 )
 from mavedb.lib.validation.constants.general import null_values_list
+from mavedb.lib.logging.context import save_to_logging_context, logging_context
 from mavedb.lib.mave.utils import is_csv_null
+from mavedb.models.contributor import Contributor
+from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
 from mavedb.models.experiment import Experiment
+from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
-from mavedb.models.keyword import Keyword
 from mavedb.models.publication_identifier import PublicationIdentifier
-from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
+from mavedb.models.score_set_publication_identifier import (
+    ScoreSetPublicationIdentifierAssociation,
+)
 from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.refseq_identifier import RefseqIdentifier
 from mavedb.models.score_set import ScoreSet
@@ -43,6 +49,8 @@ from mavedb.view_models.search import ScoreSetsSearch
 
 VariantData = dict[str, Optional[dict[str, dict]]]
 
+logger = logging.getLogger(__name__)
+
 
 class HGVSColumns:
     NUCLEOTIDE: str = "hgvs_nt"  # dataset.constants.hgvs_nt_column
@@ -54,15 +62,22 @@ class HGVSColumns:
         return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
-def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
+def search_score_sets(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
+    save_to_logging_context({"score_set_search_criteria": search.dict()})
+
     query = db.query(ScoreSet)  # \
     # .filter(ScoreSet.private.is_(False))
 
     #  filter out the score sets that are replaced by other score sets
     query = query.filter(~ScoreSet.superseding_score_set.has())
 
-    if owner is not None:
-        query = query.filter(ScoreSet.created_by_id == owner.id)
+    if owner_or_contributor is not None:
+        query = query.filter(
+            or_(
+                ScoreSet.created_by_id == owner_or_contributor.id,
+                ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.username),
+            )
+        )
 
     if search.published is not None:
         if search.published:
@@ -80,7 +95,6 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ScoreSet.abstract_text.icontains(lower_search_text),
                 ScoreSet.target_genes.any(func.lower(TargetGene.name).icontains(lower_search_text)),
                 ScoreSet.target_genes.any(func.lower(TargetGene.category).icontains(lower_search_text)),
-                ScoreSet.keyword_objs.any(func.lower(Keyword.text).icontains(lower_search_text)),
                 ScoreSet.target_genes.any(
                     TargetGene.target_sequence.has(
                         TargetSequence.taxonomy.has(func.lower(Taxonomy.organism_name).icontains(lower_search_text))
@@ -112,7 +126,8 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                 ),
                 ScoreSet.publication_identifiers.any(
                     func.jsonb_path_exists(
-                        PublicationIdentifier.authors, f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")"""
+                        PublicationIdentifier.authors,
+                        f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")""",
                     )
                 ),
                 ScoreSet.doi_identifiers.any(func.lower(DoiIdentifier.identifier).icontains(lower_search_text)),
@@ -182,22 +197,33 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
             )
         )
 
+    if search.keywords:
+        query = query.filter(
+            ScoreSet.experiment.has(
+                Experiment.keyword_objs.any(
+                    ExperimentControlledKeywordAssociation.controlled_keyword.has(
+                        ControlledKeyword.value.in_(search.keywords)
+                    )
+                )
+            )
+        )
+
     score_sets: list[ScoreSet] = (
         query.join(ScoreSet.experiment)
         .options(
             contains_eager(ScoreSet.experiment).options(
                 joinedload(Experiment.experiment_set),
-                joinedload(Experiment.keyword_objs),
+                joinedload(Experiment.keyword_objs).joinedload(
+                    ExperimentControlledKeywordAssociation.controlled_keyword
+                ),
                 joinedload(Experiment.created_by),
                 joinedload(Experiment.modified_by),
-                joinedload(Experiment.keyword_objs),
                 joinedload(Experiment.doi_identifiers),
                 joinedload(Experiment.publication_identifier_associations).joinedload(
                     ExperimentPublicationIdentifierAssociation.publication
                 ),
                 joinedload(Experiment.raw_read_identifiers),
                 selectinload(Experiment.score_sets).options(
-                    joinedload(ScoreSet.keyword_objs),
                     joinedload(ScoreSet.doi_identifiers),
                     joinedload(ScoreSet.publication_identifier_associations).joinedload(
                         ScoreSetPublicationIdentifierAssociation.publication
@@ -211,7 +237,6 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
                     ),
                 ),
             ),
-            joinedload(ScoreSet.keyword_objs),
             joinedload(ScoreSet.license),
             joinedload(ScoreSet.doi_identifiers),
             joinedload(ScoreSet.publication_identifier_associations).joinedload(
@@ -230,6 +255,10 @@ def search_score_sets(db: Session, owner: Optional[User], search: ScoreSetsSearc
     )
     if not score_sets:
         score_sets = []
+
+    save_to_logging_context({"matching_resources": len(score_sets)})
+    logger.debug(msg=f"Score set search yielded {len(score_sets)} matching resources.", extra=logging_context())
+
     return score_sets  # filter_visible_score_sets(score_sets)
 
 
@@ -278,7 +307,10 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
 
 
 def get_score_set_counts_as_csv(
-    db: Session, score_set: ScoreSet, start: Optional[int] = None, limit: Optional[int] = None
+    db: Session,
+    score_set: ScoreSet,
+    start: Optional[int] = None,
+    limit: Optional[int] = None,
 ) -> str:
     assert type(score_set.dataset_columns) is dict
     count_columns = [str(x) for x in list(score_set.dataset_columns.get("count_columns", []))]
@@ -305,7 +337,10 @@ def get_score_set_counts_as_csv(
 
 
 def get_score_set_scores_as_csv(
-    db: Session, score_set: ScoreSet, start: Optional[int] = None, limit: Optional[int] = None
+    db: Session,
+    score_set: ScoreSet,
+    start: Optional[int] = None,
+    limit: Optional[int] = None,
 ) -> str:
     assert type(score_set.dataset_columns) is dict
     score_columns = [str(x) for x in list(score_set.dataset_columns.get("score_columns", []))]

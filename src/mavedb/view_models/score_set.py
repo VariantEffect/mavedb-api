@@ -6,13 +6,14 @@ from pydantic import root_validator
 from typing import Collection, Dict, Optional, Any, Sequence
 from humps import camelize
 
-from mavedb.lib.validation import keywords, urn_re
+from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import is_null
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models.contributor import Contributor, ContributorCreate
 from mavedb.view_models.doi_identifier import (
     DoiIdentifier,
     DoiIdentifierCreate,
@@ -63,7 +64,7 @@ class ScoreSetBase(BaseModel):
 
 
 class ScoreSetModify(ScoreSetBase):
-    keywords: Optional[list[str]]
+    contributors: Optional[list[ContributorCreate]]
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
@@ -121,11 +122,6 @@ class ScoreSetModify(ScoreSetBase):
             raise ValidationError("Score sets should define at least one target.")
 
         return field_value
-
-    @validator("keywords")
-    def validate_keywords(cls, v):
-        keywords.validate_keywords(v)
-        return v
 
 
 class ScoreSetCreate(ScoreSetModify):
@@ -241,7 +237,7 @@ class SavedScoreSet(ScoreSetBase):
     target_genes: Sequence[SavedTargetGene]
     dataset_columns: Dict
     external_links: Dict[str, ExternalLink]
-    keywords: list[str]
+    contributors: list[Contributor]
 
     class Config:
         orm_mode = True

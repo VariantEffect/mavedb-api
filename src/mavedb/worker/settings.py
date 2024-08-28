@@ -4,6 +4,7 @@ from typing import Callable
 from arq.connections import RedisSettings
 from arq import cron
 
+from mavedb.lib.logging.canonical import log_job
 from mavedb.worker.jobs import create_variants_for_score_set
 from mavedb.db.session import SessionLocal
 from mavedb.data_providers.services import cdot_rest
@@ -21,14 +22,24 @@ RedisWorkerSettings = RedisSettings(host=REDIS_IP, port=REDIS_PORT, ssl=REDIS_SS
 
 
 async def startup(ctx):
-    db = SessionLocal()
-    db.current_user_id = None
-    ctx["db"] = db
-    ctx["hdp"] = cdot_rest()
+    pass
 
 
 async def shutdown(ctx):
     pass
+
+
+async def on_job_start(ctx):
+    db = SessionLocal()
+    db.current_user_id = None
+    ctx["db"] = db
+    ctx["hdp"] = cdot_rest()
+    ctx["state"] = {}
+
+
+async def on_job_end(ctx):
+    db = ctx["db"]
+    db.close()
 
 
 class ArqWorkerSettings:
@@ -38,6 +49,9 @@ class ArqWorkerSettings:
 
     on_startup = startup
     on_shutdown = shutdown
+    on_job_start = on_job_start
+    on_job_end = on_job_end
+    after_job_end = log_job
     redis_settings = RedisWorkerSettings
     functions: list = BACKGROUND_FUNCTIONS
     cron_jobs: list = BACKGROUND_CRONJOBS

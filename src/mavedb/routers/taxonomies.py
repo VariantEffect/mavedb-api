@@ -14,6 +14,7 @@ router = APIRouter(
     prefix='/api/v1/taxonomies', tags=['taxonomies'], responses={404: {'description': 'Not found'}}
 )
 
+
 @router.get('/', status_code=200, response_model=List[taxonomy.Taxonomy], responses={404: {}})
 def list_taxonomies(
         *,
@@ -24,6 +25,7 @@ def list_taxonomies(
     """
     items = db.query(Taxonomy).order_by(Taxonomy.organism_name).all()
     return items
+
 
 @router.get("/speciesNames", status_code=200, response_model=List[str], responses={404: {}})
 def list_taxonomy_organism_names(
@@ -38,6 +40,7 @@ def list_taxonomy_organism_names(
     organism_names = map(lambda item: item.organism_name, items)
     return sorted(list(set(organism_names)))
 
+
 @router.get("/commonNames", status_code=200, response_model=List[str], responses={404: {}})
 def list_taxonomy_common_names(
     *,
@@ -50,6 +53,7 @@ def list_taxonomy_common_names(
     items = db.query(Taxonomy).all()
     common_names = map(lambda item: item.common_name, items)
     return sorted(list(set(common_names)))
+
 
 @router.get('/{item_id}', status_code=200, response_model=taxonomy.Taxonomy, responses={404: {}})
 def fetch_taxonomy(
@@ -67,6 +71,7 @@ def fetch_taxonomy(
         )
     return item
 
+
 @router.get('/tax-id/{item_id}', status_code=200, response_model=taxonomy.Taxonomy, responses={404: {}})
 def fetch_taxonomy_by_tax_id(
         *,
@@ -83,13 +88,13 @@ def fetch_taxonomy_by_tax_id(
         )
     return item
 
+
 @router.post("/search", status_code=200, response_model=List[taxonomy.Taxonomy])
 async def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
     Search Taxonomy.
     If no search text, return the whole taxonomy list so that front end Taxonomy component can get data to show in dropdown button.
     """
-    items = []
     query = db.query(Taxonomy)
 
     if search.text and len(search.text.strip()) > 0:
@@ -109,5 +114,7 @@ async def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_d
         search_taxonomy = await search_NCBI_taxonomy(db, search.text)
         if search_taxonomy:
             items = [search_taxonomy]
+        else:
+            items = []
 
     return items

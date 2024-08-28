@@ -5,7 +5,7 @@ from sqlalchemy import Column, Date, Integer, String
 from mavedb.db.base import Base
 
 
-class Keyword(Base):
+class LegacyKeyword(Base):
     __tablename__ = "keywords"
 
     id = Column(Integer, primary_key=True)

@@ -15,6 +15,10 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: 5432
+      REDIS_IP: redis
+      REDIS_PORT: 6379
+      REDIS_SSL: False
+      LOG_CONFIG: dev
     ports:
       - "8444:8000"
     restart: unless-stopped
@@ -33,6 +37,7 @@ services:
       REDIS_IP: redis
       REDIS_PORT: 6379
       REDIS_SSL: False
+      LOG_CONFIG: dev
     depends_on:
       - db
       - redis

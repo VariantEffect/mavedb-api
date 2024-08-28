@@ -1,3 +1,5 @@
+from typing import Optional
+
 from mavedb.view_models.base.base import BaseModel
 
 
@@ -11,3 +13,9 @@ class OrcidAuthTokenResponse(BaseModel):
     expires_in: int
     id_token: str
     token_type: str
+
+
+class OrcidUser(BaseModel):
+    orcid_id: str
+    given_name: Optional[str]
+    family_name: Optional[str]

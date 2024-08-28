@@ -1,6 +1,7 @@
 import re
 from copy import deepcopy
 from datetime import date
+from unittest.mock import patch
 
 import jsonschema
 import pytest
@@ -12,7 +13,9 @@ from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
+from mavedb.view_models.orcid import OrcidUser
 from tests.helpers.util import (
+    add_contributor,
     change_ownership,
     create_experiment,
     create_seq_score_set,
@@ -22,10 +25,15 @@ from tests.helpers.constants import (
     EXTRA_USER,
     TEST_BIORXIV_IDENTIFIER,
     TEST_CROSSREF_IDENTIFIER,
+    TEST_EXPERIMENT_WITH_KEYWORD,
+    TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE,
+    TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE,
     TEST_MEDRXIV_IDENTIFIER,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_EXPERIMENT_RESPONSE,
+    TEST_ORCID_ID,
     TEST_PUBMED_IDENTIFIER,
+    TEST_USER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 
@@ -48,12 +56,336 @@ def test_create_minimal_experiment(client, setup_router_db):
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
+def test_create_experiment_with_contributor(client, setup_router_db):
+    experiment = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    experiment.update({"contributors": [{"orcid_id": TEST_ORCID_ID}]})
+
+    with patch(
+        "mavedb.lib.orcid.fetch_orcid_user",
+        lambda orcid_id: OrcidUser(orcid_id=orcid_id, given_name="ORCID", family_name="User"),
+    ):
+        response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
+    expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
+    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
+    expected_response["contributors"] = [
+        {
+            "orcidId": TEST_ORCID_ID,
+            "givenName": "ORCID",
+            "familyName": "User",
+        }
+    ]
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+
+
+def test_create_experiment_with_keywords(session, client, setup_router_db):
+    response = client.post("/api/v1/experiments/", json=TEST_EXPERIMENT_WITH_KEYWORD)
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
+    expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE)
+    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+
+
 def test_cannot_create_experiment_without_email(client, setup_router_db):
     client.put("api/v1/users/me", json={"email": None})
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     assert response.status_code == 400
     response_data = response.json()
     assert response_data["detail"] == "There must be an email address associated with your account to use this feature."
+
+
+def test_cannot_create_experiment_that_keyword_does_not_match_db_keyword(client, setup_router_db):
+    # Database does not have this keyword.
+    invalid_keyword = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Invalid key",
+                    "value": "Invalid value",
+                },
+            }
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **invalid_keyword}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert response_data["detail"] == "Invalid keyword Invalid key or Invalid value"
+
+
+def test_cannot_create_experiment_that_keywords_has_wrong_combination1(client, setup_router_db):
+    # Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
+    wrong_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "Endogenous locus library method",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+            {
+                "keyword": {
+                    "key": "In Vitro Construct Library Method System",
+                    "value": "Oligo-directed mutagenic PCR",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **wrong_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert response_data["detail"] == \
+           "If 'Variant Library Creation Method' is 'Endogenous locus library method', both 'Endogenous Locus " \
+           "Library Method System' and 'Endogenous Locus Library Method Mechanism' must be present."
+
+
+def test_cannot_create_experiment_that_keywords_has_wrong_combination2(client, setup_router_db):
+    # Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
+    wrong_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "In vitro construct library method",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+            {
+                "keyword": {
+                    "key": "Endogenous Locus Library Method System",
+                    "value": "SaCas9",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **wrong_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert response_data["detail"] == \
+           "If 'Variant Library Creation Method' is 'In vitro construct library method', both 'In Vitro Construct " \
+           "Library Method System' and 'In Vitro Construct Library Method Mechanism' must be present."
+
+
+def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
+    If choose Other in Variant Library Creation Method, should not have Endogenous
+    """
+    wrong_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "Other",
+                    "special": False,
+                    "description": "Description"
+                },
+                "description": "Description"
+            },
+            {
+                "keyword": {
+                    "key": "Endogenous Locus Library Method System",
+                    "value": "SaCas9",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **wrong_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert response_data["detail"] == \
+           "If 'Variant Library Creation Method' is 'Other', none of 'Endogenous Locus Library Method System', " \
+           "'Endogenous Locus Library Method Mechanism', 'In Vitro Construct Library Method System', or 'In Vitro " \
+           "Construct Library Method Mechanism' should be present."
+
+
+def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
+    If choose Other in Variant Library Creation Method, should not have in vitro
+    """
+    wrong_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "Other",
+                    "special": False,
+                    "description": "Description"
+                },
+                "description": "Description"
+            },
+            {
+                "keyword": {
+                    "key": "In Vitro Construct Library Method System",
+                    "value": "Error-prone PCR",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **wrong_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert response_data["detail"] == \
+           "If 'Variant Library Creation Method' is 'Other', none of 'Endogenous Locus Library Method System', " \
+           "'Endogenous Locus Library Method Mechanism', 'In Vitro Construct Library Method System', or 'In Vitro " \
+           "Construct Library Method Mechanism' should be present."
+
+
+def test_cannot_create_experiment_that_keyword_value_is_other_without_description(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_description function
+    If choose other, description should not be null.
+    """
+    invalid_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "Other",
+                    "special": False,
+                    "description": "Description"
+                },
+                "description": None
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **invalid_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    error_messages = [error['msg'] for error in response_data["detail"]]
+    assert "Other option does not allow empty description." in error_messages
+
+
+def test_cannot_create_experiment_that_keywords_have_duplicate_keys(client, setup_router_db):
+    # Test src/mavedb/lib/validation/keywords.validate_duplicates function
+    invalid_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "Other",
+                    "special": False,
+                    "description": "Description"
+                },
+                "description": "Description"
+            },
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "In vitro construct library method",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **invalid_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert response_data["detail"] == "Duplicate keys found in keywords."
+
+
+def test_cannot_create_experiment_that_keywords_have_duplicate_values(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_duplicates function
+    Keyword values are not allowed duplicates except Other.
+    """
+    invalid_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Delivery method",
+                    "value": "In vitro construct library method",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "In vitro construct library method",
+                    "special": False,
+                    "description": "Description"
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **invalid_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert response_data["detail"] == "Duplicate values found in keywords."
+
+
+def test_create_experiment_that_keywords_have_duplicate_others(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_duplicates function
+    Keyword values are not allowed duplicates except Other.
+    """
+    keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "value": "Other",
+                    "special": False,
+                    "description": "Description"
+                },
+                "description": "Description"
+            },
+            {
+                "keyword": {
+                    "key": "Delivery method",
+                    "value": "Other",
+                    "special": False,
+                    "description": "Description"
+                },
+                "description": "Description"
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
+    expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE)
+    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
 
 
 def test_can_delete_experiment(client, setup_router_db):
@@ -294,6 +626,37 @@ def test_anonymous_cannot_update_other_users_private_experiment(
     assert response.status_code == 401
     response_data = response.json()
     assert f"Could not validate credentials" in response_data["detail"]
+
+
+@pytest.mark.parametrize(
+    "test_field,test_value",
+    [
+        ("title", "Edited Title"),
+        ("shortDescription", "Edited Short Description"),
+        ("abstractText", "Edited Abstract"),
+        ("methodText", "Edited Methods"),
+    ],
+)
+def test_contributor_can_update_other_users_private_experiment(
+    session, client, test_field, test_value, setup_router_db
+):
+    experiment = create_experiment(client)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    add_contributor(
+        session,
+        experiment["urn"],
+        ExperimentDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    experiment_post_payload = experiment.copy()
+    experiment_post_payload.update({test_field: test_value, "urn": experiment["urn"]})
+    response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    assert (test_field, response_data[test_field]) == (test_field, test_value)
 
 
 @pytest.mark.parametrize(
@@ -729,12 +1092,50 @@ def test_cannot_delete_own_published_experiment(session, data_provider, client, 
     assert f"insufficient permissions for URN '{experiment_urn}'" in del_response_data["detail"]
 
 
+def test_contributor_can_delete_other_users_private_experiment(session, client, setup_router_db, admin_app_overrides):
+    experiment = create_experiment(client)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    add_contributor(
+        session,
+        experiment["urn"],
+        ExperimentDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert response.status_code == 200
+
+
 def test_admin_can_delete_other_users_private_experiment(session, client, setup_router_db, admin_app_overrides):
     experiment = create_experiment(client)
     with DependencyOverrider(admin_app_overrides):
         response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
 
     assert response.status_code == 200
+
+
+def test_contributor_can_delete_other_users_published_experiment(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    client.post(f"/api/v1/experiments/{score_set['urn']}/publish")
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    add_contributor(
+        session,
+        experiment["urn"],
+        ExperimentDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    del_response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+
+    assert del_response.status_code == 200
 
 
 def test_admin_can_delete_other_users_published_experiment(

@@ -11,10 +11,11 @@ from mavedb.db.base import Base
 from mavedb.models.enums.processing_state import ProcessingState
 import mavedb.models.score_set_publication_identifier
 
+from mavedb.models.contributor import Contributor
 from mavedb.models.experiment import Experiment
 from mavedb.models.user import User
 from mavedb.models.license import License
-from mavedb.models.keyword import Keyword
+from mavedb.models.legacy_keyword import LegacyKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.publication_identifier import PublicationIdentifier
 
@@ -27,6 +28,14 @@ from mavedb.lib.temp_urns import generate_temp_urn
 
 # TODO Reformat code without removing dependencies whose use is not detected.
 
+score_sets_contributors_association_table = Table(
+    "scoreset_contributors",
+    Base.metadata,
+    Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
+    Column("contributor_id", ForeignKey("contributors.id"), primary_key=True),
+)
+
+
 score_sets_doi_identifiers_association_table = Table(
     "scoreset_doi_identifiers",
     Base.metadata,
@@ -35,7 +44,7 @@ score_sets_doi_identifiers_association_table = Table(
 )
 
 
-score_sets_keywords_association_table = Table(
+score_sets_legacy_keywords_association_table = Table(
     "scoreset_keywords",
     Base.metadata,
     Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
@@ -109,8 +118,11 @@ class ScoreSet(Base):
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    keyword_objs: Mapped[list["Keyword"]] = relationship(
-        "Keyword", secondary=score_sets_keywords_association_table, backref="score_sets"
+    legacy_keyword_objs: Mapped[list["LegacyKeyword"]] = relationship(
+        "LegacyKeyword", secondary=score_sets_legacy_keywords_association_table, backref="score_sets"
+    )
+    contributors: Mapped[list["Contributor"]] = relationship(
+        "Contributor", secondary=score_sets_contributors_association_table, backref="score_sets"
     )
     doi_identifiers: Mapped[list["DoiIdentifier"]] = relationship(
         "DoiIdentifier", secondary=score_sets_doi_identifiers_association_table, backref="score_sets"
@@ -147,27 +159,23 @@ class ScoreSet(Base):
     # _updated_doi_identifiers: list[str] = None
 
     @property
-    def keywords(self) -> list[str]:
+    def legacy_keywords(self) -> list[str]:
         # if self._updated_keywords:
         #     return self._updated_keywords
         # else:
-        keyword_objs = self.keyword_objs or []  # getattr(self, 'keyword_objs', [])
-        return [keyword_obj.text for keyword_obj in keyword_objs if keyword_obj.text is not None]
+        legacy_keyword_objs = self.legacy_keyword_objs or []  # getattr(self, 'keyword_objs', [])
+        return [legacy_keyword_obj.text for legacy_keyword_obj in legacy_keyword_objs if legacy_keyword_obj.text is not None]
 
-    async def set_keywords(self, db, keywords: list[str]):
-        if keywords is None:
-            self.keyword_objs = []
-        else:
-            self.keyword_objs = [await self._find_or_create_keyword(db, text) for text in keywords]
+    async def set_legacy_keywords(self, db, keywords: list[str]):
+        self.keyword_objs = [await self._find_or_create_legacy_keyword(db, text) for text in keywords]
 
     # See https://gist.github.com/tachyondecay/e0fe90c074d6b6707d8f1b0b1dcc8e3a
     # @keywords.setter
     # async def set_keywords(self, db, keywords: list[str]):
     #     self._keyword_objs = [await self._find_or_create_keyword(text) for text in keywords]
 
-    async def _find_or_create_keyword(self, db, keyword_text):
-        keyword_obj = db.query(Keyword).filter(Keyword.text == keyword_text).one_or_none()
+    async def _find_or_create_legacy_keyword(self, db, keyword_text):
+        keyword_obj = db.query(LegacyKeyword).filter(LegacyKeyword.text == keyword_text).one_or_none()
         if not keyword_obj:
-            keyword_obj = Keyword(text=keyword_text)
-            # object_session.add(keyword_obj)
+            keyword_obj = LegacyKeyword(text=keyword_text)
         return keyword_obj
