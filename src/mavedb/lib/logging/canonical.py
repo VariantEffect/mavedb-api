@@ -1,5 +1,4 @@
 import logging
-import json
 from typing import Any, Optional
 
 from arq import ArqRedis
@@ -27,8 +26,7 @@ async def log_job(ctx: dict) -> None:
     result = await completed_job.result_info()
 
     if not result:
-        log_context["message"] = f"Job finished, but could not retrieve a job result for job {job_id}."
-        logger.warning(json.dumps(log_context))
+        logger.warning(msg=f"Job finished, but could not retrieve a job result for job {job_id}.", extra=log_context)
         log_context.pop("message")
     else:
         log_context = {
@@ -51,23 +49,18 @@ async def log_job(ctx: dict) -> None:
             "version": __version__,
             "log_type": LogType.worker_job,
             "source": Source.worker,
+            "canonical": True,
         },
     }
 
     if result is None:
-        log_context["message"] = "Job result could not be found."
-        logger.error(json.dumps(log_context))
+        logger.error(msg="Job result could not be found.", extra=log_context)
     elif result.result == "success":
-        log_context["message"] = "Job completed successfully."
-        logger.info(json.dumps(log_context))
+        logger.info(msg="Job completed successfully.", extra=log_context)
     elif result.result != "success":
-        log_context["message"] = "Job completed with handled exception."
-        logger.warning(json.dumps(log_context))
+        logger.warning(msg="Job completed with handled exception.", extra=log_context)
     else:
-        log_context["message"] = "Job completed with unhandled exception."
-        logger.error(json.dumps(log_context))
-
-    log_context.pop("message")
+        logger.error(msg="Job completed with unhandled exception.", extra=log_context)
 
 
 def log_request(request: Request, response: Response, end: int) -> None:
@@ -79,8 +72,8 @@ def log_request(request: Request, response: Response, end: int) -> None:
 
     save_to_logging_context({"canonical": True})
     if response.status_code < 400:
-        logger.info(msg="Request completed.", extra={**logging_context(), "canonical": True})
+        logger.info(msg="Request completed.", extra=logging_context())
     elif response.status_code < 500:
-        logger.warning(msg="Request completed.", extra={**logging_context(), "canonical": True})
+        logger.warning(msg="Request completed.", extra=logging_context())
     else:
-        logger.error(msg="Request completed.", extra={**logging_context(), "canonical": True})
+        logger.error(msg="Request completed.", extra=logging_context())
