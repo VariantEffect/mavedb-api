@@ -260,7 +260,6 @@ def _record_from_field_and_model(
     model_created_by_field = getattr(queried_model, "created_by_id")
     model_published_data_field = getattr(queried_model, "published_date")
     if field is RecordFields.createdBy:
-        print("111")
         query = (
             select(User.username, func.count(User.id))
             .join(queried_model, model_created_by_field == User.id)
@@ -270,7 +269,6 @@ def _record_from_field_and_model(
 
         return db.execute(query).all()
     else:
-        print("2222")
         # All assc table identifiers which are linked to a published model.
         queried_assc_table = association_tables[model][field]
         published_score_sets_statement = (
