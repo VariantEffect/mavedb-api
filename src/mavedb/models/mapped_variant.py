@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy import Column, Date, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship, backref, Mapped
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -20,6 +20,7 @@ class MappedVariant(Base):
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
     mapped_date = Column(Date, nullable=False)
     mapping_api_version = Column(String, nullable=False)
+    current = Column(Boolean, nullable=False)
 
     variant_id = Column(Integer, ForeignKey("variants.id"), index=True, nullable=False)
     variant: Mapped[Variant] = relationship("Variant", backref=backref("mapped_variants", cascade="all,delete-orphan"))
