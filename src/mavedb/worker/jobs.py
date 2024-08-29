@@ -26,6 +26,8 @@ from mavedb.lib.validation.dataframe import (
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.target_gene import TargetGene
+from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.data_providers.services import vrs_mapper
@@ -168,38 +170,148 @@ async def map_variants_for_score_set(ctx, score_set_urn: str):
     blocking = functools.partial(vrs.map_score_set, score_set_urn)
     loop = asyncio.get_running_loop()
 
+    score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one()
+    score_set.mapping_state = ProcessingState.processing
+
     try:
         mapping_results = await loop.run_in_executor(ctx["pool"], blocking)
     except requests.exceptions.HTTPError as e:
-        logger.error(
+        score_set.mapping_state = ProcessingState.failed
+        score_set.mapping_errors = {
+            "error_message": "Encountered an internal server error during mapping. Mapping will be automatically retried for this score set."
+        }
+        logger.critical(
             f"Encountered an exception while mapping variants for {score_set_urn}",
             exc_info=e,
         )
+        send_slack_message(err=e)
+        # TODO put back in queue?
         return
 
     logger.debug("Done mapping variants.")
 
+    # pseudo code
+    # if mapping results:
+    #     check whether there are mapped scores.
+    #     if there are not mapped scores, there was a score-set-wide error:
+    #         this means that nothing will be inserted into the mapped variants table
+    #             or into the target genes table.
+    #         insert a failed status and the reason into the scoresets table.
+    #     else (if there are mapped scores):
+    #         insert the pre- and post-mapped sequence metadata into the target genes table
+    #         for each mapped score:
+    #             if there are both pre and post mapped objects, set current to True. else, current is False.
+    #             if current is True, set rows with same variant id to current=False.
+    #             insert the mapped variant as below, using the value of current decided above.
+    #         keep track of how many mapped scores were set to current. if 100%, then set mapping_state in scoresets table to complete.
+    #         if not 100%, then set mapping_state in scoresets table to incomplete. (not sure about this, because variants like '=' might fail... so could be misleading...)
+    #         if 0%, then set score set status to failed and error message is that none of the variants mapped
+
+    # else (if not mapping results):
+    #     this would be a problem. there should either be an httperror or something returned from the api.
+    #     so throw a critical error if this else is hit.
+
     if mapping_results:
-        existing_variants = select(Variant.id).join(ScoreSet).where(ScoreSet.urn == score_set_urn)
-        db.execute(delete(MappedVariant).where(MappedVariant.variant_id.in_(existing_variants)))
-        logger.debug("Removed existing mapped variants for this score set.")
+        if not mapping_results["mapped_scores"]:
+            # if there are no mapped scores, the score set failed to map.
+            score_set.mapping_state = ProcessingState.failed
+            score_set.mapping_errors = mapping_results # TODO check that this gets inserted as json correctly
+        else:
+            # TODO this assumes single-target mapping, will need to be changed to support multi-target mapping
+            # just in case there are multiple target genes in the db for a score set (this point shouldn't be reached
+            # while we only support single-target mapping), match up the target sequence with the one in the computed genomic reference sequence.
+            # TODO this also assumes that the score set is based on a target sequence, not a target accession
 
-    for mapped_score in mapping_results["mapped_scores"]:
-        variant_urn = mapped_score["mavedb_id"]
-        variant = db.scalars(select(Variant).where(Variant.urn == variant_urn)).one()
+            #target_genes = db.scalars(select(TargetGene).join(ScoreSet).where(ScoreSet.urn == score_set_urn)).all()
+            if mapping_results["computed_genomic_reference_sequence"]:
+                target_sequence = mapping_results["computed_genomic_reference_sequence"]["sequence"]
+            elif mapping_results["computed_protein_reference_sequence"]:
+                target_sequence = mapping_results["computed_protein_reference_sequence"]["sequence"]
+            else:
+                score_set.mapping_state = ProcessingState.failed
+                score_set.mapping_errors = {
+                    "error_message": "Encountered an unexpected error during mapping. Mapping will be automatically retried for this score set."
+                }
+                logger.error("No target sequence metadata provided by mapping job", exc_info=1)
+            # TODO assumes that no hgvs_nt strings were supplied if target sequence is protein. this is currently true
+            # but is it guaranteed?
+            target_gene = db.scalars(select(TargetGene)
+                .join(ScoreSet)
+                .join(TargetSequence)
+                .where(
+                    ScoreSet.urn == score_set_urn,
+                    TargetSequence.sequence == target_sequence,
+                )
+            )
 
-        mapped_variant = MappedVariant(
-            pre_mapped=mapped_score["pre_mapped_2_0"],
-            post_mapped=mapped_score["post_mapped_2_0"],
-            variant_id=variant.id,
-            modification_date=date.today(),
-            mapped_date=date.today(),
-            vrs_version=mapping_results["vrs_version"],
-            mapping_api_version=mapping_results["api_version"],
+            # TODO may want to append to json rather than replace?
+            # TODO cast to jsonb?
+            if mapping_results["computed_genomic_reference_sequence"] and mapping_results["mapped_genomic_reference_sequence"]:
+                target_gene.pre_mapped_metadata = {"genomic": mapping_results["computed_genomic_reference_sequence"]}
+                target_gene.post_mapped_metadata = {"genomic": mapping_results["mapped_genomic_reference_sequence"]}
+            elif mapping_results["computed_protein_reference_sequence"] and mapping_results["mapped_protein_reference_sequence"]:
+                target_gene.pre_mapped_metadata = {"protein": mapping_results["computed_protein_reference_sequence"]}
+                target_gene.post_mapped_metadata = {"protein": mapping_results["mapped_protein_reference_sequence"]}
+            else:
+                score_set.mapping_state = ProcessingState.failed
+                score_set.mapping_errors = {
+                    "error_message": "Encountered an unexpected error during mapping. Mapping will be automatically retried for this score set."
+                }
+                logger.error("No mapped reference sequence metadata provided by mapping job", exc_info=1)               
+
+            total_variants = 0
+            successful_mapped_variants = 0
+            for mapped_score in mapping_results["mapped_scores"]:
+                total_variants += 1
+                variant_urn = mapped_score["mavedb_id"]
+                variant = db.scalars(select(Variant).where(Variant.urn == variant_urn)).one()
+
+                # TODO if there is an existing mapped variant, then only set this one to current if pre and post mapped objects both exist.
+                # or should we always set current to false if pre and post mapped objects aren't both successful, even if there is no existing mapped variant?
+                if mapped_score["pre_mapped"] and mapped_score["post_mapped"]:
+                    current = True
+                    successful_mapped_variants += 1
+                else:
+                    current = False
+
+                # there should only be one current mapped variant per variant id, so update old mapped variant to current = false
+                if current:
+                    db.query(MappedVariant).filter(MappedVariant.variant_id == variant.id).update({"current": False})
+
+                mapped_variant = MappedVariant(
+                    pre_mapped=mapped_score["pre_mapped"] if mapped_score["pre_mapped"] else None,
+                    post_mapped=mapped_score["post_mapped"] if mapped_score["post_mapped"] else None,
+                    variant_id=variant.id,
+                    modification_date=date.today(),
+                    mapped_date=mapped_score["mapped_date_utc"],
+                    vrs_version=mapping_results["vrs_version"],
+                    mapping_api_version=mapping_results["dcd_mapping_version"],
+                    error_message=mapping_results["error_message"] if mapping_results["error_message"] else None,
+                    current=current,
+                )
+                db.add(mapped_variant)  
+
+            logger.info(f"Inserted {len(mapping_results['mapped_scores'])} mapped variants.")
+
+            if successful_mapped_variants == 0:
+                score_set.mapping_state = ProcessingState.failed
+                score_set.mapping_errors = {"error_message": "All variants failed to map"}
+            elif successful_mapped_variants < total_variants:
+                score_set.mapping_state = ProcessingState.incomplete
+            else:
+                score_set.mapping_state = ProcessingState.complete  
+
+    else:
+        score_set.mapping_state = ProcessingState.failed
+        score_set.mapping_errors = {
+            "error_message": "Encountered an unexpected error during mapping. Mapping will be automatically retried for this score set."
+        }
+        logger.critical(
+            f"No mapping job output for {score_set_urn}, but no HTTPError encountered.",
+            exc_info=1,
         )
-        db.add(mapped_variant)
+        return
 
-    logger.info(f"Inserted {len(mapping_results['mapped_scores'])} mapped variants.")
     db.commit()
 
 
