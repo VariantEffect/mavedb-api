@@ -28,7 +28,6 @@ RedisWorkerSettings = RedisSettings(host=REDIS_IP, port=REDIS_PORT, ssl=REDIS_SS
 
 
 async def startup(ctx):
-    ctx["mapping_queue"] = []
     ctx["pool"] = futures.ProcessPoolExecutor()
 
 
