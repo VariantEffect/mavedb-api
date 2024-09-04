@@ -57,4 +57,7 @@ async def map_score_set(*, urn: str, worker: ArqRedis = Depends(deps.get_worker)
     await worker.lpush(MAPPING_QUEUE_NAME, urn)  # type: ignore
     await worker.enqueue_job(
         "variant_mapper_manager",
+        None,
+        None,
+        None
     )
