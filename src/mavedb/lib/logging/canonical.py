@@ -27,7 +27,6 @@ async def log_job(ctx: dict) -> None:
 
     if not result:
         logger.warning(msg=f"Job finished, but could not retrieve a job result for job {job_id}.", extra=log_context)
-        log_context.pop("message")
     else:
         log_context = {
             **log_context,
