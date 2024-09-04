@@ -27,7 +27,7 @@ def upgrade():
                 "incomplete",
                 "processing",
                 "failed",
-                "success",
+                "complete",
                 name="mappingstate",
                 native_enum=False,
                 create_constraint=True,

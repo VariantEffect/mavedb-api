@@ -23,6 +23,7 @@ from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.dataframe import (
     validate_and_standardize_dataframe_pair,
 )
+from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
@@ -179,13 +180,13 @@ async def map_variants_for_score_set(
         loop = asyncio.get_running_loop()
 
         score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one()
-        score_set.mapping_state = ProcessingState.processing
+        score_set.mapping_state = MappingState.processing
         score_set.mapping_errors = null()
 
         try:
             mapping_results = await loop.run_in_executor(ctx["pool"], blocking)
         except requests.exceptions.HTTPError as e:
-            score_set.mapping_state = ProcessingState.failed
+            score_set.mapping_state = MappingState.failed
             score_set.mapping_errors = {
                 "error_message": "Encountered an internal server error during mapping. Mapping will be automatically retried for this score set."
             }
@@ -207,7 +208,7 @@ async def map_variants_for_score_set(
         if mapping_results:
             if not mapping_results["mapped_scores"]:
                 # if there are no mapped scores, the score set failed to map.
-                score_set.mapping_state = ProcessingState.failed
+                score_set.mapping_state = MappingState.failed
                 score_set.mapping_errors = mapping_results # TODO check that this gets inserted as json correctly
             else:
                 # TODO after adding multi target mapping support:
@@ -222,7 +223,7 @@ async def map_variants_for_score_set(
                 elif mapping_results["computed_protein_reference_sequence"]:
                     target_sequence = mapping_results["computed_protein_reference_sequence"]["sequence"]
                 else:
-                    score_set.mapping_state = ProcessingState.failed
+                    score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {
                         "error_message": "Encountered an unexpected error during mapping. Mapping will be automatically retried for this score set."
                     }
@@ -262,7 +263,7 @@ async def map_variants_for_score_set(
                     }
                     target_gene.post_mapped_metadata = {"protein": mapping_results["mapped_protein_reference_sequence"]}
                 else:
-                    score_set.mapping_state = ProcessingState.failed
+                    score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {
                         "error_message": "Encountered an unexpected error during mapping. Mapping will be automatically retried for this score set."
                     }
@@ -311,19 +312,19 @@ async def map_variants_for_score_set(
                     db.add(mapped_variant)  
 
                 if successful_mapped_variants == 0:
-                    score_set.mapping_state = ProcessingState.failed
+                    score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {"error_message": "All variants failed to map"}
                 elif successful_mapped_variants < total_variants:
-                    score_set.mapping_state = ProcessingState.incomplete
+                    score_set.mapping_state = MappingState.incomplete
                 else:
-                    score_set.mapping_state = ProcessingState.success  
+                    score_set.mapping_state = MappingState.complete 
 
                 logging_context["mapped_variants_inserted_db"] = len(mapping_results['mapped_scores'])
                 logging_context["mapping_state"] = score_set.mapping_state.name
                 logger.info(msg="Inserted mapped variants into db.", extra=logging_context)
 
         else:
-            score_set.mapping_state = ProcessingState.failed
+            score_set.mapping_state = MappingState.failed
             score_set.mapping_errors = {
                 "error_message": "Encountered an unexpected error during mapping. Mapping will be automatically retried for this score set."
             }
@@ -344,7 +345,7 @@ async def map_variants_for_score_set(
         # score set selection is performed in try statement, so don't update the db if this outer except statement is reached
         send_slack_message(e)
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
-        logging_context["mapping_state"] = score_set.mapping_state.name
+        logging_context["mapping_state"] = MappingState.failed.name
         logger.error(
             msg="An unexpected error occurred during variant mapping.",
             extra=logging_context
