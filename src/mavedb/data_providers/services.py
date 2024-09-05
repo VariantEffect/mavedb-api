@@ -1,5 +1,6 @@
 import requests
-from typing import Optional, Union, TypedDict
+from datetime import date
+from typing import Optional, TypedDict
 
 from cdot.hgvs.dataproviders import ChainedSeqFetcher, FastaSeqFetcher, RESTDataProvider
 
@@ -23,12 +24,15 @@ class VRSMap:
     url: str
 
     class ScoreSetMappingResults(TypedDict):
-        metadata: dict[str, str]
-        computed_reference_sequence: dict[str, str]
-        mapped_reference_sequence: dict[str, str]
-        mapped_scores: list[dict]
-        vrs_version: str
-        api_version: str
+        metadata: Optional[dict[str,str]]
+        dcd_mapping_version: str
+        mapped_date_utc: date
+        computed_genomic_reference_sequence: Optional[dict[str, str]]
+        mapped_genomic_reference_sequence: Optional[dict[str, str]]
+        computed_protein_reference_sequence: Optional[dict[str, str]]
+        mapped_protein_reference_sequence: Optional[dict[str, str]]
+        mapped_scores: Optional[list[dict]]
+        error_message: Optional[str]
 
     def __init__(self, url: str) -> None:
         self.url = url

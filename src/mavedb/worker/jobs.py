@@ -3,13 +3,13 @@ import functools
 import logging
 import requests
 from datetime import timedelta, date
-from typing import Optional, Union
+from typing import Optional
 
 import pandas as pd
 from arq import ArqRedis
 from arq.jobs import Job, JobStatus
 from cdot.hgvs.dataproviders import RESTDataProvider
-from sqlalchemy import delete, select, null
+from sqlalchemy import cast, delete, JSONB, select, null
 from sqlalchemy.orm import Session
 
 from mavedb.lib.score_sets import (
@@ -248,20 +248,20 @@ async def map_variants_for_score_set(
                 excluded_pre_mapped_keys = {"sequence"}
                 if mapping_results["computed_genomic_reference_sequence"] and mapping_results["mapped_genomic_reference_sequence"]:
                     pre_mapped_metadata = mapping_results["computed_genomic_reference_sequence"]
-                    target_gene.pre_mapped_metadata = {
+                    target_gene.pre_mapped_metadata = cast({
                         "genomic": {
                             k: pre_mapped_metadata[k] for k in set(list(pre_mapped_metadata.keys())) - excluded_pre_mapped_keys
                         }
-                    }
-                    target_gene.post_mapped_metadata = {"genomic": mapping_results["mapped_genomic_reference_sequence"]}
+                    }, JSONB)
+                    target_gene.post_mapped_metadata = cast({"genomic": mapping_results["mapped_genomic_reference_sequence"]}, JSONB)
                 elif mapping_results["computed_protein_reference_sequence"] and mapping_results["mapped_protein_reference_sequence"]:
                     pre_mapped_metadata = mapping_results["computed_protein_reference_sequence"]
-                    target_gene.pre_mapped_metadata = {
+                    target_gene.pre_mapped_metadata = cast({
                         "protein": {
                             k: pre_mapped_metadata[k] for k in set(list(pre_mapped_metadata.keys())) - excluded_pre_mapped_keys
                         }
-                    }
-                    target_gene.post_mapped_metadata = {"protein": mapping_results["mapped_protein_reference_sequence"]}
+                    }, JSONB)
+                    target_gene.post_mapped_metadata = cast({"protein": mapping_results["mapped_protein_reference_sequence"]}, JSONB)
                 else:
                     score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {
@@ -388,7 +388,9 @@ async def variant_mapper_manager(
             # NOTE: the score_set_urn provided to this function is only used for logging context;
             # get the urn from the queue and pass that urn to map_variants_for_score_set
             new_job = await redis.enqueue_job("map_variants_for_score_set", correlation_id, queued_urn, updater_id)
-            await redis.set(MAPPING_CURRENT_ID_NAME, new_job.job_id)
+            if new_job: # for mypy, since enqueue_job can return None
+                new_job_id = new_job.job_id
+            await redis.set(MAPPING_CURRENT_ID_NAME, new_job_id)
             return new_job
         else:
             logger.debug(
@@ -406,3 +408,4 @@ async def variant_mapper_manager(
             msg="An unexpected error occurred during variant mapper management.",
             extra=logging_context
         )
+        return None
