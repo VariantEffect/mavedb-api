@@ -9,7 +9,8 @@ import pandas as pd
 from arq import ArqRedis
 from arq.jobs import Job, JobStatus
 from cdot.hgvs.dataproviders import RESTDataProvider
-from sqlalchemy import cast, delete, JSONB, select, null
+from sqlalchemy import cast, delete, select, null
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from mavedb.lib.score_sets import (
