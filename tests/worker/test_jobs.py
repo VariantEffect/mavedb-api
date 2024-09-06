@@ -377,7 +377,7 @@ async def test_create_mapped_variants_for_scoreset(
     # TODO: Does this work on non-unix based machines.
     # TODO: Is it even a safe operation to patch this event loop method?
     with patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=mapping_test_output_for_score_set):
-        await map_variants_for_score_set(standalone_worker_context, score_set.urn)
+        await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.urn, 1)
 
     mapped_variants_for_score_set = session.scalars(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
@@ -425,7 +425,7 @@ async def test_create_mapped_variants_for_scoreset_with_existing_mapped_variants
         )
         session.commit()
 
-        await map_variants_for_score_set(standalone_worker_context, score_set.urn)
+        await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.urn, 1)
 
     mapped_variants_for_score_set = session.scalars(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
@@ -458,7 +458,7 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception(
     # TODO: Does this work on non-unix based machines?
     # TODO: Is it even a safe operation to patch this event loop method?
     with patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=mapping_test_output_for_score_set):
-        await map_variants_for_score_set(standalone_worker_context, score_set.urn)
+        await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.urn, 1)
 
     # TODO: How are errors persisted? Test persistence mechanism.
     mapped_variants_for_score_set = session.scalars(
@@ -489,7 +489,7 @@ async def test_create_mapped_variants_for_scoreset_no_mapping_output(
     # TODO: Does this work on non-unix based machines.
     # TODO: Is it even a safe operation to patch this event loop method?
     with patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=mapping_test_output_for_score_set):
-        await map_variants_for_score_set(standalone_worker_context, score_set.urn)
+        await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.urn, 1)
 
     mapped_variants_for_score_set = session.scalars(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
