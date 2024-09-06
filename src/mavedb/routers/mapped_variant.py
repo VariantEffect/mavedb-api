@@ -52,12 +52,13 @@ async def show_mapped_variant(*, urn: str, db: Session = Depends(deps.get_db)) -
     return await fetch_mapped_variant_by_variant_urn(db, urn)
 
 
-@router.post("/map/{urn}", status_code=200, responses={404: {}, 500: {}})
-async def map_score_set(*, urn: str, worker: ArqRedis = Depends(deps.get_worker)) -> Any:
-    await worker.lpush(MAPPING_QUEUE_NAME, urn)  # type: ignore
-    await worker.enqueue_job(
-        "variant_mapper_manager",
-        None,
-        None,
-        None
-    )
+# for testing only
+# @router.post("/map/{urn}", status_code=200, responses={404: {}, 500: {}})
+# async def map_score_set(*, urn: str, worker: ArqRedis = Depends(deps.get_worker)) -> Any:
+#     await worker.lpush(MAPPING_QUEUE_NAME, urn)  # type: ignore
+#     await worker.enqueue_job(
+#         "variant_mapper_manager",
+#         None,
+#         None,
+#         None
+#     )
