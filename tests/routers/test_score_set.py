@@ -120,11 +120,7 @@ def test_create_score_set_with_score_range(client, setup_router_db):
     assert response.status_code == 200
 
     response_data = response.json()
-    # Omitting this check for now, because it seems the schema generation behavior
-    # for nullable items within a tuple doesn't work quite right. The schema generated
-    # by our view model implies the tuple must have two numeric elements, but in reality
-    # those elements may by None.
-    # jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
 
     expected_response = deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE)

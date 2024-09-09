@@ -45,7 +45,13 @@ class ExternalLink(BaseModel):
 
 class ScoreRange(BaseModel):
     description: Optional[str]
-    range: tuple[Optional[float], Optional[float]]
+    # Purposefully vague type hint because of some odd JSON Schema generation behavior.
+    # Typing this as tuple[Union[float, None], Union[float, None]] will generate an invalid
+    # jsonschema, and fail all tests that access the schema. This may be fixed in pydantic v2,
+    # but it is unclear. Even just typing it as Tuple[Any, Any] will generate an invalid schema!
+    #
+    # tuple[Union[float, None], Union[float, None]]
+    range: list[Any, Any]
 
 
 class ScoreSetGetter(PublicationIdentifiersGetter):

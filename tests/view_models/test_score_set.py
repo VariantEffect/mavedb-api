@@ -227,6 +227,19 @@ def test_cannot_create_score_set_with_an_empty_method():
     assert "methodText" in str(exc_info.value)
 
 
+def test_cannot_create_score_set_with_too_many_boundaries():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["score_ranges"] = {
+        "normal": {"range": (0, 1.1, 2.2)},
+        "abnormal": {"range": (1, 2.1, 3.1)},
+    }
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetModify(**jsonable_encoder(score_set_test))
+
+    assert "Only a lower and upper bound are allowed." in str(exc_info.value)
+
+
 def test_cannot_create_score_set_with_overlapping_ranges():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
