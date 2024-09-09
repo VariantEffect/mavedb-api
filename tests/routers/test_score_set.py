@@ -102,6 +102,54 @@ def test_create_score_set_with_contributor(client, setup_router_db):
     assert response.status_code == 200
 
 
+def test_create_score_set_with_score_range(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    score_set.update(
+        {
+            "score_ranges": {
+                "normal": {"range": (-2, 2)},
+                "abnormal": {"range": (2, None)},
+                "custom1": {"description": "A user provided custom range", "range": (None, -2)},
+            }
+        }
+    )
+
+    response = client.post("/api/v1/score-sets/", json=score_set)
+    assert response.status_code == 200
+
+    response_data = response.json()
+    # Omitting this check for now, because it seems the schema generation behavior
+    # for nullable items within a tuple doesn't work quite right. The schema generated
+    # by our view model implies the tuple must have two numeric elements, but in reality
+    # those elements may by None.
+    # jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
+
+    expected_response = deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE)
+    expected_response.update({"urn": response_data["urn"]})
+    expected_response["experiment"].update(
+        {
+            "urn": experiment["urn"],
+            "experimentSetUrn": experiment["experimentSetUrn"],
+            "scoreSetUrns": [response_data["urn"]],
+        }
+    )
+    expected_response["scoreRanges"] = {
+        # Although the ranges are lists, the jsonschema should apply a min + max length to them
+        "normal": {"range": [-2, 2]},
+        "abnormal": {"range": [2, None]},
+        "custom1": {"description": "A user provided custom range", "range": [None, -2]},
+    }
+
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+    response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
+    assert response.status_code == 200
+
+
 def test_cannot_create_score_set_without_email(client, setup_router_db):
     experiment = create_experiment(client)
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)

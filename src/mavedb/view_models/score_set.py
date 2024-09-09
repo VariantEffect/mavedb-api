@@ -4,11 +4,13 @@ from __future__ import annotations
 from datetime import date
 from pydantic import root_validator
 from typing import Collection, Dict, Optional, Any, Sequence
+
 from humps import camelize
 
+from mavedb.lib.validation.constants.score_set import default_ranges
 from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.lib.validation.utilities import is_null
+from mavedb.lib.validation.utilities import is_null, inf_or_float
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.target_sequence import TargetSequence
@@ -41,6 +43,11 @@ class ExternalLink(BaseModel):
     url: Optional[str]
 
 
+class ScoreRange(BaseModel):
+    description: Optional[str]
+    range: tuple[Optional[float], Optional[float]]
+
+
 class ScoreSetGetter(PublicationIdentifiersGetter):
     def get(self, key: Any, default: Any = ...) -> Any:
         if key == "meta_analyzes_score_set_urns":
@@ -70,6 +77,7 @@ class ScoreSetModify(ScoreSetBase):
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     target_genes: list[TargetGeneCreate]
+    score_ranges: Optional[dict[str, ScoreRange]]
 
     @validator("title", "short_description", "abstract_text", "method_text")
     def validate_field_is_non_empty(cls, v):
@@ -121,6 +129,67 @@ class ScoreSetModify(ScoreSetBase):
     def at_least_one_target_gene_exists(cls, field_value, values):
         if len(field_value) < 1:
             raise ValidationError("Score sets should define at least one target.")
+
+        return field_value
+
+    @validator("score_ranges")
+    def ranges_are_not_backwards(cls, field_value: dict[str, ScoreRange]):
+        for k, v in field_value.items():
+            if len(v.range) != 2:
+                raise ValidationError("Only a lower and upper bound are allowed.")
+            if inf_or_float(v.range[0], True) > inf_or_float(v.range[1], False):
+                raise ValidationError(
+                    f"The lower bound of the `{k}` score range may not be larger than the upper bound."
+                )
+            elif inf_or_float(v.range[0], True) == inf_or_float(v.range[1], False):
+                raise ValidationError(f"The lower and upper bound of the `{k}` score range may not be the same.")
+
+        return field_value
+
+    @validator("score_ranges")
+    def ranges_do_not_overlap(cls, field_value: dict[str, ScoreRange]):
+        def test_overlap(
+            tp1: tuple[Optional[float], Optional[float]], tp2: tuple[Optional[float], Optional[float]]
+        ) -> bool:
+            # Always check the tuple with the lowest lower bound. If we do not check
+            # overlaps in this manner, checking the overlap of (0,1) and (1,2) will
+            # yield different results depending on the ordering of tuples.
+            if min(inf_or_float(tp1[0], True), inf_or_float(tp2[0], True)) == inf_or_float(tp1[0], True):
+                tp_with_min_value = tp1
+                tp_with_non_min_value = tp2
+            else:
+                tp_with_min_value = tp2
+                tp_with_non_min_value = tp1
+
+            if inf_or_float(tp_with_min_value[1], False) > inf_or_float(
+                tp_with_non_min_value[0], True
+            ) and inf_or_float(tp_with_min_value[0], True) <= inf_or_float(tp_with_non_min_value[1], False):
+                return True
+
+            return False
+
+        for i, (k_test, v_test) in enumerate(field_value.items()):
+            for k_check, v_check in list(field_value.items())[i + 1 :]:
+                if test_overlap(v_test.range, v_check.range):
+                    raise ValidationError(f"Score ranges may not overlap; `{k_test}` overlaps with `{k_check}`")
+
+        return field_value
+
+    @validator("score_ranges")
+    def ranges_contain_normal_and_abnormal(cls, field_value: dict[str, ScoreRange]):
+        ranges = set(field_value.keys())
+        if not set(default_ranges).issubset(ranges):
+            raise ValidationError("Both `normal` and `abnormal` ranges must be provided.")
+
+        return field_value
+
+    @validator("score_ranges")
+    def description_exists_for_all_ranges(cls, field_value: dict[str, ScoreRange]):
+        for k, v in field_value.items():
+            if k not in default_ranges and is_null(v.description):
+                raise ValidationError(
+                    f"A description must be present for each non-default score range (No description provided for range `{k}`)."
+                )
 
         return field_value
 
@@ -239,6 +308,7 @@ class SavedScoreSet(ScoreSetBase):
     dataset_columns: Dict
     external_links: Dict[str, ExternalLink]
     contributors: list[Contributor]
+    score_ranges: Optional[dict[str, ScoreRange]]
 
     class Config:
         orm_mode = True
