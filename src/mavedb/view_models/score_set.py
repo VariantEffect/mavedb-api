@@ -51,7 +51,7 @@ class ScoreRange(BaseModel):
     # but it is unclear. Even just typing it as Tuple[Any, Any] will generate an invalid schema!
     #
     # tuple[Union[float, None], Union[float, None]]
-    range: list[Any, Any]
+    range: list[Any]
 
 
 class ScoreSetGetter(PublicationIdentifiersGetter):
@@ -154,9 +154,7 @@ class ScoreSetModify(ScoreSetBase):
 
     @validator("score_ranges")
     def ranges_do_not_overlap(cls, field_value: dict[str, ScoreRange]):
-        def test_overlap(
-            tp1: tuple[Optional[float], Optional[float]], tp2: tuple[Optional[float], Optional[float]]
-        ) -> bool:
+        def test_overlap(tp1, tp2) -> bool:
             # Always check the tuple with the lowest lower bound. If we do not check
             # overlaps in this manner, checking the overlap of (0,1) and (1,2) will
             # yield different results depending on the ordering of tuples.
