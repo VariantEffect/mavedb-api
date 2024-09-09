@@ -1,3 +1,4 @@
+import math
 from random import choice
 from typing import Optional, SupportsIndex
 
@@ -272,6 +273,30 @@ def convert_hgvs_nt_to_hgvs_pro(hgvs_nt: str, target_seq: str):
 
     assert codon_number is not None
     return construct_hgvs_pro(wt=target_aa, mutant=variant_aa, position=codon_number, target_seq=target_seq)
+
+
+def inf_or_float(v: Optional[float], lower: bool) -> float:
+    """
+    This function takes an hgvs formatted string and returns True if the hgvs string indicates
+    there was no change from the target sequence.
+
+    Parameters
+    ----------
+    hgvs : string
+        hgvs formatted string
+
+    Returns
+    -------
+    wt : bool
+        True if hgvs string indicates wild type
+    """
+    if v is None:
+        if lower:
+            return -math.inf
+        else:
+            return math.inf
+    else:
+        return v
 
 
 def _is_wild_type(hgvs: str):
