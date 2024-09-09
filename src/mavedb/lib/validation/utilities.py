@@ -277,18 +277,21 @@ def convert_hgvs_nt_to_hgvs_pro(hgvs_nt: str, target_seq: str):
 
 def inf_or_float(v: Optional[float], lower: bool) -> float:
     """
-    This function takes an hgvs formatted string and returns True if the hgvs string indicates
-    there was no change from the target sequence.
+    This function takes an optional float and either converts the passed nonetype
+    object to the appropriate infinity value (based on lower) or returns the float
+    directly.
 
     Parameters
     ----------
-    hgvs : string
-        hgvs formatted string
+    v : float or None
+        an optional floating point value
+    lower : bool
+        whether the value is a lower bound
 
     Returns
     -------
-    wt : bool
-        True if hgvs string indicates wild type
+    v : float
+        Infinity or -Infinity if the initially passed v was None. v otherwise.
     """
     if v is None:
         if lower:
