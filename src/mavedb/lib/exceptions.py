@@ -160,3 +160,15 @@ class NonexistentOrcidUserError(ValueError):
     """Raised when a user tries to create a contributor with a non-existent ORCID ID"""
 
     pass
+
+
+class NonexistentMappingResultsError(ValueError):
+    """Raised when score set mapping results do not contain mapping results"""
+
+    pass
+
+
+class NonexistentMappingReferenceError(ValueError):
+    """Raised when score set mapping results do not contain a valid reference sequence"""
+
+    pass
