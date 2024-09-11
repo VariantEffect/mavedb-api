@@ -1,5 +1,7 @@
 import re
 
+import pandas as pd
+
 NA_VALUE = "NA"
 
 NULL_VALUES = ("", "na", "nan", "nil", "none", "null", "n/a", "undefined", NA_VALUE)
@@ -22,6 +24,9 @@ READABLE_NULL_VALUES = [f"'{v}'".format(v) for v in set([v.lower() for v in NULL
 
 def is_csv_null(value):
     """Return True if a string from a CSV file represents a NULL value."""
+    # Avoid any boolean miscasts from comparisons by handling NA types up front.
+    if pd.isna(value):
+        return True
     # Number 0 is treated as False so that all 0 will be converted to NA value.
     if value == 0:
         return value
