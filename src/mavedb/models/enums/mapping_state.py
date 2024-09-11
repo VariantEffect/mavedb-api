@@ -6,3 +6,5 @@ class MappingState(enum.Enum):
     processing = "processing"
     failed = "failed"
     complete = "complete"
+    pending_variant_processing = "pending_variant_processing"
+    not_attempted = "not_attempted"

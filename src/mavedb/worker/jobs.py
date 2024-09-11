@@ -110,7 +110,9 @@ async def create_variants_for_score_set(
 
         score_set.modified_by = updated_by
         score_set.processing_state = ProcessingState.processing
+        score_set.mapping_state = MappingState.pending_variant_processing
         logging_context["processing_state"] = score_set.processing_state.name
+        logging_context["mapping_state"] = score_set.mapping_state.name
 
         db.add(score_set)
         db.commit()
@@ -151,9 +153,11 @@ async def create_variants_for_score_set(
         db.rollback()
         score_set.processing_state = ProcessingState.failed
         score_set.processing_errors = {"exception": str(e), "detail": e.triggering_exceptions}
+        score_set.mapping_state = MappingState.not_attempted
 
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logging_context["processing_state"] = score_set.processing_state.name
+        logging_context["mapping_state"] = score_set.mapping_state.name
         logger.warning(msg="Encountered a validation error while processing variants.", extra=logging_context)
 
     # NOTE: Since these are likely to be internal errors, it makes less sense to add them to the DB and surface them to the end user.
@@ -162,9 +166,11 @@ async def create_variants_for_score_set(
         db.rollback()
         score_set.processing_state = ProcessingState.failed
         score_set.processing_errors = {"exception": str(e), "detail": []}
+        score_set.mapping_state = MappingState.not_attempted
 
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logging_context["processing_state"] = score_set.processing_state.name
+        logging_context["mapping_state"] = score_set.mapping_state.name
         logger.warning(msg="Encountered an internal exception while processing variants.", extra=logging_context)
 
         send_slack_message(err=e)
@@ -173,10 +179,12 @@ async def create_variants_for_score_set(
     except BaseException as e:
         db.rollback()
         score_set.processing_state = ProcessingState.failed
+        score_set.mapping_state = MappingState.not_attempted
         db.commit()
 
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logging_context["processing_state"] = score_set.processing_state.name
+        logging_context["mapping_state"] = score_set.mapping_state.name
         logger.error(
             msg="Encountered an unhandled exception while creating variants for score set.", extra=logging_context
         )
@@ -217,7 +225,7 @@ async def map_variants_for_score_set(
             logger.info(msg="Started variant mapping", extra=logging_context)
 
         except Exception as e:
-            # TODO: mapping state
+            # NOTE: can't update mapping state here because setup is necessary to update the db
             send_slack_message(e)
             logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
             logger.error(
@@ -226,7 +234,8 @@ async def map_variants_for_score_set(
             )
 
             return {"success": False, "retried": False}
-
+        
+        score_set = None
         try:
             score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one()
             score_set.mapping_state = MappingState.processing
@@ -238,11 +247,16 @@ async def map_variants_for_score_set(
             logger.debug(msg="Fetched score set metadata for mapping job.", extra=logging_context)
 
         except Exception as e:
-            # TODO: mapping state
             db.rollback()
+            if score_set:
+                score_set.mapping_state = MappingState.failed
+                score_set.mapping_errors = {
+                    "error_message": "Encountered an internal server error during mapping"
+                }
+            db.commit()
             send_slack_message(e)
             logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
-            logger.warn(
+            logger.error(
                 msg="Variant mapper encountered an unexpected error while fetching score set metadata. This job will not be retried.",
                 extra=logging_context,
             )
@@ -256,10 +270,15 @@ async def map_variants_for_score_set(
             loop = asyncio.get_running_loop()
 
         except Exception as e:
-            # TODO: mapping state
+            db.rollback()
+            score_set.mapping_state = MappingState.failed
+            score_set.mapping_errors = {
+                "error_message": "Encountered an internal server error during mapping"
+            }
+            db.commit()
             send_slack_message(e)
             logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
-            logger.warn(
+            logger.error(
                 msg="Variant mapper encountered an unexpected error while preparing the mapping event loop. This job will not be retried.",
                 extra=logging_context,
             )
@@ -272,6 +291,7 @@ async def map_variants_for_score_set(
             logger.debug(msg="Done mapping variants.", extra=logging_context)
 
         except requests.exceptions.HTTPError as e:
+            db.rollback()
             score_set.mapping_state = MappingState.failed
             score_set.mapping_errors = {
                 "error_message": f"Encountered an internal server error during mapping. Mapping will be automatically retried up to 5 times for this score set (attempt {attempt+1}/5)."
@@ -294,6 +314,11 @@ async def map_variants_for_score_set(
                 logging_context["backoff_job_id"] = new_job_id
 
             except Exception as backoff_e:
+                score_set.mapping_state = MappingState.failed
+                score_set.mapping_errors = {
+                    "error_message": "Encountered an internal server error during mapping"
+                }
+                db.commit()
                 send_slack_message(backoff_e)
                 logging_context = {**logging_context, **format_raised_exception_info_as_dict(backoff_e)}
                 logger.critical(
@@ -307,11 +332,21 @@ async def map_variants_for_score_set(
                         extra=logging_context,
                     )
                 elif new_job_id is None and not max_retries_exceeded:
+                    score_set.mapping_state = MappingState.failed
+                    score_set.mapping_errors = {
+                        "error_message": "Encountered an internal server error during mapping"
+                    }
+                    db.commit()
                     logger.error(
                         msg="After encountering an HTTP error while mapping variants, another mapping job was unable to be queued. This score set will not be mapped.",
                         extra=logging_context,
                     )
                 else:
+                    score_set.mapping_state = MappingState.failed
+                    score_set.mapping_errors = {
+                        "error_message": "Encountered an internal server error during mapping"
+                    }
+                    db.commit()
                     logger.error(
                         msg="After encountering an HTTP error while mapping variants, the maximum retries for this job were exceeded. This score set will not be mapped.",
                         extra=logging_context,
@@ -320,6 +355,12 @@ async def map_variants_for_score_set(
                 return {"success": False, "retried": (not max_retries_exceeded and new_job_id is not None)}
 
         except Exception as e:
+            db.rollback()
+            score_set.mapping_state = MappingState.failed
+            score_set.mapping_errors = {
+                "error_message": f"Encountered an internal server error during mapping. Mapping will be automatically retried up to 5 times for this score set (attempt {attempt+1}/5)."
+            }
+            db.commit()
             send_slack_message(e)
             logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
             logger.warn(
@@ -352,11 +393,21 @@ async def map_variants_for_score_set(
                         extra=logging_context,
                     )
                 elif new_job_id is None and not max_retries_exceeded:
+                    score_set.mapping_state = MappingState.failed
+                    score_set.mapping_errors = {
+                        "error_message": "Encountered an internal server error during mapping"
+                    }
+                    db.commit()
                     logger.error(
                         msg="After encountering an error while mapping variants, another mapping job was unable to be queued. This score set will not be mapped.",
                         extra=logging_context,
                     )
                 else:
+                    score_set.mapping_state = MappingState.failed
+                    score_set.mapping_errors = {
+                        "error_message": "Encountered an internal server error during mapping"
+                    }
+                    db.commit()
                     logger.error(
                         msg="After encountering an error while mapping variants, the maximum retries for this job were exceeded. This score set will not be mapped.",
                         extra=logging_context,
@@ -505,6 +556,11 @@ async def map_variants_for_score_set(
                 logging_context["backoff_job_id"] = new_job_id
 
             except Exception as backoff_e:
+                score_set.mapping_state = MappingState.failed
+                score_set.mapping_errors = {
+                    "error_message": "Encountered an internal server error during mapping"
+                }
+                db.commit()
                 send_slack_message(backoff_e)
                 logging_context = {**logging_context, **format_raised_exception_info_as_dict(backoff_e)}
                 logger.critical(
@@ -518,11 +574,21 @@ async def map_variants_for_score_set(
                         extra=logging_context,
                     )
                 elif new_job_id is None and not max_retries_exceeded:
+                    score_set.mapping_state = MappingState.failed
+                    score_set.mapping_errors = {
+                        "error_message": "Encountered an internal server error during mapping"
+                    }
+                    db.commit()
                     logger.error(
                         msg="After encountering an error while parsing mapped variants, another mapping job was unable to be queued. This score set will not be mapped.",
                         extra=logging_context,
                     )
                 else:
+                    score_set.mapping_state = MappingState.failed
+                    score_set.mapping_errors = {
+                        "error_message": "Encountered an internal server error during mapping"
+                    }
+                    db.commit()
                     logger.error(
                         msg="After encountering an error while parsing mapped variants, the maximum retries for this job were exceeded. This score set will not be mapped.",
                         extra=logging_context,
