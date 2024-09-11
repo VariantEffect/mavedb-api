@@ -854,9 +854,13 @@ async def update_score_set(
             scores_data = pd.DataFrame(
                 variants_to_csv_rows(item.variants, columns=score_columns, dtype="score_data")
             ).replace("NA", pd.NA)
-            count_data = pd.DataFrame(
-                variants_to_csv_rows(item.variants, columns=count_columns, dtype="count_data")
-            ).replace("NA", pd.NA)
+
+            if item.dataset_columns["count_columns"]:
+                count_data = pd.DataFrame(
+                    variants_to_csv_rows(item.variants, columns=count_columns, dtype="count_data")
+                ).replace("NA", pd.NA)
+            else:
+                count_data = None
 
             # Although this is also updated within the variant creation job, update it here
             # as well so that we can display the proper UI components (queue invocation delay
