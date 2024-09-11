@@ -2,8 +2,9 @@ import asyncio
 import functools
 import logging
 import requests
+from contextlib import asynccontextmanager
 from datetime import timedelta, date
-from typing import Optional
+from typing import Callable, Optional
 
 import pandas as pd
 from arq import ArqRedis
@@ -13,6 +14,7 @@ from sqlalchemy import cast, delete, select, null
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
+from mavedb.lib.exceptions import NonexistentMappingReferenceError, NonexistentMappingResultsError
 from mavedb.lib.score_sets import (
     columns_for_dataset,
     create_variants,
@@ -38,6 +40,18 @@ logger = logging.getLogger(__name__)
 
 MAPPING_QUEUE_NAME = "vrs_mapping_queue"
 MAPPING_CURRENT_ID_NAME = "vrs_mapping_current_job_id"
+BACKOFF_LIMIT = 5
+BACKOFF_IN_SECONDS = 15
+
+
+@asynccontextmanager
+async def mapping_in_execution(redis: ArqRedis, job_id: str):
+    await redis.set(MAPPING_CURRENT_ID_NAME, job_id)
+    try:
+        yield
+    finally:
+        await redis.set(MAPPING_CURRENT_ID_NAME, "")
+
 
 def setup_job_state(ctx, invoker: int, resource: str, correlation_id: str):
     ctx["state"][ctx["job_id"]] = {
@@ -47,6 +61,31 @@ def setup_job_state(ctx, invoker: int, resource: str, correlation_id: str):
         "correlation_id": correlation_id,
     }
     return ctx["state"][ctx["job_id"]]
+
+
+async def enqueue_job_with_backoff(
+    redis: ArqRedis, job_name: str, attempt: int, *args
+) -> tuple[Optional[str], bool, int]:
+    new_job_id = None
+    backoff = None
+    limit_reached = attempt >= BACKOFF_LIMIT
+    if not limit_reached:
+        limit_reached = True
+        backoff = BACKOFF_IN_SECONDS * (2**attempt)
+        attempt = attempt + 1
+
+        # NOTE: for jobs supporting backoff, `attempt` should be the final argument.
+        new_job = await redis.enqueue_job(
+            job_name,
+            *args,
+            attempt,
+            _defer_by=timedelta(seconds=backoff),
+        )
+
+        if new_job:
+            new_job_id = new_job.job_id
+
+    return (new_job_id, not limit_reached, backoff)
 
 
 async def create_variants_for_score_set(
@@ -165,248 +204,447 @@ async def create_variants_for_score_set(
 
 
 async def map_variants_for_score_set(
-    ctx: dict, correlation_id: str, score_set_urn: str, updater_id: int
-):
-    logging_context = {}
-    try:
-        db: Session = ctx["db"]
-        redis: ArqRedis = ctx["redis"]
+    ctx: dict, correlation_id: str, score_set_urn: str, updater_id: int, attempt: int = 0
+) -> dict:
+    async with mapping_in_execution(redis=ctx["redis"], job_id=ctx["job_id"]):
+        logging_context = {}
+        try:
+            db: Session = ctx["db"]
+            redis: ArqRedis = ctx["redis"]
 
-        logging_context = setup_job_state(ctx, updater_id, score_set_urn, correlation_id)
-        logger.info(msg="Started variant mapping", extra=logging_context)
+            logging_context = setup_job_state(ctx, updater_id, score_set_urn, correlation_id)
+            logging_context["attempt"] = attempt
+            logger.info(msg="Started variant mapping", extra=logging_context)
 
-        # Do not block Worker event loop during mapping, see: https://arq-docs.helpmanual.io/#synchronous-jobs.
-        vrs = vrs_mapper()
-        blocking = functools.partial(vrs.map_score_set, score_set_urn)
-        loop = asyncio.get_running_loop()
+        except Exception as e:
+            # TODO: mapping state
+            send_slack_message(e)
+            logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+            logger.error(
+                msg="Variant mapper encountered an unexpected error during setup. This job will not be retried.",
+                extra=logging_context,
+            )
 
-        score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one()
-        score_set.mapping_state = MappingState.processing
-        score_set.mapping_errors = null()
+            return {"success": False, "retried": False}
 
         try:
+            score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one()
+            score_set.mapping_state = MappingState.processing
+            score_set.mapping_errors = null()
+            db.commit()
+
+            logging_context["current_mapping_resource"] = score_set.urn
+            logging_context["mapping_state"] = score_set.mapping_state
+            logger.debug(msg="Fetched score set metadata for mapping job.", extra=logging_context)
+
+        except Exception as e:
+            # TODO: mapping state
+            db.rollback()
+            send_slack_message(e)
+            logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+            logger.warn(
+                msg="Variant mapper encountered an unexpected error while fetching score set metadata. This job will not be retried.",
+                extra=logging_context,
+            )
+
+            return {"success": False, "retried": False}
+
+        try:
+            # Do not block Worker event loop during mapping, see: https://arq-docs.helpmanual.io/#synchronous-jobs.
+            vrs = vrs_mapper()
+            blocking = functools.partial(vrs.map_score_set, score_set_urn)
+            loop = asyncio.get_running_loop()
+
+        except Exception as e:
+            # TODO: mapping state
+            send_slack_message(e)
+            logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+            logger.warn(
+                msg="Variant mapper encountered an unexpected error while preparing the mapping event loop. This job will not be retried.",
+                extra=logging_context,
+            )
+
+            return {"success": False, "retried": False}
+
+        mapping_results = None
+        try:
             mapping_results = await loop.run_in_executor(ctx["pool"], blocking)
+            logger.debug(msg="Done mapping variants.", extra=logging_context)
+
         except requests.exceptions.HTTPError as e:
             score_set.mapping_state = MappingState.failed
             score_set.mapping_errors = {
-                "error_message": "Encountered an internal server error during mapping. Mapping will be automatically retried for this score set."
+                "error_message": f"Encountered an internal server error during mapping. Mapping will be automatically retried up to 5 times for this score set (attempt {attempt+1}/5)."
             }
-            logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
-            logging_context["mapping_state"] = score_set.mapping_state.name
-            logger.critical(
-                msg="Encountered an exception while mapping variants",
-                extra=logging_context
-            )
-            send_slack_message(err=e)
-            # put back in queue, since this is an internal error rather than a problem with the score set
-            await redis.lpush(MAPPING_QUEUE_NAME, score_set_urn)  # type: ignore
-            await redis.enqueue_job("variant_mapper_manager", correlation_id, score_set_urn, updater_id)
             db.commit()
-            return
 
-        logger.debug("Done mapping variants.")
+            logging_context["mapping_state"] = score_set.mapping_state.name
+            logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+            logger.warn(msg="Encountered an HTTP error while mapping variants", extra=logging_context)
 
-        if mapping_results:
-            if not mapping_results["mapped_scores"]:
-                # if there are no mapped scores, the score set failed to map.
-                score_set.mapping_state = MappingState.failed
-                score_set.mapping_errors = mapping_results # TODO check that this gets inserted as json correctly
+            new_job_id = None
+            max_retries_exceeded = None
+            try:
+                await redis.lpush(MAPPING_QUEUE_NAME, score_set_urn)  # type: ignore
+                new_job_id, max_retries_exceeded, backoff_time = await enqueue_job_with_backoff(
+                    redis, "variant_mapper_manager", attempt, correlation_id, score_set_urn, updater_id
+                )
+                logging_context["backoff_limit_exceeded"] = max_retries_exceeded
+                logging_context["backoff_deferred_in_seconds"] = backoff_time
+                logging_context["backoff_job_id"] = new_job_id
+
+            except Exception as backoff_e:
+                send_slack_message(backoff_e)
+                logging_context = {**logging_context, **format_raised_exception_info_as_dict(backoff_e)}
+                logger.critical(
+                    msg="While attempting to re-enqueue a mapping job that exited in error, another exception was encountered. This score set will not be mapped.",
+                    extra=logging_context,
+                )
             else:
-                # TODO after adding multi target mapping support:
-                # this assumes single-target mapping, will need to be changed to support multi-target mapping
-                # just in case there are multiple target genes in the db for a score set (this point shouldn't be reached
-                # while we only support single-target mapping), match up the target sequence with the one in the computed genomic reference sequence.
-                # TODO after adding accession-based score set mapping support:
-                # this also assumes that the score set is based on a target sequence, not a target accession
-
-                if mapping_results["computed_genomic_reference_sequence"]:
-                    target_sequence = mapping_results["computed_genomic_reference_sequence"]["sequence"]
-                elif mapping_results["computed_protein_reference_sequence"]:
-                    target_sequence = mapping_results["computed_protein_reference_sequence"]["sequence"]
-                else:
-                    score_set.mapping_state = MappingState.failed
-                    score_set.mapping_errors = {
-                        "error_message": "Encountered an unexpected error during mapping. Mapping will be automatically retried for this score set."
-                    }
-                    # TODO create error here and send to slack
-                    logging_context["mapping_state"] = score_set.mapping_state.name
-                    logger.error(msg="No target sequence metadata provided by mapping job", extra=logging_context)
-                    # put back in queue, since this is an internal error rather than a problem with the score set
-                    await redis.lpush(MAPPING_QUEUE_NAME, score_set_urn)  # type: ignore
-                    await redis.enqueue_job("variant_mapper_manager", correlation_id, score_set_urn, updater_id)
-                    db.commit()
-                    return
-
-                target_gene = db.scalars(select(TargetGene)
-                    .join(ScoreSet)
-                    .join(TargetSequence)
-                    .where(
-                        ScoreSet.urn == str(score_set_urn),
-                        TargetSequence.sequence == target_sequence,
-                    )
-                ).one()
-
-                excluded_pre_mapped_keys = {"sequence"}
-                if mapping_results["computed_genomic_reference_sequence"] and mapping_results["mapped_genomic_reference_sequence"]:
-                    pre_mapped_metadata = mapping_results["computed_genomic_reference_sequence"]
-                    target_gene.pre_mapped_metadata = cast({
-                        "genomic": {
-                            k: pre_mapped_metadata[k] for k in set(list(pre_mapped_metadata.keys())) - excluded_pre_mapped_keys
-                        }
-                    }, JSONB)
-                    target_gene.post_mapped_metadata = cast({"genomic": mapping_results["mapped_genomic_reference_sequence"]}, JSONB)
-                elif mapping_results["computed_protein_reference_sequence"] and mapping_results["mapped_protein_reference_sequence"]:
-                    pre_mapped_metadata = mapping_results["computed_protein_reference_sequence"]
-                    target_gene.pre_mapped_metadata = cast({
-                        "protein": {
-                            k: pre_mapped_metadata[k] for k in set(list(pre_mapped_metadata.keys())) - excluded_pre_mapped_keys
-                        }
-                    }, JSONB)
-                    target_gene.post_mapped_metadata = cast({"protein": mapping_results["mapped_protein_reference_sequence"]}, JSONB)
-                else:
-                    score_set.mapping_state = MappingState.failed
-                    score_set.mapping_errors = {
-                        "error_message": "Encountered an unexpected error during mapping. Mapping will be automatically retried for this score set."
-                    }
-                    # TODO create error here and send to slack
-                    logging_context["mapping_state"] = score_set.mapping_state.name
-                    logger.error(
-                        msg="No mapped reference sequence metadata provided by mapping job",
+                if new_job_id and not max_retries_exceeded:
+                    logger.info(
+                        msg="After encountering an HTTP error while mapping variants, another mapping job was queued.",
                         extra=logging_context,
                     )
-                     # put back in queue, since this is an internal error rather than a problem with the score set
-                    await redis.lpush(MAPPING_QUEUE_NAME, score_set_urn)  # type: ignore
-                    await redis.enqueue_job("variant_mapper_manager", correlation_id, score_set_urn, updater_id)
-                    db.commit()
-                    return       
-
-                total_variants = 0
-                successful_mapped_variants = 0
-                for mapped_score in mapping_results["mapped_scores"]:
-                    total_variants += 1
-                    variant_urn = mapped_score["mavedb_id"]
-                    variant = db.scalars(select(Variant).where(Variant.urn == variant_urn)).one()
-
-                    # TODO check with team that this is desired behavior
-                    # (another possible behavior would be to always set current to true if there is no other 'current' for this variant id)
-                    if mapped_score["pre_mapped"] and mapped_score["post_mapped"]:
-                        current = True
-                        successful_mapped_variants += 1
-                    else:
-                        current = False
-
-                    # there should only be one current mapped variant per variant id, so update old mapped variant to current = false
-                    if current:
-                        db.query(MappedVariant).filter(MappedVariant.variant_id == variant.id).update({"current": False})
-
-                    mapped_variant = MappedVariant(
-                        pre_mapped=mapped_score["pre_mapped"] if mapped_score["pre_mapped"] else None,
-                        post_mapped=mapped_score["post_mapped"] if mapped_score["post_mapped"] else None,
-                        variant_id=variant.id,
-                        modification_date=date.today(),
-                        mapped_date=mapping_results["mapped_date_utc"],
-                        vrs_version=mapped_score["vrs_version"] if mapped_score["vrs_version"] else None,
-                        mapping_api_version=mapping_results["dcd_mapping_version"],
-                        error_message=mapped_score["error_message"] if mapped_score["error_message"] else None,
-                        current=current,
+                elif new_job_id is None and not max_retries_exceeded:
+                    logger.error(
+                        msg="After encountering an HTTP error while mapping variants, another mapping job was unable to be queued. This score set will not be mapped.",
+                        extra=logging_context,
                     )
-                    db.add(mapped_variant)  
-
-                if successful_mapped_variants == 0:
-                    score_set.mapping_state = MappingState.failed
-                    score_set.mapping_errors = {"error_message": "All variants failed to map"}
-                elif successful_mapped_variants < total_variants:
-                    score_set.mapping_state = MappingState.incomplete
                 else:
-                    score_set.mapping_state = MappingState.complete 
+                    logger.error(
+                        msg="After encountering an HTTP error while mapping variants, the maximum retries for this job were exceeded. This score set will not be mapped.",
+                        extra=logging_context,
+                    )
+            finally:
+                return {"success": False, "retried": (not max_retries_exceeded and new_job_id is not None)}
 
-                logging_context["mapped_variants_inserted_db"] = len(mapping_results['mapped_scores'])
-                logging_context["mapping_state"] = score_set.mapping_state.name
-                logger.info(msg="Inserted mapped variants into db.", extra=logging_context)
-
-        else:
-            score_set.mapping_state = MappingState.failed
-            score_set.mapping_errors = {
-                "error_message": "Encountered an unexpected error during mapping. Mapping will be automatically retried for this score set."
-            }
-            # TODO create error here and send to slack
-            logging_context["mapping_state"] = score_set.mapping_state.name
-            logger.critical(
-                msg="No mapping job output for score set, but no HTTPError encountered.",
+        except Exception as e:
+            send_slack_message(e)
+            logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+            logger.warn(
+                msg="Variant mapper encountered an unexpected error while mapping variants. This job will be retried.",
                 extra=logging_context,
             )
-            # put back in queue, since this is an internal error rather than a problem with the score set
-            await redis.lpush(MAPPING_QUEUE_NAME, score_set_urn)  # type: ignore
-            await redis.enqueue_job("variant_mapper_manager", correlation_id, score_set_urn, updater_id)
+
+            new_job_id = None
+            max_retries_exceeded = None
+            try:
+                await redis.lpush(MAPPING_QUEUE_NAME, score_set_urn)  # type: ignore
+                new_job_id, max_retries_exceeded, backoff_time = await enqueue_job_with_backoff(
+                    redis, "variant_mapper_manager", attempt, correlation_id, score_set_urn, updater_id
+                )
+                logging_context["backoff_limit_exceeded"] = max_retries_exceeded
+                logging_context["backoff_deferred_in_seconds"] = backoff_time
+                logging_context["backoff_job_id"] = new_job_id
+
+            except Exception as backoff_e:
+                send_slack_message(backoff_e)
+                logging_context = {**logging_context, **format_raised_exception_info_as_dict(backoff_e)}
+                logger.critical(
+                    msg="While attempting to re-enqueue a mapping job that exited in error, another exception was encountered. This score set will not be mapped.",
+                    extra=logging_context,
+                )
+            else:
+                if new_job_id and not max_retries_exceeded:
+                    logger.info(
+                        msg="After encountering an error while mapping variants, another mapping job was queued.",
+                        extra=logging_context,
+                    )
+                elif new_job_id is None and not max_retries_exceeded:
+                    logger.error(
+                        msg="After encountering an error while mapping variants, another mapping job was unable to be queued. This score set will not be mapped.",
+                        extra=logging_context,
+                    )
+                else:
+                    logger.error(
+                        msg="After encountering an error while mapping variants, the maximum retries for this job were exceeded. This score set will not be mapped.",
+                        extra=logging_context,
+                    )
+            finally:
+                return {"success": False, "retried": (not max_retries_exceeded and new_job_id is not None)}
+
+        try:
+            if mapping_results:
+                if not mapping_results["mapped_scores"]:
+                    # if there are no mapped scores, the score set failed to map.
+                    score_set.mapping_state = MappingState.failed
+                    score_set.mapping_errors = mapping_results  # TODO check that this gets inserted as json correctly
+                else:
+                    # TODO(VariantEffect/dcd-mapping2#2) after adding multi target mapping support:
+                    # this assumes single-target mapping, will need to be changed to support multi-target mapping
+                    # just in case there are multiple target genes in the db for a score set (this point shouldn't be reached
+                    # while we only support single-target mapping), match up the target sequence with the one in the computed genomic reference sequence.
+                    # TODO(VariantEffect/dcd-mapping2#3) after adding accession-based score set mapping support:
+                    # this also assumes that the score set is based on a target sequence, not a target accession
+
+                    if mapping_results["computed_genomic_reference_sequence"]:
+                        target_sequence = mapping_results["computed_genomic_reference_sequence"]["sequence"]
+                    elif mapping_results["computed_protein_reference_sequence"]:
+                        target_sequence = mapping_results["computed_protein_reference_sequence"]["sequence"]
+                    else:
+                        raise NonexistentMappingReferenceError()
+
+                    target_gene = db.scalars(
+                        select(TargetGene)
+                        .join(ScoreSet)
+                        .join(TargetSequence)
+                        .where(
+                            ScoreSet.urn == str(score_set_urn),
+                            TargetSequence.sequence == target_sequence,
+                        )
+                    ).one()
+
+                    excluded_pre_mapped_keys = {"sequence"}
+                    if (
+                        mapping_results["computed_genomic_reference_sequence"]
+                        and mapping_results["mapped_genomic_reference_sequence"]
+                    ):
+                        pre_mapped_metadata = mapping_results["computed_genomic_reference_sequence"]
+                        target_gene.pre_mapped_metadata = cast(
+                            {
+                                "genomic": {
+                                    k: pre_mapped_metadata[k]
+                                    for k in set(list(pre_mapped_metadata.keys())) - excluded_pre_mapped_keys
+                                }
+                            },
+                            JSONB,
+                        )
+                        target_gene.post_mapped_metadata = cast(
+                            {"genomic": mapping_results["mapped_genomic_reference_sequence"]}, JSONB
+                        )
+                    elif (
+                        mapping_results["computed_protein_reference_sequence"]
+                        and mapping_results["mapped_protein_reference_sequence"]
+                    ):
+                        pre_mapped_metadata = mapping_results["computed_protein_reference_sequence"]
+                        target_gene.pre_mapped_metadata = cast(
+                            {
+                                "protein": {
+                                    k: pre_mapped_metadata[k]
+                                    for k in set(list(pre_mapped_metadata.keys())) - excluded_pre_mapped_keys
+                                }
+                            },
+                            JSONB,
+                        )
+                        target_gene.post_mapped_metadata = cast(
+                            {"protein": mapping_results["mapped_protein_reference_sequence"]}, JSONB
+                        )
+                    else:
+                        raise NonexistentMappingReferenceError()
+
+                    total_variants = 0
+                    successful_mapped_variants = 0
+                    for mapped_score in mapping_results["mapped_scores"]:
+                        total_variants += 1
+                        variant_urn = mapped_score["mavedb_id"]
+                        variant = db.scalars(select(Variant).where(Variant.urn == variant_urn)).one()
+
+                        # there should only be one current mapped variant per variant id, so update old mapped variant to current = false
+                        existing_mapped_variant = (
+                            db.query(MappedVariant)
+                            .filter(MappedVariant.variant_id == variant.id, MappedVariant.current.is_(True))
+                            .one_or_none()
+                        )
+
+                        if existing_mapped_variant:
+                            existing_mapped_variant.current = False
+
+                        mapped_variant = MappedVariant(
+                            pre_mapped=mapped_score["pre_mapped"] if mapped_score["pre_mapped"] else None,
+                            post_mapped=mapped_score["post_mapped"] if mapped_score["post_mapped"] else None,
+                            variant_id=variant.id,
+                            modification_date=date.today(),
+                            mapped_date=mapping_results["mapped_date_utc"],
+                            vrs_version=mapped_score["vrs_version"] if mapped_score["vrs_version"] else None,
+                            mapping_api_version=mapping_results["dcd_mapping_version"],
+                            error_message=mapped_score["error_message"] if mapped_score["error_message"] else None,
+                            current=True,
+                        )
+                        db.add(mapped_variant)
+
+                    if successful_mapped_variants == 0:
+                        score_set.mapping_state = MappingState.failed
+                        score_set.mapping_errors = {"error_message": "All variants failed to map"}
+                    elif successful_mapped_variants < total_variants:
+                        score_set.mapping_state = MappingState.incomplete
+                    else:
+                        score_set.mapping_state = MappingState.complete
+
+                    logging_context["mapped_variants_inserted_db"] = len(mapping_results["mapped_scores"])
+                    logging_context["mapping_state"] = score_set.mapping_state.name
+                    logger.info(msg="Inserted mapped variants into db.", extra=logging_context)
+
+            else:
+                raise NonexistentMappingResultsError()
+
+        except Exception as e:
+            db.rollback()
+            score_set.mapping_state = MappingState.failed
+            score_set.mapping_errors = {
+                "error_message": f"Encountered an unexpected error while parsing mapped variants. Mapping will be automatically retried up to 5 times for this score set (attempt {attempt+1}/5)."
+            }
             db.commit()
-            return
+
+            send_slack_message(e)
+            logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+            logger.warn(
+                msg="An unexpected error occurred during variant mapping. This job will be attempted again.",
+                extra=logging_context,
+            )
+
+            new_job_id = None
+            max_retries_exceeded = None
+            try:
+                await redis.lpush(MAPPING_QUEUE_NAME, score_set_urn)  # type: ignore
+                new_job_id, max_retries_exceeded = await enqueue_job_with_backoff(
+                    redis, "variant_mapper_manager", attempt, correlation_id, score_set_urn, updater_id
+                )
+                logging_context["backoff_limit_exceeded"] = max_retries_exceeded
+                logging_context["backoff_deferred_in_seconds"] = backoff_time
+                logging_context["backoff_job_id"] = new_job_id
+
+            except Exception as backoff_e:
+                send_slack_message(backoff_e)
+                logging_context = {**logging_context, **format_raised_exception_info_as_dict(backoff_e)}
+                logger.critical(
+                    msg="While attempting to re-enqueue a mapping job that exited in error, another exception was encountered. This score set will not be mapped.",
+                    extra=logging_context,
+                )
+            else:
+                if new_job_id and not max_retries_exceeded:
+                    logger.info(
+                        msg="After encountering an error while parsing mapped variants, another mapping job was queued.",
+                        extra=logging_context,
+                    )
+                elif new_job_id is None and not max_retries_exceeded:
+                    logger.error(
+                        msg="After encountering an error while parsing mapped variants, another mapping job was unable to be queued. This score set will not be mapped.",
+                        extra=logging_context,
+                    )
+                else:
+                    logger.error(
+                        msg="After encountering an error while parsing mapped variants, the maximum retries for this job were exceeded. This score set will not be mapped.",
+                        extra=logging_context,
+                    )
+            finally:
+                return {"success": False, "retried": (not max_retries_exceeded and new_job_id is not None)}
 
         db.commit()
-    except Exception as e:
-        # score set selection is performed in try statement, so don't update the db if this outer except statement is reached
-        send_slack_message(e)
-        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
-        logging_context["mapping_state"] = MappingState.failed.name
-        logger.error(
-            msg="An unexpected error occurred during variant mapping.",
-            extra=logging_context
-        )
-        # put back in queue, since this is an internal error rather than a problem with the score set
-        await redis.lpush(MAPPING_QUEUE_NAME, score_set_urn)  # type: ignore
-        await redis.enqueue_job("variant_mapper_manager", correlation_id, score_set_urn, updater_id)
-        db.rollback()
-        return
-        
+        return {"success": True}
 
 
 async def variant_mapper_manager(
-    ctx: dict, correlation_id: str, score_set_urn: str, updater_id: int
-) -> Optional[Job]:
+    ctx: dict, correlation_id: str, score_set_urn: str, updater_id: int, attempt: int = 0
+) -> dict:
     logging_context = {}
     try:
-        logging_context = setup_job_state(ctx, updater_id, score_set_urn, correlation_id)
-        logger.debug(msg="Variant mapping manager began execution", extra=logging_context)
         redis: ArqRedis = ctx["redis"]
 
-        queue_length = await redis.llen(MAPPING_QUEUE_NAME)  # type:ignore
+        logging_context = setup_job_state(ctx, updater_id, score_set_urn, correlation_id)
+        logging_context["attempt"] = attempt
+        logger.debug(msg="Variant mapping manager began execution", extra=logging_context)
+
+    except Exception as e:
+        send_slack_message(e)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(msg="Variant mapper manager encountered an unexpected error during setup.", extra=logging_context)
+        return {"success": False, "enqueued_job": None}
+
+    mapping_job_id = None
+    mapping_job_status = None
+    try:
+        queue_length = await redis.llen(MAPPING_QUEUE_NAME)  # type: ignore
+
+        # Setup the job id cache if it does not already exist.
+        if await redis.exists(MAPPING_CURRENT_ID_NAME):
+            await redis.set(MAPPING_CURRENT_ID_NAME, "")
+
         if queue_length == 0:
             logger.debug(msg="No mapping jobs exist in the queue.", extra=logging_context)
-            return None
+            return {"success": True, "enqueued_job": None}
 
-        logging_context["variant_map_queue_length"] = queue_length
-        logger.debug(msg="Found mapping job(s) in queue", extra=logging_context)
+        logging_context["variant_mapping_queue_length"] = queue_length
+        logger.debug(msg="Found mapping job(s) in queue.", extra=logging_context)
 
-        if await redis.exists(MAPPING_CURRENT_ID_NAME):
-            mapping_job_id = await redis.get(MAPPING_CURRENT_ID_NAME)
-            if mapping_job_id:
-                mapping_job_id = mapping_job_id.decode('utf-8')
-                job_status = await Job(job_id=mapping_job_id, redis=redis).status()
+        mapping_job_id = (await redis.get(MAPPING_CURRENT_ID_NAME)).decode("utf-8")
+        logging_context["existing_mapping_job_id"] = mapping_job_id
 
-        if not mapping_job_id or job_status is JobStatus.not_found or job_status is JobStatus.complete:
-            logger.info(msg="No mapping jobs are running, queuing a new one.", extra=logging_context)
-            queued_urn = await redis.rpop(MAPPING_QUEUE_NAME)  # type:ignore
-            queued_urn = queued_urn.decode('utf-8')
-            # NOTE: the score_set_urn provided to this function is only used for logging context;
-            # get the urn from the queue and pass that urn to map_variants_for_score_set
-            new_job = await redis.enqueue_job("map_variants_for_score_set", correlation_id, queued_urn, updater_id)
-            if new_job: # for mypy, since enqueue_job can return None
-                new_job_id = new_job.job_id
-            await redis.set(MAPPING_CURRENT_ID_NAME, new_job_id)
-            return new_job
-        else:
-            logger.debug(
-                msg="A mapping job is already running, deferring mapping by 5 minutes.",
-                extra=logging_context,
-            )
+        if mapping_job_id:
+            mapping_job_status = await Job(job_id=mapping_job_id, redis=redis).status()
+            logging_context["existing_mapping_job_status"] = mapping_job_status.value
 
-            # Our persistent Redis queue and ARQ's execution rules ensure that even if the worker is stopped and not restarted
-            # before the deferred time, these deferred jobs will still run once able.
-            return await redis.enqueue_job("variant_mapper_manager", _defer_by=timedelta(minutes=5))
     except Exception as e:
         send_slack_message(e)
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logger.error(
-            msg="An unexpected error occurred during variant mapper management.",
-            extra=logging_context
+            msg="Variant mapper manager encountered an unexpected error while fetching the executing mapping job.",
+            extra=logging_context,
         )
-        return None
+        return {"success": False, "enqueued_job": None}
+
+    new_job = None
+    new_job_id = None
+    try:
+        if not mapping_job_id or mapping_job_status in (JobStatus.not_found, JobStatus.complete):
+            logger.debug(msg="No mapping jobs are running, queuing a new one.", extra=logging_context)
+
+            queued_urn = (await redis.rpop(MAPPING_QUEUE_NAME)).decode("utf-8")  # type: ignore
+            logging_context["current_mapping_resource"] = queued_urn
+
+            # NOTE: the score_set_urn provided to this function is only used for logging context;
+            # get the urn from the queue and pass that urn to map_variants_for_score_set
+            new_job = await redis.enqueue_job(
+                "map_variants_for_score_set", correlation_id, queued_urn, updater_id, attempt
+            )
+
+        if new_job:
+            new_job_id = new_job.job_id
+
+            logging_context["new_mapping_job_id"] = new_job_id
+            logger.info(msg="Queued a new mapping job.", extra=logging_context)
+
+            return {"success": True, "enqueued_job": new_job_id}
+
+        logger.info(
+            msg="A mapping job is already running, or a new job was unable to be enqueued. Deferring mapping by 5 minutes.",
+            extra=logging_context,
+        )
+
+        new_job = await redis.enqueue_job(
+            "variant_mapper_manager",
+            correlation_id,
+            score_set_urn,
+            updater_id,
+            attempt,
+            _defer_by=timedelta(minutes=5),
+        )
+
+        if new_job:
+            new_job_id = new_job.job_id
+
+            logging_context["new_mapping_manager_job_id"] = new_job_id
+            logger.info(msg="Deferred a new mapping manager job.", extra=logging_context)
+
+            # Our persistent Redis queue and ARQ's execution rules ensure that even if the worker is stopped and not restarted
+            # before the deferred time, these deferred jobs will still run once able.
+            return {"success": True, "enqueued_job": new_job_id}
+
+        logger.warn(
+            msg="Unable to queue a new mapping job or defer mapping. This score set will not be mapped.",
+            extra=logging_context,
+        )
+        # TODO: If we end up here, we were unable to enqueue a new mapping job or a new manager job despite expecting we should have
+        # been able to do so. We should raise some sort of exception.
+        # TODO: set failed/no-map mapping state
+        return {"success": False, "enqueued_job": new_job_id}
+
+    except Exception as e:
+        send_slack_message(e)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="Variant mapper manager encountered an unexpected error while enqueing a mapping job.",
+            extra=logging_context,
+        )
+        # TODO: set failed/no-map mapping state
+        return {"success": False, "enqueued_job": new_job_id}
