@@ -126,6 +126,7 @@ async def create_variants_for_score_set(
             raise ValueError("Can't create variants when score set has no targets.")
 
         if score_set.variants:
+            db.execute(delete(MappedVariant).join(Variant).where(Variant.score_set_id == score_set.id))
             db.execute(delete(Variant).where(Variant.score_set_id == score_set.id))
             logging_context["deleted_variants"] = score_set.num_variants
             score_set.num_variants = 0
@@ -490,6 +491,9 @@ async def map_variants_for_score_set(
                         total_variants += 1
                         variant_urn = mapped_score["mavedb_id"]
                         variant = db.scalars(select(Variant).where(Variant.urn == variant_urn)).one()
+
+                        if mapped_score["pre_mapped"] and mapped_score["post_mapped"]:
+                            successful_mapped_variants += 1
 
                         # there should only be one current mapped variant per variant id, so update old mapped variant to current = false
                         existing_mapped_variant = (
