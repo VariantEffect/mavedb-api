@@ -572,18 +572,21 @@ async def variant_mapper_manager(
     mapping_job_id = None
     mapping_job_status = None
     try:
+        queued_urn = await redis.rpop(MAPPING_QUEUE_NAME)  # type: ignore
         queue_length = await redis.llen(MAPPING_QUEUE_NAME)  # type: ignore
+        logging_context["variant_mapping_queue_length"] = queue_length
 
         # Setup the job id cache if it does not already exist.
         if await redis.exists(MAPPING_CURRENT_ID_NAME):
             await redis.set(MAPPING_CURRENT_ID_NAME, "")
 
-        if queue_length == 0:
+        if not queued_urn:
             logger.debug(msg="No mapping jobs exist in the queue.", extra=logging_context)
             return {"success": True, "enqueued_job": None}
-
-        logging_context["variant_mapping_queue_length"] = queue_length
-        logger.debug(msg="Found mapping job(s) in queue.", extra=logging_context)
+        else:
+            queued_urn = queued_urn.decode("utf-8")
+            logging_context["current_mapping_resource"] = queued_urn
+            logger.debug(msg="Found mapping job(s) still in queue.", extra=logging_context)
 
         mapping_job_status = None
         mapping_job_id = await redis.get(MAPPING_CURRENT_ID_NAME)
@@ -608,9 +611,6 @@ async def variant_mapper_manager(
     try:
         if not mapping_job_id or mapping_job_status in (JobStatus.not_found, JobStatus.complete):
             logger.debug(msg="No mapping jobs are running, queuing a new one.", extra=logging_context)
-
-            queued_urn = (await redis.rpop(MAPPING_QUEUE_NAME)).decode("utf-8")  # type: ignore
-            logging_context["current_mapping_resource"] = queued_urn
 
             # NOTE: the score_set_urn provided to this function is only used for logging context;
             # get the urn from the queue and pass that urn to map_variants_for_score_set
