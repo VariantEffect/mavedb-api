@@ -54,10 +54,8 @@ async def log_job(ctx: dict) -> None:
 
     if result is None:
         logger.error(msg="Job result could not be found.", extra=log_context)
-    elif result.result == "success":
-        logger.info(msg="Job completed successfully.", extra=log_context)
-    elif result.result != "success":
-        logger.warning(msg="Job completed with handled exception.", extra=log_context)
+    elif result.result is not None:
+        logger.info(msg="Job completed with result.", extra=log_context)
     else:
         logger.error(msg="Job completed with unhandled exception.", extra=log_context)
 
