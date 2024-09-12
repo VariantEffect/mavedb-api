@@ -250,6 +250,7 @@ async def map_variants_for_score_set(
             score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one()
             score_set.mapping_state = MappingState.processing
             score_set.mapping_errors = null()
+            db.add(score_set)
             db.commit()
 
             logging_context["current_mapping_resource"] = score_set.urn
@@ -261,6 +262,7 @@ async def map_variants_for_score_set(
             if score_set:
                 score_set.mapping_state = MappingState.failed
                 score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
+                db.add(score_set)
             db.commit()
             send_slack_message(e)
             logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
@@ -281,6 +283,7 @@ async def map_variants_for_score_set(
             db.rollback()
             score_set.mapping_state = MappingState.failed
             score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
+            db.add(score_set)
             db.commit()
             send_slack_message(e)
             logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
@@ -302,6 +305,7 @@ async def map_variants_for_score_set(
             score_set.mapping_errors = {
                 "error_message": f"Encountered an internal server error during mapping. Mapping will be automatically retried up to 5 times for this score set (attempt {attempt+1}/5)."
             }
+            db.add(score_set)
             db.commit()
             send_slack_message(e)
             logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
@@ -319,7 +323,7 @@ async def map_variants_for_score_set(
                 )
                 # If we fail to enqueue a mapping manager for this score set, evict it from the queue.
                 if new_job_id is None:
-                    await redis.lpop(MAPPING_QUEUE_NAME, score_set_urn)
+                    await redis.lpop(MAPPING_QUEUE_NAME, score_set_urn)  # type: ignore
 
                 logging_context["backoff_limit_exceeded"] = max_retries_exceeded
                 logging_context["backoff_deferred_in_seconds"] = backoff_time
@@ -341,6 +345,7 @@ async def map_variants_for_score_set(
                 elif new_job_id is None and not max_retries_exceeded:
                     score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
+                    db.add(score_set)
                     db.commit()
                     logger.error(
                         msg="After encountering an error while mapping variants, another mapping job was unable to be queued. This score set will not be mapped.",
@@ -349,6 +354,7 @@ async def map_variants_for_score_set(
                 else:
                     score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
+                    db.add(score_set)
                     db.commit()
                     logger.error(
                         msg="After encountering an error while mapping variants, the maximum retries for this job were exceeded. This score set will not be mapped.",
@@ -489,6 +495,7 @@ async def map_variants_for_score_set(
             score_set.mapping_errors = {
                 "error_message": f"Encountered an unexpected error while parsing mapped variants. Mapping will be automatically retried up to 5 times for this score set (attempt {attempt+1}/5)."
             }
+            db.add(score_set)
             db.commit()
 
             send_slack_message(e)
@@ -516,6 +523,7 @@ async def map_variants_for_score_set(
             except Exception as backoff_e:
                 score_set.mapping_state = MappingState.failed
                 score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
+                db.add(score_set)
                 db.commit()
                 send_slack_message(backoff_e)
                 logging_context = {**logging_context, **format_raised_exception_info_as_dict(backoff_e)}
@@ -532,6 +540,7 @@ async def map_variants_for_score_set(
                 elif new_job_id is None and not max_retries_exceeded:
                     score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
+                    db.add(score_set)
                     db.commit()
                     logger.error(
                         msg="After encountering an error while parsing mapped variants, another mapping job was unable to be queued. This score set will not be mapped.",
@@ -540,6 +549,7 @@ async def map_variants_for_score_set(
                 else:
                     score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
+                    db.add(score_set)
                     db.commit()
                     logger.error(
                         msg="After encountering an error while parsing mapped variants, the maximum retries for this job were exceeded. This score set will not be mapped.",
@@ -558,6 +568,7 @@ async def variant_mapper_manager(
     logging_context = {}
     try:
         redis: ArqRedis = ctx["redis"]
+        db: Session = ctx["db"]
 
         logging_context = setup_job_state(ctx, updater_id, score_set_urn, correlation_id)
         logging_context["attempt"] = attempt
@@ -608,6 +619,7 @@ async def variant_mapper_manager(
 
     new_job = None
     new_job_id = None
+    score_set = None
     try:
         if not mapping_job_id or mapping_job_status in (JobStatus.not_found, JobStatus.complete):
             logger.debug(msg="No mapping jobs are running, queuing a new one.", extra=logging_context)
@@ -656,7 +668,12 @@ async def variant_mapper_manager(
         )
         # TODO: If we end up here, we were unable to enqueue a new mapping job or a new manager job despite expecting we should have
         # been able to do so. We should raise some sort of exception.
-        # TODO: set failed/no-map mapping state
+        score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one_or_none()
+        if score_set:
+            score_set.mapping_state = MappingState.failed
+            score_set.mapping_errors = "Unable to queue a new mapping job or defer score set mapping."
+            db.add(score_set)
+
         return {"success": False, "enqueued_job": new_job_id}
 
     except Exception as e:
@@ -666,5 +683,4 @@ async def variant_mapper_manager(
             msg="Variant mapper manager encountered an unexpected error while enqueing a mapping job.",
             extra=logging_context,
         )
-        # TODO: set failed/no-map mapping state
         return {"success": False, "enqueued_job": new_job_id}
