@@ -1,3 +1,4 @@
+import os
 import requests
 from datetime import date
 from typing import Optional, TypedDict
@@ -9,7 +10,7 @@ GENOMIC_FASTA_FILES = [
     "/data/GCF_000001405.25_GRCh37.p13_genomic.fna.gz",
 ]
 
-DCD_MAP_URL = "http://dcd-mapping:8000"
+DCD_MAP_URL = os.environ.get("DCD_MAPPING_URL", "http://dcd-mapping:8000")
 
 
 def seqfetcher() -> ChainedSeqFetcher:
@@ -24,7 +25,7 @@ class VRSMap:
     url: str
 
     class ScoreSetMappingResults(TypedDict):
-        metadata: Optional[dict[str,str]]
+        metadata: Optional[dict[str, str]]
         dcd_mapping_version: str
         mapped_date_utc: date
         computed_genomic_reference_sequence: Optional[dict[str, str]]
