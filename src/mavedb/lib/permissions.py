@@ -95,8 +95,10 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             elif private:
                 # Do not acknowledge the existence of a private entity.
                 return PermissionResponse(False, 404, f"experiment set with URN '{item.urn}' not found")
+            elif user_data is None or user_data.user is None:
+                return PermissionResponse(False, 401, f"insufficient permissions for URN '{item.urn}'")
             else:
-                return PermissionResponse(False)
+                return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
         elif action == Action.UPDATE:
             if user_may_edit:
                 return PermissionResponse(True)
@@ -106,8 +108,10 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             elif private:
                 # Do not acknowledge the existence of a private entity.
                 return PermissionResponse(False, 404, f"experiment set with URN '{item.urn}' not found")
+            elif user_data is None or user_data.user is None:
+                return PermissionResponse(False, 401, f"insufficient permissions for URN '{item.urn}'")
             else:
-                return PermissionResponse(False)
+                return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
         elif action == Action.DELETE:
             # Owner may only delete an experiment set if it has not already been published.
             if user_may_edit:
@@ -143,8 +147,10 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             elif private:
                 # Do not acknowledge the existence of a private entity.
                 return PermissionResponse(False, 404, f"experiment with URN '{item.urn}' not found")
+            elif user_data is None or user_data.user is None:
+                return PermissionResponse(False, 401, f"insufficient permissions for URN '{item.urn}'")
             else:
-                return PermissionResponse(False)
+                return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
         elif action == Action.UPDATE:
             if user_may_edit:
                 return PermissionResponse(True)
@@ -154,8 +160,10 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             elif private:
                 # Do not acknowledge the existence of a private entity.
                 return PermissionResponse(False, 404, f"experiment with URN '{item.urn}' not found")
+            elif user_data is None or user_data.user is None:
+                return PermissionResponse(False, 401, f"insufficient permissions for URN '{item.urn}'")
             else:
-                return PermissionResponse(False)
+                return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
         elif action == Action.DELETE:
             # Owner may only delete an experiment if it has not already been published.
             if user_may_edit:
@@ -191,8 +199,10 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             elif private:
                 # Do not acknowledge the existence of a private entity.
                 return PermissionResponse(False, 404, f"score set with URN '{item.urn}' not found")
+            elif user_data is None or user_data.user is None:
+                return PermissionResponse(False, 401, f"insufficient permissions for URN '{item.urn}'")
             else:
-                return PermissionResponse(False)
+                return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
         elif action == Action.UPDATE:
             if user_may_edit:
                 return PermissionResponse(True)
@@ -202,8 +212,10 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             elif private:
                 # Do not acknowledge the existence of a private entity.
                 return PermissionResponse(False, 404, f"score set with URN '{item.urn}' not found")
+            elif user_data is None or user_data.user is None:
+                return PermissionResponse(False, 401, f"insufficient permissions for URN '{item.urn}'")
             else:
-                return PermissionResponse(False)
+                return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
         elif action == Action.DELETE:
             # Owner may only delete a score set if it has not already been published.
             if user_may_edit:
@@ -247,7 +259,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             elif roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
             else:
-                return PermissionResponse(False)
+                return PermissionResponse(False, 403, "Insufficient permissions for user update.")
         elif action == Action.UPDATE:
             if user_is_self:
                 return PermissionResponse(True)
