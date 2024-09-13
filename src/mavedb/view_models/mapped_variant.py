@@ -1,4 +1,5 @@
 from typing import Any
+from datetime import date
 
 from .base.base import BaseModel
 
@@ -7,6 +8,12 @@ class MappedVariantBase(BaseModel):
     pre_mapped: Any
     post_mapped: Any
     variant_id: int
+    vrs_version: str
+    error_message: str
+    modification_date: date
+    mapped_date: date
+    mapping_api_version: str
+    current: bool
 
 
 class MappedVariantCreate(MappedVariantBase):
@@ -15,6 +22,7 @@ class MappedVariantCreate(MappedVariantBase):
 
 class MappedVariantUpdate(MappedVariantBase):
     pass
+
 
 # Properties shared by models stored in DB
 class SavedMappedVariant(MappedVariantBase):

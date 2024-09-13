@@ -10,6 +10,7 @@ from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import is_null
 from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
@@ -269,6 +270,8 @@ class ScoreSet(SavedScoreSet):
     private: bool
     processing_state: Optional[ProcessingState]
     processing_errors: Optional[dict]
+    mapping_state: Optional[ProcessingState]
+    mapping_errors: Optional[dict]
 
 
 class ScoreSetWithVariants(ScoreSet):
@@ -299,3 +302,5 @@ class ScoreSetPublicDump(SavedScoreSet):
     private: bool
     processing_state: Optional[ProcessingState]
     processing_errors: Optional[Dict]
+    mapping_state: Optional[MappingState]
+    mapping_errors: Optional[Dict]
