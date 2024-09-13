@@ -340,10 +340,10 @@ async def map_variants_for_score_set(
 
         try:
             if mapping_results:
-                if not mapping_results["mapped_scores"]:
+                if not mapping_results.get("mapped_scores"):
                     # if there are no mapped scores, the score set failed to map.
                     score_set.mapping_state = MappingState.failed
-                    score_set.mapping_errors = {"error_message": mapping_results["error_message"]}
+                    score_set.mapping_errors = {"error_message": mapping_results.get("error_message")}
                 else:
                     # TODO(VariantEffect/dcd-mapping2#2) after adding multi target mapping support:
                     # this assumes single-target mapping, will need to be changed to support multi-target mapping
@@ -352,9 +352,9 @@ async def map_variants_for_score_set(
                     # TODO(VariantEffect/dcd-mapping2#3) after adding accession-based score set mapping support:
                     # this also assumes that the score set is based on a target sequence, not a target accession
 
-                    if mapping_results["computed_genomic_reference_sequence"]:
+                    if mapping_results.get("computed_genomic_reference_sequence"):
                         target_sequence = mapping_results["computed_genomic_reference_sequence"]["sequence"]
-                    elif mapping_results["computed_protein_reference_sequence"]:
+                    elif mapping_results.get("computed_protein_reference_sequence"):
                         target_sequence = mapping_results["computed_protein_reference_sequence"]["sequence"]
                     else:
                         raise NonexistentMappingReferenceError()
@@ -371,10 +371,10 @@ async def map_variants_for_score_set(
 
                     excluded_pre_mapped_keys = {"sequence"}
                     if (
-                        mapping_results["computed_genomic_reference_sequence"]
-                        and mapping_results["mapped_genomic_reference_sequence"]
+                        mapping_results.get("computed_genomic_reference_sequence")
+                        and mapping_results.get("mapped_genomic_reference_sequence")
                     ):
-                        pre_mapped_metadata = mapping_results["computed_genomic_reference_sequence"]
+                        pre_mapped_metadata = mapping_results.get("computed_genomic_reference_sequence")
                         target_gene.pre_mapped_metadata = cast(
                             {
                                 "genomic": {
@@ -385,13 +385,13 @@ async def map_variants_for_score_set(
                             JSONB,
                         )
                         target_gene.post_mapped_metadata = cast(
-                            {"genomic": mapping_results["mapped_genomic_reference_sequence"]}, JSONB
+                            {"genomic": mapping_results.get("mapped_genomic_reference_sequence")}, JSONB
                         )
                     elif (
-                        mapping_results["computed_protein_reference_sequence"]
-                        and mapping_results["mapped_protein_reference_sequence"]
+                        mapping_results.get("computed_protein_reference_sequence")
+                        and mapping_results.get("mapped_protein_reference_sequence")
                     ):
-                        pre_mapped_metadata = mapping_results["computed_protein_reference_sequence"]
+                        pre_mapped_metadata = mapping_results.get("computed_protein_reference_sequence")
                         target_gene.pre_mapped_metadata = cast(
                             {
                                 "protein": {
@@ -402,20 +402,17 @@ async def map_variants_for_score_set(
                             JSONB,
                         )
                         target_gene.post_mapped_metadata = cast(
-                            {"protein": mapping_results["mapped_protein_reference_sequence"]}, JSONB
+                            {"protein": mapping_results.get("mapped_protein_reference_sequence")}, JSONB
                         )
                     else:
                         raise NonexistentMappingReferenceError()
 
                     total_variants = 0
                     successful_mapped_variants = 0
-                    for mapped_score in mapping_results["mapped_scores"]:
+                    for mapped_score in mapping_results.get("mapped_scores"):
                         total_variants += 1
-                        variant_urn = mapped_score["mavedb_id"]
+                        variant_urn = mapped_score.get("mavedb_id")
                         variant = db.scalars(select(Variant).where(Variant.urn == variant_urn)).one()
-
-                        if mapped_score["pre_mapped"] and mapped_score["post_mapped"]:
-                            successful_mapped_variants += 1
 
                         # there should only be one current mapped variant per variant id, so update old mapped variant to current = false
                         existing_mapped_variant = (
@@ -428,18 +425,18 @@ async def map_variants_for_score_set(
                             existing_mapped_variant.current = False
                             db.add(existing_mapped_variant)
 
-                        if mapped_score["pre_mapped"] and mapped_score["post_mapped"]:
+                        if mapped_score.get("pre_mapped") and mapped_score.get("post_mapped"):
                             successful_mapped_variants += 1
 
                         mapped_variant = MappedVariant(
-                            pre_mapped=mapped_score["pre_mapped"] if mapped_score["pre_mapped"] else None,
-                            post_mapped=mapped_score["post_mapped"] if mapped_score["post_mapped"] else None,
+                            pre_mapped=mapped_score.get("pre_mapped", null()),
+                            post_mapped=mapped_score.get("post_mapped", null()),
                             variant_id=variant.id,
                             modification_date=date.today(),
-                            mapped_date=mapping_results["mapped_date_utc"],
-                            vrs_version=mapped_score["vrs_version"] if mapped_score["vrs_version"] else None,
-                            mapping_api_version=mapping_results["dcd_mapping_version"],
-                            error_message=mapped_score["error_message"] if mapped_score["error_message"] else None,
+                            mapped_date=mapping_results.get("mapped_date_utc", null()),
+                            vrs_version=mapped_score.get("vrs_version", null()),
+                            mapping_api_version=mapping_results.get("dcd_mapping_version", null()),
+                            error_message=mapped_score.get("error_message", null()),
                             current=True,
                         )
                         db.add(mapped_variant)
