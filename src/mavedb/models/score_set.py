@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from typing import List, TYPE_CHECKING, Optional
 
 from mavedb.db.base import Base
+from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 import mavedb.models.score_set_publication_identifier
 
@@ -96,6 +97,12 @@ class ScoreSet(Base):
 
     num_variants = Column(Integer, nullable=False, default=0)
     variants: Mapped[list["Variant"]] = relationship(back_populates="score_set", cascade="all, delete-orphan")
+
+    mapping_state = Column(
+        Enum(MappingState, create_constraint=True, length=32, native_enum=False, validate_strings=True),
+        nullable=True,
+    )
+    mapping_errors = Column(JSONB, nullable=True)
 
     experiment_id = Column(Integer, ForeignKey("experiments.id"), index=True, nullable=False)
     experiment: Mapped["Experiment"] = relationship(back_populates="score_sets")

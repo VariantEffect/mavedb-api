@@ -332,6 +332,11 @@ def record_object_statistics(
     Model names and fields should be members of the Enum classes defined above. Providing an invalid model name or
     model field will yield a 422 Unprocessable Entity error with details about valid enum values.
     """
+    # Validation to ensure 'keywords' is only used with 'experiment'.
+    if model == RecordNames.scoreSet and field == RecordFields.keywords:
+        raise HTTPException(status_code=422,
+                            detail="The 'keywords' field can only be used with the 'experiment' model.")
+
     count_data = _record_from_field_and_model(db, model, field)
 
     return {field_val: count for field_val, count in count_data if field_val is not None}

@@ -1,17 +1,23 @@
 import os
+from concurrent import futures
 from typing import Callable
 
 from arq.connections import RedisSettings
-from arq import cron
+from arq.cron import CronJob
+from arq import ArqRedis, cron
 
 from mavedb.lib.logging.canonical import log_job
-from mavedb.worker.jobs import create_variants_for_score_set
+from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager
 from mavedb.db.session import SessionLocal
 from mavedb.data_providers.services import cdot_rest
 
 # ARQ requires at least one task on startup.
-BACKGROUND_FUNCTIONS: list[Callable] = [create_variants_for_score_set]
-BACKGROUND_CRONJOBS: list[Callable] = []
+BACKGROUND_FUNCTIONS: list[Callable] = [
+    create_variants_for_score_set,
+    variant_mapper_manager,
+    map_variants_for_score_set,
+]
+BACKGROUND_CRONJOBS: list[CronJob] = []
 
 REDIS_IP = os.getenv("REDIS_IP") or "localhost"
 REDIS_PORT = int(os.getenv("REDIS_PORT") or 6379)
@@ -22,7 +28,7 @@ RedisWorkerSettings = RedisSettings(host=REDIS_IP, port=REDIS_PORT, ssl=REDIS_SS
 
 
 async def startup(ctx):
-    pass
+    ctx["pool"] = futures.ProcessPoolExecutor()
 
 
 async def shutdown(ctx):
