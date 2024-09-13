@@ -1,15 +1,15 @@
-from typing import Any
+from typing import Any, Optional
 from datetime import date
 
 from .base.base import BaseModel
 
 
 class MappedVariantBase(BaseModel):
-    pre_mapped: Any
-    post_mapped: Any
+    pre_mapped: Optional[Any]
+    post_mapped: Optional[Any]
     variant_id: int
-    vrs_version: str
-    error_message: str
+    vrs_version: Optional[str]
+    error_message: Optional[str]
     modification_date: date
     mapped_date: date
     mapping_api_version: str
