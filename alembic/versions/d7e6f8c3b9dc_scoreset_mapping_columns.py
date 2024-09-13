@@ -30,6 +30,7 @@ def upgrade():
                 "complete",
                 "pending_variant_processing",
                 "not_attempted",
+                "queued",
                 name="mappingstate",
                 native_enum=False,
                 create_constraint=True,

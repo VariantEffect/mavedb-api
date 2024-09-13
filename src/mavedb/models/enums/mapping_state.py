@@ -8,3 +8,4 @@ class MappingState(enum.Enum):
     complete = "complete"
     pending_variant_processing = "pending_variant_processing"
     not_attempted = "not_attempted"
+    queued = "queued"

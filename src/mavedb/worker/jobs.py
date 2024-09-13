@@ -212,6 +212,7 @@ async def create_variants_for_score_set(
 
         await redis.lpush(MAPPING_QUEUE_NAME, score_set_urn)  # type: ignore
         await redis.enqueue_job("variant_mapper_manager", correlation_id, score_set_urn, updater_id)
+        score_set.mapping_state = MappingState.queued
     finally:
         db.add(score_set)
         db.commit()
@@ -275,7 +276,6 @@ async def map_variants_for_score_set(
 
         except Exception as e:
             db.rollback()
-            score_set.mapping_state = MappingState.failed
             score_set.mapping_errors = {
                 "error_message": f"Encountered an internal server error during mapping. Mapping will be automatically retried up to 5 times for this score set (attempt {attempt}/5)."
             }
@@ -305,6 +305,10 @@ async def map_variants_for_score_set(
                 logging_context["backoff_job_id"] = new_job_id
 
             except Exception as backoff_e:
+                score_set.mapping_state = MappingState.failed
+                score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
+                db.add(score_set)
+                db.commit()
                 send_slack_message(backoff_e)
                 logging_context = {**logging_context, **format_raised_exception_info_as_dict(backoff_e)}
                 logger.critical(
@@ -313,6 +317,9 @@ async def map_variants_for_score_set(
                 )
             else:
                 if new_job_id and not max_retries_exceeded:
+                    score_set.mapping_state = MappingState.queued
+                    db.add(score_set)
+                    db.commit()
                     logger.info(
                         msg="After encountering an error while mapping variants, another mapping job was queued.",
                         extra=logging_context,
@@ -463,7 +470,6 @@ async def map_variants_for_score_set(
 
         except Exception as e:
             db.rollback()
-            score_set.mapping_state = MappingState.failed
             score_set.mapping_errors = {
                 "error_message": f"Encountered an unexpected error while parsing mapped variants. Mapping will be automatically retried up to 5 times for this score set (attempt {attempt}/5)."
             }
@@ -505,6 +511,9 @@ async def map_variants_for_score_set(
                 )
             else:
                 if new_job_id and not max_retries_exceeded:
+                    score_set.mapping_state = MappingState.queued
+                    db.add(score_set)
+                    db.commit()
                     logger.info(
                         msg="After encountering an error while parsing mapped variants, another mapping job was queued.",
                         extra=logging_context,
