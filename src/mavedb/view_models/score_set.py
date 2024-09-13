@@ -270,7 +270,7 @@ class ScoreSet(SavedScoreSet):
     private: bool
     processing_state: Optional[ProcessingState]
     processing_errors: Optional[dict]
-    mapping_state: Optional[ProcessingState]
+    mapping_state: Optional[MappingState]
     mapping_errors: Optional[dict]
 
 
