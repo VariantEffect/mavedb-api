@@ -1,5 +1,6 @@
 from typing import Any, List, Optional
 
+from arq import ArqRedis
 from fastapi import APIRouter, Depends
 from fastapi.exceptions import HTTPException
 from sqlalchemy.orm import Session
@@ -10,6 +11,8 @@ from mavedb import deps
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
 from mavedb.view_models import mapped_variant
+from mavedb.worker.jobs import MAPPING_QUEUE_NAME
+
 
 async def fetch_mapped_variant_by_variant_urn(db, urn: str) -> Optional[MappedVariant]:
     """
@@ -22,21 +25,41 @@ async def fetch_mapped_variant_by_variant_urn(db, urn: str) -> Optional[MappedVa
         user.
     """
     try:
-        item = db.query(MappedVariant).filter(Variant.urn == urn).filter(MappedVariant.variant_id == Variant.id).one_or_none()
+        item = (
+            db.query(MappedVariant)
+            .filter(Variant.urn == urn)
+            .filter(MappedVariant.variant_id == Variant.id)
+            .filter(MappedVariant.current is True)
+            .one_or_none()
+        )
     except MultipleResultsFound:
         raise HTTPException(status_code=500, detail=f"Multiple variants with URN {urn} were found.")
     if not item:
         raise HTTPException(status_code=404, detail=f"Mapped variant with URN {urn} not found")
     return item
 
-router = APIRouter(prefix="/api/v1/mapped-variants", tags=["mapped variants"], responses={404: {"description": "Not found"}})
+
+router = APIRouter(
+    prefix="/api/v1/mapped-variants", tags=["mapped variants"], responses={404: {"description": "Not found"}}
+)
+
 
 @router.get("/{urn}", status_code=200, response_model=mapped_variant.MappedVariant, responses={404: {}, 500: {}})
-async def show_mapped_variant(
-    *, urn: str, db: Session = Depends(deps.get_db)
-) -> Any:
+async def show_mapped_variant(*, urn: str, db: Session = Depends(deps.get_db)) -> Any:
     """
     Fetch a mapped variant by URN.
     """
 
     return await fetch_mapped_variant_by_variant_urn(db, urn)
+
+
+# for testing only
+# @router.post("/map/{urn}", status_code=200, responses={404: {}, 500: {}})
+# async def map_score_set(*, urn: str, worker: ArqRedis = Depends(deps.get_worker)) -> Any:
+#     await worker.lpush(MAPPING_QUEUE_NAME, urn)  # type: ignore
+#     await worker.enqueue_job(
+#         "variant_mapper_manager",
+#         None,
+#         None,
+#         None
+#     )

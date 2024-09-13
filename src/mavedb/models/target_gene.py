@@ -1,5 +1,6 @@
 from datetime import date
 from sqlalchemy import Column, Date, ForeignKey, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import backref, relationship, Mapped
 
 from typing import TYPE_CHECKING
@@ -39,6 +40,9 @@ class TargetGene(Base):
         cascade="all,delete-orphan",
         single_parent=True,
     )
+
+    pre_mapped_metadata: Mapped[JSONB] = Column("pre_mapped_metadata", JSONB, nullable=True)
+    post_mapped_metadata: Mapped[JSONB] = Column("post_mapped_metadata", JSONB, nullable=True)
 
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)

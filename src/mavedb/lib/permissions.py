@@ -90,7 +90,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             if user_may_edit or not private:
                 return PermissionResponse(True)
             # Roles which may perform this operation.
-            elif roles_permitted(active_roles, [UserRole.admin]):
+            elif roles_permitted(active_roles, [UserRole.admin, UserRole.mapper]):
                 return PermissionResponse(True)
             elif private:
                 # Do not acknowledge the existence of a private entity.
@@ -142,7 +142,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             if user_may_edit or not private:
                 return PermissionResponse(True)
             # Roles which may perform this operation.
-            elif roles_permitted(active_roles, [UserRole.admin]):
+            elif roles_permitted(active_roles, [UserRole.admin, UserRole.mapper]):
                 return PermissionResponse(True)
             elif private:
                 # Do not acknowledge the existence of a private entity.
@@ -194,7 +194,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             if user_may_edit or not private:
                 return PermissionResponse(True)
             # Roles which may perform this operation.
-            elif roles_permitted(active_roles, [UserRole.admin]):
+            elif roles_permitted(active_roles, [UserRole.admin, UserRole.mapper]):
                 return PermissionResponse(True)
             elif private:
                 # Do not acknowledge the existence of a private entity.
