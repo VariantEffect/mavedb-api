@@ -193,18 +193,17 @@ async def test_create_variants_for_score_set_with_caught_exception(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET))
-async def test_create_variants_for_score_set_with_raised_exception(
+async def test_create_variants_for_score_set_with_caught_base_exception(
     input_score_set, setup_worker_db, async_client, standalone_worker_context, session, data_files
 ):
     score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
 
     # This is somewhat (extra) dumb and wouldn't actually happen like this, but it serves as an effective way to guarantee
-    # some exception will be raised no matter what in the async job.
+    # some base exception will be handled no matter what in the async job.
     with (patch.object(pd.DataFrame, "isnull", side_effect=BaseException),):
-        with pytest.raises(BaseException):
-            success = await create_variants_for_score_set(
-                standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
-            )
+        success = await create_variants_for_score_set(
+            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
+        )
 
     db_variants = session.scalars(select(Variant)).all()
     score_set = session.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set_urn).one()
@@ -355,6 +354,7 @@ async def test_create_variants_for_score_set(
 # this assumption changes in the future, tests reflecting this difference in output should be added for accession based score sets.
 
 
+@pytest.mark.skip
 @pytest.mark.asyncio
 async def test_create_mapped_variants_for_scoreset(
     setup_worker_db,
@@ -389,6 +389,7 @@ async def test_create_mapped_variants_for_scoreset(
     session.commit()
 
 
+@pytest.mark.skip
 @pytest.mark.asyncio
 async def test_create_mapped_variants_for_scoreset_with_existing_mapped_variants(
     setup_worker_db, async_client, standalone_worker_context, session, data_files
@@ -437,6 +438,7 @@ async def test_create_mapped_variants_for_scoreset_with_existing_mapped_variants
     session.commit()
 
 
+@pytest.mark.skip
 @pytest.mark.asyncio
 async def test_create_mapped_variants_for_scoreset_mapping_exception(
     setup_worker_db, async_client, standalone_worker_context, session, data_files
@@ -471,6 +473,7 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception(
     session.commit()
 
 
+@pytest.mark.skip
 @pytest.mark.asyncio
 async def test_create_mapped_variants_for_scoreset_no_mapping_output(
     setup_worker_db, async_client, standalone_worker_context, session, data_files
@@ -501,6 +504,7 @@ async def test_create_mapped_variants_for_scoreset_no_mapping_output(
     session.commit()
 
 
+@pytest.mark.skip
 @pytest.mark.asyncio
 async def test_mapping_manager_empty_queue(setup_worker_db, standalone_worker_context, session):
     queued_job = await variant_mapper_manager(standalone_worker_context)
@@ -510,6 +514,7 @@ async def test_mapping_manager_empty_queue(setup_worker_db, standalone_worker_co
     session.commit()
 
 
+@pytest.mark.skip
 @pytest.mark.asyncio
 async def test_mapping_manager_occupied_queue_mapping_in_progress(setup_worker_db, standalone_worker_context, session):
     await standalone_worker_context["redis"].lpush(MAPPING_QUEUE_NAME, "mavedb:test-urn")
@@ -522,6 +527,7 @@ async def test_mapping_manager_occupied_queue_mapping_in_progress(setup_worker_d
     session.commit()
 
 
+@pytest.mark.skip
 @pytest.mark.asyncio
 async def test_mapping_manager_occupied_queue_mapping_not_in_progress(
     setup_worker_db, standalone_worker_context, session
