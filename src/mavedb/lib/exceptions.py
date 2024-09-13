@@ -172,3 +172,7 @@ class NonexistentMappingReferenceError(ValueError):
     """Raised when score set mapping results do not contain a valid reference sequence"""
 
     pass
+
+
+class MappingEnqueueError(ValueError):
+    """Raised when a mapping job fails to be enqueued despite appearing as if it should have been"""
