@@ -69,7 +69,7 @@ async def enqueue_job_with_backoff(
 ) -> tuple[Optional[str], bool, Any]:
     new_job_id = None
     backoff = None
-    limit_reached = attempt >= BACKOFF_LIMIT
+    limit_reached = attempt > BACKOFF_LIMIT
     if not limit_reached:
         limit_reached = True
         backoff = BACKOFF_IN_SECONDS * (2**attempt)
@@ -223,7 +223,7 @@ async def create_variants_for_score_set(
 
 
 async def map_variants_for_score_set(
-    ctx: dict, correlation_id: str, score_set_urn: str, updater_id: int, attempt: int = 0
+    ctx: dict, correlation_id: str, score_set_urn: str, updater_id: int, attempt: int = 1
 ) -> dict:
     async with mapping_in_execution(redis=ctx["redis"], job_id=ctx["job_id"]):
         logging_context = {}
@@ -277,7 +277,7 @@ async def map_variants_for_score_set(
             db.rollback()
             score_set.mapping_state = MappingState.failed
             score_set.mapping_errors = {
-                "error_message": f"Encountered an internal server error during mapping. Mapping will be automatically retried up to 5 times for this score set (attempt {attempt+1}/5)."
+                "error_message": f"Encountered an internal server error during mapping. Mapping will be automatically retried up to 5 times for this score set (attempt {attempt}/5)."
             }
             db.add(score_set)
             db.commit()
@@ -343,7 +343,7 @@ async def map_variants_for_score_set(
                 if not mapping_results["mapped_scores"]:
                     # if there are no mapped scores, the score set failed to map.
                     score_set.mapping_state = MappingState.failed
-                    score_set.mapping_errors = mapping_results["error_message"]
+                    score_set.mapping_errors = {"error_message": mapping_results["error_message"]}
                 else:
                     # TODO(VariantEffect/dcd-mapping2#2) after adding multi target mapping support:
                     # this assumes single-target mapping, will need to be changed to support multi-target mapping
@@ -468,7 +468,7 @@ async def map_variants_for_score_set(
             db.rollback()
             score_set.mapping_state = MappingState.failed
             score_set.mapping_errors = {
-                "error_message": f"Encountered an unexpected error while parsing mapped variants. Mapping will be automatically retried up to 5 times for this score set (attempt {attempt+1}/5)."
+                "error_message": f"Encountered an unexpected error while parsing mapped variants. Mapping will be automatically retried up to 5 times for this score set (attempt {attempt}/5)."
             }
             db.add(score_set)
             db.commit()
@@ -538,7 +538,7 @@ async def map_variants_for_score_set(
 
 
 async def variant_mapper_manager(
-    ctx: dict, correlation_id: str, score_set_urn: str, updater_id: int, attempt: int = 0
+    ctx: dict, correlation_id: str, score_set_urn: str, updater_id: int, attempt: int = 1
 ) -> dict:
     logging_context = {}
     mapping_job_id = None
@@ -551,8 +551,8 @@ async def variant_mapper_manager(
         logging_context["attempt"] = attempt
         logger.debug(msg="Variant mapping manager began execution", extra=logging_context)
 
-        queued_urn = await redis.rpop(MAPPING_QUEUE_NAME)  # type: ignore
         queue_length = await redis.llen(MAPPING_QUEUE_NAME)  # type: ignore
+        queued_urn = await redis.rpop(MAPPING_QUEUE_NAME)  # type: ignore
         logging_context["variant_mapping_queue_length"] = queue_length
 
         # Setup the job id cache if it does not already exist.
@@ -617,6 +617,8 @@ async def variant_mapper_manager(
         )
 
         if new_job:
+            # Ensure this score set remains in the front of the queue.
+            queued_urn = await redis.rpush(MAPPING_QUEUE_NAME, score_set_urn)  # type: ignore
             new_job_id = new_job.job_id
 
             logging_context["new_mapping_manager_job_id"] = new_job_id
