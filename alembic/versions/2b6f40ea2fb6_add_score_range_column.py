@@ -1,7 +1,7 @@
 """Add score range column
 
 Revision ID: 2b6f40ea2fb6
-Revises: 76e1e55bc5c1
+Revises: 1d4933b4b6f7
 Create Date: 2024-09-09 12:25:33.180077
 
 """
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = "2b6f40ea2fb6"
-down_revision = "76e1e55bc5c1"
+down_revision = "1d4933b4b6f7"
 branch_labels = None
 depends_on = None
 
