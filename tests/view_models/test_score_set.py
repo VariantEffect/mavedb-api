@@ -230,8 +230,11 @@ def test_cannot_create_score_set_with_an_empty_method():
 def test_cannot_create_score_set_with_too_many_boundaries():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
-        "normal": {"range": (0, 1.1, 2.2)},
-        "abnormal": {"range": (1, 2.1, 3.1)},
+        "wt_score": 0.5,
+        "ranges": [
+            {"label": "range_1", "classification": "normal", "range": (0, 1, 2.0)},
+            {"label": "range_2", "classification": "abnormal", "range": (2.0, 2.1, 2.3)},
+        ],
     }
 
     with pytest.raises(ValueError) as exc_info:
@@ -243,23 +246,27 @@ def test_cannot_create_score_set_with_too_many_boundaries():
 def test_cannot_create_score_set_with_overlapping_ranges():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
-        "normal": {"range": (0, 1.1)},
-        "abnormal": {"range": (1, 2.1)},
+        "wt_score": 0.5,
+        "ranges": [
+            {"label": "range_1", "classification": "normal", "range": (0, 1.1)},
+            {"label": "range_2", "classification": "abnormal", "range": (1, 2.1)},
+        ],
     }
 
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test))
 
-    assert "Score ranges may not overlap; `normal` overlaps with `abnormal`" in str(
-        exc_info.value
-    )
+    assert "Score ranges may not overlap; `range_1` overlaps with `range_2`" in str(exc_info.value)
 
 
 def test_can_create_score_set_with_adjacent_ranges():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
-        "normal": {"range": (0, 1)},
-        "abnormal": {"range": (1, 2.1)},
+        "wt_score": 0.5,
+        "ranges": [
+            {"label": "range_1", "classification": "normal", "range": (0, 1)},
+            {"label": "range_2", "classification": "abnormal", "range": (1, 2.1)},
+        ],
     }
 
     ScoreSetModify(**jsonable_encoder(score_set_test))
@@ -268,8 +275,11 @@ def test_can_create_score_set_with_adjacent_ranges():
 def test_can_create_score_set_with_flipped_adjacent_ranges():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
-        "normal": {"range": (1, 2.1)},
-        "abnormal": {"range": (0, 1)},
+        "wt_score": 0.5,
+        "ranges": [
+            {"label": "range_2", "classification": "abnormal", "range": (1, 2.1)},
+            {"label": "range_1", "classification": "normal", "range": (0, 1)},
+        ],
     }
 
     ScoreSetModify(**jsonable_encoder(score_set_test))
@@ -278,8 +288,11 @@ def test_can_create_score_set_with_flipped_adjacent_ranges():
 def test_can_create_score_set_with_adjacent_negative_ranges():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
-        "normal": {"range": (-1, 0)},
-        "abnormal": {"range": (-3, -1)},
+        "wt_score": -0.5,
+        "ranges": [
+            {"label": "range_1", "classification": "normal", "range": (-1, 0)},
+            {"label": "range_2", "classification": "abnormal", "range": (-3, -1)},
+        ],
     }
 
     ScoreSetModify(**jsonable_encoder(score_set_test))
@@ -288,8 +301,11 @@ def test_can_create_score_set_with_adjacent_negative_ranges():
 def test_can_create_score_set_with_flipped_adjacent_negative_ranges():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
-        "normal": {"range": (-3, -1)},
-        "abnormal": {"range": (-1, 0)},
+        "wt_score": -0.5,
+        "ranges": [
+            {"label": "range_2", "classification": "abnormal", "range": (-3, -1)},
+            {"label": "range_1", "classification": "normal", "range": (-1, 0)},
+        ],
     }
 
     ScoreSetModify(**jsonable_encoder(score_set_test))
@@ -298,73 +314,146 @@ def test_can_create_score_set_with_flipped_adjacent_negative_ranges():
 def test_cannot_create_score_set_with_overlapping_upper_unbounded_ranges():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
-        "normal": {"range": (0, None)},
-        "abnormal": {"range": (1, None)},
+        "wt_score": 0.5,
+        "ranges": [
+            {"label": "range_1", "classification": "normal", "range": (0, None)},
+            {"label": "range_2", "classification": "abnormal", "range": (1, None)},
+        ],
     }
 
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test))
 
-    assert "Score ranges may not overlap; `normal` overlaps with `abnormal`" in str(
-        exc_info.value
-    )
+    assert "Score ranges may not overlap; `range_1` overlaps with `range_2`" in str(exc_info.value)
 
 
 def test_cannot_create_score_set_with_overlapping_lower_unbounded_ranges():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
-        "normal": {"range": (None, 0)},
-        "abnormal": {"range": (None, 1)},
+        "wt_score": -0.5,
+        "ranges": [
+            {"label": "range_1", "classification": "normal", "range": (None, 0)},
+            {"label": "range_2", "classification": "abnormal", "range": (None, -1)},
+        ],
     }
 
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test))
 
-    assert "Score ranges may not overlap; `normal` overlaps with `abnormal`" in str(
-        exc_info.value
-    )
+    assert "Score ranges may not overlap; `range_1` overlaps with `range_2`" in str(exc_info.value)
 
 
 def test_cannot_create_score_set_with_backwards_bounds():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
-        "normal": {"range": (1.2, 1.1)},
-        "abnormal": {"range": (2.2, 2.1)},
+        "wt_score": 0.5,
+        "ranges": [
+            {"label": "range_1", "classification": "normal", "range": (1, 0)},
+        ],
     }
 
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test))
 
-    assert (
-        "The lower bound of the `normal` score range may not be larger than the upper bound."
-        in str(exc_info.value)
-    )
+    assert "The lower bound of the `range_1` score range may not be larger than the upper bound." in str(exc_info.value)
 
 
 def test_cannot_create_score_set_with_equal_bounds():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
-        "normal": {"range": (1.2, 1.2)},
-        "abnormal": {"range": (2.2, 2.2)},
+        "wt_score": 1,
+        "ranges": [
+            {"label": "range_1", "classification": "normal", "range": (-1, -1)},
+        ],
+    }
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetModify(**jsonable_encoder(score_set_test))
+
+    assert "The lower and upper bound of the `range_1` score range may not be the same." in str(exc_info.value)
+
+
+def test_cannot_create_score_set_with_duplicate_range_labels():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["score_ranges"] = {
+        "wt_score": -0.5,
+        "ranges": [
+            {"label": "range_1", "classification": "normal", "range": (-1, 0)},
+            {"label": "range_1", "classification": "abnormal", "range": (-3, -1)},
+        ],
+    }
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetModify(**jsonable_encoder(score_set_test))
+
+    assert "Detected repeated labels. Range labels must be unique." in str(exc_info.value)
+
+
+def test_cannot_create_score_set_with_duplicate_range_labels_whitespace():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["score_ranges"] = {
+        "wt_score": -0.5,
+        "ranges": [
+            {"label": "     range_1", "classification": "normal", "range": (-1, 0)},
+            {"label": "range_1       ", "classification": "abnormal", "range": (-3, -1)},
+        ],
+    }
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetModify(**jsonable_encoder(score_set_test))
+
+    assert "Detected repeated labels. Range labels must be unique." in str(exc_info.value)
+
+
+def test_cannot_create_score_set_with_wild_type_outside_ranges():
+    wt_score = 0.5
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["score_ranges"] = {
+        "wt_score": wt_score,
+        "ranges": [
+            {"label": "     range_1", "classification": "normal", "range": (-1, 0)},
+            {"label": "range_1       ", "classification": "abnormal", "range": (-3, -1)},
+        ],
     }
 
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test))
 
     assert (
-        "The lower and upper bound of the `normal` score range may not be the same."
+        f"The provided wild type score of {wt_score} is not within any of the provided normal ranges. This score should be within a normal range."
         in str(exc_info.value)
     )
 
 
-@pytest.mark.parametrize("missing_name", default_ranges)
-def test_cannot_create_score_set_without_default_ranges(missing_name):
+def test_cannot_create_score_set_with_wild_type_outside_normal_range():
+    wt_score = -1.5
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
-        "normal": {"range": (1.2, 1.3)},
-        "abnormal": {"range": (2.2, 2.3)},
+        "wt_score": wt_score,
+        "ranges": [
+            {"label": "     range_1", "classification": "normal", "range": (-1, 0)},
+            {"label": "range_1       ", "classification": "abnormal", "range": (-3, -1)},
+        ],
     }
-    score_set_test["score_ranges"].pop(missing_name)
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetModify(**jsonable_encoder(score_set_test))
+
+    assert (
+        f"The provided wild type score of {wt_score} is not within any of the provided normal ranges. This score should be within a normal range."
+        in str(exc_info.value)
+    )
+
+
+@pytest.mark.parametrize("present_name", default_ranges)
+def test_cannot_create_score_set_without_default_range(present_name):
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["score_ranges"] = {
+        "wt_score": -1.5,
+        "ranges": [
+            {"label": "range_2", "classification": f"{present_name}", "range": (-3, -1)},
+        ],
+    }
 
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test))
@@ -374,18 +463,16 @@ def test_cannot_create_score_set_without_default_ranges(missing_name):
     )
 
 
-def test_cannot_create_score_set_with_empty_description_for_non_default_score():
+def test_cannot_create_score_set_without_default_ranges():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
-        "normal": {"range": (1.2, 1.3)},
-        "abnormal": {"range": (2.2, 2.3)},
-        "custom1": {"description": "", "range": (3.2, 3.3)},
+        "wt_score": -0.5,
+        "ranges": [
+            {"label": "range_1", "classification": "other", "range": (-1, 0)},
+        ],
     }
 
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test))
 
-    assert (
-        "A description must be present for each non-default score range (No description provided for range `custom1`)."
-        in str(exc_info.value)
-    )
+    assert "unexpected value; permitted: 'normal', 'abnormal'" in str(exc_info.value)

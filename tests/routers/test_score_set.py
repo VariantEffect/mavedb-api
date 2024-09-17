@@ -109,9 +109,17 @@ def test_create_score_set_with_score_range(client, setup_router_db):
     score_set.update(
         {
             "score_ranges": {
-                "normal": {"range": (-2, 2)},
-                "abnormal": {"range": (2, None)},
-                "custom1": {"description": "A user provided custom range", "range": (None, -2)},
+                "wt_score": 0.5,
+                "ranges": [
+                    {"label": "range_1", "range": (-2, 2), "classification": "normal"},
+                    {"label": "range_2", "range": (2, None), "classification": "abnormal"},
+                    {
+                        "label": "custom_1",
+                        "range": (None, -2),
+                        "classification": "abnormal",
+                        "description": "A user provided custom range",
+                    },
+                ],
             }
         }
     )
@@ -133,10 +141,17 @@ def test_create_score_set_with_score_range(client, setup_router_db):
         }
     )
     expected_response["scoreRanges"] = {
-        # Although the ranges are lists, the jsonschema should apply a min + max length to them
-        "normal": {"range": [-2, 2]},
-        "abnormal": {"range": [2, None]},
-        "custom1": {"description": "A user provided custom range", "range": [None, -2]},
+        "wtScore": 0.5,
+        "ranges": [
+            {"label": "range_1", "range": [-2, 2], "classification": "normal"},
+            {"label": "range_2", "range": [2, None], "classification": "abnormal"},
+            {
+                "label": "custom_1",
+                "range": [None, -2],
+                "classification": "abnormal",
+                "description": "A user provided custom range",
+            },
+        ],
     }
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())

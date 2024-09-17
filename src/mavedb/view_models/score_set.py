@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from datetime import date
-from pydantic import root_validator
-from typing import Collection, Dict, Optional, Any, Sequence
+from pydantic import root_validator, conlist
+from typing import Collection, Dict, Literal, Optional, Any, Sequence
 
 from humps import camelize
 
@@ -44,14 +44,19 @@ class ExternalLink(BaseModel):
 
 
 class ScoreRange(BaseModel):
+    label: str
     description: Optional[str]
+    classification: Literal["normal", "abnormal"]
     # Purposefully vague type hint because of some odd JSON Schema generation behavior.
     # Typing this as tuple[Union[float, None], Union[float, None]] will generate an invalid
     # jsonschema, and fail all tests that access the schema. This may be fixed in pydantic v2,
-    # but it is unclear. Even just typing it as Tuple[Any, Any] will generate an invalid schema!
-    #
-    # tuple[Union[float, None], Union[float, None]]
-    range: list[Any]
+    # but it's unclear. Even just typing it as Tuple[Any, Any] will generate an invalid schema!
+    range: list[Any]  # really: tuple[Union[float, None], Union[float, None]]
+
+
+class ScoreRanges(BaseModel):
+    wt_score: float
+    ranges: conlist(ScoreRange, min_items=1)
 
 
 class ScoreSetGetter(PublicationIdentifiersGetter):
@@ -83,7 +88,7 @@ class ScoreSetModify(ScoreSetBase):
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     target_genes: list[TargetGeneCreate]
-    score_ranges: Optional[dict[str, ScoreRange]]
+    score_ranges: Optional[ScoreRanges]
 
     @validator("title", "short_description", "abstract_text", "method_text")
     def validate_field_is_non_empty(cls, v):
@@ -139,21 +144,23 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     @validator("score_ranges")
-    def ranges_are_not_backwards(cls, field_value: dict[str, ScoreRange]):
-        for k, v in field_value.items():
-            if len(v.range) != 2:
+    def ranges_are_not_backwards(cls, field_value: ScoreRanges):
+        for range_model in field_value.ranges:
+            if len(range_model.range) != 2:
                 raise ValidationError("Only a lower and upper bound are allowed.")
-            if inf_or_float(v.range[0], True) > inf_or_float(v.range[1], False):
+            if inf_or_float(range_model.range[0], True) > inf_or_float(range_model.range[1], False):
                 raise ValidationError(
-                    f"The lower bound of the `{k}` score range may not be larger than the upper bound."
+                    f"The lower bound of the `{range_model.label}` score range may not be larger than the upper bound."
                 )
-            elif inf_or_float(v.range[0], True) == inf_or_float(v.range[1], False):
-                raise ValidationError(f"The lower and upper bound of the `{k}` score range may not be the same.")
+            elif inf_or_float(range_model.range[0], True) == inf_or_float(range_model.range[1], False):
+                raise ValidationError(
+                    f"The lower and upper bound of the `{range_model.label}` score range may not be the same."
+                )
 
         return field_value
 
     @validator("score_ranges")
-    def ranges_do_not_overlap(cls, field_value: dict[str, ScoreRange]):
+    def ranges_do_not_overlap(cls, field_value: ScoreRanges):
         def test_overlap(tp1, tp2) -> bool:
             # Always check the tuple with the lowest lower bound. If we do not check
             # overlaps in this manner, checking the overlap of (0,1) and (1,2) will
@@ -172,28 +179,43 @@ class ScoreSetModify(ScoreSetBase):
 
             return False
 
-        for i, (k_test, v_test) in enumerate(field_value.items()):
-            for k_check, v_check in list(field_value.items())[i + 1 :]:
-                if test_overlap(v_test.range, v_check.range):
-                    raise ValidationError(f"Score ranges may not overlap; `{k_test}` overlaps with `{k_check}`")
+        for i, range_test in enumerate(field_value.ranges):
+            for range_check in list(field_value.ranges)[i + 1 :]:
+                if test_overlap(range_test.range, range_check.range):
+                    raise ValidationError(
+                        f"Score ranges may not overlap; `{range_test.label}` overlaps with `{range_check.label}`"
+                    )
 
         return field_value
 
     @validator("score_ranges")
-    def ranges_contain_normal_and_abnormal(cls, field_value: dict[str, ScoreRange]):
-        ranges = set(field_value.keys())
+    def ranges_contain_normal_and_abnormal(cls, field_value: ScoreRanges):
+        ranges = set([range_model.classification for range_model in field_value.ranges])
         if not set(default_ranges).issubset(ranges):
             raise ValidationError("Both `normal` and `abnormal` ranges must be provided.")
 
         return field_value
 
     @validator("score_ranges")
-    def description_exists_for_all_ranges(cls, field_value: dict[str, ScoreRange]):
-        for k, v in field_value.items():
-            if k not in default_ranges and is_null(v.description):
-                raise ValidationError(
-                    f"A description must be present for each non-default score range (No description provided for range `{k}`)."
-                )
+    def wild_type_score_in_normal_range(cls, field_value: ScoreRanges):
+        normal_ranges = [
+            range_model.range for range_model in field_value.ranges if range_model.classification == "normal"
+        ]
+        for range in normal_ranges:
+            if field_value.wt_score >= inf_or_float(range[0], lower=True) and field_value.wt_score < inf_or_float(
+                range[1], lower=False
+            ):
+                return field_value
+
+        raise ValidationError(
+            f"The provided wild type score of {field_value.wt_score} is not within any of the provided normal ranges. This score should be within a normal range."
+        )
+
+    @validator("score_ranges")
+    def score_range_labels_must_be_unique(cls, field_value: ScoreRanges):
+        range_labels = set([range_model.label.strip() for range_model in field_value.ranges])
+        if len(range_labels) != len(field_value.ranges):
+            raise ValidationError("Detected repeated labels. Range labels must be unique.")
 
         return field_value
 
@@ -312,7 +334,7 @@ class SavedScoreSet(ScoreSetBase):
     dataset_columns: Dict
     external_links: Dict[str, ExternalLink]
     contributors: list[Contributor]
-    score_ranges: Optional[dict[str, ScoreRange]]
+    score_ranges: Optional[ScoreRanges]
 
     class Config:
         orm_mode = True
