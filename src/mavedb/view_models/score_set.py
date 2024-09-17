@@ -56,7 +56,7 @@ class ScoreRange(BaseModel):
 
 class ScoreRanges(BaseModel):
     wt_score: float
-    ranges: conlist(ScoreRange, min_items=1)
+    ranges: conlist(ScoreRange, min_items=1)  # type: ignore
 
 
 class ScoreSetGetter(PublicationIdentifiersGetter):
