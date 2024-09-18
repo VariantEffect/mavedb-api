@@ -68,8 +68,8 @@ class ScoreRange(BaseModel):
         if len(field_value) != 2:
             raise ValidationError("Only a lower and upper bound are allowed.")
 
-        field_value[0] = inf_or_float(field_value[0], True) if field_value[0] else None
-        field_value[1] = inf_or_float(field_value[1], False) if field_value[1] else None
+        field_value[0] = inf_or_float(field_value[0], True) if field_value[0] is not None else None
+        field_value[1] = inf_or_float(field_value[1], False) if field_value[1] is not None else None
 
         if inf_or_float(field_value[0], True) > inf_or_float(field_value[1], False):
             raise ValidationError("The lower bound of the score range may not be larger than the upper bound.")
@@ -232,6 +232,7 @@ class ScoreSetModify(ScoreSetBase):
             range_model.range for range_model in field_value.ranges if range_model.classification == "normal"
         ]
         for range in normal_ranges:
+            print(range)
             if field_value.wt_score >= inf_or_float(range[0], lower=True) and field_value.wt_score < inf_or_float(
                 range[1], lower=False
             ):

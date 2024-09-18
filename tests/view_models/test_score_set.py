@@ -266,7 +266,7 @@ def test_can_create_score_set_with_mixed_range_types():
         "ranges": [
             {"label": "range_1", "classification": "normal", "range": (0, 1)},
             {"label": "range_2", "classification": "abnormal", "range": ("1.1", 2.1)},
-            {"label": "range_2", "classification": "abnormal", "range": (2.2, "3.2")},
+            {"label": "range_3", "classification": "abnormal", "range": (2.2, "3.2")},
         ],
     }
 
@@ -363,6 +363,7 @@ def test_cannot_create_score_set_with_backwards_bounds():
         "wt_score": 0.5,
         "ranges": [
             {"label": "range_1", "classification": "normal", "range": (1, 0)},
+            {"label": "range_2", "classification": "abnormal", "range": (2, 1)},
         ],
     }
 
