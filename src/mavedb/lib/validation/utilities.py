@@ -1,6 +1,6 @@
 import math
 from random import choice
-from typing import Optional, SupportsIndex
+from typing import Optional, SupportsIndex, Union
 
 from mavedb.lib.validation.constants.conversion import codon_dict_DNA
 from mavedb.lib.validation.constants.conversion import aa_dict_key_1
@@ -275,7 +275,7 @@ def convert_hgvs_nt_to_hgvs_pro(hgvs_nt: str, target_seq: str):
     return construct_hgvs_pro(wt=target_aa, mutant=variant_aa, position=codon_number, target_seq=target_seq)
 
 
-def inf_or_float(v: Optional[float], lower: bool) -> float:
+def inf_or_float(v: Optional[Union[float, int, str]], lower: bool) -> float:
     """
     This function takes an optional float and either converts the passed nonetype
     object to the appropriate infinity value (based on lower) or returns the float
@@ -299,7 +299,7 @@ def inf_or_float(v: Optional[float], lower: bool) -> float:
         else:
             return math.inf
     else:
-        return v
+        return float(v)
 
 
 def _is_wild_type(hgvs: str):

@@ -46,17 +46,42 @@ class ExternalLink(BaseModel):
 class ScoreRange(BaseModel):
     label: str
     description: Optional[str]
-    classification: Literal["normal", "abnormal"]
+    classification: str
     # Purposefully vague type hint because of some odd JSON Schema generation behavior.
     # Typing this as tuple[Union[float, None], Union[float, None]] will generate an invalid
     # jsonschema, and fail all tests that access the schema. This may be fixed in pydantic v2,
     # but it's unclear. Even just typing it as Tuple[Any, Any] will generate an invalid schema!
     range: list[Any]  # really: tuple[Union[float, None], Union[float, None]]
 
+    @validator("classification")
+    def range_classification_value_is_accepted(cls, field_value: str):
+        classification = field_value.strip().lower()
+        if classification not in default_ranges:
+            raise ValidationError(
+                f"Unexpected classification value(s): {classification}. Permitted values: {default_ranges}"
+            )
+
+        return classification
+
+    @validator("range")
+    def ranges_are_not_backwards(cls, field_value: tuple[Any]):
+        if len(field_value) != 2:
+            raise ValidationError("Only a lower and upper bound are allowed.")
+
+        field_value[0] = inf_or_float(field_value[0], True) if field_value[0] else None
+        field_value[1] = inf_or_float(field_value[1], False) if field_value[1] else None
+
+        if inf_or_float(field_value[0], True) > inf_or_float(field_value[1], False):
+            raise ValidationError("The lower bound of the score range may not be larger than the upper bound.")
+        elif inf_or_float(field_value[0], True) == inf_or_float(field_value[1], False):
+            raise ValidationError("The lower and upper bound of the score range may not be the same.")
+
+        return field_value
+
 
 class ScoreRanges(BaseModel):
     wt_score: float
-    ranges: conlist(ScoreRange, min_items=1)  # type: ignore
+    ranges: list[ScoreRange]  # type: ignore
 
 
 class ScoreSetGetter(PublicationIdentifiersGetter):
@@ -144,18 +169,30 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     @validator("score_ranges")
-    def ranges_are_not_backwards(cls, field_value: ScoreRanges):
-        for range_model in field_value.ranges:
-            if len(range_model.range) != 2:
-                raise ValidationError("Only a lower and upper bound are allowed.")
-            if inf_or_float(range_model.range[0], True) > inf_or_float(range_model.range[1], False):
+    def score_range_labels_must_be_unique(cls, field_value: ScoreRanges):
+        existing_labels = []
+        for i, range_model in enumerate(field_value.ranges):
+            range_model.label = range_model.label.strip()
+
+            if range_model.label in existing_labels:
                 raise ValidationError(
-                    f"The lower bound of the `{range_model.label}` score range may not be larger than the upper bound."
+                    f"Detected repeated label: `{range_model.label}`. Range labels must be unique.",
+                    custom_loc=["body", "scoreRanges", "ranges", i, "label"],
                 )
-            elif inf_or_float(range_model.range[0], True) == inf_or_float(range_model.range[1], False):
-                raise ValidationError(
-                    f"The lower and upper bound of the `{range_model.label}` score range may not be the same."
-                )
+
+            existing_labels.append(range_model.label)
+
+        return field_value
+
+    @validator("score_ranges")
+    def ranges_contain_normal_and_abnormal(cls, field_value: ScoreRanges):
+        ranges = set([range_model.classification for range_model in field_value.ranges])
+        if not set(default_ranges).issubset(ranges):
+            raise ValidationError(
+                "Both `normal` and `abnormal` ranges must be provided.",
+                # Raise this error inside the first classification provided by the model.
+                custom_loc=["body", "scoreRanges", "ranges", 0, "classification"],
+            )
 
         return field_value
 
@@ -183,16 +220,9 @@ class ScoreSetModify(ScoreSetBase):
             for range_check in list(field_value.ranges)[i + 1 :]:
                 if test_overlap(range_test.range, range_check.range):
                     raise ValidationError(
-                        f"Score ranges may not overlap; `{range_test.label}` overlaps with `{range_check.label}`"
+                        f"Score ranges may not overlap; `{range_test.label}` overlaps with `{range_check.label}`",
+                        custom_loc=["body", "scoreRanges", "ranges", i, "range"],
                     )
-
-        return field_value
-
-    @validator("score_ranges")
-    def ranges_contain_normal_and_abnormal(cls, field_value: ScoreRanges):
-        ranges = set([range_model.classification for range_model in field_value.ranges])
-        if not set(default_ranges).issubset(ranges):
-            raise ValidationError("Both `normal` and `abnormal` ranges must be provided.")
 
         return field_value
 
@@ -208,16 +238,9 @@ class ScoreSetModify(ScoreSetBase):
                 return field_value
 
         raise ValidationError(
-            f"The provided wild type score of {field_value.wt_score} is not within any of the provided normal ranges. This score should be within a normal range."
+            f"The provided wild type score of {field_value.wt_score} is not within any of the provided normal ranges. This score should be within a normal range.",
+            custom_loc=["body", "scoreRanges", "wtScore"],
         )
-
-    @validator("score_ranges")
-    def score_range_labels_must_be_unique(cls, field_value: ScoreRanges):
-        range_labels = set([range_model.label.strip() for range_model in field_value.ranges])
-        if len(range_labels) != len(field_value.ranges):
-            raise ValidationError("Detected repeated labels. Range labels must be unique.")
-
-        return field_value
 
 
 class ScoreSetCreate(ScoreSetModify):

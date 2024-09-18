@@ -259,6 +259,20 @@ def test_cannot_create_score_set_with_overlapping_ranges():
     assert "Score ranges may not overlap; `range_1` overlaps with `range_2`" in str(exc_info.value)
 
 
+def test_can_create_score_set_with_mixed_range_types():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["score_ranges"] = {
+        "wt_score": 0.5,
+        "ranges": [
+            {"label": "range_1", "classification": "normal", "range": (0, 1)},
+            {"label": "range_2", "classification": "abnormal", "range": ("1.1", 2.1)},
+            {"label": "range_2", "classification": "abnormal", "range": (2.2, "3.2")},
+        ],
+    }
+
+    ScoreSetModify(**jsonable_encoder(score_set_test))
+
+
 def test_can_create_score_set_with_adjacent_ranges():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
@@ -355,7 +369,7 @@ def test_cannot_create_score_set_with_backwards_bounds():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test))
 
-    assert "The lower bound of the `range_1` score range may not be larger than the upper bound." in str(exc_info.value)
+    assert "The lower bound of the score range may not be larger than the upper bound." in str(exc_info.value)
 
 
 def test_cannot_create_score_set_with_equal_bounds():
@@ -370,7 +384,7 @@ def test_cannot_create_score_set_with_equal_bounds():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test))
 
-    assert "The lower and upper bound of the `range_1` score range may not be the same." in str(exc_info.value)
+    assert "The lower and upper bound of the score range may not be the same." in str(exc_info.value)
 
 
 def test_cannot_create_score_set_with_duplicate_range_labels():
@@ -386,7 +400,7 @@ def test_cannot_create_score_set_with_duplicate_range_labels():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test))
 
-    assert "Detected repeated labels. Range labels must be unique." in str(exc_info.value)
+    assert "Detected repeated label: `range_1`. Range labels must be unique." in str(exc_info.value)
 
 
 def test_cannot_create_score_set_with_duplicate_range_labels_whitespace():
@@ -402,7 +416,7 @@ def test_cannot_create_score_set_with_duplicate_range_labels_whitespace():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test))
 
-    assert "Detected repeated labels. Range labels must be unique." in str(exc_info.value)
+    assert "Detected repeated label: `range_1`. Range labels must be unique." in str(exc_info.value)
 
 
 def test_cannot_create_score_set_with_wild_type_outside_ranges():
@@ -411,8 +425,8 @@ def test_cannot_create_score_set_with_wild_type_outside_ranges():
     score_set_test["score_ranges"] = {
         "wt_score": wt_score,
         "ranges": [
-            {"label": "     range_1", "classification": "normal", "range": (-1, 0)},
-            {"label": "range_1       ", "classification": "abnormal", "range": (-3, -1)},
+            {"label": "range_1", "classification": "normal", "range": (-1, 0)},
+            {"label": "range_2", "classification": "abnormal", "range": (-3, -1)},
         ],
     }
 
@@ -431,8 +445,8 @@ def test_cannot_create_score_set_with_wild_type_outside_normal_range():
     score_set_test["score_ranges"] = {
         "wt_score": wt_score,
         "ranges": [
-            {"label": "     range_1", "classification": "normal", "range": (-1, 0)},
-            {"label": "range_1       ", "classification": "abnormal", "range": (-3, -1)},
+            {"label": "range_1", "classification": "normal", "range": (-1, 0)},
+            {"label": "range_2", "classification": "abnormal", "range": (-3, -1)},
         ],
     }
 
@@ -475,4 +489,4 @@ def test_cannot_create_score_set_without_default_ranges():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test))
 
-    assert "unexpected value; permitted: 'normal', 'abnormal'" in str(exc_info.value)
+    assert "Unexpected classification value(s): other. Permitted values: ['normal', 'abnormal']" in str(exc_info.value)
