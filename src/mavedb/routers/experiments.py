@@ -165,20 +165,12 @@ def get_experiment_score_sets(
 
     assert_permission(user_data, experiment, Action.READ)
 
-    # If there is a current user with score sets associated with this experiment, return all of them. Otherwise, only show
-    # the public / published score sets.
-    #
-    # TODO(#182): A side effect of this implementation is that only the user who has created the experiment may view all the Score sets
-    # associated with a given experiment. This could be solved with user impersonation for certain user roles.
-    score_sets = (
-        db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(~ScoreSet.superseding_score_set.has())
+    score_set_result = (
+        db.query(ScoreSet)
+        .filter(ScoreSet.experiment_id == experiment.id)
+        .filter(~ScoreSet.superseding_score_set.has())
+        .all()
     )
-    if user_data is not None:
-        score_set_result = score_sets.all()
-    else:
-        score_set_result = score_sets.filter(ScoreSet.private.is_(False)).all()
-        logger.debug(msg="User is anonymous; Filtering only public score sets will be shown.", extra=logging_context())
-
     score_set_result[:] = [
         score_set for score_set in score_set_result if has_permission(user_data, score_set, Action.READ).permitted
     ]
