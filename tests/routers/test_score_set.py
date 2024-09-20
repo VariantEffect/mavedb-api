@@ -944,6 +944,41 @@ def test_search_score_sets_match(session, data_provider, client, setup_router_db
     assert response.json()[0]["title"] == score_set_1_1["title"]
 
 
+def test_search_score_sets_urn_match(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client)
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        experiment_1["urn"],
+        data_files / "scores.csv"
+    )
+
+    search_payload = {"urn": score_set_1_1['urn']}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["urn"] == score_set_1_1["urn"]
+
+
+# There is space in the end of test urn. The search result returned nothing before.
+def test_search_score_sets_urn_with_space_match(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client)
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        experiment_1["urn"],
+        data_files / "scores.csv"
+    )
+    urn_with_space = score_set_1_1['urn'] + "   "
+    search_payload = {"urn": urn_with_space}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["urn"] == score_set_1_1["urn"]
+
+
 def test_anonymous_cannot_delete_other_users_private_scoreset(
     session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
 ):
