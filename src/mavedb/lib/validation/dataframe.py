@@ -454,9 +454,6 @@ def validate_hgvs_genomic_column(
     This function also validates all individual variants in the column and checks for agreement against the target
     sequence (for non-splice variants).
 
-    Implementation NOTE: We assume variants will only be presented as fully qualified (accession:variant)
-    if this column is being validated against multiple targets.
-
     Parameters
     ----------
     column : pd.Series
@@ -508,12 +505,9 @@ def validate_hgvs_genomic_column(
     for i, s in column.items():
         if s is not None:
             for variant in s.split(" "):
-                # Add accession info when we only have one target
-                if len(targets) == 1:
-                    s = f"{targets[0].accession}:{variant}"
                 try:
                     # We set strict to `False` to suppress validation warnings about intronic variants.
-                    vr.validate(hp.parse(s), strict=False)
+                    vr.validate(hp.parse(variant), strict=False)
                 except hgvs.exceptions.HGVSError as e:
                     invalid_variants.append(f"Failed to parse row {i} with HGVS exception: {e}")
 
