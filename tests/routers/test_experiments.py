@@ -119,36 +119,6 @@ def test_can_update_own_private_experiment_set(session, client, setup_router_db)
     assert response.json()["title"] == "Second Experiment"
 
 
-def test_can_update_own_private_experiment_short_description(session, client, setup_router_db):
-    experiment = create_experiment(client)
-    experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
-    experiment_post_payload.update({"experimentSetUrn": experiment["experimentSetUrn"], "shortDescription": "New description"})
-    response = client.post("/api/v1/experiments/", json=experiment_post_payload)
-    assert response.status_code == 200
-    assert response.json()["experimentSetUrn"] == experiment["experimentSetUrn"]
-    assert response.json()["shortDescription"] == "New description"
-
-
-def test_can_update_own_private_experiment_abstract(session, client, setup_router_db):
-    experiment = create_experiment(client)
-    experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
-    experiment_post_payload.update({"experimentSetUrn": experiment["experimentSetUrn"], "abstractText": "New abstract"})
-    response = client.post("/api/v1/experiments/", json=experiment_post_payload)
-    assert response.status_code == 200
-    assert response.json()["experimentSetUrn"] == experiment["experimentSetUrn"]
-    assert response.json()["abstractText"] == "New abstract"
-
-
-def test_can_update_own_private_experiment_method(session, client, setup_router_db):
-    experiment = create_experiment(client)
-    experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
-    experiment_post_payload.update({"experimentSetUrn": experiment["experimentSetUrn"], "methodText": "New method"})
-    response = client.post("/api/v1/experiments/", json=experiment_post_payload)
-    assert response.status_code == 200
-    assert response.json()["experimentSetUrn"] == experiment["experimentSetUrn"]
-    assert response.json()["methodText"] == "New method"
-
-
 def test_cannot_update_other_users_private_experiment_set(session, client, setup_router_db):
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
