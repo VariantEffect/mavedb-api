@@ -21,7 +21,7 @@ from mavedb.lib.identifiers import (
 )
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.lib.permissions import assert_permission, Action
+from mavedb.lib.permissions import assert_permission, has_permission, Action
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import validate_keyword_list
 from mavedb.lib.keywords import search_keyword
@@ -174,15 +174,14 @@ def get_experiment_score_sets(
         db.query(ScoreSet).filter(ScoreSet.experiment_id == experiment.id).filter(~ScoreSet.superseding_score_set.has())
     )
     if user_data is not None:
-        score_set_result = score_sets.filter(
-            or_(
-                ScoreSet.private.is_(False),
-                and_(ScoreSet.private.is_(True), ScoreSet.created_by == user_data.user),
-            )
-        ).all()
+        score_set_result = score_sets.all()
     else:
         score_set_result = score_sets.filter(ScoreSet.private.is_(False)).all()
         logger.debug(msg="User is anonymous; Filtering only public score sets will be shown.", extra=logging_context())
+
+    score_set_result[:] = [
+        score_set for score_set in score_set_result if has_permission(user_data, score_set, Action.READ).permitted
+    ]
 
     if not score_set_result:
         save_to_logging_context({"associated_resources": []})
