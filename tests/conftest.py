@@ -48,13 +48,14 @@ def session(postgresql):
     )
 
     engine = create_engine(connection, echo=False, poolclass=NullPool)
-    session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
 
     Base.metadata.create_all(bind=engine)
 
     try:
-        yield session()
+        yield session
     finally:
+        session.close()
         Base.metadata.drop_all(bind=engine)
 
 
@@ -170,7 +171,14 @@ async def arq_worker(data_provider, session, arq_redis):
 
 @pytest.fixture
 def standalone_worker_context(session, data_provider, arq_redis):
-    yield {"db": session, "hdp": data_provider, "state": {}, "job_id": "test_job", "redis": arq_redis, "pool": futures.ProcessPoolExecutor()}
+    yield {
+        "db": session,
+        "hdp": data_provider,
+        "state": {},
+        "job_id": "test_job",
+        "redis": arq_redis,
+        "pool": futures.ProcessPoolExecutor(),
+    }
 
 
 @pytest.fixture()
