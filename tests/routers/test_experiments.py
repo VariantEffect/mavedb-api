@@ -134,7 +134,7 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination1(client, s
                     "key": "Variant Library Creation Method",
                     "value": "Endogenous locus library method",
                     "special": False,
-                    "description": "Description"
+                    "description": "Description",
                 },
             },
             {
@@ -142,7 +142,7 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination1(client, s
                     "key": "In Vitro Construct Library Method System",
                     "value": "Oligo-directed mutagenic PCR",
                     "special": False,
-                    "description": "Description"
+                    "description": "Description",
                 },
             },
         ]
@@ -151,9 +151,11 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination1(client, s
     response = client.post("/api/v1/experiments/", json=experiment)
     assert response.status_code == 422
     response_data = response.json()
-    assert response_data["detail"] == \
-           "If 'Variant Library Creation Method' is 'Endogenous locus library method', both 'Endogenous Locus " \
-           "Library Method System' and 'Endogenous Locus Library Method Mechanism' must be present."
+    assert (
+        response_data["detail"]
+        == "If 'Variant Library Creation Method' is 'Endogenous locus library method', both 'Endogenous Locus "
+        "Library Method System' and 'Endogenous Locus Library Method Mechanism' must be present."
+    )
 
 
 def test_cannot_create_experiment_that_keywords_has_wrong_combination2(client, setup_router_db):
@@ -165,7 +167,7 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination2(client, s
                     "key": "Variant Library Creation Method",
                     "value": "In vitro construct library method",
                     "special": False,
-                    "description": "Description"
+                    "description": "Description",
                 },
             },
             {
@@ -173,7 +175,7 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination2(client, s
                     "key": "Endogenous Locus Library Method System",
                     "value": "SaCas9",
                     "special": False,
-                    "description": "Description"
+                    "description": "Description",
                 },
             },
         ]
@@ -182,9 +184,11 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination2(client, s
     response = client.post("/api/v1/experiments/", json=experiment)
     assert response.status_code == 422
     response_data = response.json()
-    assert response_data["detail"] == \
-           "If 'Variant Library Creation Method' is 'In vitro construct library method', both 'In Vitro Construct " \
-           "Library Method System' and 'In Vitro Construct Library Method Mechanism' must be present."
+    assert (
+        response_data["detail"]
+        == "If 'Variant Library Creation Method' is 'In vitro construct library method', both 'In Vitro Construct "
+        "Library Method System' and 'In Vitro Construct Library Method Mechanism' must be present."
+    )
 
 
 def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, setup_router_db):
@@ -199,16 +203,16 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, s
                     "key": "Variant Library Creation Method",
                     "value": "Other",
                     "special": False,
-                    "description": "Description"
+                    "description": "Description",
                 },
-                "description": "Description"
+                "description": "Description",
             },
             {
                 "keyword": {
                     "key": "Endogenous Locus Library Method System",
                     "value": "SaCas9",
                     "special": False,
-                    "description": "Description"
+                    "description": "Description",
                 },
             },
         ]
@@ -217,10 +221,12 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, s
     response = client.post("/api/v1/experiments/", json=experiment)
     assert response.status_code == 422
     response_data = response.json()
-    assert response_data["detail"] == \
-           "If 'Variant Library Creation Method' is 'Other', none of 'Endogenous Locus Library Method System', " \
-           "'Endogenous Locus Library Method Mechanism', 'In Vitro Construct Library Method System', or 'In Vitro " \
-           "Construct Library Method Mechanism' should be present."
+    assert (
+        response_data["detail"]
+        == "If 'Variant Library Creation Method' is 'Other', none of 'Endogenous Locus Library Method System', "
+        "'Endogenous Locus Library Method Mechanism', 'In Vitro Construct Library Method System', or 'In Vitro "
+        "Construct Library Method Mechanism' should be present."
+    )
 
 
 def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, setup_router_db):
@@ -235,16 +241,16 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, s
                     "key": "Variant Library Creation Method",
                     "value": "Other",
                     "special": False,
-                    "description": "Description"
+                    "description": "Description",
                 },
-                "description": "Description"
+                "description": "Description",
             },
             {
                 "keyword": {
                     "key": "In Vitro Construct Library Method System",
                     "value": "Error-prone PCR",
                     "special": False,
-                    "description": "Description"
+                    "description": "Description",
                 },
             },
         ]
@@ -253,10 +259,12 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, s
     response = client.post("/api/v1/experiments/", json=experiment)
     assert response.status_code == 422
     response_data = response.json()
-    assert response_data["detail"] == \
-           "If 'Variant Library Creation Method' is 'Other', none of 'Endogenous Locus Library Method System', " \
-           "'Endogenous Locus Library Method Mechanism', 'In Vitro Construct Library Method System', or 'In Vitro " \
-           "Construct Library Method Mechanism' should be present."
+    assert (
+        response_data["detail"]
+        == "If 'Variant Library Creation Method' is 'Other', none of 'Endogenous Locus Library Method System', "
+        "'Endogenous Locus Library Method Mechanism', 'In Vitro Construct Library Method System', or 'In Vitro "
+        "Construct Library Method Mechanism' should be present."
+    )
 
 
 def test_cannot_create_experiment_that_keyword_value_is_other_without_description(client, setup_router_db):
@@ -271,9 +279,9 @@ def test_cannot_create_experiment_that_keyword_value_is_other_without_descriptio
                     "key": "Variant Library Creation Method",
                     "value": "Other",
                     "special": False,
-                    "description": "Description"
+                    "description": "Description",
                 },
-                "description": None
+                "description": None,
             },
         ]
     }
@@ -281,7 +289,7 @@ def test_cannot_create_experiment_that_keyword_value_is_other_without_descriptio
     response = client.post("/api/v1/experiments/", json=experiment)
     assert response.status_code == 422
     response_data = response.json()
-    error_messages = [error['msg'] for error in response_data["detail"]]
+    error_messages = [error["msg"] for error in response_data["detail"]]
     assert "Other option does not allow empty description." in error_messages
 
 
@@ -294,16 +302,16 @@ def test_cannot_create_experiment_that_keywords_have_duplicate_keys(client, setu
                     "key": "Variant Library Creation Method",
                     "value": "Other",
                     "special": False,
-                    "description": "Description"
+                    "description": "Description",
                 },
-                "description": "Description"
+                "description": "Description",
             },
             {
                 "keyword": {
                     "key": "Variant Library Creation Method",
                     "value": "In vitro construct library method",
                     "special": False,
-                    "description": "Description"
+                    "description": "Description",
                 },
             },
         ]
@@ -327,7 +335,7 @@ def test_cannot_create_experiment_that_keywords_have_duplicate_values(client, se
                     "key": "Delivery method",
                     "value": "In vitro construct library method",
                     "special": False,
-                    "description": "Description"
+                    "description": "Description",
                 },
             },
             {
@@ -335,7 +343,7 @@ def test_cannot_create_experiment_that_keywords_have_duplicate_values(client, se
                     "key": "Variant Library Creation Method",
                     "value": "In vitro construct library method",
                     "special": False,
-                    "description": "Description"
+                    "description": "Description",
                 },
             },
         ]
@@ -359,18 +367,13 @@ def test_create_experiment_that_keywords_have_duplicate_others(client, setup_rou
                     "key": "Variant Library Creation Method",
                     "value": "Other",
                     "special": False,
-                    "description": "Description"
+                    "description": "Description",
                 },
-                "description": "Description"
+                "description": "Description",
             },
             {
-                "keyword": {
-                    "key": "Delivery method",
-                    "value": "Other",
-                    "special": False,
-                    "description": "Description"
-                },
-                "description": "Description"
+                "keyword": {"key": "Delivery method", "value": "Other", "special": False, "description": "Description"},
+                "description": "Description",
             },
         ]
     }
@@ -982,6 +985,34 @@ def test_search_score_sets_for_experiments(session, client, setup_router_db, dat
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["urn"] == published_score_set["urn"]
+
+
+def test_search_score_sets_for_contributor_experiments(session, client, setup_router_db, data_files, data_provider):
+    experiment = create_experiment(client)
+    score_set_pub = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    # make the unpublished score set owned by some other user. This shouldn't appear in the results.
+    score_set_unpub = create_seq_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
+    published_score_set = client.post(f"/api/v1/score-sets/{score_set_pub['urn']}/publish").json()
+    change_ownership(session, score_set_unpub["urn"], ScoreSetDbModel)
+    add_contributor(
+        session,
+        score_set_unpub["urn"],
+        ScoreSetDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+
+    # On score set publication, the experiment will get a new urn
+    experiment_urn = published_score_set["experiment"]["urn"]
+    response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+    assert response.status_code == 200
+    response_urns = [score_set["urn"] for score_set in response.json()]
+    assert len(response_urns) == 2
+    assert published_score_set["urn"] in response_urns
+    assert score_set_unpub["urn"] in response_urns
 
 
 def test_search_score_sets_for_my_experiments(session, client, setup_router_db, data_files, data_provider):
