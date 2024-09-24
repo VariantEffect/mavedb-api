@@ -35,6 +35,7 @@ from tests.helpers.constants import (
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_VARIANT_MAPPING_SCAFFOLD,
+    VALID_ACCESSION,
 )
 
 
@@ -130,8 +131,10 @@ async def test_create_variants_for_score_set_with_validation_error(
 ):
     score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
 
-    # This is invalid for both data sets.
-    scores.loc[:, HGVS_NT_COLUMN].iloc[0] = "c.1T>A"
+    if input_score_set == TEST_MINIMAL_SEQ_SCORESET:
+        scores.loc[:, HGVS_NT_COLUMN].iloc[0] = "c.1T>A"
+    else:
+        scores.loc[:, HGVS_NT_COLUMN].iloc[0] = f"{VALID_ACCESSION}:c.1T>A"
 
     with (
         patch.object(
