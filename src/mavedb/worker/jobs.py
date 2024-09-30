@@ -211,7 +211,7 @@ async def create_variants_for_score_set(
         logger.info(msg="Finished creating variants in score set.", extra=logging_context)
 
         await redis.lpush(MAPPING_QUEUE_NAME, score_set.id)  # type: ignore
-        await redis.enqueue_job("variant_mapper_manager", correlation_id, score_set.id, updater_id)
+        await redis.enqueue_job("variant_mapper_manager", correlation_id, updater_id)
         score_set.mapping_state = MappingState.queued
     finally:
         db.add(score_set)
@@ -297,7 +297,7 @@ async def map_variants_for_score_set(
             try:
                 await redis.lpush(MAPPING_QUEUE_NAME, score_set.id)  # type: ignore
                 new_job_id, max_retries_exceeded, backoff_time = await enqueue_job_with_backoff(
-                    redis, "variant_mapper_manager", attempt, correlation_id, score_set.id, updater_id
+                    redis, "variant_mapper_manager", attempt, correlation_id, updater_id
                 )
                 # If we fail to enqueue a mapping manager for this score set, evict it from the queue.
                 if new_job_id is None:
@@ -487,7 +487,7 @@ async def map_variants_for_score_set(
             try:
                 await redis.lpush(MAPPING_QUEUE_NAME, score_set.id)  # type: ignore
                 new_job_id, max_retries_exceeded, backoff_time = await enqueue_job_with_backoff(
-                    redis, "variant_mapper_manager", attempt, correlation_id, score_set.id, updater_id
+                    redis, "variant_mapper_manager", attempt, correlation_id, updater_id
                 )
                 # If we fail to enqueue a mapping manager for this score set, evict it from the queue.
                 if new_job_id is None:
@@ -542,18 +542,16 @@ async def map_variants_for_score_set(
     return {"success": True}
 
 
-async def variant_mapper_manager(
-    ctx: dict, correlation_id: str, score_set_id: int, updater_id: int, attempt: int = 1
-) -> dict:
+async def variant_mapper_manager(ctx: dict, correlation_id: str, updater_id: int, attempt: int = 1) -> dict:
     logging_context = {}
     mapping_job_id = None
     mapping_job_status = None
+    queued_score_set = None
     try:
         redis: ArqRedis = ctx["redis"]
         db: Session = ctx["db"]
-        score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one()
 
-        logging_context = setup_job_state(ctx, updater_id, score_set.urn, correlation_id)
+        logging_context = setup_job_state(ctx, updater_id, None, correlation_id)
         logging_context["attempt"] = attempt
         logger.debug(msg="Variant mapping manager began execution", extra=logging_context)
 
@@ -570,8 +568,9 @@ async def variant_mapper_manager(
             return {"success": True, "enqueued_job": None}
         else:
             queued_id = queued_id.decode("utf-8")
-            queued_score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one()
-            logging_context["current_mapping_resource"] = queued_score_set.urn
+            queued_score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == queued_id)).one()
+
+            logging_context["upcoming_mapping_resource"] = queued_score_set.urn
             logger.debug(msg="Found mapping job(s) still in queue.", extra=logging_context)
 
         mapping_job_id = await redis.get(MAPPING_CURRENT_ID_NAME)
@@ -614,7 +613,6 @@ async def variant_mapper_manager(
         new_job = await redis.enqueue_job(
             "variant_mapper_manager",
             correlation_id,
-            score_set_id,
             updater_id,
             attempt,
             _defer_by=timedelta(minutes=5),
@@ -622,7 +620,7 @@ async def variant_mapper_manager(
 
         if new_job:
             # Ensure this score set remains in the front of the queue.
-            queued_id = await redis.rpush(MAPPING_QUEUE_NAME, score_set_id)  # type: ignore
+            queued_id = await redis.rpush(MAPPING_QUEUE_NAME, queued_score_set.id)  # type: ignore
             new_job_id = new_job.job_id
 
             logging_context["new_mapping_manager_job_id"] = new_job_id
@@ -643,7 +641,12 @@ async def variant_mapper_manager(
         )
 
         db.rollback()
-        score_set_exc = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one_or_none()
+
+        # We shouldn't rely on the passed score set id matching the score set we are operating upon.
+        if not queued_score_set:
+            return {"success": False, "enqueued_job": new_job_id}
+
+        score_set_exc = db.scalars(select(ScoreSet).where(ScoreSet.id == queued_score_set.id)).one_or_none()
         if score_set_exc:
             score_set_exc.mapping_state = MappingState.failed
             score_set_exc.mapping_errors = "Unable to queue a new mapping job or defer score set mapping."
