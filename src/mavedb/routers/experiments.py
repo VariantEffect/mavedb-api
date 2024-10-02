@@ -45,6 +45,41 @@ router = APIRouter(
 )
 
 
+@router.get(
+    "/experiments/check-authorizations/{urn}",
+    status_code=200,
+    response_model=bool
+)
+async def check_experiment_authorization(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(get_current_user),
+) -> bool:
+    """
+    Check whether users have authorizations in this experiment.
+    """
+    query = db.query(Experiment).filter(Experiment.urn == urn)
+
+    if user_data is not None:
+        query = query.filter(
+            or_(
+                Experiment.created_by_id == user_data.user.id,
+                Experiment.contributors.any(Contributor.orcid_id == user_data.user.username),
+            )
+        )
+    else:
+        return False
+
+    save_to_logging_context({"Experiment requested resource": urn})
+    item = query.first()
+
+    if item:
+        return True
+    else:
+        return False
+
+
 # TODO: Rewrite this function.
 @router.get(
     "/experiments/",
