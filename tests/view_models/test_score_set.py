@@ -2,13 +2,11 @@ import pytest
 
 from fastapi.encoders import jsonable_encoder
 
-from mavedb.view_models.score_set import ScoreSetModify
+from mavedb.view_models.score_set import ScoreSetCreate, ScoreSetModify
 from mavedb.view_models.target_gene import TargetGeneCreate
 from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
 
 from tests.helpers.constants import TEST_MINIMAL_SEQ_SCORESET
-
-import datetime
 
 
 def test_cannot_create_score_set_without_a_target():
@@ -67,3 +65,142 @@ def test_cannot_create_score_set_with_non_unique_target_labels():
         )
 
     assert "Target sequence labels cannot be duplicated." in str(exc_info.value)
+
+
+def test_cannot_create_score_set_without_a_title():
+    score_set = TEST_MINIMAL_SEQ_SCORESET.copy()
+    invalid_score_set = jsonable_encoder(score_set, exclude={"title"})
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**invalid_score_set)
+
+    assert "field required" in str(exc_info.value)
+    assert "title" in str(exc_info.value)
+
+
+def test_cannot_create_score_set_with_a_space_title():
+    score_set = TEST_MINIMAL_SEQ_SCORESET.copy()
+    invalid_score_set = jsonable_encoder(score_set, exclude={"title"})
+    invalid_score_set["title"] = " "
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**invalid_score_set)
+
+    assert "This field is required and cannot be empty." in str(exc_info.value)
+    assert "title" in str(exc_info.value)
+
+
+def test_cannot_create_score_set_with_an_empty_title():
+    score_set = TEST_MINIMAL_SEQ_SCORESET.copy()
+    invalid_score_set = jsonable_encoder(score_set, exclude={"title"})
+    invalid_score_set["title"] = ""
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**invalid_score_set)
+
+    assert "none is not an allowed value" in str(exc_info.value)
+    assert "title" in str(exc_info.value)
+
+
+def test_cannot_create_score_set_without_a_short_description():
+    score_set = TEST_MINIMAL_SEQ_SCORESET.copy()
+    invalid_score_set = jsonable_encoder(score_set, exclude={"shortDescription"})
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**invalid_score_set)
+
+    assert "field required" in str(exc_info.value)
+    assert "shortDescription" in str(exc_info.value)
+
+
+def test_cannot_create_score_set_with_a_space_short_description():
+    score_set = TEST_MINIMAL_SEQ_SCORESET.copy()
+    invalid_score_set = jsonable_encoder(score_set, exclude={"shortDescription"})
+    invalid_score_set["shortDescription"] = "  "
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**invalid_score_set)
+
+    assert "This field is required and cannot be empty." in str(exc_info.value)
+    assert "shortDescription" in str(exc_info.value)
+
+
+def test_cannot_create_score_set_with_an_empty_short_description():
+    score_set = TEST_MINIMAL_SEQ_SCORESET.copy()
+    invalid_score_set = jsonable_encoder(score_set, exclude={"shortDescription"})
+    invalid_score_set["shortDescription"] = ""
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**invalid_score_set)
+
+    assert "none is not an allowed value" in str(exc_info.value)
+    assert "shortDescription" in str(exc_info.value)
+
+
+def test_cannot_create_score_set_without_an_abstract():
+    score_set = TEST_MINIMAL_SEQ_SCORESET.copy()
+    invalid_score_set = jsonable_encoder(score_set, exclude={"abstractText"})
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**invalid_score_set)
+
+    assert "field required" in str(exc_info.value)
+    assert "abstractText" in str(exc_info.value)
+
+
+def test_cannot_create_score_set_with_a_space_abstract():
+    score_set = TEST_MINIMAL_SEQ_SCORESET.copy()
+    invalid_score_set = jsonable_encoder(score_set, exclude={"abstractText"})
+    invalid_score_set["abstractText"] = "  "
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**invalid_score_set)
+
+    assert "This field is required and cannot be empty." in str(exc_info.value)
+    assert "abstractText" in str(exc_info.value)
+
+
+def test_cannot_create_score_set_with_an_empty_abstract():
+    score_set = TEST_MINIMAL_SEQ_SCORESET.copy()
+    invalid_score_set = jsonable_encoder(score_set, exclude={"abstractText"})
+    invalid_score_set["abstractText"] = ""
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**invalid_score_set)
+
+    assert "none is not an allowed value" in str(exc_info.value)
+    assert "abstractText" in str(exc_info.value)
+
+
+def test_cannot_create_score_set_without_a_method():
+    score_set = TEST_MINIMAL_SEQ_SCORESET.copy()
+    invalid_score_set = jsonable_encoder(score_set, exclude={"methodText"})
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**invalid_score_set)
+
+    assert "field required" in str(exc_info.value)
+    assert "methodText" in str(exc_info.value)
+
+
+def test_cannot_create_score_set_with_a_space_method():
+    score_set = TEST_MINIMAL_SEQ_SCORESET.copy()
+    invalid_score_set = jsonable_encoder(score_set, exclude={"methodText"})
+    invalid_score_set["methodText"] = "  "
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**invalid_score_set)
+
+    assert "This field is required and cannot be empty." in str(exc_info.value)
+    assert "methodText" in str(exc_info.value)
+
+
+def test_cannot_create_score_set_with_an_empty_method():
+    score_set = TEST_MINIMAL_SEQ_SCORESET.copy()
+    invalid_score_set = jsonable_encoder(score_set, exclude={"methodText"})
+    invalid_score_set["methodText"] = ""
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**invalid_score_set)
+
+    assert "none is not an allowed value" in str(exc_info.value)
+    assert "methodText" in str(exc_info.value)

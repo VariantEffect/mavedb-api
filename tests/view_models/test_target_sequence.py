@@ -1,7 +1,7 @@
 from mavedb.view_models.target_sequence import TargetSequenceCreate, sanitize_target_sequence_label
+from tests.helpers.constants import TEST_TAXONOMY
 
 import pytest
-import datetime
 
 
 SEQUENCE = (
@@ -15,24 +15,12 @@ SEQUENCE = (
     "ACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA"
 )
 
-TAXONOMY = {
-    "taxId": 9606,
-    "organismName": "Homo sapiens",
-    "commonName": "human",
-    "rank": "SPECIES",
-    "hasDescribedSpeciesName": True,
-    "articleReference": "NCBI:txid9606",
-    "genomeId": None,
-    "id": 14,
-    "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606",
-}
-
 
 def test_create_valid_target_sequence():
     sequence_type = "dna"
     label = "sequence_label"
     sequence = SEQUENCE
-    taxonomy = TAXONOMY
+    taxonomy = TEST_TAXONOMY
 
     target_sequence = TargetSequenceCreate(
         sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label
@@ -47,7 +35,7 @@ def test_target_sequence_label_is_sanitized():
     sequence_type = "dna"
     label = "   sanitize this label      "
     sequence = SEQUENCE
-    taxonomy = TAXONOMY
+    taxonomy = TEST_TAXONOMY
 
     target_sequence = TargetSequenceCreate(
         sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label
@@ -62,7 +50,7 @@ def test_target_sequence_label_can_be_nonetype():
     sequence_type = "dna"
     label = None
     sequence = SEQUENCE
-    taxonomy = TAXONOMY
+    taxonomy = TEST_TAXONOMY
 
     target_sequence = TargetSequenceCreate(
         sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label
@@ -77,7 +65,7 @@ def test_cannot_create_target_sequence_with_label_containing_colon():
     sequence_type = "dna"
     label = "sequence:label"
     sequence = SEQUENCE
-    taxonomy = TAXONOMY
+    taxonomy = TEST_TAXONOMY
 
     with pytest.raises(ValueError) as exc_info:
         target_sequence = TargetSequenceCreate(
@@ -91,7 +79,7 @@ def test_cannot_create_target_sequence_with_invalid_sequence_type():
     sequence_type = "invalid"
     label = "sequence_label"
     sequence = SEQUENCE
-    taxonomy = TAXONOMY
+    taxonomy = TEST_TAXONOMY
 
     with pytest.raises(ValueError) as exc_info:
         target_sequence = TargetSequenceCreate(
@@ -105,7 +93,7 @@ def test_cannot_create_target_sequence_with_invalid_inferred_type():
     sequence_type = "infer"
     label = "sequence_label"
     sequence = SEQUENCE + "!"
-    taxonomy = TAXONOMY
+    taxonomy = TEST_TAXONOMY
 
     with pytest.raises(ValueError) as exc_info:
         target_sequence = TargetSequenceCreate(
@@ -126,7 +114,7 @@ def test_cannot_create_target_sequence_with_invalid_inferred_type():
 def test_cannot_create_target_sequence_with_invalid_sequence(sequence_type, exc_string):
     label = "sequence_label"
     sequence = SEQUENCE + "!"
-    taxonomy = TAXONOMY
+    taxonomy = TEST_TAXONOMY
 
     with pytest.raises(ValueError) as exc_info:
         target_sequence = TargetSequenceCreate(
