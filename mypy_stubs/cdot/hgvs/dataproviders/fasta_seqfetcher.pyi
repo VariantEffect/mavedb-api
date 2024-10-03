@@ -7,4 +7,3 @@ class FastaSeqFetcher:
 class ChainedSeqFetcher:
     seq_fetchers: list[Union[SeqFetcher, FastaSeqFetcher]]
     def __init__(self, *args) -> None: ...
-

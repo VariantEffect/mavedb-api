@@ -32,7 +32,7 @@ def upgrade():
             "modification_date",
             sa.Date(),
             nullable=False,
-            server_default = sa.func.current_date(),
+            server_default=sa.func.current_date(),
         ),
     )
     op.add_column(
@@ -51,7 +51,7 @@ def upgrade():
     op.add_column(
         "mapped_variants",
         sa.Column("current", sa.Boolean(), nullable=False, server_default=sa.false()),
-        )
+    )
     op.alter_column(
         "mapped_variants",
         "pre_mapped",

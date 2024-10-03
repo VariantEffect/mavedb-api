@@ -6,17 +6,18 @@ import pytest
 import datetime
 
 taxonomy = TaxonomyCreate(
-    id = 1,
-    tax_id = 1,
-    organism_name = "Organism",
-    common_name = "Common name",
-    rank = "Rank",
-    has_described_species_name = False,
-    url = "url",
-    article_reference = "article_reference",
-    creation_date = datetime.datetime.now(),
-    modification_date = datetime.datetime.now(),
+    id=1,
+    tax_id=1,
+    organism_name="Organism",
+    common_name="Common name",
+    rank="Rank",
+    has_described_species_name=False,
+    url="url",
+    article_reference="article_reference",
+    creation_date=datetime.datetime.now(),
+    modification_date=datetime.datetime.now(),
 )
+
 
 @pytest.mark.parametrize(
     "sequence_type, sequence",

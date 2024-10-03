@@ -479,8 +479,7 @@ def arrays_equal(array1: np.ndarray, array2: np.ndarray):
     return array1.shape == array2.shape and all(
         # note that each of the three expressions here is a boolean ndarray
         # so combining them with bitwise `&` and `|` works:
-        (pd.isnull(array1) & pd.isnull(array2))
-        | (array1 == array2)
+        (pd.isnull(array1) & pd.isnull(array2)) | (array1 == array2)
     )
 
 

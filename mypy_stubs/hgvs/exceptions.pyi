@@ -27,4 +27,3 @@ class HGVSUsageError(HGVSError):
 
 class HGVSVerifyFailedError(HGVSError):
     pass
-

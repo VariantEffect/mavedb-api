@@ -393,9 +393,7 @@ async def map_variants_for_score_set(
                             },
                             JSONB,
                         )
-                        target_gene.post_mapped_metadata = cast(
-                            {"genomic": mapped_genomic_ref}, JSONB
-                        )
+                        target_gene.post_mapped_metadata = cast({"genomic": mapped_genomic_ref}, JSONB)
                     elif computed_protein_ref and mapped_protein_ref:
                         pre_mapped_metadata = computed_protein_ref
                         target_gene.pre_mapped_metadata = cast(
@@ -407,9 +405,7 @@ async def map_variants_for_score_set(
                             },
                             JSONB,
                         )
-                        target_gene.post_mapped_metadata = cast(
-                            {"protein": mapped_protein_ref}, JSONB
-                        )
+                        target_gene.post_mapped_metadata = cast({"protein": mapped_protein_ref}, JSONB)
                     else:
                         raise NonexistentMappingReferenceError()
 

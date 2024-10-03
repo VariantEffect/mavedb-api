@@ -56,7 +56,7 @@ ADMIN_USER = {
     "is_first_login": True,
 }
 
-TEST_DESCRIPTION = 'description'
+TEST_DESCRIPTION = "description"
 
 ADMIN_USER_DECODED_JWT = {
     "sub": ADMIN_USER["username"],
@@ -77,50 +77,40 @@ TEST_DB_KEYWORDS = [
         "key": "Variant Library Creation Method",
         "value": "Endogenous locus library method",
         "special": False,
-        "description": "Description"
+        "description": "Description",
     },
     {
         "key": "Variant Library Creation Method",
         "value": "In vitro construct library method",
         "special": False,
-        "description": "Description"
+        "description": "Description",
     },
-    {
-        "key": "Variant Library Creation Method",
-        "value": "Other",
-        "special": False,
-        "description": "Description"
-    },
+    {"key": "Variant Library Creation Method", "value": "Other", "special": False, "description": "Description"},
     {
         "key": "Endogenous Locus Library Method System",
         "value": "SaCas9",
         "special": False,
-        "description": "Description"
+        "description": "Description",
     },
     {
         "key": "Endogenous Locus Library Method Mechanism",
         "value": "Base editor",
         "special": False,
-        "description": "Description"
+        "description": "Description",
     },
     {
         "key": "In Vitro Construct Library Method System",
         "value": "Oligo-directed mutagenic PCR",
         "special": False,
-        "description": "Description"
+        "description": "Description",
     },
     {
         "key": "In Vitro Construct Library Method Mechanism",
         "value": "Native locus replacement",
         "special": False,
-        "description": "Description"
+        "description": "Description",
     },
-    {
-        "key": "Delivery method",
-        "value": "Other",
-        "special": False,
-        "description": "Description"
-    }
+    {"key": "Delivery method", "value": "Other", "special": False, "description": "Description"},
 ]
 
 TEST_KEYWORDS = [
@@ -129,7 +119,7 @@ TEST_KEYWORDS = [
             "key": "Variant Library Creation Method",
             "value": "Endogenous locus library method",
             "special": False,
-            "description": "Description"
+            "description": "Description",
         },
     },
     {
@@ -137,7 +127,7 @@ TEST_KEYWORDS = [
             "key": "Endogenous Locus Library Method System",
             "value": "SaCas9",
             "special": False,
-            "description": "Description"
+            "description": "Description",
         },
     },
     {
@@ -145,17 +135,12 @@ TEST_KEYWORDS = [
             "key": "Endogenous Locus Library Method Mechanism",
             "value": "Base editor",
             "special": False,
-            "description": "Description"
+            "description": "Description",
         },
     },
     {
-        "keyword": {
-            "key": "Delivery method",
-            "value": "Other",
-            "special": False,
-            "description": "Description"
-        },
-        "description": "Details of delivery method"
+        "keyword": {"key": "Delivery method", "value": "Other", "special": False, "description": "Description"},
+        "description": "Details of delivery method",
     },
 ]
 
@@ -166,15 +151,10 @@ TEST_EXPERIMENT_WITH_KEYWORD = {
     "methodText": "Methods",
     "keywords": [
         {
-            "keyword": {
-                "key": "Delivery method",
-                "value": "Other",
-                "special": False,
-                "description": "Description"
-            },
-            "description": "Details of delivery method"
+            "keyword": {"key": "Delivery method", "value": "Other", "special": False, "description": "Description"},
+            "description": "Details of delivery method",
         },
-    ]
+    ],
 }
 
 TEST_MINIMAL_EXPERIMENT = {
@@ -232,15 +212,11 @@ TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
     "modificationDate": date.today().isoformat(),
     "scoreSetUrns": [],
     "contributors": [],
-    "keywords": [{
-                "keyword": {
-                    "key": "Delivery method",
-                    "value": "Other",
-                    "special": False,
-                    "description": "Description"
-                },
-                "description": "Details of delivery method"
-            },
+    "keywords": [
+        {
+            "keyword": {"key": "Delivery method", "value": "Other", "special": False, "description": "Description"},
+            "description": "Details of delivery method",
+        },
     ],
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
@@ -276,18 +252,13 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
                 "key": "Variant Library Creation Method",
                 "value": "Other",
                 "special": False,
-                "description": "Description"
+                "description": "Description",
             },
-            "description": "Description"
+            "description": "Description",
         },
         {
-            "keyword": {
-                "key": "Delivery method",
-                "value": "Other",
-                "special": False,
-                "description": "Description"
-            },
-            "description": "Description"
+            "keyword": {"key": "Delivery method", "value": "Other", "special": False, "description": "Description"},
+            "description": "Description",
         },
     ],
     "doiIdentifiers": [],

@@ -11,6 +11,7 @@ class KeywordBase(BaseModel):
     Keywords may have key but no value if users don't choose anything from dropdown menu.
     TODO: Should modify it when we confirm the final controlled keyword list.
     """
+
     key: str
     value: Optional[str]
     vocabulary: Optional[str]
@@ -31,11 +32,13 @@ class KeywordBase(BaseModel):
 
 class KeywordCreate(KeywordBase):
     """View model for creating a new keyword."""
+
     pass
 
 
 class KeywordUpdate(KeywordBase):
     """View model for updating a keyword."""
+
     pass
 
 
@@ -49,9 +52,11 @@ class SavedKeyword(KeywordBase):
 
 class Keyword(SavedKeyword):
     """Keyword view model for non-admin clients."""
+
     pass
 
 
 class AdminKeyword(SavedKeyword):
     """Keyword view model containing properties to return to admin clients."""
+
     id: int

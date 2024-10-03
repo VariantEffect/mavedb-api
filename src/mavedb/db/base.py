@@ -12,4 +12,4 @@ class Base:
 
     # Generate __tablename__ automatically
     # Declared in this odd way to provide correct type hint for mypy
-    __tablename__ : Union[declared_attr[Any], str] = declared_attr(lambda cls: cls.__name__.lower())
+    __tablename__: Union[declared_attr[Any], str] = declared_attr(lambda cls: cls.__name__.lower())

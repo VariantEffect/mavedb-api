@@ -34,7 +34,7 @@ def upgrade():
                 name="mappingstate",
                 native_enum=False,
                 create_constraint=True,
-                length=32
+                length=32,
             ),
             nullable=True,
         ),

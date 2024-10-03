@@ -1,4 +1,3 @@
-
 from tests.helpers.constants import EXTRA_USER
 from tests.helpers.dependency_overrider import DependencyOverrider
 

@@ -4,7 +4,7 @@ from mavedb.lib.validation.keywords import (
     validate_keyword,
     validate_description,
     validate_duplicates,
-    validate_keyword_keys
+    validate_keyword_keys,
 )
 from mavedb.lib.validation.exceptions import ValidationError
 
@@ -46,7 +46,7 @@ class TestKeywordValidators(TestCase):
             "key": "Variant Library Creation Method",
             "value": "Endogenous locus library method",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
 
@@ -54,7 +54,7 @@ class TestKeywordValidators(TestCase):
             "key": "Variant Library Creation Method",
             "value": "SaCas9",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
         keyword_list = [keyword_obj1, keyword_obj2]
@@ -64,19 +64,19 @@ class TestKeywordValidators(TestCase):
     def test_duplicate_values(self):
         # Invalid keywords list.
         keyword1 = {
-                    "key": "Variant Library Creation Method",
-                    "value": "Endogenous locus library method",
-                    "special": False,
-                    "description": TEST_DESCRIPTION
-                }
+            "key": "Variant Library Creation Method",
+            "value": "Endogenous locus library method",
+            "special": False,
+            "description": TEST_DESCRIPTION,
+        }
         keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
 
         keyword2 = {
-                    "key": "Endogenous Locus Library Method System",
-                    "value": "Endogenous locus library method",
-                    "special": False,
-                    "description": TEST_DESCRIPTION
-                }
+            "key": "Endogenous Locus Library Method System",
+            "value": "Endogenous locus library method",
+            "special": False,
+            "description": TEST_DESCRIPTION,
+        }
         keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
         keyword_list = [keyword_obj1, keyword_obj2]
         with self.assertRaises(ValidationError):
@@ -88,7 +88,7 @@ class TestKeywordValidators(TestCase):
             "key": "Variant Library Creation Method",
             "value": "Other",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
 
@@ -96,7 +96,7 @@ class TestKeywordValidators(TestCase):
             "key": "Endogenous Locus Library Method System",
             "value": "Other",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
         keyword_list = [keyword_obj1, keyword_obj2]
@@ -108,7 +108,7 @@ class TestKeywordValidators(TestCase):
             "key": "Variant Library Creation Method",
             "value": "Endogenous locus library method",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
 
@@ -116,7 +116,7 @@ class TestKeywordValidators(TestCase):
             "key": "Endogenous Locus Library Method System",
             "value": "Other",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
 
@@ -124,7 +124,7 @@ class TestKeywordValidators(TestCase):
             "key": "Endogenous Locus Library Method Mechanism",
             "value": "Nuclease",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj3 = ExperimentControlledKeywordCreate(keyword=keyword3, description=TEST_DESCRIPTION)
         keyword_list = [keyword_obj1, keyword_obj2, keyword_obj3]
@@ -136,7 +136,7 @@ class TestKeywordValidators(TestCase):
             "key": "Variant Library Creation Method",
             "value": "Endogenous locus library method",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
 
@@ -144,7 +144,7 @@ class TestKeywordValidators(TestCase):
             "key": "In Vitro Construct Library Method System",
             "value": "Oligo-directed mutagenic PCR",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
 
@@ -152,7 +152,7 @@ class TestKeywordValidators(TestCase):
             "key": "In Vitro Construct Library Method Mechanism",
             "value": "Native locus replacement",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj3 = ExperimentControlledKeywordCreate(keyword=keyword3, description=TEST_DESCRIPTION)
         keyword_list = [keyword_obj1, keyword_obj2, keyword_obj3]
@@ -165,7 +165,7 @@ class TestKeywordValidators(TestCase):
             "key": "Variant Library Creation Method",
             "value": "In vitro construct library method",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
 
@@ -173,7 +173,7 @@ class TestKeywordValidators(TestCase):
             "key": "In Vitro Construct Library Method System",
             "value": "Oligo-directed mutagenic PCR",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
 
@@ -181,7 +181,7 @@ class TestKeywordValidators(TestCase):
             "key": "In Vitro Construct Library Method Mechanism",
             "value": "Native locus replacement",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj3 = ExperimentControlledKeywordCreate(keyword=keyword3, description=TEST_DESCRIPTION)
         keyword_list = [keyword_obj1, keyword_obj2, keyword_obj3]
@@ -193,7 +193,7 @@ class TestKeywordValidators(TestCase):
             "key": "Variant Library Creation Method",
             "value": "In vitro construct library method",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
 
@@ -201,7 +201,7 @@ class TestKeywordValidators(TestCase):
             "key": "Endogenous Locus Library Method System",
             "value": "Other",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
 
@@ -209,7 +209,7 @@ class TestKeywordValidators(TestCase):
             "key": "Endogenous Locus Library Method Mechanism",
             "value": "Nuclease",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj3 = ExperimentControlledKeywordCreate(keyword=keyword3, description=TEST_DESCRIPTION)
         keyword_list = [keyword_obj1, keyword_obj2, keyword_obj3]
@@ -222,7 +222,7 @@ class TestKeywordValidators(TestCase):
             "key": "Variant Library Creation Method",
             "value": "Other",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
         keyword_list = [keyword_obj1]
@@ -234,7 +234,7 @@ class TestKeywordValidators(TestCase):
             "key": "Variant Library Creation Method",
             "value": "Other",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
 
@@ -242,7 +242,7 @@ class TestKeywordValidators(TestCase):
             "key": "Endogenous Locus Library Method System",
             "value": "Other",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
 
@@ -259,7 +259,7 @@ class TestKeywordValidators(TestCase):
             "key": "Variant Library Creation Method",
             "value": "Other",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj1 = ExperimentControlledKeywordCreate(keyword=keyword1, description=TEST_DESCRIPTION)
 
@@ -267,7 +267,7 @@ class TestKeywordValidators(TestCase):
             "key": "In Vitro Construct Library Method System",
             "value": "Oligo-directed mutagenic PCR",
             "special": False,
-            "description": TEST_DESCRIPTION
+            "description": TEST_DESCRIPTION,
         }
         keyword_obj2 = ExperimentControlledKeywordCreate(keyword=keyword2, description=TEST_DESCRIPTION)
 

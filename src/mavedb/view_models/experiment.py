@@ -148,6 +148,6 @@ class ExperimentPublicDump(SavedExperiment):
 
 
 # Late import avoids a circular import
-from mavedb.view_models.score_set import ScoreSetPublicDump # noqa: E402
+from mavedb.view_models.score_set import ScoreSetPublicDump  # noqa: E402
 
 ExperimentPublicDump.update_forward_refs()

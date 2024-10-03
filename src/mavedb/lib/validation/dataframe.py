@@ -205,11 +205,16 @@ def validate_dataframe(df: pd.DataFrame, kind: str, targets: list["TargetGene"],
             # This is typesafe, despite Pylance's claims otherwise
             if all(target.target_accession for target in targets):
                 validate_hgvs_genomic_column(
-                    df[column_mapping[c]], is_index, [target.target_accession for target in targets], hdp  # type: ignore
+                    df[column_mapping[c]],
+                    is_index,
+                    [target.target_accession for target in targets],
+                    hdp,  # type: ignore
                 )
             elif all(target.target_sequence for target in targets):
                 validate_hgvs_transgenic_column(
-                    df[column_mapping[c]], is_index, {target.target_sequence.label: target.target_sequence for target in targets}  # type: ignore
+                    df[column_mapping[c]],
+                    is_index,
+                    {target.target_sequence.label: target.target_sequence for target in targets},  # type: ignore
                 )
             else:
                 raise MixedTargetError("Could not validate dataframe against provided mixed target types.")

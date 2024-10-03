@@ -16,8 +16,5 @@ def search_keyword(db: Session, key: str, value: Optional[str]):
 
     controlled_keyword = query.one_or_none()
     if controlled_keyword is None:
-        raise ValueError(f'Invalid keyword {key} or {value}')
+        raise ValueError(f"Invalid keyword {key} or {value}")
     return controlled_keyword
-
-
-
