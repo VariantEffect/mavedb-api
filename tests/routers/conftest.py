@@ -4,7 +4,6 @@ from unittest.mock import patch
 
 import cdot.hgvs.dataproviders
 import pytest
-import requests_mock
 
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.enums.user_role import UserRole

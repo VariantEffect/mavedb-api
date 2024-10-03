@@ -1,6 +1,5 @@
 import pytest
 
-from fastapi import Header
 
 from mavedb.models.enums.user_role import UserRole
 from mavedb.lib.authentication import get_current_user

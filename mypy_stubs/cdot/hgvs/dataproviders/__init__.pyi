@@ -1,3 +1,6 @@
-from .fasta_seqfetcher import *
-from .json_data_provider import *
-from hgvs.dataproviders.seqfetcher import SeqFetcher
+from .fasta_seqfetcher import FastaSeqFetcher as FastaSeqFetcher
+from .fasta_seqfetcher import ChainedSeqFetcher as ChainedSeqFetcher
+from .json_data_provider import AbstractJSONDataProvider as AbstractJSONDataProvider
+from .json_data_provider import LocalDataProvider as LocalDataProvider
+from .json_data_provider import JSONDataProvider as JSONDataProvider
+from .json_data_provider import RESTDataProvider as RESTDataProvider

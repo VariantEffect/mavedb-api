@@ -61,7 +61,7 @@ class ValidationError(Exception):
             # PY2 has a `message` property which is always there so we can't
             # duck-type on it. It was introduced in Python 2.5 and already
             # deprecated in Python 2.6.
-            elif not hasattr(message, "message" if six.PY3 else "code"):
+            elif not hasattr(message, "message" if six.PY3 else "code"):  # noqa: F821
                 message = message.error_list
             else:
                 message, code, params = message.message, message.code, message.params

@@ -2,7 +2,7 @@ from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, Table, select
 from sqlalchemy.orm import Session
-from typing import Any, Union
+from typing import Union
 
 from mavedb.deps import get_db
 from mavedb.models.controlled_keyword import ControlledKeyword

@@ -1,12 +1,10 @@
 import itertools
 from unittest import TestCase
 
-import os.path
 import numpy as np
 import pandas as pd
 import pytest
 import cdot.hgvs.dataproviders
-from pathlib import Path
 
 from unittest.mock import patch
 from tests.helpers.constants import VALID_ACCESSION, TEST_CDOT_TRANSCRIPT

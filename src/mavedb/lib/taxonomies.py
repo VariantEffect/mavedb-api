@@ -63,6 +63,6 @@ async def search_NCBI_taxonomy(db: Session, search: str) -> Any:
             else:
                 raise HTTPException(status_code=404, detail=f"Taxonomy with search {search_text} not found in NCBI")
     else:
-        raise HTTPException(status_code=404, detail=f"Please enter valid searching words")
+        raise HTTPException(status_code=404, detail="Please enter valid searching words")
 
     return taxonomy_record

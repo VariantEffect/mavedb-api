@@ -1,5 +1,4 @@
 import requests_mock
-import pytest
 
 import cdot.hgvs.dataproviders
 from hgvs.exceptions import HGVSDataNotAvailableError

@@ -5,7 +5,6 @@ from email_validator import validate_email, EmailNotValidError
 
 from mavedb.models.enums.user_role import UserRole
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.models.enums.user_role import UserRole
 from mavedb.view_models.base.base import BaseModel, validator
 
 

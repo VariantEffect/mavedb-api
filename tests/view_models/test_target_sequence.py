@@ -68,7 +68,7 @@ def test_cannot_create_target_sequence_with_label_containing_colon():
     taxonomy = TEST_TAXONOMY
 
     with pytest.raises(ValueError) as exc_info:
-        target_sequence = TargetSequenceCreate(
+        TargetSequenceCreate(
             sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label
         )
 
@@ -82,7 +82,7 @@ def test_cannot_create_target_sequence_with_invalid_sequence_type():
     taxonomy = TEST_TAXONOMY
 
     with pytest.raises(ValueError) as exc_info:
-        target_sequence = TargetSequenceCreate(
+        TargetSequenceCreate(
             sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label
         )
 
@@ -96,7 +96,7 @@ def test_cannot_create_target_sequence_with_invalid_inferred_type():
     taxonomy = TEST_TAXONOMY
 
     with pytest.raises(ValueError) as exc_info:
-        target_sequence = TargetSequenceCreate(
+        TargetSequenceCreate(
             sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label
         )
 
@@ -117,7 +117,7 @@ def test_cannot_create_target_sequence_with_invalid_sequence(sequence_type, exc_
     taxonomy = TEST_TAXONOMY
 
     with pytest.raises(ValueError) as exc_info:
-        target_sequence = TargetSequenceCreate(
+        TargetSequenceCreate(
             sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label
         )
 

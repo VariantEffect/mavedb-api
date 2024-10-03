@@ -1,4 +1,4 @@
-from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models import keyword
 from mavedb.lib.validation import keywords
 

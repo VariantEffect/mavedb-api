@@ -3,7 +3,6 @@ from unittest.mock import patch
 import cdot.hgvs.dataproviders
 import pytest
 from humps import camelize
-from mavedb.models.controlled_keyword import ControlledKeyword
 
 from tests.helpers.constants import (
     TEST_BIORXIV_IDENTIFIER,
@@ -282,7 +281,7 @@ def test_record_keyword_statistics(session, data_provider, client, setup_router_
 
     publish_score_set(client, score_set["urn"])
 
-    response = client.get(f"/api/v1/statistics/record/experiment/keywords")
+    response = client.get("/api/v1/statistics/record/experiment/keywords")
     desired_field_values = ["SaCas9", "Endogenous locus library method", "Base editor", "Other"]
     for desired_field_value in desired_field_values:
         assert_statistic(desired_field_value, response)

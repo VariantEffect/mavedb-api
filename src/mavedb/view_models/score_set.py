@@ -11,7 +11,6 @@ from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import is_null
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.mapping_state import MappingState
-from mavedb.models.target_sequence import TargetSequence
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.contributor import Contributor, ContributorCreate
@@ -20,7 +19,7 @@ from mavedb.view_models.doi_identifier import (
     DoiIdentifierCreate,
     SavedDoiIdentifier,
 )
-from mavedb.view_models.experiment import Experiment, SavedExperiment
+from mavedb.view_models.experiment import Experiment
 from mavedb.view_models.license import ShortLicense
 from mavedb.view_models.publication_identifier import (
     PublicationIdentifier,

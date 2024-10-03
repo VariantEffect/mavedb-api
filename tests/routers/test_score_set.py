@@ -4,7 +4,6 @@ from datetime import date
 from unittest.mock import patch
 
 import jsonschema
-import pytest
 from arq import ArqRedis
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState

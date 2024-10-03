@@ -259,7 +259,7 @@ def validate_column_names(df: pd.DataFrame, kind: str) -> None:
     ValidationError
         If the column names are not valid
     """
-    if any(type(c) != str for c in df.columns):
+    if any(isinstance(c, str) for c in df.columns):
         raise ValidationError("column names must be strings")
 
     if any(c.isspace() for c in df.columns) or any(len(c) == 0 for c in df.columns):
