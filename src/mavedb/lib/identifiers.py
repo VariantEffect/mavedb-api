@@ -1,5 +1,4 @@
 import os
-from datetime import date
 from typing import Optional, Union, Mapping
 
 import eutils  # type: ignore

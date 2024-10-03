@@ -205,11 +205,16 @@ def validate_dataframe(df: pd.DataFrame, kind: str, targets: list["TargetGene"],
             # This is typesafe, despite Pylance's claims otherwise
             if all(target.target_accession for target in targets):
                 validate_hgvs_genomic_column(
-                    df[column_mapping[c]], is_index, [target.target_accession for target in targets], hdp  # type: ignore
+                    df[column_mapping[c]],
+                    is_index,
+                    [target.target_accession for target in targets],
+                    hdp,  # type: ignore
                 )
             elif all(target.target_sequence for target in targets):
                 validate_hgvs_transgenic_column(
-                    df[column_mapping[c]], is_index, {target.target_sequence.label: target.target_sequence for target in targets}  # type: ignore
+                    df[column_mapping[c]],
+                    is_index,
+                    {target.target_sequence.label: target.target_sequence for target in targets},  # type: ignore
                 )
             else:
                 raise MixedTargetError("Could not validate dataframe against provided mixed target types.")
@@ -259,7 +264,7 @@ def validate_column_names(df: pd.DataFrame, kind: str) -> None:
     ValidationError
         If the column names are not valid
     """
-    if any(type(c) != str for c in df.columns):
+    if any(isinstance(c, str) for c in df.columns):
         raise ValidationError("column names must be strings")
 
     if any(c.isspace() for c in df.columns) or any(len(c) == 0 for c in df.columns):

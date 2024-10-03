@@ -1,6 +1,6 @@
 from datetime import date
 from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship, backref, Mapped
+from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.ext.associationproxy import association_proxy, AssociationProxy
 from sqlalchemy.schema import Table
 from sqlalchemy.dialects.postgresql import JSONB
@@ -171,7 +171,9 @@ class ScoreSet(Base):
         #     return self._updated_keywords
         # else:
         legacy_keyword_objs = self.legacy_keyword_objs or []  # getattr(self, 'keyword_objs', [])
-        return [legacy_keyword_obj.text for legacy_keyword_obj in legacy_keyword_objs if legacy_keyword_obj.text is not None]
+        return [
+            legacy_keyword_obj.text for legacy_keyword_obj in legacy_keyword_objs if legacy_keyword_obj.text is not None
+        ]
 
     async def set_legacy_keywords(self, db, keywords: list[str]):
         self.keyword_objs = [await self._find_or_create_legacy_keyword(db, text) for text in keywords]

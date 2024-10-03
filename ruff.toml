@@ -1,0 +1,6 @@
+# target python 3.9 and above
+target-version = "py39"
+# max line length for linting is 120 characters
+line-length = 120
+
+exclude = ["alembic/manual_migrations"]

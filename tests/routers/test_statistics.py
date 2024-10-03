@@ -3,7 +3,6 @@ from unittest.mock import patch
 import cdot.hgvs.dataproviders
 import pytest
 from humps import camelize
-from mavedb.models.controlled_keyword import ControlledKeyword
 
 from tests.helpers.constants import (
     TEST_BIORXIV_IDENTIFIER,
@@ -233,7 +232,7 @@ def test_target_gene_empty_field(client):
     [
         ({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}),
         ({"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"}),
-        (({"dbName": "medRxiv", "identifier": f"{TEST_MEDRXIV_IDENTIFIER}"})),
+        ({"dbName": "medRxiv", "identifier": f"{TEST_MEDRXIV_IDENTIFIER}"}),
     ],
     indirect=["mock_publication_fetch"],
 )
@@ -278,11 +277,12 @@ def test_record_keyword_statistics(session, data_provider, client, setup_router_
     # updates. Folding these more complex setup steps into a fixture is more trouble than it's worth.
     experiment = create_experiment(client, record_update)
     score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv")
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
 
     publish_score_set(client, score_set["urn"])
 
-    response = client.get(f"/api/v1/statistics/record/experiment/keywords")
+    response = client.get("/api/v1/statistics/record/experiment/keywords")
     desired_field_values = ["SaCas9", "Endogenous locus library method", "Base editor", "Other"]
     for desired_field_value in desired_field_values:
         assert_statistic(desired_field_value, response)

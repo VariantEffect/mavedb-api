@@ -44,25 +44,27 @@ async def search_NCBI_taxonomy(db: Session, search: str) -> Any:
                     return None
 
                 # Process the retrieved data as needed
-                ncbi_taxonomy = data['taxonomy_nodes'][0]['taxonomy']
-                ncbi_taxonomy.setdefault('organism_name', 'NULL')
-                ncbi_taxonomy.setdefault('common_name', 'NULL')
-                ncbi_taxonomy.setdefault('rank', 'NULL')
-                ncbi_taxonomy.setdefault('has_described_species_name', False)
-                taxonomy_record = Taxonomy(tax_id=ncbi_taxonomy['tax_id'],
-                                           organism_name=ncbi_taxonomy['organism_name'],
-                                           common_name=ncbi_taxonomy['common_name'],
-                                           rank=ncbi_taxonomy['rank'],
-                                           has_described_species_name=ncbi_taxonomy['has_described_species_name'],
-                                           url="https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=" + str(
-                                               ncbi_taxonomy['tax_id']),
-                                           article_reference="NCBI:txid" + str(ncbi_taxonomy['tax_id']))
+                ncbi_taxonomy = data["taxonomy_nodes"][0]["taxonomy"]
+                ncbi_taxonomy.setdefault("organism_name", "NULL")
+                ncbi_taxonomy.setdefault("common_name", "NULL")
+                ncbi_taxonomy.setdefault("rank", "NULL")
+                ncbi_taxonomy.setdefault("has_described_species_name", False)
+                taxonomy_record = Taxonomy(
+                    tax_id=ncbi_taxonomy["tax_id"],
+                    organism_name=ncbi_taxonomy["organism_name"],
+                    common_name=ncbi_taxonomy["common_name"],
+                    rank=ncbi_taxonomy["rank"],
+                    has_described_species_name=ncbi_taxonomy["has_described_species_name"],
+                    url="https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id="
+                    + str(ncbi_taxonomy["tax_id"]),
+                    article_reference="NCBI:txid" + str(ncbi_taxonomy["tax_id"]),
+                )
                 db.add(taxonomy_record)
                 db.commit()
                 db.refresh(taxonomy_record)
             else:
                 raise HTTPException(status_code=404, detail=f"Taxonomy with search {search_text} not found in NCBI")
     else:
-        raise HTTPException(status_code=404, detail=f"Please enter valid searching words")
+        raise HTTPException(status_code=404, detail="Please enter valid searching words")
 
     return taxonomy_record

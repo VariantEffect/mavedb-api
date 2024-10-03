@@ -140,9 +140,7 @@ async def test_create_variants_for_score_set_with_validation_error(
             return_value=TEST_CDOT_TRANSCRIPT,
         ) as hdp,
     ):
-        success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
-        )
+        await create_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts)
 
         # Call data provider _get_transcript method if this is an accession based score set, otherwise do not.
         if all(["targetSequence" in target for target in input_score_set["targetGenes"]]):
@@ -172,10 +170,10 @@ async def test_create_variants_for_score_set_with_caught_exception(
 
     # This is somewhat dumb and wouldn't actually happen like this, but it serves as an effective way to guarantee
     # some exception will be raised no matter what in the async job.
-    with (patch.object(pd.DataFrame, "isnull", side_effect=Exception) as mocked_exc,):
-        success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
-        )
+    with (
+        patch.object(pd.DataFrame, "isnull", side_effect=Exception) as mocked_exc,
+    ):
+        await create_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts)
         mocked_exc.assert_called()
 
     db_variants = session.scalars(select(Variant)).all()
@@ -200,10 +198,10 @@ async def test_create_variants_for_score_set_with_caught_base_exception(
 
     # This is somewhat (extra) dumb and wouldn't actually happen like this, but it serves as an effective way to guarantee
     # some base exception will be handled no matter what in the async job.
-    with (patch.object(pd.DataFrame, "isnull", side_effect=BaseException),):
-        success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
-        )
+    with (
+        patch.object(pd.DataFrame, "isnull", side_effect=BaseException),
+    ):
+        await create_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts)
 
     db_variants = session.scalars(select(Variant)).all()
     score_set = session.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set_urn).one()
@@ -228,9 +226,7 @@ async def test_create_variants_for_score_set_with_existing_variants(
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
     ) as hdp:
-        success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
-        )
+        await create_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts)
 
         # Call data provider _get_transcript method if this is an accession based score set, otherwise do not.
         if all(["targetSequence" in target for target in input_score_set["targetGenes"]]):
@@ -248,9 +244,7 @@ async def test_create_variants_for_score_set_with_existing_variants(
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
     ) as hdp:
-        success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
-        )
+        await create_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts)
 
     db_variants = session.scalars(select(Variant)).all()
     score_set = session.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set_urn).one()
@@ -279,9 +273,7 @@ async def test_create_variants_for_score_set_with_existing_exceptions(
             pd.DataFrame, "isnull", side_effect=ValidationError("Test Exception", triggers=["exc_1", "exc_2"])
         ) as mocked_exc,
     ):
-        success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
-        )
+        await create_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts)
         mocked_exc.assert_called()
 
     db_variants = session.scalars(select(Variant)).all()
@@ -295,9 +287,7 @@ async def test_create_variants_for_score_set_with_existing_exceptions(
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
     ) as hdp:
-        success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
-        )
+        await create_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts)
 
         # Call data provider _get_transcript method if this is an accession based score set, otherwise do not.
         if all(["targetSequence" in target for target in input_score_set["targetGenes"]]):
@@ -328,9 +318,7 @@ async def test_create_variants_for_score_set(
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
     ) as hdp:
-        success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
-        )
+        await create_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts)
 
         # Call data provider _get_transcript method if this is an accession based score set, otherwise do not.
         if all(["targetSequence" in target for target in input_score_set["targetGenes"]]):

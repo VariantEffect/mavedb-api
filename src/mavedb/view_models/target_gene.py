@@ -6,7 +6,12 @@ from pydantic.utils import GetterDict
 
 from mavedb.view_models import external_gene_identifier_offset
 from mavedb.view_models.base.base import BaseModel, validator
-from mavedb.view_models.target_sequence import AdminTargetSequence, TargetSequence, TargetSequenceCreate, SavedTargetSequence
+from mavedb.view_models.target_sequence import (
+    AdminTargetSequence,
+    TargetSequence,
+    TargetSequenceCreate,
+    SavedTargetSequence,
+)
 from mavedb.view_models.target_accession import TargetAccession, TargetAccessionCreate, SavedTargetAccession
 from mavedb.lib.validation import target
 

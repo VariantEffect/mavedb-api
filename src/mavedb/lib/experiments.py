@@ -17,7 +17,9 @@ from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeyw
 logger = logging.getLogger(__name__)
 
 
-def search_experiments(db: Session, owner_or_contributor: Optional[User], search: ExperimentsSearch) -> list[Experiment]:
+def search_experiments(
+    db: Session, owner_or_contributor: Optional[User], search: ExperimentsSearch
+) -> list[Experiment]:
     save_to_logging_context({"experiment_search_criteria": search.dict()})
 
     query = db.query(Experiment)

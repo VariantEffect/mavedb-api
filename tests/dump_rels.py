@@ -18,11 +18,9 @@ from sqlalchemy.orm import mapperlib
 
 from mavedb.models import *  # noqa
 
-mappers = (
-    m for r in mapperlib._mapper_registries for m in r.mappers
-)
+mappers = (m for r in mapperlib._mapper_registries for m in r.mappers)
 
 for m in sorted(mappers, key=lambda m: m.entity.__name__):
     for r in sorted(m.relationships, key=lambda r: r.target.name):
-        opts = ' '.join(sorted(r.cascade))
+        opts = " ".join(sorted(r.cascade))
         print(f"{m.entity.__name__} {r.key} {r.target.name} {opts}")

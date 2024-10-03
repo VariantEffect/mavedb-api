@@ -4,7 +4,6 @@ from typing import Callable
 
 from arq.connections import RedisSettings
 from arq.cron import CronJob
-from arq import ArqRedis, cron
 
 from mavedb.lib.logging.canonical import log_job
 from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager

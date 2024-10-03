@@ -229,7 +229,7 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, s
     )
 
 
-def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, setup_router_db):
+def test_cannot_create_experiment_that_keywords_has_wrong_combination4(client, setup_router_db):
     """
     Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
     If choose Other in Variant Library Creation Method, should not have in vitro
@@ -541,7 +541,7 @@ def test_anonymous_cannot_update_others_user_public_experiment_set(
 
     assert response.status_code == 401
     response_data = response.json()
-    assert f"Could not validate credentials" in response_data["detail"]
+    assert "Could not validate credentials" in response_data["detail"]
 
 
 def test_admin_can_update_other_users_public_experiment_set(
@@ -628,7 +628,7 @@ def test_anonymous_cannot_update_other_users_private_experiment(
 
     assert response.status_code == 401
     response_data = response.json()
-    assert f"Could not validate credentials" in response_data["detail"]
+    assert "Could not validate credentials" in response_data["detail"]
 
 
 @pytest.mark.parametrize(

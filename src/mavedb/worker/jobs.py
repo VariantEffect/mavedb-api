@@ -10,7 +10,6 @@ import pandas as pd
 from arq import ArqRedis
 from arq.jobs import Job, JobStatus
 from cdot.hgvs.dataproviders import RESTDataProvider
-from fqfa.util.translate import translate_dna
 from sqlalchemy import cast, delete, select, null
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
@@ -366,9 +365,9 @@ async def map_variants_for_score_set(
                     mapped_protein_ref = mapping_results.get("mapped_protein_reference_sequence")
 
                     if computed_genomic_ref:
-                        target_sequence = computed_genomic_ref["sequence"]
+                        computed_genomic_ref["sequence"]
                     elif computed_protein_ref:
-                        target_sequence = computed_protein_ref["sequence"]
+                        computed_protein_ref["sequence"]
                     else:
                         raise NonexistentMappingReferenceError()
 
@@ -394,9 +393,7 @@ async def map_variants_for_score_set(
                             },
                             JSONB,
                         )
-                        target_gene.post_mapped_metadata = cast(
-                            {"genomic": mapped_genomic_ref}, JSONB
-                        )
+                        target_gene.post_mapped_metadata = cast({"genomic": mapped_genomic_ref}, JSONB)
                     elif computed_protein_ref and mapped_protein_ref:
                         pre_mapped_metadata = computed_protein_ref
                         target_gene.pre_mapped_metadata = cast(
@@ -408,9 +405,7 @@ async def map_variants_for_score_set(
                             },
                             JSONB,
                         )
-                        target_gene.post_mapped_metadata = cast(
-                            {"protein": mapped_protein_ref}, JSONB
-                        )
+                        target_gene.post_mapped_metadata = cast({"protein": mapped_protein_ref}, JSONB)
                     else:
                         raise NonexistentMappingReferenceError()
 
