@@ -375,15 +375,8 @@ async def map_variants_for_score_set(
                     else:
                         raise NonexistentMappingReferenceError()
 
-                    target_gene = db.scalars(
-                        select(TargetGene)
-                        .join(ScoreSet)
-                        .join(TargetSequence)
-                        .where(
-                            ScoreSet.id == score_set_id,
-                            # TargetSequence.sequence == target_sequence,
-                        )
-                    ).one()
+                    # TODO(VariantEffect/dcd_mapping2#2): Handle variant mappings for score sets with more than 1 target.
+                    target_gene = score_set.target_genes[0]
 
                     excluded_pre_mapped_keys = {"sequence"}
                     if computed_genomic_ref and mapped_genomic_ref:
@@ -447,7 +440,7 @@ async def map_variants_for_score_set(
                         )
                         db.add(mapped_variant)
 
-                    if successful_mapped_variants == 0:
+                    if successful_mapped_variants == 0 and mapped_scores:
                         score_set.mapping_state = MappingState.failed
                         score_set.mapping_errors = {"error_message": "All variants failed to map"}
                     elif successful_mapped_variants < total_variants:
@@ -500,8 +493,6 @@ async def map_variants_for_score_set(
             except Exception as backoff_e:
                 score_set.mapping_state = MappingState.failed
                 score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
-                db.add(score_set)
-                db.commit()
                 send_slack_message(backoff_e)
                 logging_context = {**logging_context, **format_raised_exception_info_as_dict(backoff_e)}
                 logger.critical(
@@ -511,8 +502,6 @@ async def map_variants_for_score_set(
             else:
                 if new_job_id and not max_retries_exceeded:
                     score_set.mapping_state = MappingState.queued
-                    db.add(score_set)
-                    db.commit()
                     logger.info(
                         msg="After encountering an error while parsing mapped variants, another mapping job was queued.",
                         extra=logging_context,
@@ -520,8 +509,6 @@ async def map_variants_for_score_set(
                 elif new_job_id is None and not max_retries_exceeded:
                     score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
-                    db.add(score_set)
-                    db.commit()
                     logger.error(
                         msg="After encountering an error while parsing mapped variants, another mapping job was unable to be queued. This score set will not be mapped.",
                         extra=logging_context,
@@ -529,17 +516,17 @@ async def map_variants_for_score_set(
                 else:
                     score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
-                    db.add(score_set)
-                    db.commit()
                     logger.error(
                         msg="After encountering an error while parsing mapped variants, the maximum retries for this job were exceeded. This score set will not be mapped.",
                         extra=logging_context,
                     )
             finally:
+                db.add(score_set)
+                db.commit()
                 return {"success": False, "retried": (not max_retries_exceeded and new_job_id is not None)}
 
     ctx["state"][ctx["job_id"]] = logging_context.copy()
-    return {"success": True}
+    return {"success": True, "retried": False}
 
 
 async def variant_mapper_manager(ctx: dict, correlation_id: str, updater_id: int, attempt: int = 1) -> dict:
