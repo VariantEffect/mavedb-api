@@ -80,6 +80,7 @@ types-python-jose = "~3.3.4"
 types-PyYAML = "~6.0.12.20240808"
 redis = "~5.0.2"
 requests-mock = "~1.11.0"
+ruff = "^0.6.8"
 SQLAlchemy = { extras = ["mypy"], version = "~2.0.0" }
 
 
