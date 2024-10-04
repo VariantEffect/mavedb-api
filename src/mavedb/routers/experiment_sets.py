@@ -4,14 +4,12 @@ from operator import attrgetter
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
 
 from mavedb import deps
 from mavedb.lib.authentication import get_current_user, UserData
 from mavedb.lib.permissions import has_permission, Action
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.models.contributor import Contributor
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.view_models import experiment_set
 
@@ -23,40 +21,6 @@ router = APIRouter(
 )
 
 logger = logging.getLogger(__name__)
-
-
-@router.get(
-    "/check-authorizations/{urn}",
-    status_code=200,
-    response_model=bool
-)
-async def check_experiment_set_authorization(
-    *,
-    urn: str,
-    db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(get_current_user),
-) -> bool:
-    """
-    Check whether users have authorizations in this experiment set.
-    """
-    query = db.query(ExperimentSet).filter(ExperimentSet.urn == urn)
-
-    if user_data is not None:
-        query = query.filter(
-            or_(
-                ExperimentSet.created_by_id == user_data.user.id,
-                ExperimentSet.contributors.any(Contributor.orcid_id == user_data.user.username),
-            )
-        )
-    else:
-        return False
-
-    save_to_logging_context({"Experiment set requested resource": urn})
-    item = query.first()
-    if item:
-        return True
-    else:
-        return False
 
 
 @router.get(

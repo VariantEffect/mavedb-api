@@ -26,6 +26,7 @@ from mavedb.lib.logging.context import (
 from mavedb.lib.logging.canonical import log_request
 from mavedb.routers import (
     access_keys,
+    authorization,
     api_information,
     controlled_keywords,
     doi_identifiers,
@@ -73,6 +74,7 @@ app.add_middleware(
 )
 app.include_router(access_keys.router)
 app.include_router(api_information.router)
+app.include_router(authorization.router)
 app.include_router(controlled_keywords.router)
 app.include_router(doi_identifiers.router)
 app.include_router(experiment_sets.router)

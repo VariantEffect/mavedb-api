@@ -562,41 +562,6 @@ def test_admin_can_update_other_users_public_experiment_set(
     assert response_data["title"] == "Second Experiment"
 
 
-def test_get_true_authorization_from_own_experiment_check(client, setup_router_db):
-    experiment = create_experiment(client)
-    response = client.get(f"/api/v1/experiments/check-authorizations/{experiment['urn']}")
-
-    assert response.status_code == 200
-    assert response.json() == True
-
-
-def test_contributor_gets_true_authorization_from_others_experiment_check(session, client, setup_router_db):
-    experiment = create_experiment(client)
-    change_ownership(session, experiment["urn"], ExperimentDbModel)
-    add_contributor(
-        session,
-        experiment["urn"],
-        ExperimentDbModel,
-        TEST_USER["username"],
-        TEST_USER["first_name"],
-        TEST_USER["last_name"],
-    )
-    response = client.get(f"/api/v1/experiments/check-authorizations/{experiment['urn']}")
-
-    assert response.status_code == 200
-    assert response.json() == True
-
-
-def test_get_false_authorization_from_other_users_experiment_check(session, client, setup_router_db):
-    experiment = create_experiment(client)
-    change_ownership(session, experiment["urn"], ExperimentDbModel)
-
-    response = client.get(f"/api/v1/experiments/check-authorizations/{experiment['urn']}")
-
-    assert response.status_code == 200
-    assert response.json() == False
-
-
 def test_edit_preserves_optional_metadata(client, setup_router_db):
     pass
 

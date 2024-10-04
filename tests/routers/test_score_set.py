@@ -496,44 +496,6 @@ def test_admin_can_add_scores_and_counts_to_other_user_score_set(session, client
     assert score_set == response_data
 
 
-def test_get_true_authorization_from_own_score_set_check(client, setup_router_db):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    response = client.get(f"/api/v1/score-sets/check-authorizations/{score_set['urn']}")
-
-    assert response.status_code == 200
-    assert response.json() == True
-
-
-def test_contributor_gets_true_authorization_from_others_score_set_check(session, client, setup_router_db):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    change_ownership(session, score_set["urn"], ScoreSetDbModel)
-    add_contributor(
-        session,
-        score_set["urn"],
-        ScoreSetDbModel,
-        TEST_USER["username"],
-        TEST_USER["first_name"],
-        TEST_USER["last_name"],
-    )
-    response = client.get(f"/api/v1/score-sets/check-authorizations/{score_set['urn']}")
-
-    assert response.status_code == 200
-    assert response.json() == True
-
-
-def test_get_false_authorization_from_other_users_score_set_check(session, client, setup_router_db):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    change_ownership(session, score_set["urn"], ScoreSetDbModel)
-
-    response = client.get(f"/api/v1/score-sets/check-authorizations/{score_set['urn']}")
-
-    assert response.status_code == 200
-    assert response.json() == False
-
-
 def test_publish_score_set(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(

@@ -113,40 +113,6 @@ router = APIRouter(
 )
 
 
-@router.get(
-    "/score-sets/check-authorizations/{urn}",
-    status_code=200,
-    response_model=bool
-)
-async def check_score_set_authorization(
-    *,
-    urn: str,
-    db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(get_current_user),
-) -> bool:
-    """
-    Check whether users have authorizations in this score set.
-    """
-    query = db.query(ScoreSet).filter(ScoreSet.urn == urn)
-
-    if user_data is not None:
-        query = query.filter(
-            or_(
-                ScoreSet.created_by_id == user_data.user.id,
-                ScoreSet.contributors.any(Contributor.orcid_id == user_data.user.username),
-            )
-        )
-    else:
-        return False
-
-    save_to_logging_context({"Score set requested resource": urn})
-    item = query.first()
-    if item:
-        return True
-    else:
-        return False
-
-
 @router.post("/score-sets/search", status_code=200, response_model=list[score_set.ShortScoreSet])
 def search_score_sets(search: ScoreSetsSearch, db: Session = Depends(deps.get_db)) -> Any:  # = Body(..., embed=True),
     """
