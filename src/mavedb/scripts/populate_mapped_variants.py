@@ -134,7 +134,8 @@ def populate_mapped_variant_data(db: Session, urns: Sequence[Optional[str]], all
                 mapped_variants = [variant_from_mapping(db=db, mapping=mapped_score, dcd_mapping_version=dcd_mapping_version) for mapped_score in mapped_scores]
                 logger.debug(f"Done constructing {len(mapped_variants)} mapped variant objects.")
 
-                num_successful_variants = len([variant for variant in mapped_variants if variant.post_mapped != null()])
+                num_successful_variants = len([variant for variant in mapped_variants if variant.post_mapped is not None])
+                logger.debug(f"{num_successful_variants} variants generated a post-mapped VRS object.")
                 if num_successful_variants == 0:
                     score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {"error_message": "All variants failed to map"}
