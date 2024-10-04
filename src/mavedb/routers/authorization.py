@@ -3,6 +3,7 @@ from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from typing import Union, Optional
 
 from mavedb import deps
 from mavedb.lib.authentication import get_current_user, UserData
@@ -46,14 +47,15 @@ async def check_authorization(
     Check whether users have authorizations in adding/editing/deleting/publishing experiment or score set.
     """
     save_to_logging_context({"requested_resource": urn})
+
+    item: Optional[Union[ExperimentSet, Experiment, ScoreSet]] = None
+
     if model_name == ModelName.experiment_set:
         item = db.query(ExperimentSet).filter(ExperimentSet.urn == urn).one_or_none()
     elif model_name == ModelName.experiment:
         item = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
     elif model_name == ModelName.score_set:
         item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
-    else:
-        item = None
 
     if item:
         if user_data:
