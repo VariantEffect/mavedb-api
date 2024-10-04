@@ -31,6 +31,7 @@ from mavedb.worker.jobs import (
     map_variants_for_score_set,
     variant_mapper_manager,
     MAPPING_QUEUE_NAME,
+    MAPPING_CURRENT_ID_NAME,
     BACKOFF_LIMIT,
 )
 from sqlalchemy import select
@@ -92,6 +93,11 @@ async def setup_records_files_and_variants(session, async_client, data_files, in
     assert score_set_with_variants.num_variants == 3
 
     return score_set_with_variants
+
+
+async def sanitize_mapping_queue(standalone_worker_context, score_set):
+    queued_job = await standalone_worker_context["redis"].rpop(MAPPING_QUEUE_NAME)
+    assert int(queued_job.decode("utf-8")) == score_set.id
 
 
 async def setup_mapping_output(async_client, session, score_set, empty=False):
@@ -434,6 +440,9 @@ async def test_create_mapped_variants_for_scoreset(
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
+    # We are skipping the manager in these cases to test directly on the mapping job,
+    # so pop from the queue as if the manager had executed.
+    await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     mapping_test_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
 
@@ -457,6 +466,8 @@ async def test_create_mapped_variants_for_scoreset(
     mapped_variants_for_score_set = session.scalars(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert result["success"]
     assert not result["retried"]
     assert len(mapped_variants_for_score_set) == score_set.num_variants
@@ -475,6 +486,9 @@ async def test_create_mapped_variants_for_scoreset_with_existing_mapped_variants
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
+    # We are skipping the manager in these cases to test directly on the mapping job,
+    # so pop from the queue as if the manager had executed.
+    await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     mapping_test_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
 
@@ -529,6 +543,8 @@ async def test_create_mapped_variants_for_scoreset_with_existing_mapped_variants
         .join(ScoreSetDbModel)
         .filter(ScoreSetDbModel.urn == score_set.urn, MappedVariant.current)
     ).all()
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert result["success"]
     assert not result["retried"]
     assert len(mapped_variants_for_score_set) == score_set.num_variants + 1
@@ -549,6 +565,9 @@ async def test_create_mapped_variants_for_scoreset_exception_in_mapping_setup_sc
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
+    # We are skipping the manager in these cases to test directly on the mapping job,
+    # so pop from the queue as if the manager had executed.
+    await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
@@ -569,6 +588,8 @@ async def test_create_mapped_variants_for_scoreset_exception_in_mapping_setup_sc
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
 
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert not result["retried"]
     assert len(mapped_variants_for_score_set) == 0
@@ -588,6 +609,9 @@ async def test_create_mapped_variants_for_scoreset_exception_in_mapping_setup_vr
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
+    # We are skipping the manager in these cases to test directly on the mapping job,
+    # so pop from the queue as if the manager had executed.
+    await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     with patch.object(
         VRSMap,
@@ -602,6 +626,8 @@ async def test_create_mapped_variants_for_scoreset_exception_in_mapping_setup_vr
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
 
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert not result["retried"]
     assert len(mapped_variants_for_score_set) == 0
@@ -620,6 +646,9 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception(
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
+    # We are skipping the manager in these cases to test directly on the mapping job,
+    # so pop from the queue as if the manager had executed.
+    await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
@@ -640,6 +669,8 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
 
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 1
+    assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert result["retried"]
     assert len(mapped_variants_for_score_set) == 0
@@ -658,6 +689,9 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception_retry_limit
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
+    # We are skipping the manager in these cases to test directly on the mapping job,
+    # so pop from the queue as if the manager had executed.
+    await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
@@ -680,6 +714,8 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception_retry_limit
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
 
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert not result["retried"]
     assert len(mapped_variants_for_score_set) == 0
@@ -698,6 +734,9 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception_retry_faile
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
+    # We are skipping the manager in these cases to test directly on the mapping job,
+    # so pop from the queue as if the manager had executed.
+    await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
@@ -721,6 +760,8 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception_retry_faile
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
 
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert not result["retried"]
     assert len(mapped_variants_for_score_set) == 0
@@ -740,6 +781,9 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_with_retry(
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
+    # We are skipping the manager in these cases to test directly on the mapping job,
+    # so pop from the queue as if the manager had executed.
+    await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     mapping_test_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
 
@@ -766,6 +810,8 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_with_retry(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
 
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 1
+    assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert result["retried"]
     assert len(mapped_variants_for_score_set) == 0
@@ -784,6 +830,9 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_retry_faile
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
+    # We are skipping the manager in these cases to test directly on the mapping job,
+    # so pop from the queue as if the manager had executed.
+    await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     mapping_test_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
 
@@ -810,6 +859,8 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_retry_faile
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
 
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert not result["retried"]
     assert len(mapped_variants_for_score_set) == 0
@@ -829,6 +880,9 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_retry_limit
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
+    # We are skipping the manager in these cases to test directly on the mapping job,
+    # so pop from the queue as if the manager had executed.
+    await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     mapping_test_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
 
@@ -857,6 +911,8 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_retry_limit
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
 
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert not result["retried"]
     assert len(mapped_variants_for_score_set) == 0
@@ -876,6 +932,9 @@ async def test_create_mapped_variants_for_scoreset_no_mapping_output(
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
+    # We are skipping the manager in these cases to test directly on the mapping job,
+    # so pop from the queue as if the manager had executed.
+    await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     # Do not await, we need a co-routine object to be the return value of our `run_in_executor` mock.
     mapping_test_output_for_score_set = setup_mapping_output(async_client, session, score_set, empty=True)
@@ -898,6 +957,8 @@ async def test_create_mapped_variants_for_scoreset_no_mapping_output(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
 
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert result["success"]
     assert not result["retried"]
     assert len(mapped_variants_for_score_set) == 0
