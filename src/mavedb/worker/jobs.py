@@ -570,8 +570,17 @@ async def variant_mapper_manager(ctx: dict, correlation_id: str, updater_id: int
 
     except Exception as e:
         send_slack_message(e)
+
+        # Attempt to remove this item from the mapping queue.
+        try:
+            await redis.lrem(MAPPING_QUEUE_NAME, 1, queued_id)  # type: ignore
+            logger.warning(msg="Removed un-queueable score set from the queue.", extra=logging_context)
+        except Exception:
+            pass
+
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logger.error(msg="Variant mapper manager encountered an unexpected error during setup.", extra=logging_context)
+
         return {"success": False, "enqueued_job": None}
 
     new_job = None
@@ -632,6 +641,13 @@ async def variant_mapper_manager(ctx: dict, correlation_id: str, updater_id: int
         # We shouldn't rely on the passed score set id matching the score set we are operating upon.
         if not queued_score_set:
             return {"success": False, "enqueued_job": new_job_id}
+
+        # Attempt to remove this item from the mapping queue.
+        try:
+            await redis.lrem(MAPPING_QUEUE_NAME, 1, queued_id)  # type: ignore
+            logger.warning(msg="Removed un-queueable score set from the queue.", extra=logging_context)
+        except Exception:
+            pass
 
         score_set_exc = db.scalars(select(ScoreSet).where(ScoreSet.id == queued_score_set.id)).one_or_none()
         if score_set_exc:
