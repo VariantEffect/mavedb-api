@@ -26,7 +26,6 @@ from mavedb.lib.logging.context import (
 from mavedb.lib.logging.canonical import log_request
 from mavedb.routers import (
     access_keys,
-    authorization,
     api_information,
     controlled_keywords,
     doi_identifiers,
@@ -37,6 +36,7 @@ from mavedb.routers import (
     log,
     mapped_variant,
     orcid,
+    permissions,
     publication_identifiers,
     target_gene_identifiers,
     taxonomies,
@@ -74,7 +74,6 @@ app.add_middleware(
 )
 app.include_router(access_keys.router)
 app.include_router(api_information.router)
-app.include_router(authorization.router)
 app.include_router(controlled_keywords.router)
 app.include_router(doi_identifiers.router)
 app.include_router(experiment_sets.router)
@@ -84,6 +83,7 @@ app.include_router(licenses.router)
 # app.include_router(log.router)
 app.include_router(mapped_variant.router)
 app.include_router(orcid.router)
+app.include_router(permissions.router)
 app.include_router(publication_identifiers.router)
 app.include_router(raw_read_identifiers.router)
 app.include_router(score_sets.router)

@@ -14,7 +14,7 @@ from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 # Experiment set tests
 def test_get_true_authorization_from_own_experiment_set_add_experiment_check(client, setup_router_db):
     experiment = create_experiment(client)
-    response = client.get(f"/api/v1/user-is-authorized/experiment-set/{experiment['experimentSetUrn']}/add_experiment")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment-set/{experiment['experimentSetUrn']}/add_experiment")
 
     assert response.status_code == 200
     assert response.json() == True
@@ -32,7 +32,7 @@ def test_contributor_gets_true_authorization_from_others_experiment_set_add_expe
         TEST_USER["first_name"],
         TEST_USER["last_name"],
     )
-    response = client.get(f"/api/v1/user-is-authorized/experiment-set/{experiment['experimentSetUrn']}/add_experiment")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment-set/{experiment['experimentSetUrn']}/add_experiment")
 
     assert response.status_code == 200
     assert response.json() == True
@@ -43,7 +43,7 @@ def test_get_false_authorization_from_other_users_experiment_set_add_experiment_
     change_ownership(session, experiment["urn"], ExperimentDbModel)
     change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
 
-    response = client.get(f"/api/v1/user-is-authorized/experiment-set/{experiment['experimentSetUrn']}/add_experiment")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment-set/{experiment['experimentSetUrn']}/add_experiment")
 
     assert response.status_code == 200
     assert response.json() == False
@@ -51,15 +51,17 @@ def test_get_false_authorization_from_other_users_experiment_set_add_experiment_
 
 def test_cannot_get_authorization_with_wrong_action_in_experiment_set(client, setup_router_db):
     experiment = create_experiment(client)
-    response = client.get(f"/api/v1/user-is-authorized/experiment-set/{experiment['experimentSetUrn']}/edit")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment-set/{experiment['experimentSetUrn']}/edit")
 
-    assert response.status_code == 400
+    assert response.status_code == 422
     response_data = response.json()
-    assert response_data["detail"] == "Invalid action: edit"
+    assert response_data["detail"][0]["msg"] == "value is not a valid enumeration member; permitted: 'read', " \
+                                                "'update', 'delete', 'add_experiment', 'add_score_set', 'set_scores'," \
+                                                " 'add_role', 'publish'"
 
 
 def test_cannot_get_authorization_with_non_existing_experiment_set(client, setup_router_db):
-    response = client.get(f"/api/v1/user-is-authorized/experiment-set/invalidUrn/update")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment-set/invalidUrn/update")
 
     assert response.status_code == 404
     response_data = response.json()
@@ -69,7 +71,7 @@ def test_cannot_get_authorization_with_non_existing_experiment_set(client, setup
 # Experiment tests
 def test_get_true_authorization_from_own_experiment_update_check(client, setup_router_db):
     experiment = create_experiment(client)
-    response = client.get(f"/api/v1/user-is-authorized/experiment/{experiment['urn']}/update")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{experiment['urn']}/update")
 
     assert response.status_code == 200
     assert response.json() == True
@@ -77,7 +79,7 @@ def test_get_true_authorization_from_own_experiment_update_check(client, setup_r
 
 def test_get_true_authorization_from_own_experiment_delete_check(client, setup_router_db):
     experiment = create_experiment(client)
-    response = client.get(f"/api/v1/user-is-authorized/experiment/{experiment['urn']}/delete")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{experiment['urn']}/delete")
 
     assert response.status_code == 200
     assert response.json() == True
@@ -85,7 +87,7 @@ def test_get_true_authorization_from_own_experiment_delete_check(client, setup_r
 
 def test_get_true_authorization_from_own_experiment_add_score_set_check(client, setup_router_db):
     experiment = create_experiment(client)
-    response = client.get(f"/api/v1/user-is-authorized/experiment/{experiment['urn']}/add_score_set")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{experiment['urn']}/add_score_set")
 
     assert response.status_code == 200
     assert response.json() == True
@@ -102,7 +104,7 @@ def test_contributor_gets_true_authorization_from_others_experiment_update_check
         TEST_USER["first_name"],
         TEST_USER["last_name"],
     )
-    response = client.get(f"/api/v1/user-is-authorized/experiment/{experiment['urn']}/update")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{experiment['urn']}/update")
 
     assert response.status_code == 200
     assert response.json() == True
@@ -119,7 +121,7 @@ def test_contributor_gets_true_authorization_from_others_experiment_delete_check
         TEST_USER["first_name"],
         TEST_USER["last_name"],
     )
-    response = client.get(f"/api/v1/user-is-authorized/experiment/{experiment['urn']}/delete")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{experiment['urn']}/delete")
 
     assert response.status_code == 200
     assert response.json() == True
@@ -136,7 +138,7 @@ def test_contributor_gets_true_authorization_from_others_experiment_add_score_se
         TEST_USER["first_name"],
         TEST_USER["last_name"],
     )
-    response = client.get(f"/api/v1/user-is-authorized/experiment/{experiment['urn']}/add_score_set")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{experiment['urn']}/add_score_set")
 
     assert response.status_code == 200
     assert response.json() == True
@@ -146,7 +148,7 @@ def test_get_false_authorization_from_other_users_experiment_add_score_set_check
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
 
-    response = client.get(f"/api/v1/user-is-authorized/experiment/{experiment['urn']}/add_score_set")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{experiment['urn']}/add_score_set")
 
     assert response.status_code == 200
     assert response.json() == False
@@ -156,7 +158,7 @@ def test_get_false_authorization_from_other_users_experiment_update_check(sessio
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
 
-    response = client.get(f"/api/v1/user-is-authorized/experiment/{experiment['urn']}/update")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{experiment['urn']}/update")
 
     assert response.status_code == 200
     assert response.json() == False
@@ -166,7 +168,7 @@ def test_get_false_authorization_from_other_users_experiment_delete_check(sessio
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
 
-    response = client.get(f"/api/v1/user-is-authorized/experiment/{experiment['urn']}/delete")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{experiment['urn']}/delete")
 
     assert response.status_code == 200
     assert response.json() == False
@@ -174,15 +176,17 @@ def test_get_false_authorization_from_other_users_experiment_delete_check(sessio
 
 def test_cannot_get_authorization_with_wrong_action_in_experiment(client, setup_router_db):
     experiment = create_experiment(client)
-    response = client.get(f"/api/v1/user-is-authorized/experiment/{experiment['urn']}/invalidAction")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{experiment['urn']}/invalidAction")
 
-    assert response.status_code == 400
+    assert response.status_code == 422
     response_data = response.json()
-    assert response_data["detail"] == "Invalid action: invalidAction"
+    assert response_data["detail"][0]["msg"] == "value is not a valid enumeration member; permitted: 'read', " \
+                                                "'update', 'delete', 'add_experiment', 'add_score_set', 'set_scores'," \
+                                                " 'add_role', 'publish'"
 
 
 def test_cannot_get_authorization_with_non_existing_experiment(client, setup_router_db):
-    response = client.get(f"/api/v1/user-is-authorized/experiment/invalidUrn/update")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/invalidUrn/update")
 
     assert response.status_code == 404
     response_data = response.json()
@@ -193,7 +197,7 @@ def test_cannot_get_authorization_with_non_existing_experiment(client, setup_rou
 def test_get_true_authorization_from_own_score_set_update_check(client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
-    response = client.get(f"/api/v1/user-is-authorized/score-set/{score_set['urn']}/update")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/{score_set['urn']}/update")
 
     assert response.status_code == 200
     assert response.json() == True
@@ -202,7 +206,7 @@ def test_get_true_authorization_from_own_score_set_update_check(client, setup_ro
 def test_get_true_authorization_from_own_score_set_delete_check(client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
-    response = client.get(f"/api/v1/user-is-authorized/score-set/{score_set['urn']}/delete")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/{score_set['urn']}/delete")
 
     assert response.status_code == 200
     assert response.json() == True
@@ -211,7 +215,7 @@ def test_get_true_authorization_from_own_score_set_delete_check(client, setup_ro
 def test_get_true_authorization_from_own_score_set_publish_check(client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
-    response = client.get(f"/api/v1/user-is-authorized/score-set/{score_set['urn']}/publish")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/{score_set['urn']}/publish")
 
     assert response.status_code == 200
     assert response.json() == True
@@ -229,7 +233,7 @@ def test_contributor_gets_true_authorization_from_others_score_set_update_check(
         TEST_USER["first_name"],
         TEST_USER["last_name"],
     )
-    response = client.get(f"/api/v1/user-is-authorized/score-set/{score_set['urn']}/update")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/{score_set['urn']}/update")
 
     assert response.status_code == 200
     assert response.json() == True
@@ -247,7 +251,7 @@ def test_contributor_gets_true_authorization_from_others_score_set_delete_check(
         TEST_USER["first_name"],
         TEST_USER["last_name"],
     )
-    response = client.get(f"/api/v1/user-is-authorized/score-set/{score_set['urn']}/delete")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/{score_set['urn']}/delete")
 
     assert response.status_code == 200
     assert response.json() == True
@@ -265,7 +269,7 @@ def test_contributor_gets_true_authorization_from_others_score_set_publish_check
         TEST_USER["first_name"],
         TEST_USER["last_name"],
     )
-    response = client.get(f"/api/v1/user-is-authorized/score-set/{score_set['urn']}/publish")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/{score_set['urn']}/publish")
 
     assert response.status_code == 200
     assert response.json() == True
@@ -276,7 +280,7 @@ def test_get_false_authorization_from_other_users_score_set_delete_check(session
     score_set = create_seq_score_set(client, experiment["urn"])
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
 
-    response = client.get(f"/api/v1/user-is-authorized/score-set/{score_set['urn']}/delete")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/{score_set['urn']}/delete")
 
     assert response.status_code == 200
     assert response.json() == False
@@ -287,7 +291,7 @@ def test_get_false_authorization_from_other_users_score_set_update_check(session
     score_set = create_seq_score_set(client, experiment["urn"])
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
 
-    response = client.get(f"/api/v1/user-is-authorized/score-set/{score_set['urn']}/update")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/{score_set['urn']}/update")
 
     assert response.status_code == 200
     assert response.json() == False
@@ -298,7 +302,7 @@ def test_get_false_authorization_from_other_users_score_set_publish_check(sessio
     score_set = create_seq_score_set(client, experiment["urn"])
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
 
-    response = client.get(f"/api/v1/user-is-authorized/score-set/{score_set['urn']}/publish")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/{score_set['urn']}/publish")
 
     assert response.status_code == 200
     assert response.json() == False
@@ -307,15 +311,17 @@ def test_get_false_authorization_from_other_users_score_set_publish_check(sessio
 def test_cannot_get_authorization_with_wrong_action_in_score_set(client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
-    response = client.get(f"/api/v1/user-is-authorized/score-set/{score_set['urn']}/invalidAction")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/{score_set['urn']}/invalidAction")
 
-    assert response.status_code == 400
+    assert response.status_code == 422
     response_data = response.json()
-    assert response_data["detail"] == "Invalid action: invalidAction"
+    assert response_data["detail"][0]["msg"] == "value is not a valid enumeration member; permitted: 'read', " \
+                                                "'update', 'delete', 'add_experiment', 'add_score_set', 'set_scores'," \
+                                                " 'add_role', 'publish'"
 
 
 def test_cannot_get_authorization_with_non_existing_experiment(client, setup_router_db):
-    response = client.get(f"/api/v1/user-is-authorized/score-set/invalidUrn/update")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/invalidUrn/update")
 
     assert response.status_code == 404
     response_data = response.json()
@@ -324,7 +330,7 @@ def test_cannot_get_authorization_with_non_existing_experiment(client, setup_rou
 
 # Common invalid test
 def test_cannot_get_authorization_with_non_existing_item(client, setup_router_db):
-    response = client.get(f"/api/v1/user-is-authorized/invalidModel/invalidUrn/update")
+    response = client.get(f"/api/v1/permissions/user-is-permitted/invalidModel/invalidUrn/update")
 
     assert response.status_code == 404
     response_data = response.json()

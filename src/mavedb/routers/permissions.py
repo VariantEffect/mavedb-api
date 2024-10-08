@@ -15,8 +15,8 @@ from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
 
 router = APIRouter(
-    prefix="/api/v1",
-    tags=["authorizations"],
+    prefix="/api/v1/permissions",
+    tags=["permissions"],
     responses={404: {"description": "Not found"}},
     route_class=LoggedRoute,
 )
@@ -31,7 +31,7 @@ class ModelName(str, Enum):
 
 
 @router.get(
-    "/user-is-authorized/{model_name}/{urn}/{action}",
+    "/user-is-permitted/{model_name}/{urn}/{action}",
     status_code=200,
     response_model=bool
 )
@@ -39,7 +39,7 @@ async def check_authorization(
     *,
     model_name: str,
     urn: str,
-    action: str,
+    action: Action,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(get_current_user),
 ) -> bool:
@@ -58,16 +58,8 @@ async def check_authorization(
         item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
 
     if item:
-        if user_data:
-            try:
-                action_enum = Action[action.upper()]
-                permission = has_permission(user_data, item, action_enum).permitted
-                return permission
-            except KeyError:
-                raise HTTPException(status_code=400, detail=f"Invalid action: {action}")
-        else:
-            logger.debug(msg="Miss user data", extra=logging_context())
-            raise HTTPException(status_code=404, detail=f"User not found")
+        permission = has_permission(user_data, item, action).permitted
+        return permission
     else:
         logger.debug(msg="The requested resources does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"{model_name} with URN '{urn}' not found")
