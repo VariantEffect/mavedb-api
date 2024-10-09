@@ -35,6 +35,7 @@ from tests.helpers.constants import (
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_VARIANT_MAPPING_SCAFFOLD,
+    VALID_ACCESSION,
 )
 
 
@@ -131,8 +132,10 @@ async def test_create_variants_for_score_set_with_validation_error(
     score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
-    # This is invalid for both data sets.
-    scores.loc[:, HGVS_NT_COLUMN].iloc[0] = "c.1T>A"
+    if input_score_set == TEST_MINIMAL_SEQ_SCORESET:
+        scores.loc[:, HGVS_NT_COLUMN].iloc[0] = "c.1T>A"
+    else:
+        scores.loc[:, HGVS_NT_COLUMN].iloc[0] = f"{VALID_ACCESSION}:c.1T>A"
 
     with (
         patch.object(
@@ -159,10 +162,6 @@ async def test_create_variants_for_score_set_with_validation_error(
     assert score_set.processing_state == ProcessingState.failed
     assert score_set.processing_errors == validation_error
 
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET))
@@ -188,10 +187,6 @@ async def test_create_variants_for_score_set_with_caught_exception(
     assert score_set.processing_state == ProcessingState.failed
     assert score_set.processing_errors == {"detail": [], "exception": ""}
 
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET))
@@ -215,10 +210,6 @@ async def test_create_variants_for_score_set_with_caught_base_exception(
     assert len(db_variants) == 0
     assert score_set.processing_state == ProcessingState.failed
     assert score_set.processing_errors is None
-
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
 
 
 @pytest.mark.asyncio
@@ -263,10 +254,6 @@ async def test_create_variants_for_score_set_with_existing_variants(
     assert len(db_variants) == 3
     assert score_set.processing_state == ProcessingState.success
     assert score_set.processing_errors is None
-
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
 
 
 @pytest.mark.asyncio
@@ -318,10 +305,6 @@ async def test_create_variants_for_score_set_with_existing_exceptions(
     assert score_set.processing_state == ProcessingState.success
     assert score_set.processing_errors is None
 
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET))
@@ -350,10 +333,6 @@ async def test_create_variants_for_score_set(
     assert score_set.num_variants == 3
     assert len(db_variants) == 3
     assert score_set.processing_state == ProcessingState.success
-
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
 
 
 # NOTE: These tests operate under the assumption that mapping output is consistent between accession based and sequence based score sets. If
@@ -389,10 +368,6 @@ async def test_create_mapped_variants_for_scoreset(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
     assert len(mapped_variants_for_score_set) == score_set.num_variants
-
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
 
 
 @pytest.mark.skip
@@ -439,10 +414,6 @@ async def test_create_mapped_variants_for_scoreset_with_existing_mapped_variants
     ).all()
     assert len(mapped_variants_for_score_set) == score_set.num_variants
 
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
-
 
 @pytest.mark.skip
 @pytest.mark.asyncio
@@ -474,10 +445,6 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception(
     ).all()
     assert len(mapped_variants_for_score_set) == 0
 
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
-
 
 @pytest.mark.skip
 @pytest.mark.asyncio
@@ -504,10 +471,6 @@ async def test_create_mapped_variants_for_scoreset_no_mapping_output(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
     ).all()
     assert len(mapped_variants_for_score_set) == 0
-
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
 
 
 @pytest.mark.skip
