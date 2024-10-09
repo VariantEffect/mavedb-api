@@ -20,7 +20,6 @@ from mavedb.view_models.doi_identifier import (
     DoiIdentifierCreate,
     SavedDoiIdentifier,
 )
-from mavedb.view_models.experiment import Experiment, SavedExperiment
 from mavedb.view_models.license import ShortLicense
 from mavedb.view_models.publication_identifier import (
     PublicationIdentifier,
@@ -92,7 +91,13 @@ class ScoreSetModify(ScoreSetBase):
                 if target.target_sequence and target.target_sequence.label is None:
                     raise ValidationError(
                         "Target sequence labels cannot be empty when multiple targets are defined.",
-                        custom_loc=["body", "targetGene", idx, "targetSequence", "label"],
+                        custom_loc=[
+                            "body",
+                            "targetGene",
+                            idx,
+                            "targetSequence",
+                            "label",
+                        ],
                     )
 
         return field_value
@@ -111,7 +116,13 @@ class ScoreSetModify(ScoreSetBase):
                 # just one for now seems fine.
                 raise ValidationError(
                     "Target sequence labels cannot be duplicated.",
-                    custom_loc=["body", "targetGene", dup_indices[-1], "targetSequence", "label"],
+                    custom_loc=[
+                        "body",
+                        "targetGene",
+                        dup_indices[-1],
+                        "targetSequence",
+                        "label",
+                    ],
                 )
 
         return field_value
@@ -193,7 +204,7 @@ class ShortScoreSet(BaseModel):
     published_date: Optional[date]
     replaces_id: Optional[int]
     num_variants: int
-    experiment: Experiment
+    experiment: "Experiment"
     primary_publication_identifiers: list[SavedPublicationIdentifier]
     secondary_publication_identifiers: list[SavedPublicationIdentifier]
     license: ShortLicense
@@ -260,7 +271,7 @@ class SavedScoreSet(ScoreSetBase):
 class ScoreSet(SavedScoreSet):
     """Score set view model containing most properties visible to non-admin users, but no variant data."""
 
-    experiment: Experiment
+    experiment: "Experiment"
     doi_identifiers: Sequence[DoiIdentifier]
     primary_publication_identifiers: Sequence[PublicationIdentifier]
     secondary_publication_identifiers: Sequence[PublicationIdentifier]
@@ -304,3 +315,9 @@ class ScoreSetPublicDump(SavedScoreSet):
     processing_errors: Optional[Dict]
     mapping_state: Optional[MappingState]
     mapping_errors: Optional[Dict]
+
+
+from mavedb.view_models.experiment import Experiment
+
+ShorterScoreSet.update_forward_refs()
+ScoreSet.update_forward_refs()
