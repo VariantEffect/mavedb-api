@@ -632,7 +632,7 @@ async def upload_score_set_variant_data(
         job = await worker.enqueue_job(
             "create_variants_for_score_set",
             correlation_id_for_context(),
-            item.urn,
+            item.id,
             user_data.user.id,
             scores_df,
             counts_df,
@@ -871,7 +871,7 @@ async def update_score_set(
             job = await worker.enqueue_job(
                 "create_variants_for_score_set",
                 correlation_id_for_context(),
-                item.urn,
+                item.id,
                 user_data.user.id,
                 scores_data,
                 count_data,
