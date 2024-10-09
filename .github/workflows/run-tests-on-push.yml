@@ -18,7 +18,7 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev --extras server
-    - run: poetry run pytest tests/ --show-capture=stdout
+    - run: poetry run pytest tests/ --show-capture=stdout --cov=src
 
   run-tests-3_10:
     runs-on: ubuntu-latest
@@ -32,7 +32,7 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev --extras server
-    - run: poetry run pytest tests/ --show-capture=stdout
+    - run: poetry run pytest tests/ --show-capture=stdout --cov=src
 
   run-tests-3_11:
     runs-on: ubuntu-latest
@@ -46,7 +46,7 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev --extras server
-    - run: poetry run pytest tests/ --show-capture=stdout
+    - run: poetry run pytest tests/ --show-capture=stdout --cov=src
 
   run-mypy-3_10:
     runs-on: ubuntu-latest
