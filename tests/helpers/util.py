@@ -210,3 +210,7 @@ def mark_user_inactive(session, username):
     session.refresh(user)
 
     return user
+
+
+async def awaitable_exception():
+    return Exception()
