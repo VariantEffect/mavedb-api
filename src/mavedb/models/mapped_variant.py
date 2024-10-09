@@ -13,8 +13,8 @@ class MappedVariant(Base):
 
     id = Column(Integer, primary_key=True)
 
-    pre_mapped = Column(JSONB, nullable=True)
-    post_mapped = Column(JSONB, nullable=True)
+    pre_mapped = Column(JSONB(none_as_null = True), nullable=True)
+    post_mapped = Column(JSONB(none_as_null = True), nullable=True)
     vrs_version = Column(String, nullable=True)
     error_message = Column(String, nullable=True)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
