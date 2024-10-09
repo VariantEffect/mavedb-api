@@ -688,6 +688,7 @@ async def update_score_set(
         for var, value in vars(item_update).items():
             if var not in [
                 "contributors",
+                "score_ranges",
                 "doi_identifiers",
                 "experiment_urn",
                 "license_id",
@@ -729,6 +730,9 @@ async def update_score_set(
             setattr(publication, "primary", publication.identifier in primary_identifiers)
 
         item.publication_identifiers = publication_identifiers
+
+        if item_update.score_ranges:
+            item.score_ranges = item_update.score_ranges.dict()
 
         # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the score set's
         # target_gene to None, because we have set cascade='all,delete-orphan' on ScoreSet.target_gene. (Since the
@@ -882,6 +886,7 @@ async def update_score_set(
 
         for var, value in vars(item_update).items():
             if var not in [
+                "score_ranges",
                 "contributors",
                 "doi_identifiers",
                 "experiment_urn",

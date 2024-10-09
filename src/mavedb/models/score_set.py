@@ -157,6 +157,7 @@ class ScoreSet(Base):
     )
 
     target_genes: Mapped[List["TargetGene"]] = relationship(back_populates="score_set", cascade="all, delete-orphan")
+    score_ranges = Column(JSONB, nullable=True)
 
     # Unfortunately, we can't use association_proxy here, because in spite of what the documentation seems to imply, it
     # doesn't check for a pre-existing keyword with the same text.
@@ -171,7 +172,9 @@ class ScoreSet(Base):
         #     return self._updated_keywords
         # else:
         legacy_keyword_objs = self.legacy_keyword_objs or []  # getattr(self, 'keyword_objs', [])
-        return [legacy_keyword_obj.text for legacy_keyword_obj in legacy_keyword_objs if legacy_keyword_obj.text is not None]
+        return [
+            legacy_keyword_obj.text for legacy_keyword_obj in legacy_keyword_objs if legacy_keyword_obj.text is not None
+        ]
 
     async def set_legacy_keywords(self, db, keywords: list[str]):
         self.keyword_objs = [await self._find_or_create_legacy_keyword(db, text) for text in keywords]
