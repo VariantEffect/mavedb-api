@@ -319,5 +319,5 @@ class ScoreSetPublicDump(SavedScoreSet):
 
 from mavedb.view_models.experiment import Experiment
 
-ShorterScoreSet.update_forward_refs()
+ShortScoreSet.update_forward_refs()
 ScoreSet.update_forward_refs()
