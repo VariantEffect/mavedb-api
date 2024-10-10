@@ -5,7 +5,6 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
 import pydantic
-from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
 
 from mavedb import deps

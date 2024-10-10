@@ -15,14 +15,14 @@ logger = logging.getLogger(__name__)
 
 
 class Action(Enum):
-    READ = 1
-    UPDATE = 2
-    DELETE = 3
-    ADD_EXPERIMENT = 4
-    ADD_SCORE_SET = 5
-    SET_SCORES = 6
-    ADD_ROLE = 7
-    PUBLISH = 8
+    READ = 'read'
+    UPDATE = 'update'
+    DELETE = 'delete'
+    ADD_EXPERIMENT = 'add_experiment'
+    ADD_SCORE_SET = 'add_score_set'
+    SET_SCORES = 'set_scores'
+    ADD_ROLE = 'add_role'
+    PUBLISH = 'publish'
 
 
 class PermissionResponse:
