@@ -335,7 +335,6 @@ async def create_score_set(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
 
         save_to_logging_context({"experiment": experiment.urn})
-        assert_permission(user_data, experiment, Action.UPDATE)
         assert_permission(user_data, experiment, Action.ADD_SCORE_SET)
 
     license_ = db.query(License).filter(License.id == item_create.license_id).one_or_none()

@@ -1181,3 +1181,95 @@ def test_admin_can_delete_other_users_published_experiment(
         del_response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
 
     assert del_response.status_code == 200
+
+
+def test_can_add_experiment_to_own_private_experiment_set(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    test_experiment = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    test_experiment.update({"experimentSetUrn": experiment["experimentSetUrn"]})
+    response = client.post("/api/v1/experiments/", json=test_experiment)
+    assert response.status_code == 200
+
+
+def test_can_add_experiment_to_own_public_experiment_set(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    test_experiment = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    test_experiment.update({"experimentSetUrn": published_score_set["experiment"]["experimentSetUrn"]})
+    response = client.post("/api/v1/experiments/", json=test_experiment)
+    assert response.status_code == 200
+
+
+def test_contributor_can_add_experiment_to_others_private_experiment_set(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
+    add_contributor(
+        session,
+        experiment["experimentSetUrn"],
+        ExperimentSetDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    test_experiment = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    test_experiment.update({"experimentSetUrn": experiment["experimentSetUrn"]})
+    response = client.post("/api/v1/experiments/", json=test_experiment)
+    assert response.status_code == 200
+
+
+def test_contributor_can_add_experiment_to_others_public_experiment_set(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
+    change_ownership(session, published_score_set["experiment"]["urn"], ExperimentDbModel)
+    change_ownership(session, published_score_set["experiment"]["experimentSetUrn"], ExperimentSetDbModel)
+    add_contributor(
+        session,
+        published_score_set["experiment"]["experimentSetUrn"],
+        ExperimentSetDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    test_experiment = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    test_experiment.update({"experimentSetUrn": published_score_set["experiment"]["experimentSetUrn"]})
+    response = client.post("/api/v1/experiments/", json=test_experiment)
+    assert response.status_code == 200
+
+
+def test_cannot_add_experiment_to_others_private_experiment_set(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    experiment_set_urn = experiment["experimentSetUrn"]
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    change_ownership(session, experiment_set_urn, ExperimentSetDbModel)
+    test_experiment = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    test_experiment.update({"experimentSetUrn": experiment_set_urn})
+    response = client.post("/api/v1/experiments/", json=test_experiment)
+    assert response.status_code == 404
+    response_data = response.json()
+    assert f"experiment set with URN '{experiment_set_urn}' not found" in response_data["detail"]
+
+
+def test_cannot_add_experiment_to_others_public_experiment_set(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    experiment_set_urn = published_score_set["experiment"]["experimentSetUrn"]
+    change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
+    change_ownership(session, published_score_set["experiment"]["urn"], ExperimentDbModel)
+    change_ownership(session, experiment_set_urn, ExperimentSetDbModel)
+    test_experiment = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    test_experiment.update({"experimentSetUrn": experiment_set_urn})
+    response = client.post("/api/v1/experiments/", json=test_experiment)
+    assert response.status_code == 403
+    response_data = response.json()
+    assert f"insufficient permissions for URN '{experiment_set_urn}'" in response_data["detail"]
