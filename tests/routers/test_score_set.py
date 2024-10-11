@@ -8,6 +8,7 @@ import pytest
 from arq import ArqRedis
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
@@ -1147,3 +1148,86 @@ def test_admin_can_delete_other_users_published_scoreset(
         del_response = client.delete(f"/api/v1/score-sets/{response_data['urn']}")
 
     assert del_response.status_code == 200
+
+
+def test_can_add_score_set_to_own_private_experiment(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = experiment["urn"]
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 200
+
+
+def test_cannot_add_score_set_to_others_private_experiment(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    experiment_urn = experiment["urn"]
+    change_ownership(session, experiment_urn, ExperimentDbModel)
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = experiment_urn
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 404
+    response_data = response.json()
+    assert f"experiment with URN '{experiment_urn}' not found" in response_data["detail"]
+
+
+def test_can_add_score_set_to_own_public_experiment(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    pub_score_set_1 = client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish").json()
+    score_set_2 = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_2["experimentUrn"] = pub_score_set_1["experiment"]["urn"]
+    response = client.post("/api/v1/score-sets/", json=score_set_2)
+    assert response.status_code == 200
+
+
+def test_can_add_score_set_to_others_public_experiment(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    pub_score_set_1 = client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish").json()
+    change_ownership(session, pub_score_set_1["experiment"]["urn"], ExperimentDbModel)
+    score_set_2 = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_2["experimentUrn"] = pub_score_set_1["experiment"]["urn"]
+    response = client.post("/api/v1/score-sets/", json=score_set_2)
+    assert response.status_code == 200
+
+
+def test_contributor_can_add_score_set_to_others_private_experiment(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    add_contributor(
+        session,
+        experiment["urn"],
+        ExperimentDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = experiment["urn"]
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 200
+
+
+def test_contributor_can_add_score_set_to_others_public_experiment(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    change_ownership(session, published_score_set["experiment"]["urn"], ExperimentDbModel)
+    add_contributor(
+        session,
+        published_score_set["experiment"]["urn"],
+        ExperimentDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 200
