@@ -168,7 +168,7 @@ async def test_create_variants_for_score_set_with_validation_error(
             return_value=TEST_CDOT_TRANSCRIPT,
         ) as hdp,
     ):
-        success = await create_variants_for_score_set(
+        result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
 
@@ -185,10 +185,8 @@ async def test_create_variants_for_score_set_with_validation_error(
     assert len(db_variants) == 0
     assert score_set.processing_state == ProcessingState.failed
     assert score_set.processing_errors == validation_error
-
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
+    assert not result["success"]
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 0
 
 
 @pytest.mark.asyncio
@@ -207,7 +205,7 @@ async def test_create_variants_for_score_set_with_caught_exception(
     # This is somewhat dumb and wouldn't actually happen like this, but it serves as an effective way to guarantee
     # some exception will be raised no matter what in the async job.
     with (patch.object(pd.DataFrame, "isnull", side_effect=Exception) as mocked_exc,):
-        success = await create_variants_for_score_set(
+        result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
         mocked_exc.assert_called()
@@ -219,10 +217,8 @@ async def test_create_variants_for_score_set_with_caught_exception(
     assert len(db_variants) == 0
     assert score_set.processing_state == ProcessingState.failed
     assert score_set.processing_errors == {"detail": [], "exception": ""}
-
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
+    assert not result["success"]
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 0
 
 
 @pytest.mark.asyncio
@@ -241,7 +237,7 @@ async def test_create_variants_for_score_set_with_caught_base_exception(
     # This is somewhat (extra) dumb and wouldn't actually happen like this, but it serves as an effective way to guarantee
     # some base exception will be handled no matter what in the async job.
     with (patch.object(pd.DataFrame, "isnull", side_effect=BaseException),):
-        success = await create_variants_for_score_set(
+        result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
 
@@ -252,10 +248,8 @@ async def test_create_variants_for_score_set_with_caught_base_exception(
     assert len(db_variants) == 0
     assert score_set.processing_state == ProcessingState.failed
     assert score_set.processing_errors is None
-
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
+    assert not result["success"]
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 0
 
 
 @pytest.mark.asyncio
@@ -276,7 +270,7 @@ async def test_create_variants_for_score_set_with_existing_variants(
         "_get_transcript",
         return_value=TEST_CDOT_TRANSCRIPT,
     ) as hdp:
-        success = await create_variants_for_score_set(
+        result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
 
@@ -286,6 +280,7 @@ async def test_create_variants_for_score_set_with_existing_variants(
         else:
             hdp.assert_called_once()
 
+    await sanitize_mapping_queue(standalone_worker_context, score_set)
     db_variants = session.scalars(select(Variant)).all()
     score_set = session.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set_urn).one()
 
@@ -298,7 +293,7 @@ async def test_create_variants_for_score_set_with_existing_variants(
         "_get_transcript",
         return_value=TEST_CDOT_TRANSCRIPT,
     ) as hdp:
-        success = await create_variants_for_score_set(
+        result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
 
@@ -309,10 +304,8 @@ async def test_create_variants_for_score_set_with_existing_variants(
     assert len(db_variants) == 3
     assert score_set.processing_state == ProcessingState.success
     assert score_set.processing_errors is None
-
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
+    assert result["success"]
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 1
 
 
 @pytest.mark.asyncio
@@ -337,7 +330,7 @@ async def test_create_variants_for_score_set_with_existing_exceptions(
             side_effect=ValidationError("Test Exception", triggers=["exc_1", "exc_2"]),
         ) as mocked_exc,
     ):
-        success = await create_variants_for_score_set(
+        result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
         mocked_exc.assert_called()
@@ -358,7 +351,7 @@ async def test_create_variants_for_score_set_with_existing_exceptions(
         "_get_transcript",
         return_value=TEST_CDOT_TRANSCRIPT,
     ) as hdp:
-        success = await create_variants_for_score_set(
+        result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
 
@@ -375,10 +368,8 @@ async def test_create_variants_for_score_set_with_existing_exceptions(
     assert len(db_variants) == 3
     assert score_set.processing_state == ProcessingState.success
     assert score_set.processing_errors is None
-
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
+    assert result["success"]
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 1
 
 
 @pytest.mark.asyncio
@@ -399,7 +390,7 @@ async def test_create_variants_for_score_set(
         "_get_transcript",
         return_value=TEST_CDOT_TRANSCRIPT,
     ) as hdp:
-        success = await create_variants_for_score_set(
+        result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
 
@@ -415,10 +406,99 @@ async def test_create_variants_for_score_set(
     assert score_set.num_variants == 3
     assert len(db_variants) == 3
     assert score_set.processing_state == ProcessingState.success
+    assert result["success"]
+    assert (await standalone_worker_context["redis"].llen(MAPPING_QUEUE_NAME)) == 1
 
-    # Have to commit at the end of async tests for DB threads to be released. Otherwise pytest
-    # thinks we are still using the session fixture and will hang indefinitely.
-    session.commit()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET))
+async def test_create_variants_for_score_set_enqueues_manager_and_successful_mapping(
+    input_score_set,
+    setup_worker_db,
+    session,
+    async_client,
+    data_files,
+    arq_worker,
+    arq_redis,
+):
+    score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
+
+    async def dummy_mapping_job():
+        return await setup_mapping_output(async_client, session, score_set)
+
+    with patch.object(
+        cdot.hgvs.dataproviders.RESTDataProvider,
+        "_get_transcript",
+        return_value=TEST_CDOT_TRANSCRIPT,
+    ) as hdp, patch.object(
+        _UnixSelectorEventLoop,
+        "run_in_executor",
+        return_value=dummy_mapping_job(),
+    ), patch(
+        "mavedb.worker.jobs.BACKOFF_IN_SECONDS", 0
+    ):
+        await arq_redis.enqueue_job("create_variants_for_score_set", uuid4().hex, score_set.id, 1, scores, counts)
+        await arq_worker.async_run()
+        await arq_worker.run_check()
+
+        # Call data provider _get_transcript method if this is an accession based score set, otherwise do not.
+        if all(["targetSequence" in target for target in input_score_set["targetGenes"]]):
+            hdp.assert_not_called()
+        else:
+            hdp.assert_called_once()
+
+    db_variants = session.scalars(select(Variant)).all()
+    score_set = session.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set_urn).one()
+    mapped_variants_for_score_set = session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
+    ).all()
+
+    assert score_set.num_variants == 3
+    assert len(db_variants) == 3
+    assert score_set.processing_state == ProcessingState.success
+    assert (await arq_redis.llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await arq_redis.get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
+    assert len(mapped_variants_for_score_set) == score_set.num_variants
+    assert score_set.mapping_state == MappingState.complete
+    assert score_set.mapping_errors is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET))
+async def test_create_variants_for_score_set_exception_skips_mapping(
+    input_score_set,
+    setup_worker_db,
+    session,
+    async_client,
+    data_files,
+    arq_worker,
+    arq_redis,
+):
+    score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
+
+    with patch.object(pd.DataFrame, "isnull", side_effect=Exception) as mocked_exc:
+        await arq_redis.enqueue_job("create_variants_for_score_set", uuid4().hex, score_set.id, 1, scores, counts)
+        await arq_worker.async_run()
+        await arq_worker.run_check()
+
+        mocked_exc.assert_called()
+
+    db_variants = session.scalars(select(Variant)).all()
+    score_set = session.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set_urn).one()
+    mapped_variants_for_score_set = session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
+    ).all()
+
+    assert score_set.num_variants == 0
+    assert len(db_variants) == 0
+    assert score_set.processing_state == ProcessingState.failed
+    assert score_set.processing_errors == {"detail": [], "exception": ""}
+    assert (await arq_redis.llen(MAPPING_QUEUE_NAME)) == 0
+    assert len(mapped_variants_for_score_set) == 0
+    assert score_set.mapping_state == MappingState.not_attempted
+    assert score_set.mapping_errors is None
 
 
 # NOTE: These tests operate under the assumption that mapping output is consistent between accession based and sequence based score sets. If
@@ -440,21 +520,17 @@ async def test_create_mapped_variants_for_scoreset(
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-    # We are skipping the manager in these cases to test directly on the mapping job,
-    # so pop from the queue as if the manager had executed.
+    # The call to `create_variants_from_score_set` within the above `setup_records_files_and_variants` will
+    # add a score set to the queue. Since we are executing the mapping independent of the manager job, we should
+    # sanitize the queue as if the mananger process had run.
     await sanitize_mapping_queue(standalone_worker_context, score_set)
 
-    mapping_test_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
-
     async def dummy_mapping_job():
-        return mapping_test_output_for_score_set
+        return await setup_mapping_output(async_client, session, score_set)
 
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    #
-    # TODO: Does this work on non-unix based machines.
-    # TODO: Is it even a safe operation to patch this event loop method?
     with patch.object(
         _UnixSelectorEventLoop,
         "run_in_executor",
@@ -486,21 +562,17 @@ async def test_create_mapped_variants_for_scoreset_with_existing_mapped_variants
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-    # We are skipping the manager in these cases to test directly on the mapping job,
-    # so pop from the queue as if the manager had executed.
+    # The call to `create_variants_from_score_set` within the above `setup_records_files_and_variants` will
+    # add a score set to the queue. Since we are executing the mapping independent of the manager job, we should
+    # sanitize the queue as if the mananger process had run.
     await sanitize_mapping_queue(standalone_worker_context, score_set)
 
-    mapping_test_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
-
     async def dummy_mapping_job():
-        return mapping_test_output_for_score_set
+        return await setup_mapping_output(async_client, session, score_set)
 
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    #
-    # TODO: Does this work on non-unix based machines.
-    # TODO: Is it even a safe operation to patch this event loop method?
     with patch.object(
         _UnixSelectorEventLoop,
         "run_in_executor",
@@ -565,16 +637,14 @@ async def test_create_mapped_variants_for_scoreset_exception_in_mapping_setup_sc
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-    # We are skipping the manager in these cases to test directly on the mapping job,
-    # so pop from the queue as if the manager had executed.
+    # The call to `create_variants_from_score_set` within the above `setup_records_files_and_variants` will
+    # add a score set to the queue. Since we are executing the mapping independent of the manager job, we should
+    # sanitize the queue as if the mananger process had run.
     await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    #
-    # TODO: Does this work on non-unix based machines?
-    # TODO: Is it even a safe operation to patch this event loop method?
     with patch.object(
         _UnixSelectorEventLoop,
         "run_in_executor",
@@ -582,7 +652,6 @@ async def test_create_mapped_variants_for_scoreset_exception_in_mapping_setup_sc
     ):
         result = await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.id + 5, 1)
 
-    # TODO: How are errors persisted? Test persistence mechanism.
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
@@ -609,8 +678,9 @@ async def test_create_mapped_variants_for_scoreset_exception_in_mapping_setup_vr
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-    # We are skipping the manager in these cases to test directly on the mapping job,
-    # so pop from the queue as if the manager had executed.
+    # The call to `create_variants_from_score_set` within the above `setup_records_files_and_variants` will
+    # add a score set to the queue. Since we are executing the mapping independent of the manager job, we should
+    # sanitize the queue as if the mananger process had run.
     await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     with patch.object(
@@ -620,7 +690,6 @@ async def test_create_mapped_variants_for_scoreset_exception_in_mapping_setup_vr
     ):
         result = await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
-    # TODO: How are errors persisted? Test persistence mechanism.
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
@@ -646,16 +715,14 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception(
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-    # We are skipping the manager in these cases to test directly on the mapping job,
-    # so pop from the queue as if the manager had executed.
+    # The call to `create_variants_from_score_set` within the above `setup_records_files_and_variants` will
+    # add a score set to the queue. Since we are executing the mapping independent of the manager job, we should
+    # sanitize the queue as if the mananger process had run.
     await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    #
-    # TODO: Does this work on non-unix based machines?
-    # TODO: Is it even a safe operation to patch this event loop method?
     with patch.object(
         _UnixSelectorEventLoop,
         "run_in_executor",
@@ -663,7 +730,6 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception(
     ):
         result = await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
-    # TODO: How are errors persisted? Test persistence mechanism.
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
@@ -689,16 +755,14 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception_retry_limit
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-    # We are skipping the manager in these cases to test directly on the mapping job,
-    # so pop from the queue as if the manager had executed.
+    # The call to `create_variants_from_score_set` within the above `setup_records_files_and_variants` will
+    # add a score set to the queue. Since we are executing the mapping independent of the manager job, we should
+    # sanitize the queue as if the mananger process had run.
     await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    #
-    # TODO: Does this work on non-unix based machines?
-    # TODO: Is it even a safe operation to patch this event loop method?
     with patch.object(
         _UnixSelectorEventLoop,
         "run_in_executor",
@@ -708,7 +772,6 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception_retry_limit
             standalone_worker_context, uuid4().hex, score_set.id, 1, BACKOFF_LIMIT + 1
         )
 
-    # TODO: How are errors persisted? Test persistence mechanism.
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
@@ -734,16 +797,14 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception_retry_faile
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-    # We are skipping the manager in these cases to test directly on the mapping job,
-    # so pop from the queue as if the manager had executed.
+    # The call to `create_variants_from_score_set` within the above `setup_records_files_and_variants` will
+    # add a score set to the queue. Since we are executing the mapping independent of the manager job, we should
+    # sanitize the queue as if the mananger process had run.
     await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    #
-    # TODO: Does this work on non-unix based machines.
-    # TODO: Is it even a safe operation to patch this event loop method?
     with (
         patch.object(
             _UnixSelectorEventLoop,
@@ -754,7 +815,6 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception_retry_faile
     ):
         result = await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
-    # TODO: How are errors persisted? Test persistence mechanism.
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
@@ -781,22 +841,19 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_with_retry(
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-    # We are skipping the manager in these cases to test directly on the mapping job,
-    # so pop from the queue as if the manager had executed.
+    # The call to `create_variants_from_score_set` within the above `setup_records_files_and_variants` will
+    # add a score set to the queue. Since we are executing the mapping independent of the manager job, we should
+    # sanitize the queue as if the mananger process had run.
     await sanitize_mapping_queue(standalone_worker_context, score_set)
 
-    mapping_test_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
-
     async def dummy_mapping_job():
+        mapping_test_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
         mapping_test_output_for_score_set.pop("computed_genomic_reference_sequence")
         return mapping_test_output_for_score_set
 
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    #
-    # TODO: Does this work on non-unix based machines?
-    # TODO: Is it even a safe operation to patch this event loop method?
     with patch.object(
         _UnixSelectorEventLoop,
         "run_in_executor",
@@ -804,7 +861,6 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_with_retry(
     ):
         result = await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
-    # TODO: How are errors persisted? Test persistence mechanism.
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
@@ -830,22 +886,19 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_retry_faile
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-    # We are skipping the manager in these cases to test directly on the mapping job,
-    # so pop from the queue as if the manager had executed.
+    # The call to `create_variants_from_score_set` within the above `setup_records_files_and_variants` will
+    # add a score set to the queue. Since we are executing the mapping independent of the manager job, we should
+    # sanitize the queue as if the mananger process had run.
     await sanitize_mapping_queue(standalone_worker_context, score_set)
 
-    mapping_test_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
-
     async def dummy_mapping_job():
+        mapping_test_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
         mapping_test_output_for_score_set.pop("computed_genomic_reference_sequence")
         return mapping_test_output_for_score_set
 
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    #
-    # TODO: Does this work on non-unix based machines?
-    # TODO: Is it even a safe operation to patch this event loop method?
     with patch.object(
         _UnixSelectorEventLoop,
         "run_in_executor",
@@ -853,7 +906,6 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_retry_faile
     ), patch.object(ArqRedis, "lpush", awaitable_exception()):
         result = await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
-    # TODO: How are errors persisted? Test persistence mechanism.
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
@@ -880,22 +932,19 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_retry_limit
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-    # We are skipping the manager in these cases to test directly on the mapping job,
-    # so pop from the queue as if the manager had executed.
+    # The call to `create_variants_from_score_set` within the above `setup_records_files_and_variants` will
+    # add a score set to the queue. Since we are executing the mapping independent of the manager job, we should
+    # sanitize the queue as if the mananger process had run.
     await sanitize_mapping_queue(standalone_worker_context, score_set)
 
-    mapping_test_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
-
     async def dummy_mapping_job():
+        mapping_test_output_for_score_set = await setup_mapping_output(async_client, session, score_set)
         mapping_test_output_for_score_set.pop("computed_genomic_reference_sequence")
         return mapping_test_output_for_score_set
 
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    #
-    # TODO: Does this work on non-unix based machines?
-    # TODO: Is it even a safe operation to patch this event loop method?
     with patch.object(
         _UnixSelectorEventLoop,
         "run_in_executor",
@@ -905,7 +954,6 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_retry_limit
             standalone_worker_context, uuid4().hex, score_set.id, 1, BACKOFF_LIMIT + 1
         )
 
-    # TODO: How are errors persisted? Test persistence mechanism.
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
@@ -932,23 +980,22 @@ async def test_create_mapped_variants_for_scoreset_no_mapping_output(
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-    # We are skipping the manager in these cases to test directly on the mapping job,
-    # so pop from the queue as if the manager had executed.
+    # The call to `create_variants_from_score_set` within the above `setup_records_files_and_variants` will
+    # add a score set to the queue. Since we are executing the mapping independent of the manager job, we should
+    # sanitize the queue as if the mananger process had run.
     await sanitize_mapping_queue(standalone_worker_context, score_set)
 
     # Do not await, we need a co-routine object to be the return value of our `run_in_executor` mock.
-    mapping_test_output_for_score_set = setup_mapping_output(async_client, session, score_set, empty=True)
+    async def dummy_mapping_job():
+        return await setup_mapping_output(async_client, session, score_set, empty=True)
 
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    #
-    # TODO: Does this work on non-unix based machines.
-    # TODO: Is it even a safe operation to patch this event loop method?
     with patch.object(
         _UnixSelectorEventLoop,
         "run_in_executor",
-        return_value=mapping_test_output_for_score_set,
+        return_value=dummy_mapping_job(),
     ):
         result = await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
@@ -1275,3 +1322,120 @@ async def test_mapping_manager_multiple_score_sets_occupy_queue_mapping_not_in_p
     assert score_set1.mapping_errors is None
     assert score_set2.mapping_errors is None
     assert score_set3.mapping_errors is None
+
+
+@pytest.mark.asyncio
+async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    async def dummy_mapping_job():
+        return await setup_mapping_output(async_client, session, score_set)
+
+    # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
+    # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
+    # object that sets up test mappingn output.
+    with patch.object(
+        _UnixSelectorEventLoop,
+        "run_in_executor",
+        return_value=dummy_mapping_job(),
+    ), patch("mavedb.worker.jobs.BACKOFF_IN_SECONDS", 0):
+        await arq_redis.enqueue_job("variant_mapper_manager", uuid4().hex, 1)
+        await arq_worker.async_run()
+        await arq_worker.run_check()
+
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
+    mapped_variants_for_score_set = session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
+    ).all()
+    assert (await arq_redis.llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await arq_redis.get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
+    assert len(mapped_variants_for_score_set) == score_set.num_variants
+    assert score_set.mapping_state == MappingState.complete
+    assert score_set.mapping_errors is None
+
+
+@pytest.mark.asyncio
+async def test_mapping_manager_enqueues_mapping_process_with_retried_mapping_successful_mapping_on_retry(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    async def failed_mapping_job():
+        return Exception()
+
+    async def dummy_mapping_job():
+        return await setup_mapping_output(async_client, session, score_set)
+
+    # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
+    # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
+    # object that sets up test mappingn output.
+    with patch.object(
+        _UnixSelectorEventLoop,
+        "run_in_executor",
+        side_effect=[failed_mapping_job(), dummy_mapping_job()],
+    ), patch("mavedb.worker.jobs.BACKOFF_IN_SECONDS", 0):
+        await arq_redis.enqueue_job("variant_mapper_manager", uuid4().hex, 1)
+        await arq_worker.async_run()
+        await arq_worker.run_check()
+
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
+    mapped_variants_for_score_set = session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
+    ).all()
+    assert (await arq_redis.llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await arq_redis.get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
+    assert len(mapped_variants_for_score_set) == score_set.num_variants
+    assert score_set.mapping_state == MappingState.complete
+    assert score_set.mapping_errors is None
+
+
+@pytest.mark.asyncio
+async def test_mapping_manager_enqueues_mapping_process_with_unsuccessful_mapping(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    async def failed_mapping_job():
+        return Exception()
+
+    # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
+    # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
+    # object that sets up test mappingn output.
+    with patch.object(
+        _UnixSelectorEventLoop,
+        "run_in_executor",
+        side_effect=[failed_mapping_job()] * 5,
+    ), patch("mavedb.worker.jobs.BACKOFF_IN_SECONDS", 0):
+        await arq_redis.enqueue_job("variant_mapper_manager", uuid4().hex, 1)
+        await arq_worker.async_run()
+        await arq_worker.run_check()
+
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
+    mapped_variants_for_score_set = session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
+    ).all()
+    assert (await arq_redis.llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await arq_redis.get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
+    assert len(mapped_variants_for_score_set) == 0
+    assert score_set.mapping_state == MappingState.failed
+    assert score_set.mapping_errors is not None

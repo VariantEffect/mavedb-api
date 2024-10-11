@@ -151,6 +151,8 @@ async def arq_worker(data_provider, session, arq_redis):
     async def on_job(ctx):
         ctx["db"] = session
         ctx["hdp"] = data_provider
+        ctx["state"] = {}
+        ctx["pool"] = futures.ProcessPoolExecutor()
 
     worker_ = Worker(
         functions=[create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager],
