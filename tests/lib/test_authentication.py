@@ -1,7 +1,6 @@
 import pytest
 
 from fastapi import HTTPException
-from sqlalchemy.exc import MultipleResultsFound
 from unittest.mock import patch
 
 from mavedb.lib.authentication import get_current_user_data_from_api_key, get_current_user
@@ -34,7 +33,7 @@ async def test_get_current_user_data_from_key_invalid_token(session, setup_lib_d
 
 @pytest.mark.asyncio
 async def test_get_current_user_data_from_key_nonetype_token(session, setup_lib_db, client):
-    access_key = create_api_key_for_current_user(client)
+    create_api_key_for_current_user(client)
     user_data = await get_current_user_data_from_api_key(session, None)
     assert user_data is None
 

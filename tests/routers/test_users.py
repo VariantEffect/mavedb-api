@@ -1,6 +1,5 @@
 import pytest
 
-from fastapi import Header
 
 from mavedb.models.enums.user_role import UserRole
 from mavedb.lib.authentication import get_current_user
@@ -79,12 +78,15 @@ def test_cannot_impersonate_admin_user_as_default_user(client, setup_router_db, 
     # NOTE: We can't mock JWTBearer directly because the object is created when the `get_current_user` function is called.
     #       Instead, mock the function that decodes the JWT and present a fake `Bearer test` string that
     #       lets us reach the `decode_jwt` function call without raising exceptions.
-    with DependencyOverrider(
-        {
-            get_current_user: get_current_user,
-            require_current_user: require_current_user,
-        }
-    ), mock.patch("mavedb.lib.authentication.decode_jwt", lambda _: {"sub": TEST_USER["username"]}):
+    with (
+        DependencyOverrider(
+            {
+                get_current_user: get_current_user,
+                require_current_user: require_current_user,
+            }
+        ),
+        mock.patch("mavedb.lib.authentication.decode_jwt", lambda _: {"sub": TEST_USER["username"]}),
+    ):
         response = client.get(
             "/api/v1/users/me",
             headers={"Authorization": "Bearer test", "X-Active-Roles": f"{UserRole.admin.name},ordinary user"},

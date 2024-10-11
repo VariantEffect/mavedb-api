@@ -1,7 +1,7 @@
 from datetime import date
 
 from sqlalchemy import Column, Date, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship, backref, Mapped
+from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.dialects.postgresql import JSONB
 
 from mavedb.db.base import Base

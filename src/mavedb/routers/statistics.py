@@ -2,7 +2,7 @@ from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, Table, select
 from sqlalchemy.orm import Session
-from typing import Any, Union
+from typing import Union
 
 from mavedb.deps import get_db
 from mavedb.models.controlled_keyword import ControlledKeyword
@@ -229,8 +229,10 @@ def _record_from_field_and_model(
         dict[
             RecordFields,
             Union[
-                Table, type[ExperimentControlledKeywordAssociation], type[ExperimentPublicationIdentifierAssociation],
-                type[ScoreSetPublicationIdentifierAssociation]
+                Table,
+                type[ExperimentControlledKeywordAssociation],
+                type[ExperimentPublicationIdentifierAssociation],
+                type[ScoreSetPublicationIdentifierAssociation],
             ],
         ],
     ] = {
@@ -334,8 +336,9 @@ def record_object_statistics(
     """
     # Validation to ensure 'keywords' is only used with 'experiment'.
     if model == RecordNames.scoreSet and field == RecordFields.keywords:
-        raise HTTPException(status_code=422,
-                            detail="The 'keywords' field can only be used with the 'experiment' model.")
+        raise HTTPException(
+            status_code=422, detail="The 'keywords' field can only be used with the 'experiment' model."
+        )
 
     count_data = _record_from_field_and_model(db, model, field)
 

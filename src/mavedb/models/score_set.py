@@ -1,6 +1,6 @@
 from datetime import date
 from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship, backref, Mapped
+from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.ext.associationproxy import association_proxy, AssociationProxy
 from sqlalchemy.schema import Table
 from sqlalchemy.dialects.postgresql import JSONB

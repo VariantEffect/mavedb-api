@@ -15,16 +15,16 @@ from mavedb.lib.validation.constants.publication import valid_dbnames
 
 class TestValidateGenericPublication(TestCase):
     def test_valid_pubmed(self):
-        assert validate_publication("20711111") == None
+        assert validate_publication("20711111") is None
 
     def test_valid_biorxiv(self):
-        assert validate_publication("207222") == None
+        assert validate_publication("207222") is None
 
     def test_valid_medrxiv(self):
-        assert validate_publication("20733333") == None
+        assert validate_publication("20733333") is None
 
     def test_valid_crossref(self):
-        assert validate_publication("10.1101/1234") == None
+        assert validate_publication("10.1101/1234") is None
 
     def test_invalid_identifier(self):
         with self.assertRaises(ValidationError):
@@ -37,7 +37,7 @@ class TestValidatePubMedPublication(TestCase):
         assert validate_pubmed("20711111")
 
     def test_invalid_pubmed(self):
-        assert validate_pubmed("invalid_id") == False
+        assert validate_pubmed("invalid_id") is False
 
 
 class TestValidateBioRxivPublication(TestCase):
@@ -48,12 +48,12 @@ class TestValidateBioRxivPublication(TestCase):
         assert validate_biorxiv("207222")
 
     def test_invalid_biorxiv_new(self):
-        assert validate_biorxiv("2018.12.12.207222") == False
+        assert validate_biorxiv("2018.12.12.207222") is False
 
     def test_invalid_biorxiv_old(self):
-        assert validate_biorxiv("20722") == False
-        assert validate_biorxiv("2072222") == False
-        assert validate_biorxiv("invalid") == False
+        assert validate_biorxiv("20722") is False
+        assert validate_biorxiv("2072222") is False
+        assert validate_biorxiv("invalid") is False
 
 
 class TestValidateMedRxivPublication(TestCase):
@@ -64,12 +64,12 @@ class TestValidateMedRxivPublication(TestCase):
         assert validate_medrxiv("20733333")
 
     def test_invalid_medrxiv_new(self):
-        assert validate_medrxiv("2018.12.12.20733333") == False
+        assert validate_medrxiv("2018.12.12.20733333") is False
 
     def test_invalid_medrxiv_old(self):
-        assert validate_medrxiv("2073333") == False
-        assert validate_medrxiv("207333333") == False
-        assert validate_medrxiv("invalid") == False
+        assert validate_medrxiv("2073333") is False
+        assert validate_medrxiv("207333333") is False
+        assert validate_medrxiv("invalid") is False
 
 
 class TestIdentifierValidFor(TestCase):
@@ -133,7 +133,7 @@ class TestIdentifierValidFor(TestCase):
 class TestValidateDbName(TestCase):
     def test_valid_names(self):
         for name in valid_dbnames:
-            assert validate_db_name(name) == None
+            assert validate_db_name(name) is None
 
     def test_empty_name(self):
         with self.assertRaises(ValidationError):

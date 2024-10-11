@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from datetime import date
-from pydantic import root_validator, conlist
-from typing import Collection, Dict, Literal, Optional, Any, Sequence
+from pydantic import root_validator
+from typing import Collection, Dict, Optional, Any, Sequence
 
 from humps import camelize
 
@@ -13,7 +13,6 @@ from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import is_null, inf_or_float
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.mapping_state import MappingState
-from mavedb.models.target_sequence import TargetSequence
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.contributor import Contributor, ContributorCreate
@@ -437,6 +436,7 @@ class ScoreSetPublicDump(SavedScoreSet):
     mapping_errors: Optional[Dict]
 
 
+# ruff: noqa: E402
 from mavedb.view_models.experiment import Experiment
 
 ShortScoreSet.update_forward_refs()

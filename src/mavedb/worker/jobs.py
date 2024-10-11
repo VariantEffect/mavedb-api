@@ -10,7 +10,6 @@ import pandas as pd
 from arq import ArqRedis
 from arq.jobs import Job, JobStatus
 from cdot.hgvs.dataproviders import RESTDataProvider
-from fqfa.util.translate import translate_dna
 from sqlalchemy import cast, delete, select, null
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
@@ -31,8 +30,6 @@ from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
-from mavedb.models.target_gene import TargetGene
-from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.data_providers.services import vrs_mapper
@@ -369,9 +366,9 @@ async def map_variants_for_score_set(
                     mapped_protein_ref = mapping_results.get("mapped_protein_reference_sequence")
 
                     if computed_genomic_ref:
-                        target_sequence = computed_genomic_ref["sequence"]
+                        target_sequence = computed_genomic_ref["sequence"]  # noqa: F841
                     elif computed_protein_ref:
-                        target_sequence = computed_protein_ref["sequence"]
+                        target_sequence = computed_protein_ref["sequence"]  # noqa: F841
                     else:
                         raise NonexistentMappingReferenceError()
 

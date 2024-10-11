@@ -4,7 +4,6 @@ from datetime import date
 from unittest.mock import patch
 
 import jsonschema
-import pytest
 from arq import ArqRedis
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
@@ -1007,14 +1006,10 @@ def test_search_score_sets_match(session, data_provider, client, setup_router_db
 def test_search_score_sets_urn_match(session, data_provider, client, setup_router_db, data_files):
     experiment_1 = create_experiment(client)
     score_set_1_1 = create_seq_score_set_with_variants(
-        client,
-        session,
-        data_provider,
-        experiment_1["urn"],
-        data_files / "scores.csv"
+        client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
     )
 
-    search_payload = {"urn": score_set_1_1['urn']}
+    search_payload = {"urn": score_set_1_1["urn"]}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
     assert len(response.json()) == 1
@@ -1025,13 +1020,9 @@ def test_search_score_sets_urn_match(session, data_provider, client, setup_route
 def test_search_score_sets_urn_with_space_match(session, data_provider, client, setup_router_db, data_files):
     experiment_1 = create_experiment(client)
     score_set_1_1 = create_seq_score_set_with_variants(
-        client,
-        session,
-        data_provider,
-        experiment_1["urn"],
-        data_files / "scores.csv"
+        client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
     )
-    urn_with_space = score_set_1_1['urn'] + "   "
+    urn_with_space = score_set_1_1["urn"] + "   "
     search_payload = {"urn": urn_with_space}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
@@ -1212,7 +1203,9 @@ def test_contributor_can_add_score_set_to_others_private_experiment(session, cli
     assert response.status_code == 200
 
 
-def test_contributor_can_add_score_set_to_others_public_experiment(session, data_provider, client, setup_router_db, data_files):
+def test_contributor_can_add_score_set_to_others_public_experiment(
+    session, data_provider, client, setup_router_db, data_files
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"

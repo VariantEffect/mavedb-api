@@ -1,6 +1,5 @@
-from typing import Any, List, Optional
+from typing import Any, Optional
 
-from arq import ArqRedis
 from fastapi import APIRouter, Depends
 from fastapi.exceptions import HTTPException
 from sqlalchemy.orm import Session
@@ -11,7 +10,6 @@ from mavedb import deps
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
 from mavedb.view_models import mapped_variant
-from mavedb.worker.jobs import MAPPING_QUEUE_NAME
 
 
 async def fetch_mapped_variant_by_variant_urn(db, urn: str) -> Optional[MappedVariant]:

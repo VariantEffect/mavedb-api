@@ -14,7 +14,7 @@ from starlette.responses import JSONResponse
 from starlette_context.plugins import CorrelationIdPlugin, RequestIdPlugin, UserAgentPlugin
 from eutils._internal.exceptions import EutilsRequestError  # type: ignore
 
-from mavedb.models import *
+from mavedb.models import *  # noqa: F403
 
 from mavedb import __version__
 from mavedb.lib.logging.context import (
@@ -33,7 +33,6 @@ from mavedb.routers import (
     experiments,
     hgvs,
     licenses,
-    log,
     mapped_variant,
     orcid,
     permissions,

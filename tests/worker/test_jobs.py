@@ -2,10 +2,8 @@ from datetime import date
 
 from asyncio.unix_events import _UnixSelectorEventLoop
 from copy import deepcopy
-from requests import HTTPError
 from uuid import uuid4
 from unittest.mock import patch
-import requests_mock
 
 import arq.jobs
 import cdot.hgvs.dataproviders
@@ -207,7 +205,9 @@ async def test_create_variants_for_score_set_with_caught_exception(
 
     # This is somewhat dumb and wouldn't actually happen like this, but it serves as an effective way to guarantee
     # some exception will be raised no matter what in the async job.
-    with (patch.object(pd.DataFrame, "isnull", side_effect=Exception) as mocked_exc,):
+    with (
+        patch.object(pd.DataFrame, "isnull", side_effect=Exception) as mocked_exc,
+    ):
         result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
@@ -239,7 +239,9 @@ async def test_create_variants_for_score_set_with_caught_base_exception(
 
     # This is somewhat (extra) dumb and wouldn't actually happen like this, but it serves as an effective way to guarantee
     # some base exception will be handled no matter what in the async job.
-    with (patch.object(pd.DataFrame, "isnull", side_effect=BaseException),):
+    with (
+        patch.object(pd.DataFrame, "isnull", side_effect=BaseException),
+    ):
         result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
@@ -430,16 +432,18 @@ async def test_create_variants_for_score_set_enqueues_manager_and_successful_map
     async def dummy_mapping_job():
         return await setup_mapping_output(async_client, session, score_set)
 
-    with patch.object(
-        cdot.hgvs.dataproviders.RESTDataProvider,
-        "_get_transcript",
-        return_value=TEST_CDOT_TRANSCRIPT,
-    ) as hdp, patch.object(
-        _UnixSelectorEventLoop,
-        "run_in_executor",
-        return_value=dummy_mapping_job(),
-    ), patch(
-        "mavedb.worker.jobs.BACKOFF_IN_SECONDS", 0
+    with (
+        patch.object(
+            cdot.hgvs.dataproviders.RESTDataProvider,
+            "_get_transcript",
+            return_value=TEST_CDOT_TRANSCRIPT,
+        ) as hdp,
+        patch.object(
+            _UnixSelectorEventLoop,
+            "run_in_executor",
+            return_value=dummy_mapping_job(),
+        ),
+        patch("mavedb.worker.jobs.BACKOFF_IN_SECONDS", 0),
     ):
         await arq_redis.enqueue_job("create_variants_for_score_set", uuid4().hex, score_set.id, 1, scores, counts)
         await arq_worker.async_run()
@@ -706,6 +710,7 @@ async def test_create_mapped_variants_for_scoreset_exception_in_mapping_setup_vr
     assert score_set.mapping_state == MappingState.failed
     assert score_set.mapping_errors is not None
 
+
 @pytest.mark.asyncio
 async def test_create_mapped_variants_for_scoreset_mapping_exception(
     setup_worker_db, async_client, standalone_worker_context, session, data_files
@@ -901,11 +906,14 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_retry_faile
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    with patch.object(
-        _UnixSelectorEventLoop,
-        "run_in_executor",
-        return_value=dummy_mapping_job(),
-    ), patch.object(ArqRedis, "lpush", awaitable_exception()):
+    with (
+        patch.object(
+            _UnixSelectorEventLoop,
+            "run_in_executor",
+            return_value=dummy_mapping_job(),
+        ),
+        patch.object(ArqRedis, "lpush", awaitable_exception()),
+    ):
         result = await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
@@ -1108,8 +1116,9 @@ async def test_mapping_manager_occupied_queue_mapping_in_progress_error_during_e
     )
 
     await standalone_worker_context["redis"].set(MAPPING_CURRENT_ID_NAME, "5")
-    with patch.object(arq.jobs.Job, "status", return_value=arq.jobs.JobStatus.in_progress), patch.object(
-        ArqRedis, "enqueue_job", return_value=awaitable_exception()
+    with (
+        patch.object(arq.jobs.Job, "status", return_value=arq.jobs.JobStatus.in_progress),
+        patch.object(ArqRedis, "enqueue_job", return_value=awaitable_exception()),
     ):
         result = await variant_mapper_manager(standalone_worker_context, uuid4().hex, 1)
 
@@ -1135,8 +1144,9 @@ async def test_mapping_manager_occupied_queue_mapping_not_in_progress_error_duri
     )
 
     await standalone_worker_context["redis"].set(MAPPING_CURRENT_ID_NAME, "")
-    with patch.object(arq.jobs.Job, "status", return_value=arq.jobs.JobStatus.not_found), patch.object(
-        ArqRedis, "enqueue_job", return_value=awaitable_exception()
+    with (
+        patch.object(arq.jobs.Job, "status", return_value=arq.jobs.JobStatus.not_found),
+        patch.object(ArqRedis, "enqueue_job", return_value=awaitable_exception()),
     ):
         result = await variant_mapper_manager(standalone_worker_context, uuid4().hex, 1)
 
@@ -1344,11 +1354,14 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping(
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    with patch.object(
-        _UnixSelectorEventLoop,
-        "run_in_executor",
-        return_value=dummy_mapping_job(),
-    ), patch("mavedb.worker.jobs.BACKOFF_IN_SECONDS", 0):
+    with (
+        patch.object(
+            _UnixSelectorEventLoop,
+            "run_in_executor",
+            return_value=dummy_mapping_job(),
+        ),
+        patch("mavedb.worker.jobs.BACKOFF_IN_SECONDS", 0),
+    ):
         await arq_redis.enqueue_job("variant_mapper_manager", uuid4().hex, 1)
         await arq_worker.async_run()
         await arq_worker.run_check()
@@ -1385,11 +1398,14 @@ async def test_mapping_manager_enqueues_mapping_process_with_retried_mapping_suc
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    with patch.object(
-        _UnixSelectorEventLoop,
-        "run_in_executor",
-        side_effect=[failed_mapping_job(), dummy_mapping_job()],
-    ), patch("mavedb.worker.jobs.BACKOFF_IN_SECONDS", 0):
+    with (
+        patch.object(
+            _UnixSelectorEventLoop,
+            "run_in_executor",
+            side_effect=[failed_mapping_job(), dummy_mapping_job()],
+        ),
+        patch("mavedb.worker.jobs.BACKOFF_IN_SECONDS", 0),
+    ):
         await arq_redis.enqueue_job("variant_mapper_manager", uuid4().hex, 1)
         await arq_worker.async_run()
         await arq_worker.run_check()
@@ -1423,11 +1439,14 @@ async def test_mapping_manager_enqueues_mapping_process_with_unsuccessful_mappin
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    with patch.object(
-        _UnixSelectorEventLoop,
-        "run_in_executor",
-        side_effect=[failed_mapping_job()] * 5,
-    ), patch("mavedb.worker.jobs.BACKOFF_IN_SECONDS", 0):
+    with (
+        patch.object(
+            _UnixSelectorEventLoop,
+            "run_in_executor",
+            side_effect=[failed_mapping_job()] * 5,
+        ),
+        patch("mavedb.worker.jobs.BACKOFF_IN_SECONDS", 0),
+    ):
         await arq_redis.enqueue_job("variant_mapper_manager", uuid4().hex, 1)
         await arq_worker.async_run()
         await arq_worker.run_check()

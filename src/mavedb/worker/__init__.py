@@ -1,6 +1,6 @@
 from sqlalchemy.orm import configure_mappers
 
-from mavedb.models import *
+from mavedb.models import *  # noqa: F403
 
 from mavedb.worker.settings import ArqWorkerSettings
 
