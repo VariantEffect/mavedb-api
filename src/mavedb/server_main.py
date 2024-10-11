@@ -36,6 +36,7 @@ from mavedb.routers import (
     log,
     mapped_variant,
     orcid,
+    permissions,
     publication_identifiers,
     target_gene_identifiers,
     taxonomies,
@@ -82,6 +83,7 @@ app.include_router(licenses.router)
 # app.include_router(log.router)
 app.include_router(mapped_variant.router)
 app.include_router(orcid.router)
+app.include_router(permissions.router)
 app.include_router(publication_identifiers.router)
 app.include_router(raw_read_identifiers.router)
 app.include_router(score_sets.router)
