@@ -515,34 +515,34 @@ class TestValidateVariantFormatting(TestCase):
         self.valid_targets = ["test1", "test2"]
 
     def test_single_target_valid_variants(self):
-        validate_variant_formatting(self.valid, self.valid_prefixes, self.valid_target)
+        validate_variant_formatting(self.valid, self.valid_prefixes, self.valid_target, False)
 
     def test_single_target_inconsistent_variants(self):
         with self.assertRaises(ValidationError):
-            validate_variant_formatting(self.inconsistent, self.valid_prefixes, self.valid_target)
+            validate_variant_formatting(self.inconsistent, self.valid_prefixes, self.valid_target, False)
 
     def test_single_target_invalid_prefixes(self):
         with self.assertRaises(ValidationError):
-            validate_variant_formatting(self.valid, self.invalid_prefixes, self.valid_target)
+            validate_variant_formatting(self.valid, self.invalid_prefixes, self.valid_target, False)
 
     def test_multi_target_valid_variants(self):
-        validate_variant_formatting(self.valid_multi, self.valid_prefixes, self.valid_targets)
+        validate_variant_formatting(self.valid_multi, self.valid_prefixes, self.valid_targets, True)
 
     def test_multi_target_inconsistent_variants(self):
         with self.assertRaises(ValidationError):
-            validate_variant_formatting(self.inconsistent_multi, self.valid_prefixes, self.valid_targets)
+            validate_variant_formatting(self.inconsistent_multi, self.valid_prefixes, self.valid_targets, True)
 
     def test_multi_target_invalid_prefixes(self):
         with self.assertRaises(ValidationError):
-            validate_variant_formatting(self.valid_multi, self.invalid_prefixes, self.valid_targets)
+            validate_variant_formatting(self.valid_multi, self.invalid_prefixes, self.valid_targets, True)
 
     def test_multi_target_lacking_full_coords(self):
         with self.assertRaises(ValidationError):
-            validate_variant_formatting(self.valid, self.valid_prefixes, self.valid_targets)
+            validate_variant_formatting(self.valid, self.valid_prefixes, self.valid_targets, True)
 
     def test_multi_target_invalid_accessions(self):
         with self.assertRaises(ValidationError):
-            validate_variant_formatting(self.invalid_multi, self.valid_prefixes, self.valid_targets)
+            validate_variant_formatting(self.invalid_multi, self.valid_prefixes, self.valid_targets, True)
 
 
 class TestGenerateVariantPrefixes(DfTestCase):
@@ -910,27 +910,38 @@ class TestValidateHgvsGenomicColumn(DfTestCase):
 
         self.accession_test_case = AccessionTestCase()
 
-        self.valid_hgvs_column = pd.Series(["c.1G>A", "c.2A>T"], name=hgvs_nt_column)
-        self.missing_data = pd.Series(["c.3T>G", None], name=hgvs_nt_column)
-        self.duplicate_data = pd.Series(["c.4A>G", "c.4A>G"], name=hgvs_nt_column)
+        self.valid_hgvs_column = pd.Series(
+            [f"{VALID_ACCESSION}:c.1G>A", f"{VALID_ACCESSION}:c.2A>T"], name=hgvs_nt_column
+        )
+        self.missing_data = pd.Series([f"{VALID_ACCESSION}:c.3T>G", None], name=hgvs_nt_column)
+        self.duplicate_data = pd.Series([f"{VALID_ACCESSION}:c.4A>G", f"{VALID_ACCESSION}:c.4A>G"], name=hgvs_nt_column)
 
         self.invalid_hgvs_columns_by_name = [
-            pd.Series(["g.1A>G", "g.1A>T"], name=hgvs_splice_column),
-            pd.Series(["g.1A>G", "g.1A>T"], name=hgvs_pro_column),
-            pd.Series(["c.1A>G", "c.1A>T"], name=hgvs_pro_column),
-            pd.Series(["n.1A>G", "n.1A>T"], name=hgvs_pro_column),
-            pd.Series(["p.Met1Val", "p.Met1Leu"], name=hgvs_nt_column),
+            pd.Series([f"{VALID_ACCESSION}:g.1A>G", f"{VALID_ACCESSION}:g.1A>T"], name=hgvs_splice_column),
+            pd.Series([f"{VALID_ACCESSION}:g.1A>G", f"{VALID_ACCESSION}:g.1A>T"], name=hgvs_pro_column),
+            pd.Series([f"{VALID_ACCESSION}:c.1A>G", f"{VALID_ACCESSION}:c.1A>T"], name=hgvs_pro_column),
+            pd.Series([f"{VALID_ACCESSION}:n.1A>G", f"{VALID_ACCESSION}:n.1A>T"], name=hgvs_pro_column),
+            pd.Series([f"{VALID_ACCESSION}:p.Met1Val", f"{VALID_ACCESSION}:p.Met1Leu"], name=hgvs_nt_column),
         ]
 
         self.invalid_hgvs_columns_by_contents = [
-            pd.Series(["r.1a>g", "r.1a>u"], name=hgvs_splice_column),  # rna not allowed
-            pd.Series(["r.1a>g", "r.1a>u"], name=hgvs_nt_column),  # rna not allowed
-            pd.Series(["c.1A>G", "c.5A>T"], name=hgvs_nt_column),  # out of bounds for target
-            pd.Series(["c.1A>G", "_wt"], name=hgvs_nt_column),  # old special variant
-            pd.Series(["p.Met1Leu", "_sy"], name=hgvs_pro_column),  # old special variant
-            pd.Series(["n.1A>G", "c.1A>T"], name=hgvs_nt_column),  # mixed prefix
-            pd.Series(["c.1A>G", "p.Met1Leu"], name=hgvs_pro_column),  # mixed types/prefix
-            pd.Series(["c.1A>G", 2.5], name=hgvs_nt_column),  # contains numeric
+            pd.Series(
+                [f"{VALID_ACCESSION}:r.1a>g", f"{VALID_ACCESSION}:r.1a>u"], name=hgvs_splice_column
+            ),  # rna not allowed
+            pd.Series(
+                [f"{VALID_ACCESSION}:r.1a>g", f"{VALID_ACCESSION}:r.1a>u"], name=hgvs_nt_column
+            ),  # rna not allowed
+            pd.Series(
+                [f"{VALID_ACCESSION}:c.1A>G", f"{VALID_ACCESSION}:c.5A>T"], name=hgvs_nt_column
+            ),  # out of bounds for target
+            pd.Series([f"{VALID_ACCESSION}:c.1A>G", "_wt"], name=hgvs_nt_column),  # old special variant
+            pd.Series([f"{VALID_ACCESSION}:p.Met1Leu", "_sy"], name=hgvs_pro_column),  # old special variant
+            pd.Series([f"{VALID_ACCESSION}:n.1A>G", f"{VALID_ACCESSION}:c.1A>T"], name=hgvs_nt_column),  # mixed prefix
+            pd.Series(
+                [f"{VALID_ACCESSION}:c.1A>G", f"{VALID_ACCESSION}:p.Met1Leu"], name=hgvs_pro_column
+            ),  # mixed types/prefix
+            pd.Series(["c.1A>G", "p.Met1Leu"], name=hgvs_pro_column),  # variants should be fully qualified
+            pd.Series([f"{VALID_ACCESSION}:c.1A>G", 2.5], name=hgvs_nt_column),  # contains numeric
             pd.Series([1.0, 2.5], name=hgvs_nt_column),  # contains numeric
             pd.Series([1.0, 2.5], name=hgvs_splice_column),  # contains numeric
             pd.Series([1.0, 2.5], name=hgvs_pro_column),  # contains numeric

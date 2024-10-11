@@ -56,6 +56,7 @@ def session(postgresql):
         yield session
     finally:
         session.close()
+        Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture

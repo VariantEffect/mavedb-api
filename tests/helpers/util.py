@@ -126,7 +126,7 @@ def mock_worker_variant_insertion(client, db, data_provider, score_set, scores_c
         score_df = csv_data_to_df(score_file)
 
     if counts_csv_path is not None:
-        with open(scores_csv_path, "rb") as score_file:
+        with open(scores_csv_path, "rb") as counts_file:
             counts_df = csv_data_to_df(counts_file)
     else:
         counts_df = None

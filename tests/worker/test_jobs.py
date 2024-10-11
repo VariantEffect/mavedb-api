@@ -43,6 +43,7 @@ from tests.helpers.constants import (
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_VARIANT_MAPPING_SCAFFOLD,
+    VALID_ACCESSION,
 )
 
 
@@ -158,8 +159,10 @@ async def test_create_variants_for_score_set_with_validation_error(
     score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
-    # This is invalid for both data sets.
-    scores.loc[:, HGVS_NT_COLUMN].iloc[0] = "c.1T>A"
+    if input_score_set == TEST_MINIMAL_SEQ_SCORESET:
+        scores.loc[:, HGVS_NT_COLUMN].iloc[0] = "c.1T>A"
+    else:
+        scores.loc[:, HGVS_NT_COLUMN].iloc[0] = f"{VALID_ACCESSION}:c.1T>A"
 
     with (
         patch.object(
@@ -702,7 +705,6 @@ async def test_create_mapped_variants_for_scoreset_exception_in_mapping_setup_vr
     assert len(mapped_variants_for_score_set) == 0
     assert score_set.mapping_state == MappingState.failed
     assert score_set.mapping_errors is not None
-
 
 @pytest.mark.asyncio
 async def test_create_mapped_variants_for_scoreset_mapping_exception(
