@@ -35,9 +35,9 @@ class ModelName(str, Enum):
     status_code=200,
     response_model=bool
 )
-async def check_authorization(
+async def check_permission(
     *,
-    model_name: str,
+    model_name: ModelName,
     urn: str,
     action: Action,
     db: Session = Depends(deps.get_db),
