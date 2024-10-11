@@ -3,11 +3,17 @@ import logging.config
 import os
 import sys
 
-from watchtower import CloudWatchLogHandler
-
 from .config import load_stock_config
 from .filters import canonical_only
 from .formatters import MavedbJsonFormatter
+
+WATCHTOWER_IMPORTED = False
+try:
+    from watchtower import CloudWatchLogHandler
+
+    WATCHTOWER_IMPORTED = True
+except ModuleNotFoundError:
+    pass
 
 LOG_CONFIG = os.environ.get("LOG_CONFIG")
 
@@ -35,12 +41,14 @@ def configure():
     # Formatter and handler are un-configurable via file config.
     cw_is_enabled = False
     root_logger = logging.getLogger("root")
-    for handler in root_logger.handlers:
-        if isinstance(handler, CloudWatchLogHandler):
-            handler.addFilter(canonical_only)
-            handler.formatter = MavedbJsonFormatter()
 
-            cw_is_enabled = True
+    if WATCHTOWER_IMPORTED:
+        for handler in root_logger.handlers:
+            if isinstance(handler, CloudWatchLogHandler):
+                handler.addFilter(canonical_only)
+                handler.formatter = MavedbJsonFormatter()
+
+                cw_is_enabled = True
 
     if not cw_is_enabled:
         root_logger.info("CloudWatch log handler is not enabled. Canonical logs will only be emitted to stdout.")
