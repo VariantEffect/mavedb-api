@@ -125,6 +125,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             else:
                 return PermissionResponse(False)
         elif action == Action.ADD_EXPERIMENT:
+            # Only permitted users can add an experiment to an existing experiment set.
             return PermissionResponse(
                 user_may_edit or roles_permitted(active_roles, [UserRole.admin]),
                 404 if private else 403,
@@ -177,15 +178,16 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             else:
                 return PermissionResponse(False)
         elif action == Action.ADD_SCORE_SET:
-            return PermissionResponse(
-                (user_may_edit or roles_permitted(active_roles, [UserRole.admin])),
-                404 if private else 403,
-                (
-                    f"experiment with URN '{item.urn}' not found"
-                    if private
-                    else f"insufficient permissions for URN '{item.urn}'"
-                ),
-            )
+            # Only permitted users can add a score set to a private experiment.
+            if user_may_edit or roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            elif private:
+                return PermissionResponse(False, 404, f"experiment with URN '{item.urn}' not found")
+            # Any signed in user has permissions to add a score set to a public experiment
+            elif user_data is not None:
+                return PermissionResponse(True)
+            else:
+                return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
         else:
             raise NotImplementedError(f"has_permission(User, Experiment, {action}, Role)")
 

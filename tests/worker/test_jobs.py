@@ -129,6 +129,7 @@ async def test_create_variants_for_score_set_with_validation_error(
     input_score_set, validation_error, setup_worker_db, async_client, standalone_worker_context, session, data_files
 ):
     score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     # This is invalid for both data sets.
     scores.loc[:, HGVS_NT_COLUMN].iloc[0] = "c.1T>A"
@@ -141,7 +142,7 @@ async def test_create_variants_for_score_set_with_validation_error(
         ) as hdp,
     ):
         success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
 
         # Call data provider _get_transcript method if this is an accession based score set, otherwise do not.
@@ -169,12 +170,13 @@ async def test_create_variants_for_score_set_with_caught_exception(
     input_score_set, setup_worker_db, async_client, standalone_worker_context, session, data_files
 ):
     score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     # This is somewhat dumb and wouldn't actually happen like this, but it serves as an effective way to guarantee
     # some exception will be raised no matter what in the async job.
     with (patch.object(pd.DataFrame, "isnull", side_effect=Exception) as mocked_exc,):
         success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
         mocked_exc.assert_called()
 
@@ -197,12 +199,13 @@ async def test_create_variants_for_score_set_with_caught_base_exception(
     input_score_set, setup_worker_db, async_client, standalone_worker_context, session, data_files
 ):
     score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     # This is somewhat (extra) dumb and wouldn't actually happen like this, but it serves as an effective way to guarantee
     # some base exception will be handled no matter what in the async job.
     with (patch.object(pd.DataFrame, "isnull", side_effect=BaseException),):
         success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
 
     db_variants = session.scalars(select(Variant)).all()
@@ -224,12 +227,13 @@ async def test_create_variants_for_score_set_with_existing_variants(
     input_score_set, setup_worker_db, async_client, standalone_worker_context, session, data_files
 ):
     score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
     ) as hdp:
         success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
 
         # Call data provider _get_transcript method if this is an accession based score set, otherwise do not.
@@ -249,7 +253,7 @@ async def test_create_variants_for_score_set_with_existing_variants(
         cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
     ) as hdp:
         success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
 
     db_variants = session.scalars(select(Variant)).all()
@@ -271,6 +275,7 @@ async def test_create_variants_for_score_set_with_existing_exceptions(
     input_score_set, setup_worker_db, async_client, standalone_worker_context, session, data_files
 ):
     score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     # This is somewhat dumb and wouldn't actually happen like this, but it serves as an effective way to guarantee
     # some exception will be raised no matter what in the async job.
@@ -280,7 +285,7 @@ async def test_create_variants_for_score_set_with_existing_exceptions(
         ) as mocked_exc,
     ):
         success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
         mocked_exc.assert_called()
 
@@ -296,7 +301,7 @@ async def test_create_variants_for_score_set_with_existing_exceptions(
         cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
     ) as hdp:
         success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
 
         # Call data provider _get_transcript method if this is an accession based score set, otherwise do not.
@@ -324,12 +329,13 @@ async def test_create_variants_for_score_set(
     input_score_set, setup_worker_db, async_client, standalone_worker_context, session, data_files
 ):
     score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
     ) as hdp:
         success = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set_urn, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
         )
 
         # Call data provider _get_transcript method if this is an accession based score set, otherwise do not.

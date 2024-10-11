@@ -335,7 +335,6 @@ async def create_score_set(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
 
         save_to_logging_context({"experiment": experiment.urn})
-        assert_permission(user_data, experiment, Action.UPDATE)
         assert_permission(user_data, experiment, Action.ADD_SCORE_SET)
 
     license_ = db.query(License).filter(License.id == item_create.license_id).one_or_none()
@@ -632,7 +631,7 @@ async def upload_score_set_variant_data(
         job = await worker.enqueue_job(
             "create_variants_for_score_set",
             correlation_id_for_context(),
-            item.urn,
+            item.id,
             user_data.user.id,
             scores_df,
             counts_df,
@@ -688,6 +687,7 @@ async def update_score_set(
         for var, value in vars(item_update).items():
             if var not in [
                 "contributors",
+                "score_ranges",
                 "doi_identifiers",
                 "experiment_urn",
                 "license_id",
@@ -729,6 +729,9 @@ async def update_score_set(
             setattr(publication, "primary", publication.identifier in primary_identifiers)
 
         item.publication_identifiers = publication_identifiers
+
+        if item_update.score_ranges:
+            item.score_ranges = item_update.score_ranges.dict()
 
         # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the score set's
         # target_gene to None, because we have set cascade='all,delete-orphan' on ScoreSet.target_gene. (Since the
@@ -871,7 +874,7 @@ async def update_score_set(
             job = await worker.enqueue_job(
                 "create_variants_for_score_set",
                 correlation_id_for_context(),
-                item.urn,
+                item.id,
                 user_data.user.id,
                 scores_data,
                 count_data,
@@ -882,6 +885,7 @@ async def update_score_set(
 
         for var, value in vars(item_update).items():
             if var not in [
+                "score_ranges",
                 "contributors",
                 "doi_identifiers",
                 "experiment_urn",
