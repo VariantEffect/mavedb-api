@@ -1,13 +1,11 @@
 import itertools
 from unittest import TestCase
+from unittest.mock import patch
 
+import cdot.hgvs.dataproviders
 import numpy as np
 import pandas as pd
 import pytest
-import cdot.hgvs.dataproviders
-
-from unittest.mock import patch
-from tests.helpers.constants import VALID_ACCESSION, TEST_CDOT_TRANSCRIPT
 
 from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
@@ -33,6 +31,7 @@ from mavedb.lib.validation.dataframe import (
     validate_variant_formatting,
 )
 from mavedb.lib.validation.exceptions import ValidationError
+from tests.helpers.constants import TEST_CDOT_TRANSCRIPT, VALID_ACCESSION
 
 
 @pytest.fixture

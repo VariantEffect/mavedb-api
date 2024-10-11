@@ -1,6 +1,6 @@
 from typing import Any, Optional
-import hgvs
 
+import hgvs
 
 class Validator:
     def __init__(self, hdp: Any, strict: bool = hgvs.global_config.validator.strict): ...

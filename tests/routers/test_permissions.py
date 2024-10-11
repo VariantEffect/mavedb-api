@@ -1,3 +1,6 @@
+from mavedb.models.experiment import Experiment as ExperimentDbModel
+from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
+from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from tests.helpers.constants import TEST_USER
 from tests.helpers.util import (
     add_contributor,
@@ -6,9 +9,6 @@ from tests.helpers.util import (
     create_seq_score_set,
     create_seq_score_set_with_variants,
 )
-from mavedb.models.experiment import Experiment as ExperimentDbModel
-from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
-from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 
 
 # Test check_authorization function

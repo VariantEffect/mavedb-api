@@ -1,8 +1,7 @@
-from mavedb.view_models.target_sequence import TargetSequenceCreate, sanitize_target_sequence_label
-from tests.helpers.constants import TEST_TAXONOMY
-
 import pytest
 
+from mavedb.view_models.target_sequence import TargetSequenceCreate, sanitize_target_sequence_label
+from tests.helpers.constants import TEST_TAXONOMY
 
 SEQUENCE = (
     "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCT"

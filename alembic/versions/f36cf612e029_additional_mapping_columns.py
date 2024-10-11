@@ -6,11 +6,12 @@ Create Date: 2024-08-21 16:06:06.793541
 
 """
 
-from alembic import op
+from datetime import datetime
+
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-from datetime import datetime
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "f36cf612e029"
@@ -32,7 +33,7 @@ def upgrade():
             "modification_date",
             sa.Date(),
             nullable=False,
-            server_default = sa.func.current_date(),
+            server_default=sa.func.current_date(),
         ),
     )
     op.add_column(
@@ -51,7 +52,7 @@ def upgrade():
     op.add_column(
         "mapped_variants",
         sa.Column("current", sa.Boolean(), nullable=False, server_default=sa.false()),
-        )
+    )
     op.alter_column(
         "mapped_variants",
         "pre_mapped",

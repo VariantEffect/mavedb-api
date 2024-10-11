@@ -5,13 +5,13 @@ from unittest.mock import patch
 
 import jsonschema
 from arq import ArqRedis
+
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
-
 from tests.helpers.constants import (
     EXTRA_USER,
     TEST_MINIMAL_ACC_SCORESET,
@@ -20,6 +20,7 @@ from tests.helpers.constants import (
     TEST_ORCID_ID,
     TEST_USER,
 )
+from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util import (
     add_contributor,
     change_ownership,
@@ -27,7 +28,6 @@ from tests.helpers.util import (
     create_seq_score_set,
     create_seq_score_set_with_variants,
 )
-from tests.helpers.dependency_overrider import DependencyOverrider
 
 
 def test_TEST_MINIMAL_SEQ_SCORESET_is_valid():

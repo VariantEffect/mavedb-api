@@ -1,9 +1,8 @@
-from datetime import date
-
 from asyncio.unix_events import _UnixSelectorEventLoop
 from copy import deepcopy
-from uuid import uuid4
+from datetime import date
 from unittest.mock import patch
+from uuid import uuid4
 
 import arq.jobs
 import cdot.hgvs.dataproviders
@@ -11,30 +10,27 @@ import jsonschema
 import pandas as pd
 import pytest
 from arq import ArqRedis
-from sqlalchemy import not_
+from sqlalchemy import not_, select
 
 from mavedb.data_providers.services import VRSMap
 from mavedb.lib.mave.constants import HGVS_NT_COLUMN
 from mavedb.lib.score_sets import csv_data_to_df
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.mapping_state import MappingState
+from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant
-from mavedb.models.mapped_variant import MappedVariant
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from mavedb.worker.jobs import (
+    BACKOFF_LIMIT,
+    MAPPING_CURRENT_ID_NAME,
+    MAPPING_QUEUE_NAME,
     create_variants_for_score_set,
     map_variants_for_score_set,
     variant_mapper_manager,
-    MAPPING_QUEUE_NAME,
-    MAPPING_CURRENT_ID_NAME,
-    BACKOFF_LIMIT,
 )
-from sqlalchemy import select
-
-from tests.helpers.util import awaitable_exception
 from tests.helpers.constants import (
     TEST_CDOT_TRANSCRIPT,
     TEST_MINIMAL_ACC_SCORESET,
@@ -43,6 +39,7 @@ from tests.helpers.constants import (
     TEST_VARIANT_MAPPING_SCAFFOLD,
     VALID_ACCESSION,
 )
+from tests.helpers.util import awaitable_exception
 
 
 async def setup_records_and_files(async_client, data_files, input_score_set):

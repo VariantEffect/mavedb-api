@@ -1,7 +1,8 @@
+from typing import Any
+
 import httpx
 from fastapi.exceptions import HTTPException
 from sqlalchemy.orm import Session
-from typing import Any
 
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.view_models.taxonomy import TaxonomyCreate

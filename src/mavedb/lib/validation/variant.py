@@ -1,12 +1,13 @@
 from typing import Optional, Union
 
-from mavehgvs import Variant, MaveHgvsParseError
-from mavedb.lib.validation.exceptions import ValidationError
+from mavehgvs import MaveHgvsParseError, Variant
+
 from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
-    hgvs_splice_column,
     hgvs_pro_column,
+    hgvs_splice_column,
 )
+from mavedb.lib.validation.exceptions import ValidationError
 
 __all__ = ["validate_hgvs_string"]
 

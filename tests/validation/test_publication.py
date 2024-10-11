@@ -1,16 +1,16 @@
 from unittest import TestCase
 
+from mavedb.lib.validation.constants.publication import valid_dbnames
+from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.publication import (
+    identifier_valid_for,
+    infer_identifier_from_url,
+    validate_biorxiv,
+    validate_db_name,
+    validate_medrxiv,
     validate_publication,
     validate_pubmed,
-    validate_biorxiv,
-    validate_medrxiv,
-    identifier_valid_for,
-    validate_db_name,
-    infer_identifier_from_url,
 )
-from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.lib.validation.constants.publication import valid_dbnames
 
 
 class TestValidateGenericPublication(TestCase):

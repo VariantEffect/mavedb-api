@@ -1,12 +1,11 @@
-import pytest
-
-
-from mavedb.models.enums.user_role import UserRole
-from mavedb.lib.authentication import get_current_user
-from mavedb.lib.authorization import require_current_user
 from unittest import mock
 
-from tests.helpers.constants import TEST_USER, ADMIN_USER, EXTRA_USER, camelize
+import pytest
+
+from mavedb.lib.authentication import get_current_user
+from mavedb.lib.authorization import require_current_user
+from mavedb.models.enums.user_role import UserRole
+from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_USER, camelize
 from tests.helpers.dependency_overrider import DependencyOverrider
 
 

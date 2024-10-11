@@ -2,17 +2,17 @@
 from __future__ import annotations
 
 from datetime import date
-from pydantic import root_validator
-from typing import Collection, Dict, Optional, Any, Sequence
+from typing import Any, Collection, Dict, Optional, Sequence
 
 from humps import camelize
+from pydantic import root_validator
 
-from mavedb.lib.validation.constants.score_set import default_ranges
 from mavedb.lib.validation import urn_re
+from mavedb.lib.validation.constants.score_set import default_ranges
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.lib.validation.utilities import is_null, inf_or_float
-from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.lib.validation.utilities import inf_or_float, is_null
 from mavedb.models.enums.mapping_state import MappingState
+from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.contributor import Contributor, ContributorCreate

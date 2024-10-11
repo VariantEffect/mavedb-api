@@ -2,11 +2,10 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends
 from fastapi.exceptions import HTTPException
-from sqlalchemy.orm import Session
 from sqlalchemy.exc import MultipleResultsFound
+from sqlalchemy.orm import Session
 
 from mavedb import deps
-
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
 from mavedb.view_models import mapped_variant

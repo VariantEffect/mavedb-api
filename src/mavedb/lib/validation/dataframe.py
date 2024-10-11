@@ -3,10 +3,9 @@ from typing import Optional, Tuple, Union
 import hgvs.exceptions
 import hgvs.parser
 import hgvs.validator
-from cdot.hgvs.dataproviders import RESTDataProvider
 import numpy as np
 import pandas as pd
-
+from cdot.hgvs.dataproviders import RESTDataProvider
 from fqfa.util.translate import translate_dna
 from mavehgvs.exceptions import MaveHgvsParseError
 from mavehgvs.variant import Variant

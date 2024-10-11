@@ -8,8 +8,8 @@ import pytest
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.license import License
-from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.role import Role
+from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
 from tests.helpers.constants import (
     ADMIN_USER,

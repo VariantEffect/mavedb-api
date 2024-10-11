@@ -1,11 +1,10 @@
-import requests_mock
-
-import cdot.hgvs.dataproviders
-from hgvs.exceptions import HGVSDataNotAvailableError
 from unittest.mock import patch
 
-from tests.helpers.constants import VALID_ACCESSION, VALID_GENE, TEST_CDOT_TRANSCRIPT
+import cdot.hgvs.dataproviders
+import requests_mock
+from hgvs.exceptions import HGVSDataNotAvailableError
 
+from tests.helpers.constants import TEST_CDOT_TRANSCRIPT, VALID_ACCESSION, VALID_GENE
 
 VALID_MAJOR_ASSEMBLY = "GRCh38"
 VALID_MINOR_ASSEMBLY = "GRCh38.p3"

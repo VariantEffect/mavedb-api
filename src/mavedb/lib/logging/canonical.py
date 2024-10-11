@@ -7,9 +7,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from mavedb import __version__
-from mavedb.lib.logging.models import Source, LogType
-from mavedb.lib.logging.context import save_to_logging_context, logging_context
-
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.logging.models import LogType, Source
 
 logger = logging.getLogger(__name__)
 

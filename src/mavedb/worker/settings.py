@@ -5,10 +5,10 @@ from typing import Callable
 from arq.connections import RedisSettings
 from arq.cron import CronJob
 
+from mavedb.data_providers.services import cdot_rest
+from mavedb.db.session import SessionLocal
 from mavedb.lib.logging.canonical import log_job
 from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager
-from mavedb.db.session import SessionLocal
-from mavedb.data_providers.services import cdot_rest
 
 # ARQ requires at least one task on startup.
 BACKGROUND_FUNCTIONS: list[Callable] = [

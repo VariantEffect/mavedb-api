@@ -2,9 +2,9 @@ import logging
 from enum import Enum
 from typing import Optional
 
-from mavedb.lib.authentication import UserData
-from mavedb.lib.logging.context import save_to_logging_context, logging_context
 from mavedb.db.base import Base
+from mavedb.lib.authentication import UserData
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
@@ -15,14 +15,14 @@ logger = logging.getLogger(__name__)
 
 
 class Action(Enum):
-    READ = 'read'
-    UPDATE = 'update'
-    DELETE = 'delete'
-    ADD_EXPERIMENT = 'add_experiment'
-    ADD_SCORE_SET = 'add_score_set'
-    SET_SCORES = 'set_scores'
-    ADD_ROLE = 'add_role'
-    PUBLISH = 'publish'
+    READ = "read"
+    UPDATE = "update"
+    DELETE = "delete"
+    ADD_EXPERIMENT = "add_experiment"
+    ADD_SCORE_SET = "add_score_set"
+    SET_SCORES = "set_scores"
+    ADD_ROLE = "add_role"
+    PUBLISH = "publish"
 
 
 class PermissionResponse:

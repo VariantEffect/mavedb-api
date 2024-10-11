@@ -1,9 +1,10 @@
 # From https://improveandrepeat.com/2021/09/python-friday-87-handling-pre-existing-tables-with-alembic-and-sqlalchemy/
 # Based on https://github.com/talkpython/data-driven-web-apps-with-flask
 
-from alembic import op
 from sqlalchemy import engine_from_config
 from sqlalchemy.engine import reflection
+
+from alembic import op
 
 
 def table_does_not_exist(table, schema=None):

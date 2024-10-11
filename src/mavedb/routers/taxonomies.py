@@ -10,15 +10,13 @@ from mavedb.models.taxonomy import Taxonomy
 from mavedb.view_models import taxonomy
 from mavedb.view_models.search import TextSearch
 
-router = APIRouter(
-    prefix='/api/v1/taxonomies', tags=['taxonomies'], responses={404: {'description': 'Not found'}}
-)
+router = APIRouter(prefix="/api/v1/taxonomies", tags=["taxonomies"], responses={404: {"description": "Not found"}})
 
 
-@router.get('/', status_code=200, response_model=List[taxonomy.Taxonomy], responses={404: {}})
+@router.get("/", status_code=200, response_model=List[taxonomy.Taxonomy], responses={404: {}})
 def list_taxonomies(
-        *,
-        db: Session = Depends(deps.get_db),
+    *,
+    db: Session = Depends(deps.get_db),
 ) -> Any:
     """
     List taxonomies.
@@ -55,37 +53,33 @@ def list_taxonomy_common_names(
     return sorted(list(set(common_names)))
 
 
-@router.get('/{item_id}', status_code=200, response_model=taxonomy.Taxonomy, responses={404: {}})
+@router.get("/{item_id}", status_code=200, response_model=taxonomy.Taxonomy, responses={404: {}})
 def fetch_taxonomy(
-        *,
-        item_id: int,
-        db: Session = Depends(deps.get_db),
+    *,
+    item_id: int,
+    db: Session = Depends(deps.get_db),
 ) -> Any:
     """
     Fetch a single taxonomy by ID.
     """
     item = db.query(Taxonomy).filter(Taxonomy.id == item_id).first()
     if not item:
-        raise HTTPException(
-            status_code=404, detail=f'Taxonomy with ID {item_id} not found'
-        )
+        raise HTTPException(status_code=404, detail=f"Taxonomy with ID {item_id} not found")
     return item
 
 
-@router.get('/tax-id/{item_id}', status_code=200, response_model=taxonomy.Taxonomy, responses={404: {}})
+@router.get("/tax-id/{item_id}", status_code=200, response_model=taxonomy.Taxonomy, responses={404: {}})
 def fetch_taxonomy_by_tax_id(
-        *,
-        item_id: int,
-        db: Session = Depends(deps.get_db),
+    *,
+    item_id: int,
+    db: Session = Depends(deps.get_db),
 ) -> Any:
     """
     Fetch a single taxonomy by tax_id.
     """
     item = db.query(Taxonomy).filter(Taxonomy.tax_id == item_id).first()
     if not item:
-        raise HTTPException(
-            status_code=404, detail=f'Taxonomy with tax_ID {item_id} not found'
-        )
+        raise HTTPException(status_code=404, detail=f"Taxonomy with tax_ID {item_id} not found")
     return item
 
 
@@ -103,7 +97,7 @@ async def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_d
             query = query.filter(
                 or_(
                     func.lower(Taxonomy.organism_name).contains(lower_search_text),
-                    func.lower(Taxonomy.common_name).contains(lower_search_text)
+                    func.lower(Taxonomy.common_name).contains(lower_search_text),
                 )
             )
         else:

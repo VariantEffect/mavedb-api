@@ -1,9 +1,10 @@
-from mavedb.view_models.base.base import BaseModel
-from mavedb.view_models import keyword
-from mavedb.lib.validation import keywords
+from typing import Optional
 
 from pydantic import root_validator
-from typing import Optional
+
+from mavedb.lib.validation import keywords
+from mavedb.view_models import keyword
+from mavedb.view_models.base.base import BaseModel
 
 
 class ExperimentControlledKeywordBase(BaseModel):

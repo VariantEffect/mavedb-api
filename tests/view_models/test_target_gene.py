@@ -1,6 +1,6 @@
-from mavedb.view_models.target_gene import TargetGeneCreate
-
 import pytest
+
+from mavedb.view_models.target_gene import TargetGeneCreate
 
 
 def test_create_target_gene_with_sequence():

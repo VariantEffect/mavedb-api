@@ -4,8 +4,8 @@ from typing import Optional
 
 import orcid  # type: ignore
 
-from mavedb.view_models.orcid import OrcidUser
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.view_models.orcid import OrcidUser
 
 logger = logging.getLogger(__name__)
 

@@ -1,7 +1,6 @@
 from sqlalchemy.orm import configure_mappers
 
 from mavedb.models import *  # noqa: F403
-
 from mavedb.worker.settings import ArqWorkerSettings
 
 # Scan all our model classes and create backref attributes. Otherwise, these attributes only get added to classes once

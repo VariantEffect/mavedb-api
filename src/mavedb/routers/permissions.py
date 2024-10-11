@@ -1,15 +1,15 @@
 import logging
 from enum import Enum
+from typing import Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import Union, Optional
 
 from mavedb import deps
-from mavedb.lib.authentication import get_current_user, UserData
-from mavedb.lib.permissions import has_permission, Action
+from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.permissions import Action, has_permission
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
@@ -30,11 +30,7 @@ class ModelName(str, Enum):
     score_set = "score-set"
 
 
-@router.get(
-    "/user-is-permitted/{model_name}/{urn}/{action}",
-    status_code=200,
-    response_model=bool
-)
+@router.get("/user-is-permitted/{model_name}/{urn}/{action}", status_code=200, response_model=bool)
 async def check_permission(
     *,
     model_name: ModelName,

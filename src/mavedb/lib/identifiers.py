@@ -1,17 +1,17 @@
 import os
-from typing import Optional, Union, Mapping
+from typing import Mapping, Optional, Union
 
 import eutils  # type: ignore
-from idutils import is_doi, normalize_doi
 from eutils import EutilsNCBIError  # type: ignore
 from eutils._internal.xmlfacades.pubmedarticle import PubmedArticle  # type: ignore
 from eutils._internal.xmlfacades.pubmedarticleset import PubmedArticleSet  # type: ignore
+from idutils import is_doi, normalize_doi
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError
-from mavedb.lib.external_publications import Rxiv, Crossref, CrossrefWork, RxivContentDetail, PublicationAuthors
-from mavedb.lib.validation.publication import identifier_valid_for, validate_db_name, infer_identifier_from_url
+from mavedb.lib.external_publications import Crossref, CrossrefWork, PublicationAuthors, Rxiv, RxivContentDetail
+from mavedb.lib.validation.publication import identifier_valid_for, infer_identifier_from_url, validate_db_name
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset

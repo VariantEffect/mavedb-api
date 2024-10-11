@@ -1,13 +1,12 @@
-import pytest
-
-from fastapi import HTTPException
 from unittest.mock import patch
 
-from mavedb.lib.authentication import get_current_user_data_from_api_key, get_current_user
-from mavedb.models.user import User
-from mavedb.models.enums.user_role import UserRole
+import pytest
+from fastapi import HTTPException
 
-from tests.helpers.constants import TEST_USER, TEST_USER_DECODED_JWT, ADMIN_USER, ADMIN_USER_DECODED_JWT
+from mavedb.lib.authentication import get_current_user, get_current_user_data_from_api_key
+from mavedb.models.enums.user_role import UserRole
+from mavedb.models.user import User
+from tests.helpers.constants import ADMIN_USER, ADMIN_USER_DECODED_JWT, TEST_USER, TEST_USER_DECODED_JWT
 from tests.helpers.util import create_api_key_for_current_user, mark_user_inactive
 
 

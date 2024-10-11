@@ -1,6 +1,7 @@
-from sqlalchemy.orm import Session
-from sqlalchemy import func
 from typing import Optional
+
+from sqlalchemy import func
+from sqlalchemy.orm import Session
 
 from mavedb.models.controlled_keyword import ControlledKeyword
 
@@ -16,8 +17,5 @@ def search_keyword(db: Session, key: str, value: Optional[str]):
 
     controlled_keyword = query.one_or_none()
     if controlled_keyword is None:
-        raise ValueError(f'Invalid keyword {key} or {value}')
+        raise ValueError(f"Invalid keyword {key} or {value}")
     return controlled_keyword
-
-
-

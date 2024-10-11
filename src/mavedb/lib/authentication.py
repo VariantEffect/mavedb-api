@@ -1,11 +1,11 @@
+import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-import logging
-import os
 from typing import Optional
 
-from fastapi import Depends, Request, HTTPException, Security, Header
+from fastapi import Depends, Header, HTTPException, Request, Security
 from fastapi.security import (
     APIKeyCookie,
     APIKeyHeader,
@@ -17,10 +17,10 @@ from jose import jwt
 from sqlalchemy.orm import Session
 
 from mavedb import deps
-from mavedb.models.enums.user_role import UserRole
+from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
 from mavedb.lib.orcid import fetch_orcid_user_email
-from mavedb.lib.logging.context import logging_context, save_to_logging_context, format_raised_exception_info_as_dict
 from mavedb.models.access_key import AccessKey
+from mavedb.models.enums.user_role import UserRole
 from mavedb.models.user import User
 
 ORCID_JWT_SIGNING_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
