@@ -440,7 +440,7 @@ async def map_variants_for_score_set(
                         )
                         db.add(mapped_variant)
 
-                    if successful_mapped_variants == 0 and mapped_scores:
+                    if successful_mapped_variants == 0:
                         score_set.mapping_state = MappingState.failed
                         score_set.mapping_errors = {"error_message": "All variants failed to map"}
                     elif successful_mapped_variants < total_variants:
