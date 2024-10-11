@@ -375,15 +375,8 @@ async def map_variants_for_score_set(
                     else:
                         raise NonexistentMappingReferenceError()
 
-                    target_gene = db.scalars(
-                        select(TargetGene)
-                        .join(ScoreSet)
-                        .join(TargetSequence)
-                        .where(
-                            ScoreSet.id == score_set_id,
-                            # TargetSequence.sequence == target_sequence,
-                        )
-                    ).one()
+                    # TODO(VariantEffect/dcd_mapping2#2): Handle variant mappings for score sets with more than 1 target.
+                    target_gene = score_set.target_genes[0]
 
                     excluded_pre_mapped_keys = {"sequence"}
                     if computed_genomic_ref and mapped_genomic_ref:
@@ -500,8 +493,6 @@ async def map_variants_for_score_set(
             except Exception as backoff_e:
                 score_set.mapping_state = MappingState.failed
                 score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
-                db.add(score_set)
-                db.commit()
                 send_slack_message(backoff_e)
                 logging_context = {**logging_context, **format_raised_exception_info_as_dict(backoff_e)}
                 logger.critical(
@@ -511,8 +502,6 @@ async def map_variants_for_score_set(
             else:
                 if new_job_id and not max_retries_exceeded:
                     score_set.mapping_state = MappingState.queued
-                    db.add(score_set)
-                    db.commit()
                     logger.info(
                         msg="After encountering an error while parsing mapped variants, another mapping job was queued.",
                         extra=logging_context,
@@ -520,8 +509,6 @@ async def map_variants_for_score_set(
                 elif new_job_id is None and not max_retries_exceeded:
                     score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
-                    db.add(score_set)
-                    db.commit()
                     logger.error(
                         msg="After encountering an error while parsing mapped variants, another mapping job was unable to be queued. This score set will not be mapped.",
                         extra=logging_context,
@@ -529,17 +516,17 @@ async def map_variants_for_score_set(
                 else:
                     score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
-                    db.add(score_set)
-                    db.commit()
                     logger.error(
                         msg="After encountering an error while parsing mapped variants, the maximum retries for this job were exceeded. This score set will not be mapped.",
                         extra=logging_context,
                     )
             finally:
+                db.add(score_set)
+                db.commit()
                 return {"success": False, "retried": (not max_retries_exceeded and new_job_id is not None)}
 
     ctx["state"][ctx["job_id"]] = logging_context.copy()
-    return {"success": True}
+    return {"success": True, "retried": False}
 
 
 async def variant_mapper_manager(ctx: dict, correlation_id: str, updater_id: int, attempt: int = 1) -> dict:
@@ -583,8 +570,17 @@ async def variant_mapper_manager(ctx: dict, correlation_id: str, updater_id: int
 
     except Exception as e:
         send_slack_message(e)
+
+        # Attempt to remove this item from the mapping queue.
+        try:
+            await redis.lrem(MAPPING_QUEUE_NAME, 1, queued_id)  # type: ignore
+            logger.warning(msg="Removed un-queueable score set from the queue.", extra=logging_context)
+        except Exception:
+            pass
+
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logger.error(msg="Variant mapper manager encountered an unexpected error during setup.", extra=logging_context)
+
         return {"success": False, "enqueued_job": None}
 
     new_job = None
@@ -645,6 +641,13 @@ async def variant_mapper_manager(ctx: dict, correlation_id: str, updater_id: int
         # We shouldn't rely on the passed score set id matching the score set we are operating upon.
         if not queued_score_set:
             return {"success": False, "enqueued_job": new_job_id}
+
+        # Attempt to remove this item from the mapping queue.
+        try:
+            await redis.lrem(MAPPING_QUEUE_NAME, 1, queued_id)  # type: ignore
+            logger.warning(msg="Removed un-queueable score set from the queue.", extra=logging_context)
+        except Exception:
+            pass
 
         score_set_exc = db.scalars(select(ScoreSet).where(ScoreSet.id == queued_score_set.id)).one_or_none()
         if score_set_exc:
