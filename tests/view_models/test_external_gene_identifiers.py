@@ -1,7 +1,7 @@
+import pytest
+
 from mavedb.view_models.external_gene_identifier import ExternalGeneIdentifierCreate
 from mavedb.view_models.external_gene_identifier_offset import ExternalGeneIdentifierOffsetCreate
-
-import pytest
 
 
 def test_create_ensemble_identifier(client):

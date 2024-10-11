@@ -14,20 +14,13 @@ from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.view_models.orcid import OrcidUser
-from tests.helpers.util import (
-    add_contributor,
-    change_ownership,
-    create_experiment,
-    create_seq_score_set,
-    create_seq_score_set_with_variants,
-)
 from tests.helpers.constants import (
     EXTRA_USER,
     TEST_BIORXIV_IDENTIFIER,
     TEST_CROSSREF_IDENTIFIER,
     TEST_EXPERIMENT_WITH_KEYWORD,
-    TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE,
     TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE,
+    TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE,
     TEST_MEDRXIV_IDENTIFIER,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_EXPERIMENT_RESPONSE,
@@ -36,6 +29,13 @@ from tests.helpers.constants import (
     TEST_USER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
+from tests.helpers.util import (
+    add_contributor,
+    change_ownership,
+    create_experiment,
+    create_seq_score_set,
+    create_seq_score_set_with_variants,
+)
 
 
 def test_test_minimal_experiment_is_valid():
@@ -229,7 +229,7 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, s
     )
 
 
-def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, setup_router_db):
+def test_cannot_create_experiment_that_keywords_has_wrong_combination4(client, setup_router_db):
     """
     Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
     If choose Other in Variant Library Creation Method, should not have in vitro
@@ -541,7 +541,7 @@ def test_anonymous_cannot_update_others_user_public_experiment_set(
 
     assert response.status_code == 401
     response_data = response.json()
-    assert f"Could not validate credentials" in response_data["detail"]
+    assert "Could not validate credentials" in response_data["detail"]
 
 
 def test_admin_can_update_other_users_public_experiment_set(
@@ -628,7 +628,7 @@ def test_anonymous_cannot_update_other_users_private_experiment(
 
     assert response.status_code == 401
     response_data = response.json()
-    assert f"Could not validate credentials" in response_data["detail"]
+    assert "Could not validate credentials" in response_data["detail"]
 
 
 @pytest.mark.parametrize(
@@ -1221,7 +1221,9 @@ def test_contributor_can_add_experiment_to_others_private_experiment_set(session
     assert response.status_code == 200
 
 
-def test_contributor_can_add_experiment_to_others_public_experiment_set(session, data_provider, client, setup_router_db, data_files):
+def test_contributor_can_add_experiment_to_others_public_experiment_set(
+    session, data_provider, client, setup_router_db, data_files
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -1257,7 +1259,9 @@ def test_cannot_add_experiment_to_others_private_experiment_set(session, client,
     assert f"experiment set with URN '{experiment_set_urn}' not found" in response_data["detail"]
 
 
-def test_cannot_add_experiment_to_others_public_experiment_set(session, data_provider, client, setup_router_db, data_files):
+def test_cannot_add_experiment_to_others_public_experiment_set(
+    session, data_provider, client, setup_router_db, data_files
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"

@@ -2,6 +2,7 @@ import logging
 import time
 
 import uvicorn
+from eutils._internal.exceptions import EutilsRequestError  # type: ignore
 from fastapi import FastAPI
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -12,18 +13,19 @@ from starlette import status
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette_context.plugins import CorrelationIdPlugin, RequestIdPlugin, UserAgentPlugin
-from eutils._internal.exceptions import EutilsRequestError  # type: ignore
-
-from mavedb.models import *
 
 from mavedb import __version__
+from mavedb.lib.exceptions import AmbiguousIdentifierError, MixedTargetError, NonexistentIdentifierError
+from mavedb.lib.logging.canonical import log_request
 from mavedb.lib.logging.context import (
     PopulatedRawContextMiddleware,
-    logging_context,
     format_raised_exception_info_as_dict,
+    logging_context,
     save_to_logging_context,
 )
-from mavedb.lib.logging.canonical import log_request
+from mavedb.lib.permissions import PermissionException
+from mavedb.lib.slack import send_slack_message
+from mavedb.models import *  # noqa: F403
 from mavedb.routers import (
     access_keys,
     api_information,
@@ -33,22 +35,18 @@ from mavedb.routers import (
     experiments,
     hgvs,
     licenses,
-    log,
     mapped_variant,
     orcid,
     permissions,
     publication_identifiers,
-    target_gene_identifiers,
-    taxonomies,
     raw_read_identifiers,
     score_sets,
     statistics,
+    target_gene_identifiers,
     target_genes,
+    taxonomies,
     users,
 )
-from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError, MixedTargetError
-from mavedb.lib.permissions import PermissionException
-from mavedb.lib.slack import send_slack_message
 
 logger = logging.getLogger(__name__)
 

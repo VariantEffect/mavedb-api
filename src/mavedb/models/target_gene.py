@@ -1,14 +1,14 @@
 from datetime import date
-from sqlalchemy import Column, Date, ForeignKey, Integer, String
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import backref, relationship, Mapped
-
 from typing import TYPE_CHECKING
 
+from sqlalchemy import Column, Date, ForeignKey, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, backref, relationship
+
 from mavedb.db.base import Base
-from mavedb.models.target_sequence import TargetSequence
-from mavedb.models.target_accession import TargetAccession
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.target_accession import TargetAccession
+from mavedb.models.target_sequence import TargetSequence
 
 if TYPE_CHECKING:
     from mavedb.models.ensembl_offset import EnsemblOffset

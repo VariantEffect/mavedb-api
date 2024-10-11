@@ -1,9 +1,9 @@
-from mavedb.lib.validation.publication import validate_publication, validate_db_name
-from mavedb.view_models.base.base import BaseModel, validator
-from typing import Optional
-from mavedb.lib.identifiers import PublicationAuthors
-
 import logging
+from typing import Optional
+
+from mavedb.lib.identifiers import PublicationAuthors
+from mavedb.lib.validation.publication import validate_db_name, validate_publication
+from mavedb.view_models.base.base import BaseModel, validator
 
 logger = logging.getLogger(__name__)
 

@@ -1,5 +1,6 @@
-from pydantic.utils import GetterDict
 from typing import Any
+
+from pydantic.utils import GetterDict
 
 
 class PublicationIdentifiersGetter(GetterDict):

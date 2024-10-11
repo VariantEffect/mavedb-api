@@ -3,10 +3,9 @@ from typing import Optional, Tuple, Union
 import hgvs.exceptions
 import hgvs.parser
 import hgvs.validator
-from cdot.hgvs.dataproviders import RESTDataProvider
 import numpy as np
 import pandas as pd
-
+from cdot.hgvs.dataproviders import RESTDataProvider
 from fqfa.util.translate import translate_dna
 from mavehgvs.exceptions import MaveHgvsParseError
 from mavehgvs.variant import Variant
@@ -208,11 +207,16 @@ def validate_dataframe(df: pd.DataFrame, kind: str, targets: list["TargetGene"],
             # This is typesafe, despite Pylance's claims otherwise
             if score_set_is_accession_based and not score_set_is_sequence_based:
                 validate_hgvs_genomic_column(
-                    df[column_mapping[c]], is_index, [target.target_accession for target in targets], hdp  # type: ignore
+                    df[column_mapping[c]],
+                    is_index,
+                    [target.target_accession for target in targets],
+                    hdp,  # type: ignore
                 )
             elif score_set_is_sequence_based and not score_set_is_accession_based:
                 validate_hgvs_transgenic_column(
-                    df[column_mapping[c]], is_index, {target.target_sequence.label: target.target_sequence for target in targets}  # type: ignore
+                    df[column_mapping[c]],
+                    is_index,
+                    {target.target_sequence.label: target.target_sequence for target in targets},  # type: ignore
                 )
             else:
                 raise MixedTargetError("Could not validate dataframe against provided mixed target types.")
@@ -262,7 +266,7 @@ def validate_column_names(df: pd.DataFrame, kind: str) -> None:
     ValidationError
         If the column names are not valid
     """
-    if any(type(c) != str for c in df.columns):
+    if any(type(c) is not str for c in df.columns):
         raise ValidationError("column names must be strings")
 
     if any(c.isspace() for c in df.columns) or any(len(c) == 0 for c in df.columns):

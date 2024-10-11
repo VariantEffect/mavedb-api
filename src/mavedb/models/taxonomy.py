@@ -1,9 +1,10 @@
 from datetime import date
 
-from sqlalchemy import Column, Date, ForeignKey, Integer, String, Boolean
-from sqlalchemy.orm import relationship, Mapped
+from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
+from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
+
 from .genome_identifier import GenomeIdentifier
 
 

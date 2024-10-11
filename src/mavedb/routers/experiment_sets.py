@@ -1,15 +1,15 @@
 import logging
-from typing import Any
 from operator import attrgetter
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from mavedb import deps
-from mavedb.lib.authentication import get_current_user, UserData
-from mavedb.lib.permissions import has_permission, Action
+from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.permissions import Action, has_permission
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.view_models import experiment_set
 

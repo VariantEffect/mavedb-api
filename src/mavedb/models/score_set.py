@@ -1,28 +1,27 @@
 from datetime import date
+from typing import TYPE_CHECKING, List, Optional
+
 from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship, backref, Mapped
-from sqlalchemy.ext.associationproxy import association_proxy, AssociationProxy
-from sqlalchemy.schema import Table
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
+from sqlalchemy.orm import Mapped, relationship
+from sqlalchemy.schema import Table
 
-from typing import List, TYPE_CHECKING, Optional
-
+import mavedb.models.score_set_publication_identifier
 from mavedb.db.base import Base
+from mavedb.models.contributor import Contributor
+from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
-import mavedb.models.score_set_publication_identifier
-
-from mavedb.models.contributor import Contributor
 from mavedb.models.experiment import Experiment
-from mavedb.models.user import User
-from mavedb.models.license import License
 from mavedb.models.legacy_keyword import LegacyKeyword
-from mavedb.models.doi_identifier import DoiIdentifier
+from mavedb.models.license import License
 from mavedb.models.publication_identifier import PublicationIdentifier
+from mavedb.models.user import User
 
 if TYPE_CHECKING:
-    from mavedb.models.variant import Variant
     from mavedb.models.target_gene import TargetGene
+    from mavedb.models.variant import Variant
 
 # from .raw_read_identifier import SraIdentifier
 from mavedb.lib.temp_urns import generate_temp_urn

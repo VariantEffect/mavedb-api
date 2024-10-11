@@ -1,8 +1,9 @@
 repos:
-  - repo: https://github.com/psf/black
-    rev: 23.3.0
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: v0.6.8
     hooks:
-      - id: black
-        # Latest version of Python supported by the project
-        # See https://pre-commit.com/#top_level-default_language_version
-        language_version: python3.9
+      # Run the linter.
+      - id: ruff
+      # Run the formatter.
+      - id: ruff-format

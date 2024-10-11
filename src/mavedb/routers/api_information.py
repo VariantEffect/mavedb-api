@@ -14,7 +14,4 @@ def show_version() -> Any:
     Describe the API version.
     """
 
-    return api_version.ApiVersion(
-        name=__project__,
-        version=__version__
-    )
+    return api_version.ApiVersion(name=__project__, version=__version__)

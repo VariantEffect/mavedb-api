@@ -2,13 +2,14 @@ import logging
 from operator import attrgetter
 from typing import Any, Optional
 
+import pydantic
+import requests
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
-import pydantic
 from sqlalchemy.orm import Session
 
 from mavedb import deps
-from mavedb.lib.authentication import get_current_user, UserData
+from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.authorization import require_current_user, require_current_user_with_email
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import NonexistentOrcidUserError
@@ -18,12 +19,12 @@ from mavedb.lib.identifiers import (
     find_or_create_publication_identifier,
     find_or_create_raw_read_identifier,
 )
+from mavedb.lib.keywords import search_keyword
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.lib.permissions import assert_permission, has_permission, Action
+from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import validate_keyword_list
-from mavedb.lib.keywords import search_keyword
 from mavedb.models.contributor import Contributor
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
@@ -31,8 +32,6 @@ from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
 from mavedb.view_models import experiment, score_set
 from mavedb.view_models.search import ExperimentsSearch
-
-import requests
 
 logger = logging.getLogger(__name__)
 

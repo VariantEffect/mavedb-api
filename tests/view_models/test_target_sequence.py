@@ -1,8 +1,7 @@
-from mavedb.view_models.target_sequence import TargetSequenceCreate, sanitize_target_sequence_label
-from tests.helpers.constants import TEST_TAXONOMY
-
 import pytest
 
+from mavedb.view_models.target_sequence import TargetSequenceCreate, sanitize_target_sequence_label
+from tests.helpers.constants import TEST_TAXONOMY
 
 SEQUENCE = (
     "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCT"
@@ -68,9 +67,7 @@ def test_cannot_create_target_sequence_with_label_containing_colon():
     taxonomy = TEST_TAXONOMY
 
     with pytest.raises(ValueError) as exc_info:
-        target_sequence = TargetSequenceCreate(
-            sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label
-        )
+        TargetSequenceCreate(sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label)
 
     assert f"Target sequence label `{label}` may not contain a colon." in str(exc_info.value)
 
@@ -82,9 +79,7 @@ def test_cannot_create_target_sequence_with_invalid_sequence_type():
     taxonomy = TEST_TAXONOMY
 
     with pytest.raises(ValueError) as exc_info:
-        target_sequence = TargetSequenceCreate(
-            sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label
-        )
+        TargetSequenceCreate(sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label)
 
     assert f"'{sequence_type}' is not a valid sequence type" in str(exc_info.value)
 
@@ -96,9 +91,7 @@ def test_cannot_create_target_sequence_with_invalid_inferred_type():
     taxonomy = TEST_TAXONOMY
 
     with pytest.raises(ValueError) as exc_info:
-        target_sequence = TargetSequenceCreate(
-            sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label
-        )
+        TargetSequenceCreate(sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label)
 
     assert "sequence is invalid" in str(exc_info.value)
 
@@ -117,8 +110,6 @@ def test_cannot_create_target_sequence_with_invalid_sequence(sequence_type, exc_
     taxonomy = TEST_TAXONOMY
 
     with pytest.raises(ValueError) as exc_info:
-        target_sequence = TargetSequenceCreate(
-            sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label
-        )
+        TargetSequenceCreate(sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label)
 
     assert exc_string in str(exc_info.value)

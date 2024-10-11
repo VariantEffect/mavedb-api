@@ -1,10 +1,11 @@
 import logging
+
 from sqlalchemy.orm import Session
 
 from mavedb.lib import orcid
 from mavedb.lib.exceptions import NonexistentOrcidUserError
-from mavedb.models.contributor import Contributor
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.models.contributor import Contributor
 
 logger = logging.getLogger(__name__)
 

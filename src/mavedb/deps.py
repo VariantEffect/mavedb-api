@@ -2,13 +2,13 @@
 
 from typing import Any, AsyncGenerator, Generator
 
-from arq import create_pool, ArqRedis
+from arq import ArqRedis, create_pool
 from cdot.hgvs.dataproviders import RESTDataProvider
 from sqlalchemy.orm import Session
 
+from mavedb.data_providers.services import cdot_rest
 from mavedb.db.session import SessionLocal
 from mavedb.worker.settings import RedisWorkerSettings
-from mavedb.data_providers.services import cdot_rest
 
 
 def get_db() -> Generator[Session, Any, None]:

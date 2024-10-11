@@ -1,10 +1,11 @@
 from datetime import date
 
 from sqlalchemy import Column, Date, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship, backref, Mapped
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
+
 from .score_set import ScoreSet
 
 

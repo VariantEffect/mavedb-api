@@ -6,7 +6,7 @@ from mavedb.db.base import Base
 
 
 class ControlledKeyword(Base):
-    __tablename__ = 'controlled_keywords'
+    __tablename__ = "controlled_keywords"
 
     id = Column(Integer, primary_key=True, index=True)
     key = Column(String, nullable=False)
@@ -16,4 +16,4 @@ class ControlledKeyword(Base):
     description = Column(String, nullable=True)
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
-    __table_args__ = (UniqueConstraint('key', 'value', name='ix_controlled_keywords_key_value'), )
+    __table_args__ = (UniqueConstraint("key", "value", name="ix_controlled_keywords_key_value"),)

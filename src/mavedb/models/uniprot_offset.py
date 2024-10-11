@@ -1,9 +1,9 @@
-from sqlalchemy import Column, Integer, ForeignKey
-from sqlalchemy.orm import relationship, backref, Mapped
+from sqlalchemy import Column, ForeignKey, Integer
+from sqlalchemy.orm import Mapped, backref, relationship
 
 from mavedb.db.base import Base
-from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.target_gene import TargetGene
+from mavedb.models.uniprot_identifier import UniprotIdentifier
 
 
 class UniprotOffset(Base):
