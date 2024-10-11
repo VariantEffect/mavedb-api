@@ -62,4 +62,4 @@ async def check_permission(
         return permission
     else:
         logger.debug(msg="The requested resources does not exist.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"{model_name} with URN '{urn}' not found")
+        raise HTTPException(status_code=404, detail=f"{model_name.value} with URN '{urn}' not found")
