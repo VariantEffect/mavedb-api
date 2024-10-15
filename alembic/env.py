@@ -30,9 +30,13 @@ DB_PORT = os.getenv("DB_PORT") or 5432
 DB_DATABASE_NAME = os.getenv("DB_DATABASE_NAME")
 DB_USERNAME = os.getenv("DB_USERNAME")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
-config.set_section_option(
-    "alembic", "sqlalchemy.url", f"postgresql://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_DATABASE_NAME}"
-)
+
+if not DB_USERNAME:
+    DB_URL = f"postgresql:///{DB_DATABASE_NAME}"
+else:
+    DB_URL = f"postgresql://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_DATABASE_NAME}"
+
+config.set_section_option("alembic", "sqlalchemy.url", DB_URL)
 
 target_metadata = Base.metadata
 
