@@ -179,7 +179,10 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     @validator("score_ranges")
-    def score_range_labels_must_be_unique(cls, field_value: ScoreRanges):
+    def score_range_labels_must_be_unique(cls, field_value: Optional[ScoreRanges]):
+        if field_value is None:
+            return None
+
         existing_labels = []
         for i, range_model in enumerate(field_value.ranges):
             range_model.label = range_model.label.strip()
@@ -195,7 +198,10 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     @validator("score_ranges")
-    def ranges_contain_normal_and_abnormal(cls, field_value: ScoreRanges):
+    def ranges_contain_normal_and_abnormal(cls, field_value: Optional[ScoreRanges]):
+        if field_value is None:
+            return None
+
         ranges = set([range_model.classification for range_model in field_value.ranges])
         if not set(default_ranges).issubset(ranges):
             raise ValidationError(
@@ -207,7 +213,7 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     @validator("score_ranges")
-    def ranges_do_not_overlap(cls, field_value: ScoreRanges):
+    def ranges_do_not_overlap(cls, field_value: Optional[ScoreRanges]):
         def test_overlap(tp1, tp2) -> bool:
             # Always check the tuple with the lowest lower bound. If we do not check
             # overlaps in this manner, checking the overlap of (0,1) and (1,2) will
@@ -226,6 +232,9 @@ class ScoreSetModify(ScoreSetBase):
 
             return False
 
+        if field_value is None:
+            return None
+
         for i, range_test in enumerate(field_value.ranges):
             for range_check in list(field_value.ranges)[i + 1 :]:
                 if test_overlap(range_test.range, range_check.range):
@@ -237,7 +246,10 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     @validator("score_ranges")
-    def wild_type_score_in_normal_range(cls, field_value: ScoreRanges):
+    def wild_type_score_in_normal_range(cls, field_value: Optional[ScoreRanges]):
+        if field_value is None:
+            return None
+
         normal_ranges = [
             range_model.range for range_model in field_value.ranges if range_model.classification == "normal"
         ]

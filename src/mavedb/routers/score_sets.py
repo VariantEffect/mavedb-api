@@ -732,6 +732,8 @@ async def update_score_set(
 
         if item_update.score_ranges:
             item.score_ranges = item_update.score_ranges.dict()
+        else:
+            item.score_ranges = None
 
         # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the score set's
         # target_gene to None, because we have set cascade='all,delete-orphan' on ScoreSet.target_gene. (Since the
