@@ -1,6 +1,7 @@
 import logging
 import re
 import string
+from uuid import uuid4
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -130,3 +131,14 @@ def generate_score_set_urn(db: Session, experiment: Experiment):
                 max_suffix_number = suffix_number
     next_suffix_number = max_suffix_number + 1
     return f"{experiment_urn}-{next_suffix_number}"
+
+
+def generate_collection_urn():
+    """
+    Generate a new URN for a collection.
+
+    Collection URNs include a 16-digit UUID.
+
+    :return: A new collection URN
+    """
+    return f"urn:mavedb:{uuid4()}"
