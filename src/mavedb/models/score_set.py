@@ -70,16 +70,39 @@ score_sets_raw_read_identifiers_association_table = Table(
     Column("sra_identifier_id", ForeignKey("sra_identifiers.id"), primary_key=True),
 )
 
+# TODO(#94): add LICENSE, plus TAX_ID if numeric
+# TODO(#89): The query below should be generated from SQLAlchemy
+#            models rather than hand-carved SQL
+
 scoreset_fulltext = PGMaterializedView(
     schema="public",
     signature="scoreset_fulltext",
-    definition="""
-        select S.id, to_tsvector(S.title || ' ' || S.short_description || ' ' || S.abstract_text || ' ' || string_agg(G.name, ' ')) as text
-        from scoresets S join target_genes G on G.scoreset_id = S.id
-        group by S.id
-    """,
+    definition=' union ' .join(
+        [
+            f"select id, to_tsvector({c}) as text from scoresets"
+            for c in ('urn', 'title', 'short_description', 'abstract_text')
+        ] + [
+            f"select scoreset_id, to_tsvector({c}) as text from target_genes"
+            for c in ('name', 'category')
+        ] + [
+            f"select scoreset_id, to_tsvector(TX.{c}) as text from target_genes TG join target_sequences TS on (TG.target_sequence_id = TS.id) join taxonomies TX on (TS.taxonomy_id = TX.id)"
+            for c in ('organism_name', 'common_name')
+        ] + [
+            f"select scoreset_id, to_tsvector(TA.assembly) as text from target_genes TG join target_accessions TA on (TG.accession_id = TA.id)"
+        ] + [
+            f"select scoreset_id, to_tsvector(PI.{c}) as text from scoreset_publication_identifiers SPI JOIN publication_identifiers PI ON (SPI.publication_identifier_id = PI.id)"
+            for c in ('identifier', 'doi', 'abstract', 'title', 'publication_journal')
+        ] + [
+            f"select scoreset_id, to_tsvector(jsonb_array_elements(authors)->'name') as text from scoreset_publication_identifiers SPI join publication_identifiers PI on SPI.publication_identifier_id = PI.id",
+            f"select scoreset_id, to_tsvector(DI.identifier) as text from scoreset_doi_identifiers SD join doi_identifiers DI on (SD.doi_identifier_id = DI.id)",
+        ] + [
+            f"select scoreset_id, to_tsvector(XI.identifier) as text from target_genes TG join {x}_offsets XO on (XO.target_gene_id = TG.id) join {x}_identifiers XI on (XI.id = XO.identifier_id)"
+            for x in ('uniprot', 'refseq', 'ensembl')
+        ]
+    ),
     with_data=True
 )
+
 class ScoreSetFullText(Base):
     __table__ = Table(
         "scoreset_fulltext",
