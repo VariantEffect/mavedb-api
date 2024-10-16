@@ -4,6 +4,7 @@ from sqlalchemy.orm import relationship, backref, Mapped
 from sqlalchemy.ext.associationproxy import association_proxy, AssociationProxy
 from sqlalchemy.schema import Table
 from sqlalchemy.dialects.postgresql import JSONB
+from alembic_utils.pg_materialized_view import PGMaterializedView
 
 from typing import List, TYPE_CHECKING, Optional
 
@@ -69,6 +70,23 @@ score_sets_raw_read_identifiers_association_table = Table(
     Column("sra_identifier_id", ForeignKey("sra_identifiers.id"), primary_key=True),
 )
 
+scoreset_fulltext = PGMaterializedView(
+    schema="public",
+    signature="scoreset_fulltext",
+    definition="""
+        select S.id, to_tsvector(S.title || ' ' || S.short_description || ' ' || S.abstract_text || ' ' || string_agg(G.name, ' ')) as text
+        from scoresets S join target_genes G on G.scoreset_id = S.id
+        group by S.id
+    """,
+    with_data=True
+)
+class ScoreSetFullText(Base):
+    __table__ = Table(
+        "scoreset_fulltext",
+        Base.metadata,
+        Column("id", Integer, primary_key=True),
+        Column("text", String)
+    )
 
 class ScoreSet(Base):
     __tablename__ = "scoresets"

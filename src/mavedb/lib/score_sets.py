@@ -36,7 +36,7 @@ from mavedb.models.score_set_publication_identifier import (
 )
 from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.refseq_identifier import RefseqIdentifier
-from mavedb.models.score_set import ScoreSet
+from mavedb.models.score_set import ScoreSet, ScoreSetFullText
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
@@ -86,74 +86,11 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
             query = query.filter(ScoreSet.published_date.is_(None))
 
     if search.text:
-        lower_search_text = search.text.lower().strip()
-        query = query.filter(
-            or_(
-                ScoreSet.urn.icontains(lower_search_text),
-                ScoreSet.title.icontains(lower_search_text),
-                ScoreSet.short_description.icontains(lower_search_text),
-                ScoreSet.abstract_text.icontains(lower_search_text),
-                ScoreSet.target_genes.any(func.lower(TargetGene.name).icontains(lower_search_text)),
-                ScoreSet.target_genes.any(func.lower(TargetGene.category).icontains(lower_search_text)),
-                ScoreSet.target_genes.any(
-                    TargetGene.target_sequence.has(
-                        TargetSequence.taxonomy.has(func.lower(Taxonomy.organism_name).icontains(lower_search_text))
-                    )
-                ),
-                ScoreSet.target_genes.any(
-                    TargetGene.target_sequence.has(
-                        TargetSequence.taxonomy.has(func.lower(Taxonomy.common_name).icontains(lower_search_text))
-                    )
-                ),
-                ScoreSet.target_genes.any(
-                    TargetGene.target_accession.has(func.lower(TargetAccession.assembly).icontains(lower_search_text))
-                ),
-                # TODO(#94): add LICENSE, plus TAX_ID if numeric
-                ScoreSet.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.identifier).icontains(lower_search_text)
-                ),
-                ScoreSet.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.doi).icontains(lower_search_text)
-                ),
-                ScoreSet.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.abstract).icontains(lower_search_text)
-                ),
-                ScoreSet.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.title).icontains(lower_search_text)
-                ),
-                ScoreSet.publication_identifiers.any(
-                    func.lower(PublicationIdentifier.publication_journal).icontains(lower_search_text)
-                ),
-                ScoreSet.publication_identifiers.any(
-                    func.jsonb_path_exists(
-                        PublicationIdentifier.authors,
-                        f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")""",
-                    )
-                ),
-                ScoreSet.doi_identifiers.any(func.lower(DoiIdentifier.identifier).icontains(lower_search_text)),
-                ScoreSet.target_genes.any(
-                    TargetGene.uniprot_offset.has(
-                        UniprotOffset.identifier.has(
-                            func.lower(UniprotIdentifier.identifier).icontains(lower_search_text)
-                        )
-                    )
-                ),
-                ScoreSet.target_genes.any(
-                    TargetGene.refseq_offset.has(
-                        RefseqOffset.identifier.has(
-                            func.lower(RefseqIdentifier.identifier).icontains(lower_search_text)
-                        )
-                    )
-                ),
-                ScoreSet.target_genes.any(
-                    TargetGene.ensembl_offset.has(
-                        EnsemblOffset.identifier.has(
-                            func.lower(EnsemblIdentifier.identifier).icontains(lower_search_text)
-                        )
-                    )
-                ),
-            )
-        )
+        query = query.filter(ScoreSet.id.in_(
+            select(ScoreSetFullText.id).where(
+                ScoreSetFullText.text.bool_op("@@")(func.websearch_to_tsquery(search.text))
+            ).distinct()
+        ))
 
     if search.targets:
         query = query.filter(ScoreSet.target_genes.any(TargetGene.name.in_(search.targets)))
