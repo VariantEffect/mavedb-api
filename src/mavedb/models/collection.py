@@ -7,7 +7,7 @@ from sqlalchemy.schema import Table
 
 import mavedb.models.collection_user_association
 from mavedb.db.base import Base
-from mavedb.lib.temp_urns import generate_temp_urn
+from mavedb.lib.urns import generate_collection_urn
 
 from .experiment import Experiment
 from .score_set import ScoreSet
@@ -33,7 +33,7 @@ class Collection(Base):
 
     id = Column(Integer, primary_key=True)
 
-    urn = Column(String(64), nullable=True, default=generate_temp_urn, unique=True, index=True)
+    urn = Column(String(64), nullable=True, default=generate_collection_urn, unique=True, index=True)
     private = Column(Boolean, nullable=False, default=True)
 
     name = Column(String, nullable=False)
@@ -53,8 +53,8 @@ class Collection(Base):
     users: AssociationProxy[list[User]] = association_proxy(
         "user_associations",
         "user",
-        creator=lambda c: mavedb.models.collection_user_association.CollectionUserAssociation(
-            collection=c, contribution_role=c.role
+        creator=lambda u: mavedb.models.collection_user_association.CollectionUserAssociation(
+            user=u, contribution_role=u.role
         ),
     )
 

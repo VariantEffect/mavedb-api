@@ -5,6 +5,7 @@ from pydantic.types import Optional
 
 from mavedb.view_models import UserContributionRoleGetter
 from mavedb.view_models.base.base import BaseModel
+from mavedb.view_models.contributor import ContributorCreate
 from mavedb.view_models.user import SavedUser, User
 
 
@@ -14,7 +15,7 @@ class CollectionGetter(UserContributionRoleGetter):
             score_sets = getattr(self._obj, "score_sets") or []
             return sorted([score_set.urn for score_set in score_sets if score_set.superseding_score_set is None])
         elif key == "experiment_urns":
-            experiments = getattr(self._obj, "experiment")
+            experiments = getattr(self._obj, "experiments") or []
             return [experiment.urn for experiment in experiments]
         else:
             return super().get(key, default)
@@ -35,9 +36,9 @@ class CollectionCreate(CollectionModify):
     experiment_urns: Optional[list[str]]
     score_set_urns: Optional[list[str]]
 
-    viewers: Optional[list[User]]
-    editors: Optional[list[User]]
-    admins: Optional[list[User]]
+    viewers: Optional[list[ContributorCreate]]
+    editors: Optional[list[ContributorCreate]]
+    admins: Optional[list[ContributorCreate]]
 
 
 # Properties shared by models stored in DB
