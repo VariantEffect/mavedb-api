@@ -17,7 +17,7 @@ from fakeredis.aioredis import FakeConnection
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 from redis.asyncio.connection import ConnectionPool
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -28,6 +28,7 @@ from mavedb.lib.authentication import get_current_user, UserData
 from mavedb.models.user import User
 from mavedb.server_main import app
 from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager
+from mavedb.models import ScoreSet
 
 sys.path.append(".")
 
@@ -51,6 +52,7 @@ def session(postgresql):
     session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     Base.metadata.create_all(bind=engine)
+    ScoreSet.fulltext_create(session)
 
     try:
         yield session()

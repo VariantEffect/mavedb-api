@@ -36,7 +36,7 @@ from mavedb.models.score_set_publication_identifier import (
 )
 from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.refseq_identifier import RefseqIdentifier
-from mavedb.models.score_set import ScoreSet, ScoreSetFullText
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
@@ -86,11 +86,7 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
             query = query.filter(ScoreSet.published_date.is_(None))
 
     if search.text:
-        query = query.filter(ScoreSet.id.in_(
-            select(ScoreSetFullText.id).where(
-                ScoreSetFullText.text.bool_op("@@")(func.websearch_to_tsquery(search.text))
-            ).distinct()
-        ))
+        query = query.filter(ScoreSet.fulltext_filter(search.text))
 
     if search.targets:
         query = query.filter(ScoreSet.target_genes.any(TargetGene.name.in_(search.targets)))

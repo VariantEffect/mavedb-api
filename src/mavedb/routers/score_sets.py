@@ -105,6 +105,11 @@ async def fetch_score_set_by_urn(
     return item
 
 
+def _refresh_scoreset_fulltext(db):
+    # XXX this should cause this to happen via a worker
+    ScoreSet.fulltext_refresh(db)
+
+
 router = APIRouter(
     prefix="/api/v1",
     tags=["score sets"],
@@ -584,6 +589,9 @@ async def create_score_set(
     db.refresh(item)
 
     save_to_logging_context({"created_resource": item.urn})
+
+    _refresh_scoreset_fulltext(db)
+
     return item
 
 
@@ -913,6 +921,9 @@ async def update_score_set(
     db.refresh(item)
 
     save_to_logging_context({"updated_resource": item.urn})
+
+    _refresh_scoreset_fulltext(db)
+
     return item
 
 
@@ -948,6 +959,7 @@ async def delete_score_set(
     db.delete(item)
     db.commit()
 
+    _refresh_scoreset_fulltext(db)
 
 @router.post(
     "/score-sets/{urn}/publish",

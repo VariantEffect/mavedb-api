@@ -2,13 +2,14 @@ import re
 from copy import deepcopy
 from datetime import date
 from unittest.mock import patch
+import logging
 
 import jsonschema
 import pytest
 from arq import ArqRedis
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
-from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.models.score_set import ScoreSet as ScoreSetDbModel, scoreset_fulltext_view
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 
@@ -29,6 +30,8 @@ from tests.helpers.util import (
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 
+
+logger = logging.getLogger(__name__)
 
 def test_TEST_MINIMAL_SEQ_SCORESET_is_valid():
     jsonschema.validate(instance=TEST_MINIMAL_SEQ_SCORESET, schema=ScoreSetCreate.schema())
@@ -920,6 +923,8 @@ def test_search_score_sets_no_match(session, data_provider, client, setup_router
         update={"title": "Test Score Set"},
     )
 
+    ScoreSetDbModel.fulltext_create(session)
+
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
@@ -936,6 +941,8 @@ def test_search_score_sets_match(session, data_provider, client, setup_router_db
         data_files / "scores.csv",
         update={"title": "Test Fnord Score Set"},
     )
+
+    ScoreSetDbModel.fulltext_create(session)
 
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)

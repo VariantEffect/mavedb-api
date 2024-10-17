@@ -653,3 +653,4 @@ async def variant_mapper_manager(
         db.commit()
 
         return {"success": False, "enqueued_job": new_job_id}
+
