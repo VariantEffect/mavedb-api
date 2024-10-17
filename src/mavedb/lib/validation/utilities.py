@@ -1,10 +1,11 @@
+import math
 from random import choice
-from typing import Optional, SupportsIndex
+from typing import Optional, SupportsIndex, Union
 
-from mavedb.lib.validation.constants.conversion import codon_dict_DNA
-from mavedb.lib.validation.constants.conversion import aa_dict_key_1
-from mavedb.lib.validation.constants.general import null_values_re
 from mavehgvs.variant import Variant
+
+from mavedb.lib.validation.constants.conversion import aa_dict_key_1, codon_dict_DNA
+from mavedb.lib.validation.constants.general import null_values_re
 
 
 def is_null(value):
@@ -88,13 +89,15 @@ def construct_hgvs_pro(wt: str, mutant: str, position: int, target_seq: Optional
     # check that the provided 3 letter amino acid codes are valid
     if wt not in aa_dict_key_1.values():
         raise ValueError(
-            "wt 3 letter amino acid code {} is invalid, "
-            "must be one of the following: {}".format(wt, list(aa_dict_key_1.values()))
+            "wt 3 letter amino acid code {} is invalid, " "must be one of the following: {}".format(
+                wt, list(aa_dict_key_1.values())
+            )
         )
     if mutant not in aa_dict_key_1.values():
         raise ValueError(
-            "wt 3 letter amino acid code {} is invalid, "
-            "must be one of the following: {}".format(mutant, list(aa_dict_key_1.values()))
+            "wt 3 letter amino acid code {} is invalid, " "must be one of the following: {}".format(
+                mutant, list(aa_dict_key_1.values())
+            )
         )
 
     if wt == mutant:
@@ -272,6 +275,33 @@ def convert_hgvs_nt_to_hgvs_pro(hgvs_nt: str, target_seq: str):
 
     assert codon_number is not None
     return construct_hgvs_pro(wt=target_aa, mutant=variant_aa, position=codon_number, target_seq=target_seq)
+
+
+def inf_or_float(v: Optional[Union[float, int, str]], lower: bool) -> float:
+    """
+    This function takes an optional float and either converts the passed nonetype
+    object to the appropriate infinity value (based on lower) or returns the float
+    directly.
+
+    Parameters
+    ----------
+    v : float or None
+        an optional floating point value
+    lower : bool
+        whether the value is a lower bound
+
+    Returns
+    -------
+    v : float
+        Infinity or -Infinity if the initially passed v was None. v otherwise.
+    """
+    if v is None:
+        if lower:
+            return -math.inf
+        else:
+            return math.inf
+    else:
+        return float(v)
 
 
 def _is_wild_type(hgvs: str):

@@ -1,19 +1,16 @@
 import logging
-import time
 import os
 import sys
+import time
 import traceback
+from typing import Any, Optional, Union
 
-from typing import Any, Union, Optional
-
-
-from starlette.requests import Request, HTTPConnection
-from starlette_context.middleware import RawContextMiddleware
+from starlette.requests import HTTPConnection, Request
 from starlette_context import context
+from starlette_context.middleware import RawContextMiddleware
 
 from mavedb import __project__, __version__
 from mavedb.lib.logging.models import Source
-
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "")
 API_URL = os.getenv("API_URL", "")

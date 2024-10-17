@@ -1,5 +1,5 @@
-import os
 import json
+import os
 import sys
 import traceback
 
@@ -27,7 +27,7 @@ def send_slack_message(err, request=None):
     slack_webhook_url = os.getenv("SLACK_WEBHOOK_URL")
     if slack_webhook_url is not None and len(slack_webhook_url) > 0:
         client = WebhookClient(url=slack_webhook_url)
-        response = client.send(
+        client.send(
             text=text,
             blocks=[
                 {

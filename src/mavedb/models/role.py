@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Enum
+from sqlalchemy import Column, Enum, Integer
 
 from mavedb.db.base import Base
 from mavedb.models.enums.user_role import UserRole

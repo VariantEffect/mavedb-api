@@ -1,5 +1,6 @@
 from humps import camelize
-from pydantic import BaseModel as PydanticBaseModel, validator
+from pydantic import BaseModel as PydanticBaseModel
+from pydantic import validator
 
 
 class BaseModel(PydanticBaseModel):

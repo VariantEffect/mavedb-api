@@ -1,16 +1,17 @@
 import csv
 import io
-import re
 import logging
+import re
 from typing import Any, BinaryIO, Iterable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
-from sqlalchemy import cast, func, Integer, or_, select
-from sqlalchemy.orm import aliased, contains_eager, joinedload, selectinload, Session
+from sqlalchemy import Integer, cast, func, or_, select
+from sqlalchemy.orm import Session, aliased, contains_eager, joinedload, selectinload
 
 from mavedb.lib.exceptions import ValidationError
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.mave.constants import (
     HGVS_NT_COLUMN,
     HGVS_PRO_COLUMN,
@@ -18,32 +19,31 @@ from mavedb.lib.mave.constants import (
     VARIANT_COUNT_DATA,
     VARIANT_SCORE_DATA,
 )
-from mavedb.lib.validation.constants.general import null_values_list
-from mavedb.lib.logging.context import save_to_logging_context, logging_context
 from mavedb.lib.mave.utils import is_csv_null
+from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
-from mavedb.models.ensembl_offset import EnsemblOffset
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
+from mavedb.models.ensembl_offset import EnsemblOffset
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.publication_identifier import PublicationIdentifier
+from mavedb.models.refseq_identifier import RefseqIdentifier
+from mavedb.models.refseq_offset import RefseqOffset
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.score_set_publication_identifier import (
     ScoreSetPublicationIdentifierAssociation,
 )
-from mavedb.models.refseq_offset import RefseqOffset
-from mavedb.models.refseq_identifier import RefseqIdentifier
-from mavedb.models.score_set import ScoreSet
 from mavedb.models.score_set_fulltext import scoreset_fulltext_filter
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
-from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.uniprot_identifier import UniprotIdentifier
+from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.view_models.search import ScoreSetsSearch
@@ -413,8 +413,7 @@ def arrays_equal(array1: np.ndarray, array2: np.ndarray):
     return array1.shape == array2.shape and all(
         # note that each of the three expressions here is a boolean ndarray
         # so combining them with bitwise `&` and `|` works:
-        (pd.isnull(array1) & pd.isnull(array2))
-        | (array1 == array2)
+        (pd.isnull(array1) & pd.isnull(array2)) | (array1 == array2)
     )
 
 

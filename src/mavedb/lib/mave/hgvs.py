@@ -1,12 +1,12 @@
 from functools import partial
 from typing import Optional, Union
 
+from mavehgvs import MaveHgvsParseError, Variant
+
 from mavedb.lib.exceptions import ValidationError
 
-from mavehgvs import Variant, MaveHgvsParseError
-
-from .utils import is_csv_null
 from .constants import HGVS_NT_COLUMN, HGVS_PRO_COLUMN, HGVS_SPLICE_COLUMN
+from .utils import is_csv_null
 
 
 def validate_hgvs_string(

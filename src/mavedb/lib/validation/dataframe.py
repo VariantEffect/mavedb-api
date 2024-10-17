@@ -3,10 +3,9 @@ from typing import Optional, Tuple, Union
 import hgvs.exceptions
 import hgvs.parser
 import hgvs.validator
-from cdot.hgvs.dataproviders import RESTDataProvider
 import numpy as np
 import pandas as pd
-
+from cdot.hgvs.dataproviders import RESTDataProvider
 from fqfa.util.translate import translate_dna
 from mavehgvs.exceptions import MaveHgvsParseError
 from mavehgvs.variant import Variant
@@ -202,20 +201,28 @@ def validate_dataframe(df: pd.DataFrame, kind: str, targets: list["TargetGene"],
             if df[column_mapping[c]].isna().all() and not is_index:
                 continue
 
+            score_set_is_accession_based = all(target.target_accession for target in targets)
+            score_set_is_sequence_based = all(target.target_sequence for target in targets)
+
             # This is typesafe, despite Pylance's claims otherwise
-            if all(target.target_accession for target in targets):
+            if score_set_is_accession_based and not score_set_is_sequence_based:
                 validate_hgvs_genomic_column(
-                    df[column_mapping[c]], is_index, [target.target_accession for target in targets], hdp  # type: ignore
+                    df[column_mapping[c]],
+                    is_index,
+                    [target.target_accession for target in targets],
+                    hdp,  # type: ignore
                 )
-            elif all(target.target_sequence for target in targets):
+            elif score_set_is_sequence_based and not score_set_is_accession_based:
                 validate_hgvs_transgenic_column(
-                    df[column_mapping[c]], is_index, {target.target_sequence.label: target.target_sequence for target in targets}  # type: ignore
+                    df[column_mapping[c]],
+                    is_index,
+                    {target.target_sequence.label: target.target_sequence for target in targets},  # type: ignore
                 )
             else:
                 raise MixedTargetError("Could not validate dataframe against provided mixed target types.")
 
             # post validation, handle prefixes. We've already established these columns are non-null
-            if len(targets) > 1:
+            if score_set_is_accession_based or len(targets) > 1:
                 prefixes[c] = (
                     df[column_mapping[c]].dropna()[0].split(" ")[0].split(":")[1][0]
                 )  # Just take the first prefix, we validate consistency elsewhere
@@ -259,7 +266,7 @@ def validate_column_names(df: pd.DataFrame, kind: str) -> None:
     ValidationError
         If the column names are not valid
     """
-    if any(type(c) != str for c in df.columns):
+    if any(type(c) is not str for c in df.columns):
         raise ValidationError("column names must be strings")
 
     if any(c.isspace() for c in df.columns) or any(len(c) == 0 for c in df.columns):
@@ -374,7 +381,7 @@ def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: 
     valid_sequence_types = ("dna", "protein")
     validate_variant_column(column, is_index)
     prefixes = generate_variant_prefixes(column)
-    validate_variant_formatting(column, prefixes, list(targets.keys()))
+    validate_variant_formatting(column, prefixes, list(targets.keys()), len(targets) > 1)
 
     observed_sequence_types = [target.sequence_type for target in targets.values()]
     invalid_sequence_types = set(observed_sequence_types) - set(valid_sequence_types)
@@ -454,9 +461,6 @@ def validate_hgvs_genomic_column(
     This function also validates all individual variants in the column and checks for agreement against the target
     sequence (for non-splice variants).
 
-    Implementation NOTE: We assume variants will only be presented as fully qualified (accession:variant)
-    if this column is being validated against multiple targets.
-
     Parameters
     ----------
     column : pd.Series
@@ -482,7 +486,7 @@ def validate_hgvs_genomic_column(
     validate_variant_column(column, is_index)
     prefixes = generate_variant_prefixes(column)
     validate_variant_formatting(
-        column, prefixes, [target.accession for target in targets if target.accession is not None]
+        column, prefixes, [target.accession for target in targets if target.accession is not None], True
     )
 
     # validate the individual variant strings
@@ -508,12 +512,9 @@ def validate_hgvs_genomic_column(
     for i, s in column.items():
         if s is not None:
             for variant in s.split(" "):
-                # Add accession info when we only have one target
-                if len(targets) == 1:
-                    s = f"{targets[0].accession}:{variant}"
                 try:
                     # We set strict to `False` to suppress validation warnings about intronic variants.
-                    vr.validate(hp.parse(s), strict=False)
+                    vr.validate(hp.parse(variant), strict=False)
                 except hgvs.exceptions.HGVSError as e:
                     invalid_variants.append(f"Failed to parse row {i} with HGVS exception: {e}")
 
@@ -524,7 +525,7 @@ def validate_hgvs_genomic_column(
         )
 
 
-def validate_variant_formatting(column: pd.Series, prefixes: list[str], targets: list[str]):
+def validate_variant_formatting(column: pd.Series, prefixes: list[str], targets: list[str], fully_qualified: bool):
     """
     Validate the formatting of HGVS variants present in the passed column against
     lists of prefixes and targets
@@ -554,7 +555,7 @@ def validate_variant_formatting(column: pd.Series, prefixes: list[str], targets:
     variants = [variant for s in column.dropna() for variant in s.split(" ")]
 
     # if there is more than one target, we expect variants to be fully qualified
-    if len(targets) > 1:
+    if fully_qualified:
         if not all(len(str(v).split(":")) == 2 for v in variants):
             raise ValidationError(
                 f"variant column '{column.name}' needs fully qualified coordinates when validating against multiple targets"

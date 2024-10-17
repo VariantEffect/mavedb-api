@@ -1,10 +1,10 @@
-import idutils
 import datetime
-
 from urllib.parse import urlparse
 
-from mavedb.lib.validation.exceptions import ValidationError
+import idutils
+
 from mavedb.lib.validation.constants.publication import valid_dbnames
+from mavedb.lib.validation.exceptions import ValidationError
 
 
 def validate_db_name(db_name: str):

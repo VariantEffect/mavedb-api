@@ -1,9 +1,11 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table
-from sqlalchemy.orm import relationship, Mapped
 from typing import TYPE_CHECKING
+
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table
+from sqlalchemy.orm import Mapped, relationship
+
 from mavedb.db.base import Base
-from mavedb.models.role import Role
 from mavedb.models.enums.user_role import UserRole
+from mavedb.models.role import Role
 
 users_roles_association_table = Table(
     "users_roles",

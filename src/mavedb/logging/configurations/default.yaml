@@ -9,7 +9,6 @@ root:
   propagate: true
   handlers:
     - console
-    - watchtower
 
 loggers:
   urllib3:
@@ -17,10 +16,6 @@ loggers:
 
   botocore:
     level: INFO
-
-  # HGVS emits a log line on startup, silence it.
-  hgvs:
-    level: WARNING
 
   # To log all database queries, set this to INFO
   sqlalchemy:
@@ -35,19 +30,7 @@ handlers:
     stream: ext://sys.stdout
     formatter: json
 
-  watchtower:
-    class: watchtower.CloudWatchLogHandler
-    level: !coalesce
-      - !LOG_LEVEL
-      - INFO
-    log_group_name: !CLOUD_WATCH_LOG_GROUP
-    log_stream_name: "{machine_name}/{logger_name}/{strftime:%y-%m-%d}"
-    send_interval: 10
-    use_queues: !CLOUD_WATCH_USE_QUEUES
-    create_log_group: True
-    formatter: json
-
 formatters:
   json:
-    class: mavedb.logging.MavedbJsonFormatter
+    class: pythonjsonlogger.jsonlogger.JsonFormatter
     format: "%(message)s"

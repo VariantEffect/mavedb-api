@@ -1,10 +1,11 @@
 """
 Environment setup for scripts.
 """
-from sqlalchemy.orm import configure_mappers, Session
+
+from sqlalchemy.orm import Session, configure_mappers
 
 from mavedb import deps
-from mavedb.models import *
+from mavedb.models import *  # noqa: F403
 
 
 def init_script_environment() -> Session:

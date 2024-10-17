@@ -1,9 +1,8 @@
 from unittest import TestCase
 
 from mavedb.lib.validation.constants.general import null_values_list
+from mavedb.lib.validation.utilities import construct_hgvs_pro, generate_hgvs, is_null
 from mavedb.lib.validation.variant import validate_hgvs_string  # validate_pro_variant, validate_nt_variant
-
-from mavedb.lib.validation.utilities import is_null, generate_hgvs, construct_hgvs_pro
 
 
 class TestIsNull(TestCase):

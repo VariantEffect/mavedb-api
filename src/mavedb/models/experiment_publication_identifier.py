@@ -1,10 +1,10 @@
-from sqlalchemy import Column, Integer, Boolean, ForeignKey
-from sqlalchemy.orm import relationship, Mapped
-
-from mavedb.db.base import Base
-
 # Prevent circular imports
 from typing import TYPE_CHECKING
+
+from sqlalchemy import Boolean, Column, ForeignKey, Integer
+from sqlalchemy.orm import Mapped, relationship
+
+from mavedb.db.base import Base
 
 if TYPE_CHECKING:
     from mavedb.models.experiment import Experiment

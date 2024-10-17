@@ -1,5 +1,5 @@
-from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models import external_gene_identifier
+from mavedb.view_models.base.base import BaseModel, validator
 
 
 class ExternalGeneIdentifierOffsetBase(BaseModel):

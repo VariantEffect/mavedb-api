@@ -1,19 +1,20 @@
 from datetime import date
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship, Mapped
-from sqlalchemy.schema import Table
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, relationship
+from sqlalchemy.schema import Table
 
 from mavedb.db.base import Base
 from mavedb.lib.temp_urns import generate_temp_urn
+
 from .contributor import Contributor
-from .user import User
 from .doi_identifier import DoiIdentifier
 from .legacy_keyword import LegacyKeyword
 from .publication_identifier import PublicationIdentifier
 from .raw_read_identifier import RawReadIdentifier
+from .user import User
 
 if TYPE_CHECKING:
     from mavedb.models.experiment import Experiment

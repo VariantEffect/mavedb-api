@@ -7,6 +7,6 @@ class Contributor(Base):
     __tablename__ = "contributors"
 
     id = Column(Integer, primary_key=True)
-    orcid_id = Column(String, index=True, nullable=False)
+    orcid_id = Column(String, index=True, nullable=False, unique=True)
     given_name = Column(String, nullable=True)
     family_name = Column(String, nullable=True)

@@ -6,10 +6,10 @@ Create Date: 2024-08-28 09:54:08.249077
 
 """
 
-from alembic import op
-from sqlalchemy.dialects import postgresql
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "d7e6f8c3b9dc"
@@ -34,7 +34,7 @@ def upgrade():
                 name="mappingstate",
                 native_enum=False,
                 create_constraint=True,
-                length=32
+                length=32,
             ),
             nullable=True,
         ),

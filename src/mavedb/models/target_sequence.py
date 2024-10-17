@@ -1,11 +1,12 @@
 from datetime import date
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
-from sqlalchemy import Column, Date, Integer, String, ForeignKey
-from sqlalchemy.orm import relationship, backref, Mapped
-from .taxonomy import Taxonomy
+from sqlalchemy import Column, Date, ForeignKey, Integer, String
+from sqlalchemy.orm import Mapped, backref, relationship
 
 from mavedb.db.base import Base
+
+from .taxonomy import Taxonomy
 
 if TYPE_CHECKING:
     from mavedb.models.target_gene import TargetGene

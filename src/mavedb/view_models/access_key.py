@@ -1,8 +1,8 @@
 from datetime import date
 from typing import Optional
 
-from mavedb.view_models.base.base import BaseModel
 from mavedb.models.enums.user_role import UserRole
+from mavedb.view_models.base.base import BaseModel
 
 
 class AccessKeyBase(BaseModel):

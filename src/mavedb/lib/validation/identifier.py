@@ -1,8 +1,8 @@
 import idutils
 
+from mavedb.lib.validation.constants.identifier import valid_dbnames
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import is_null
-from mavedb.lib.validation.constants.identifier import valid_dbnames
 
 
 def validate_db_name(db_name: str):

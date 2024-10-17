@@ -1,5 +1,5 @@
-from sqlalchemy import Column, Integer, ForeignKey
-from sqlalchemy.orm import relationship, backref, Mapped
+from sqlalchemy import Column, ForeignKey, Integer
+from sqlalchemy.orm import Mapped, backref, relationship
 
 from mavedb.db.base import Base
 from mavedb.models.refseq_identifier import RefseqIdentifier

@@ -1,3 +1,4 @@
+import logging
 import re
 import string
 
@@ -7,8 +8,6 @@ from sqlalchemy.orm import Session
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +27,7 @@ def generate_experiment_set_urn(db: Session):
     # TODO We can't use func.max if an experiment set URN's numeric part will ever have anything other than 8 digits,
     # because we rely on the order guaranteed by zero-padding. This assumption is valid until we have 99999999
     # experiment sets.
-    row = (
-        db.query(func.max(ExperimentSet.urn)).filter(ExperimentSet.urn.op("~")("^urn:mavedb:[0-9]+$")).one_or_none()
-    )
+    row = db.query(func.max(ExperimentSet.urn)).filter(ExperimentSet.urn.op("~")("^urn:mavedb:[0-9]+$")).one_or_none()
     max_urn_number = 0
     if row and row[0]:
         max_urn = row[0]

@@ -5,9 +5,9 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from mavedb import deps
-from mavedb.view_models.search import TextSearch
-from mavedb.view_models import external_gene_identifier
 from mavedb.lib.identifiers import EXTERNAL_GENE_IDENTIFIER_CLASSES
+from mavedb.view_models import external_gene_identifier
+from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
     prefix="/api/v1/target-gene-identifiers",

@@ -3,21 +3,21 @@ from datetime import date
 from typing import Any, List, Optional
 
 import pandas as pd
+import pydantic
 from arq import ArqRedis
-from fastapi import APIRouter, Depends, File, status, UploadFile, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
-import pydantic
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
 from sqlalchemy.exc import MultipleResultsFound
+from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import get_current_user, require_current_user, require_current_user_with_email
 from mavedb.lib.contributors import find_or_create_contributor
-from mavedb.lib.exceptions import NonexistentOrcidUserError, ValidationError
+from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError, ValidationError
 from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
     find_or_create_doi_identifier,
@@ -25,18 +25,20 @@ from mavedb.lib.identifiers import (
 )
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
+    correlation_id_for_context,
     logging_context,
     save_to_logging_context,
-    correlation_id_for_context,
 )
 from mavedb.lib.permissions import Action, assert_permission
 from mavedb.lib.score_sets import (
+    csv_data_to_df,
     find_meta_analyses_for_experiment_sets,
     get_score_set_counts_as_csv,
     get_score_set_scores_as_csv,
-    search_score_sets as _search_score_sets,
-    csv_data_to_df,
     variants_to_csv_rows,
+)
+from mavedb.lib.score_sets import (
+    search_score_sets as _search_score_sets,
 )
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.urns import (
@@ -44,7 +46,6 @@ from mavedb.lib.urns import (
     generate_experiment_urn,
     generate_score_set_urn,
 )
-from mavedb.lib.exceptions import MixedTargetError
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
@@ -52,12 +53,11 @@ from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.score_set_fulltext import scoreset_fulltext_refresh
-from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_accession import TargetAccession
-from mavedb.models.variant import Variant
+from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
-from mavedb.view_models import mapped_variant
-from mavedb.view_models import score_set
+from mavedb.models.variant import Variant
+from mavedb.view_models import mapped_variant, score_set
 from mavedb.view_models.search import ScoreSetsSearch
 
 logger = logging.getLogger(__name__)
@@ -341,7 +341,6 @@ async def create_score_set(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
 
         save_to_logging_context({"experiment": experiment.urn})
-        assert_permission(user_data, experiment, Action.UPDATE)
         assert_permission(user_data, experiment, Action.ADD_SCORE_SET)
 
     license_ = db.query(License).filter(License.id == item_create.license_id).one_or_none()
@@ -641,7 +640,7 @@ async def upload_score_set_variant_data(
         job = await worker.enqueue_job(
             "create_variants_for_score_set",
             correlation_id_for_context(),
-            item.urn,
+            item.id,
             user_data.user.id,
             scores_df,
             counts_df,
@@ -697,6 +696,7 @@ async def update_score_set(
         for var, value in vars(item_update).items():
             if var not in [
                 "contributors",
+                "score_ranges",
                 "doi_identifiers",
                 "experiment_urn",
                 "license_id",
@@ -738,6 +738,11 @@ async def update_score_set(
             setattr(publication, "primary", publication.identifier in primary_identifiers)
 
         item.publication_identifiers = publication_identifiers
+
+        if item_update.score_ranges:
+            item.score_ranges = item_update.score_ranges.dict()
+        else:
+            item.score_ranges = None
 
         # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the score set's
         # target_gene to None, because we have set cascade='all,delete-orphan' on ScoreSet.target_gene. (Since the
@@ -880,7 +885,7 @@ async def update_score_set(
             job = await worker.enqueue_job(
                 "create_variants_for_score_set",
                 correlation_id_for_context(),
-                item.urn,
+                item.id,
                 user_data.user.id,
                 scores_data,
                 count_data,
@@ -891,6 +896,7 @@ async def update_score_set(
 
         for var, value in vars(item_update).items():
             if var not in [
+                "score_ranges",
                 "contributors",
                 "doi_identifiers",
                 "experiment_urn",

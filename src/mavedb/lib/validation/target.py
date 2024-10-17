@@ -1,7 +1,8 @@
-from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.lib.validation.constants.target import valid_categories, valid_sequence_types
 from fqfa import infer_sequence_type
 from fqfa.validator import amino_acids_validator, dna_bases_validator
+
+from mavedb.lib.validation.constants.target import valid_categories, valid_sequence_types
+from mavedb.lib.validation.exceptions import ValidationError
 
 
 def validate_target_category(category: str):
