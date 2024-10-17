@@ -39,6 +39,7 @@ from mavedb.lib.score_sets import (
 )
 from mavedb.lib.score_sets import (
     search_score_sets as _search_score_sets,
+    refresh_variant_urns,
 )
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.urns import (
@@ -1034,6 +1035,7 @@ def publish_score_set(
     item.urn = generate_score_set_urn(db, item.experiment)
     item.private = False
     item.published_date = published_date
+    refresh_variant_urns(db, item)
 
     save_to_logging_context({"score_set": item.urn})
 
