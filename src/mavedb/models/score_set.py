@@ -1,11 +1,9 @@
 from datetime import date
-from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, Integer, String, text
+from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship, backref, Mapped
-from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.associationproxy import association_proxy, AssociationProxy
 from sqlalchemy.schema import Table
 from sqlalchemy.dialects.postgresql import JSONB
-from alembic_utils.pg_materialized_view import PGMaterializedView
 import logging
 
 from typing import List, TYPE_CHECKING, Optional
@@ -72,47 +70,6 @@ score_sets_raw_read_identifiers_association_table = Table(
     Base.metadata,
     Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
     Column("sra_identifier_id", ForeignKey("sra_identifiers.id"), primary_key=True),
-)
-
-# TODO(#94): add LICENSE, plus TAX_ID if numeric
-# TODO(#89): The query below should be generated from SQLAlchemy
-#            models rather than hand-carved SQL
-
-scoreset_fulltext_view = PGMaterializedView(
-    schema="public",
-    signature="scoreset_fulltext",
-    definition=' union ' .join(
-        [
-            f"select id as scoreset_id, to_tsvector({c}) as text from scoresets"
-            for c in ('urn', 'title', 'short_description', 'abstract_text')
-        ] + [
-            f"select scoreset_id, to_tsvector({c}) as text from target_genes"
-            for c in ('name', 'category')
-        ] + [
-            f"select scoreset_id, to_tsvector(TX.{c}) as text from target_genes TG join target_sequences TS on \
-            (TG.target_sequence_id = TS.id) join taxonomies TX on (TS.taxonomy_id = TX.id)"
-            for c in ('organism_name', 'common_name')
-        ] + [
-            "select scoreset_id, to_tsvector(TA.assembly) as text from target_genes TG join target_accessions TA on \
-            (TG.accession_id = TA.id)"
-        ] + [
-            f"select scoreset_id, to_tsvector(PI.{c}) as text from scoreset_publication_identifiers SPI JOIN \
-            publication_identifiers PI ON (SPI.publication_identifier_id = PI.id)"
-            for c in ('identifier', 'doi', 'abstract', 'title', 'publication_journal')
-        ] + [
-            "select scoreset_id, to_tsvector(jsonb_array_elements(authors)->'name') as text from \
-            scoreset_publication_identifiers SPI join publication_identifiers PI on \
-            SPI.publication_identifier_id = PI.id",
-        ] + [
-            "select scoreset_id, to_tsvector(DI.identifier) as text from scoreset_doi_identifiers SD join \
-            doi_identifiers DI on (SD.doi_identifier_id = DI.id)",
-        ] + [
-            f"select scoreset_id, to_tsvector(XI.identifier) as text from target_genes TG join {x}_offsets XO on \
-            (XO.target_gene_id = TG.id) join {x}_identifiers XI on (XI.id = XO.identifier_id)"
-            for x in ('uniprot', 'refseq', 'ensembl')
-        ]
-    ),
-    with_data=True
 )
 
 
@@ -232,19 +189,3 @@ class ScoreSet(Base):
         if not keyword_obj:
             keyword_obj = LegacyKeyword(text=keyword_text)
         return keyword_obj
-
-    @classmethod
-    def fulltext_create(cls, session):
-        for s in scoreset_fulltext_view.to_sql_statement_create_or_replace():
-            session.execute(s)
-
-    @classmethod
-    def fulltext_refresh(cls, session):
-        session.execute(text(f'refresh materialized view {scoreset_fulltext_view.signature}'))
-
-    @classmethod
-    def fulltext_filter(cls, s):
-        return cls.id.in_(
-            text(f"select distinct scoreset_id from {scoreset_fulltext_view.signature}"
-                 " where text @@ websearch_to_tsquery(:text)").params(text=s)
-        )

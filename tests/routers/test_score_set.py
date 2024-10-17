@@ -9,7 +9,8 @@ import pytest
 from arq import ArqRedis
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
-from mavedb.models.score_set import ScoreSet as ScoreSetDbModel, scoreset_fulltext_view
+from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.models.score_set_fulltext import scoreset_fulltext_refresh
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 
@@ -923,7 +924,7 @@ def test_search_score_sets_no_match(session, data_provider, client, setup_router
         update={"title": "Test Score Set"},
     )
 
-    ScoreSetDbModel.fulltext_create(session)
+    scoreset_fulltext_refresh(session)
 
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
@@ -942,7 +943,7 @@ def test_search_score_sets_match(session, data_provider, client, setup_router_db
         update={"title": "Test Fnord Score Set"},
     )
 
-    ScoreSetDbModel.fulltext_create(session)
+    scoreset_fulltext_refresh(session)
 
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)

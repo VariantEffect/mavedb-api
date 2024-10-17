@@ -51,6 +51,7 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.score_set_fulltext import scoreset_fulltext_refresh
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.variant import Variant
@@ -107,7 +108,7 @@ async def fetch_score_set_by_urn(
 
 def _refresh_scoreset_fulltext(db):
     # XXX this should cause this to happen via a worker
-    ScoreSet.fulltext_refresh(db)
+    scoreset_fulltext_refresh(db)
 
 
 router = APIRouter(
