@@ -5,11 +5,13 @@ from unittest.mock import patch
 
 import jsonschema
 from arq import ArqRedis
+from sqlalchemy import select
 
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
@@ -593,6 +595,11 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
     for key in expected_response:
         assert (key, expected_response[key]) == (key, score_set[key])
 
+    score_set_variants = session.execute(
+        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
+    ).scalars()
+    assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_variants])
+
 
 def test_publish_multiple_score_sets(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
@@ -624,6 +631,19 @@ def test_publish_multiple_score_sets(session, data_provider, client, setup_route
     assert pub_score_set_3_data["urn"] == "urn:mavedb:00000001-a-3"
     assert pub_score_set_3_data["title"] == score_set_3["title"]
     assert pub_score_set_3_data["experiment"]["urn"] == "urn:mavedb:00000001-a"
+
+    score_set_1_variants = session.execute(
+        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_1["urn"])
+    ).scalars()
+    assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_1_variants])
+    score_set_2_variants = session.execute(
+        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_2["urn"])
+    ).scalars()
+    assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_2_variants])
+    score_set_3_variants = session.execute(
+        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_3["urn"])
+    ).scalars()
+    assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_3_variants])
 
 
 def test_cannot_publish_score_set_without_variants(client, setup_router_db):
@@ -726,6 +746,11 @@ def test_contributor_can_publish_other_users_score_set(session, data_provider, c
     score_set = (client.get(f"/api/v1/score-sets/{response_data['urn']}")).json()
     for key in expected_response:
         assert (key, expected_response[key]) == (key, score_set[key])
+
+    score_set_variants = session.execute(
+        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
+    ).scalars()
+    assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_variants])
 
 
 def test_admin_cannot_publish_other_user_private_score_set(
