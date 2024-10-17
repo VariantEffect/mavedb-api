@@ -4,11 +4,16 @@ from typing import Any, Optional, Sequence
 from pydantic import root_validator
 from pydantic.utils import GetterDict
 
+from mavedb.lib.validation import target
 from mavedb.view_models import external_gene_identifier_offset
 from mavedb.view_models.base.base import BaseModel, validator
-from mavedb.view_models.target_sequence import AdminTargetSequence, TargetSequence, TargetSequenceCreate, SavedTargetSequence
-from mavedb.view_models.target_accession import TargetAccession, TargetAccessionCreate, SavedTargetAccession
-from mavedb.lib.validation import target
+from mavedb.view_models.target_accession import SavedTargetAccession, TargetAccession, TargetAccessionCreate
+from mavedb.view_models.target_sequence import (
+    AdminTargetSequence,
+    SavedTargetSequence,
+    TargetSequence,
+    TargetSequenceCreate,
+)
 
 
 class ExternalIdentifiersGetter(GetterDict):

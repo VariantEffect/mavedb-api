@@ -147,6 +147,7 @@ class ExperimentPublicDump(SavedExperiment):
     score_sets: "Sequence[ScoreSetPublicDump]"
 
 
+# ruff: noqa: E402
 from mavedb.view_models.score_set import ScoreSetPublicDump
 
 ExperimentPublicDump.update_forward_refs()

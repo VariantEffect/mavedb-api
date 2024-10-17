@@ -3,9 +3,9 @@ from typing import Dict
 
 from mavedb.lib.exceptions import ValidationError
 from mavedb.lib.mave.constants import (
-    VARIANT_SCORE_DATA,
-    VARIANT_COUNT_DATA,
     REQUIRED_SCORE_COLUMN,
+    VARIANT_COUNT_DATA,
+    VARIANT_SCORE_DATA,
 )
 
 

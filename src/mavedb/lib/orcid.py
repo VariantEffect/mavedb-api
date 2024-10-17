@@ -4,8 +4,8 @@ from typing import Optional
 
 import orcid  # type: ignore
 
-from mavedb.view_models.orcid import OrcidUser
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.view_models.orcid import OrcidUser
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def fetch_orcid_user(orcid_id: str) -> Optional[OrcidUser]:
                 family_name=record["person"]["name"]["family-name"]["value"],
             )
             logger.debug(msg="Successfully fetched ORCID user.", extra=logging_context())
-        except:
+        except Exception:
             logger.debug(
                 msg="Failed to fetch ORCID user; User exists but is name metadata not visible.", extra=logging_context()
             )
@@ -60,7 +60,7 @@ def fetch_orcid_user_email(orcid_id: str) -> Optional[str]:
         try:
             email = record["person"]["emails"]["email"][0]["email"]
             logger.debug(msg="Successfully fetched ORCID email.", extra=logging_context())
-        except:
+        except Exception:
             logger.debug(msg="Failed to fetch ORCID email; User exists but email not visible.", extra=logging_context())
 
     except Exception as e:

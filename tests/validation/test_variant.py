@@ -1,8 +1,8 @@
 from unittest import TestCase
 
-from mavedb.lib.validation.variant import validate_hgvs_string
-from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.constants.general import null_values_list
+from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.lib.validation.variant import validate_hgvs_string
 
 
 class TestValidateHgvsString(TestCase):

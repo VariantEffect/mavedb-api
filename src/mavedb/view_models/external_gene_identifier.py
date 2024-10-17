@@ -1,7 +1,7 @@
 from typing import Optional
 
-from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.lib.validation import identifier as identifier_validator
+from mavedb.view_models.base.base import BaseModel, validator
 
 
 class ExternalGeneIdentifierBase(BaseModel):

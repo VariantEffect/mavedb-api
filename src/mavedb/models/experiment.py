@@ -1,26 +1,25 @@
 from datetime import date
-
-from typing import Optional, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
-from sqlalchemy.event import listens_for
-from sqlalchemy.ext.associationproxy import association_proxy, AssociationProxy
-from sqlalchemy.orm import relationship, Mapped
-from sqlalchemy.schema import Table
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.event import listens_for
+from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
+from sqlalchemy.orm import Mapped, relationship
+from sqlalchemy.schema import Table
 
 from mavedb.db.base import Base
 from mavedb.lib.temp_urns import generate_temp_urn
 from mavedb.models.contributor import Contributor
-from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
-from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.controlled_keyword import ControlledKeyword
-from mavedb.models.legacy_keyword import LegacyKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
-from mavedb.models.raw_read_identifier import RawReadIdentifier
+from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
-from mavedb.models.user import User
+from mavedb.models.experiment_set import ExperimentSet
+from mavedb.models.legacy_keyword import LegacyKeyword
 from mavedb.models.publication_identifier import PublicationIdentifier
+from mavedb.models.raw_read_identifier import RawReadIdentifier
+from mavedb.models.user import User
 
 if TYPE_CHECKING:
     from mavedb.models.score_set import ScoreSet
@@ -92,7 +91,8 @@ class Experiment(Base):
         back_populates="experiment", cascade="all, delete-orphan"
     )
     legacy_keyword_objs: Mapped[list[LegacyKeyword]] = relationship(
-        "LegacyKeyword", secondary=experiments_legacy_keywords_association_table, backref="experiments")
+        "LegacyKeyword", secondary=experiments_legacy_keywords_association_table, backref="experiments"
+    )
     doi_identifiers: Mapped[list[DoiIdentifier]] = relationship(
         "DoiIdentifier", secondary=experiments_doi_identifiers_association_table, backref="experiments"
     )
@@ -126,16 +126,18 @@ class Experiment(Base):
         keywords = []
         for keyword_assoc in keyword_objs:
             controlled_keyword = keyword_assoc.controlled_keyword
-            keywords.append({
-                "keyword": {
-                    "key": controlled_keyword.key,
-                    "value": controlled_keyword.value,
-                    "vocabulary": controlled_keyword.vocabulary,
-                    "special": controlled_keyword.special,
-                    "description": controlled_keyword.description,
-                },
-                "description": keyword_assoc.description
-            })
+            keywords.append(
+                {
+                    "keyword": {
+                        "key": controlled_keyword.key,
+                        "value": controlled_keyword.value,
+                        "vocabulary": controlled_keyword.vocabulary,
+                        "special": controlled_keyword.special,
+                        "description": controlled_keyword.description,
+                    },
+                    "description": keyword_assoc.description,
+                }
+            )
         return keywords
 
     @property
@@ -155,13 +157,11 @@ class Experiment(Base):
                 ExperimentControlledKeywordAssociation(
                     experiment=self,
                     controlled_keyword=await self._find_keyword(
-                        db,
-                        keyword_obj.keyword.key,
-                        keyword_obj.keyword.value,
-                        keyword_obj.keyword.vocabulary
+                        db, keyword_obj.keyword.key, keyword_obj.keyword.value, keyword_obj.keyword.vocabulary
                     ),
                     description=keyword_obj.description,
-                    ) for keyword_obj in keywords
+                )
+                for keyword_obj in keywords
             ]
         else:
             self.keyword_objs = []
@@ -178,12 +178,14 @@ class Experiment(Base):
         return keyword_obj
 
     async def _find_keyword(self, db, key: str, value: str, vocabulary: Optional[str]):
-        query = db.query(ControlledKeyword).filter(ControlledKeyword.key == key).filter(ControlledKeyword.value == value)
+        query = (
+            db.query(ControlledKeyword).filter(ControlledKeyword.key == key).filter(ControlledKeyword.value == value)
+        )
         if vocabulary:
             query = query.filter(ControlledKeyword.vocabulary == vocabulary)
         controlled_keyword_obj = query.one_or_none()
         if controlled_keyword_obj is None:
-            raise ValueError(f'Unknown keyword {key}:{value}')
+            raise ValueError(f"Unknown keyword {key}:{value}")
         return controlled_keyword_obj
 
 

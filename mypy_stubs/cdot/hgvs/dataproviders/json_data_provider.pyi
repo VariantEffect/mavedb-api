@@ -1,11 +1,11 @@
 import abc
+from typing import List, Optional, Union
+
 from _typeshed import Incomplete
 from cdot.assembly_helper import get_ac_name_map as get_ac_name_map
-from hgvs.dataproviders.interface import Interface
-from typing import List, Optional, Union
-from hgvs.dataproviders.seqfetcher import SeqFetcher
 from cdot.hgvs.dataproviders import ChainedSeqFetcher, FastaSeqFetcher
-
+from hgvs.dataproviders.interface import Interface
+from hgvs.dataproviders.seqfetcher import SeqFetcher
 
 class AbstractJSONDataProvider(Interface, metaclass=abc.ABCMeta):
     NCBI_ALN_METHOD: str
@@ -13,7 +13,13 @@ class AbstractJSONDataProvider(Interface, metaclass=abc.ABCMeta):
     seqfetcher: Incomplete
     assembly_maps: Incomplete
     assembly_by_contig: Incomplete
-    def __init__(self, assemblies: Optional[List[str]] = None, mode: Optional[str] = None, cache: Optional[str] = None, seqfetcher: Union[SeqFetcher, ChainedSeqFetcher, FastaSeqFetcher, None] = None) -> None: ...
+    def __init__(
+        self,
+        assemblies: Optional[List[str]] = None,
+        mode: Optional[str] = None,
+        cache: Optional[str] = None,
+        seqfetcher: Union[SeqFetcher, ChainedSeqFetcher, FastaSeqFetcher, None] = None,
+    ) -> None: ...
     def data_version(self) -> str: ...
     def schema_version(self) -> str: ...
     def get_assembly_map(self, assembly_name) -> dict[str, str]: ...
@@ -38,11 +44,24 @@ class LocalDataProvider(AbstractJSONDataProvider, metaclass=abc.ABCMeta):
     def get_tx_for_region(self, alt_ac, alt_aln_method, start_i, end_i): ...
 
 class JSONDataProvider(LocalDataProvider):
-    def __init__(self, file_or_filename_list, mode: Incomplete | None = None, cache: Incomplete | None = None, seqfetcher: Union[SeqFetcher, ChainedSeqFetcher, FastaSeqFetcher, None] = None) -> None: ...
+    def __init__(
+        self,
+        file_or_filename_list,
+        mode: Incomplete | None = None,
+        cache: Incomplete | None = None,
+        seqfetcher: Union[SeqFetcher, ChainedSeqFetcher, FastaSeqFetcher, None] = None,
+    ) -> None: ...
     def get_pro_ac_for_tx_ac(self, tx_ac): ...
     def get_gene_info(self, gene): ...
 
 class RESTDataProvider(AbstractJSONDataProvider):
-    def __init__(self, url: Optional[str] = None, secure: bool = True, mode: Optional[str] = None, cache: Optional[str] = None, seqfetcher: Union[SeqFetcher, ChainedSeqFetcher, FastaSeqFetcher, None] = None) -> None: ...
+    def __init__(
+        self,
+        url: Optional[str] = None,
+        secure: bool = True,
+        mode: Optional[str] = None,
+        cache: Optional[str] = None,
+        seqfetcher: Union[SeqFetcher, ChainedSeqFetcher, FastaSeqFetcher, None] = None,
+    ) -> None: ...
     def get_tx_for_gene(self, gene_name): ...
     def get_tx_for_region(self, alt_ac, alt_aln_method, start_i, end_i): ...

@@ -1,12 +1,12 @@
 from datetime import date
 from typing import Optional
 
-from mavedb.view_models.base.base import BaseModel, validator
-from mavedb.view_models.taxonomy import AdminTaxonomy, SavedTaxonomy, Taxonomy, TaxonomyCreate
+from fqfa import infer_sequence_type
+
 from mavedb.lib.validation import target
 from mavedb.lib.validation.exceptions import ValidationError
-
-from fqfa import infer_sequence_type
+from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models.taxonomy import AdminTaxonomy, SavedTaxonomy, Taxonomy, TaxonomyCreate
 
 
 def sanitize_target_sequence_label(label: str):

@@ -1,3 +1,3 @@
-from .variant import Variant
-from .position import VariantPosition
-from .exceptions import MaveHgvsParseError
+from .exceptions import MaveHgvsParseError as MaveHgvsParseError
+from .position import VariantPosition as VariantPosition
+from .variant import Variant as Variant

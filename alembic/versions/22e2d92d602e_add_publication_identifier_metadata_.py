@@ -5,20 +5,21 @@ Revises: da9ba478647d
 Create Date: 2023-06-01 14:51:04.700969
 
 """
-from typing import Optional
+
 import os
+from typing import Optional
 
 import eutils
-from eutils._internal.xmlfacades.pubmedarticleset import PubmedArticleSet
 import sqlalchemy as sa
 from eutils import EutilsNCBIError
-from mavedb.lib.exceptions import AmbiguousIdentifierError
+from eutils._internal.xmlfacades.pubmedarticleset import PubmedArticleSet
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from alembic import op
-from mavedb.lib.identifiers import ExternalPublication
+from mavedb.lib.exceptions import AmbiguousIdentifierError
 from mavedb.lib.external_publications import Rxiv
+from mavedb.lib.identifiers import ExternalPublication
 from mavedb.models.publication_identifier import PublicationIdentifier
 
 # revision identifiers, used by Alembic.

@@ -1,13 +1,13 @@
 from pathlib import Path
 from shutil import copytree
+
 import pytest
 
 from mavedb.models.license import License
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
-
+from tests.helpers.constants import EXTRA_USER, TEST_LICENSE, TEST_TAXONOMY, TEST_USER
 from tests.helpers.util import create_experiment, create_seq_score_set
-from tests.helpers.constants import TEST_USER, EXTRA_USER, TEST_TAXONOMY, TEST_LICENSE
 
 
 @pytest.fixture

@@ -1,8 +1,8 @@
 import os
-import requests
 from datetime import date
 from typing import Optional, TypedDict
 
+import requests
 from cdot.hgvs.dataproviders import ChainedSeqFetcher, FastaSeqFetcher, RESTDataProvider
 
 GENOMIC_FASTA_FILES = [

@@ -5,10 +5,11 @@ Revises: fecb3e0d181d
 Create Date: 2024-03-19 16:28:05.797406
 
 """
-from alembic import op
+
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "886e059ad1a8"

@@ -1,15 +1,11 @@
 import itertools
 from unittest import TestCase
+from unittest.mock import patch
 
-import os.path
+import cdot.hgvs.dataproviders
 import numpy as np
 import pandas as pd
 import pytest
-import cdot.hgvs.dataproviders
-from pathlib import Path
-
-from unittest.mock import patch
-from tests.helpers.constants import VALID_ACCESSION, TEST_CDOT_TRANSCRIPT
 
 from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
@@ -35,6 +31,7 @@ from mavedb.lib.validation.dataframe import (
     validate_variant_formatting,
 )
 from mavedb.lib.validation.exceptions import ValidationError
+from tests.helpers.constants import TEST_CDOT_TRANSCRIPT, VALID_ACCESSION
 
 
 @pytest.fixture
@@ -515,34 +512,34 @@ class TestValidateVariantFormatting(TestCase):
         self.valid_targets = ["test1", "test2"]
 
     def test_single_target_valid_variants(self):
-        validate_variant_formatting(self.valid, self.valid_prefixes, self.valid_target)
+        validate_variant_formatting(self.valid, self.valid_prefixes, self.valid_target, False)
 
     def test_single_target_inconsistent_variants(self):
         with self.assertRaises(ValidationError):
-            validate_variant_formatting(self.inconsistent, self.valid_prefixes, self.valid_target)
+            validate_variant_formatting(self.inconsistent, self.valid_prefixes, self.valid_target, False)
 
     def test_single_target_invalid_prefixes(self):
         with self.assertRaises(ValidationError):
-            validate_variant_formatting(self.valid, self.invalid_prefixes, self.valid_target)
+            validate_variant_formatting(self.valid, self.invalid_prefixes, self.valid_target, False)
 
     def test_multi_target_valid_variants(self):
-        validate_variant_formatting(self.valid_multi, self.valid_prefixes, self.valid_targets)
+        validate_variant_formatting(self.valid_multi, self.valid_prefixes, self.valid_targets, True)
 
     def test_multi_target_inconsistent_variants(self):
         with self.assertRaises(ValidationError):
-            validate_variant_formatting(self.inconsistent_multi, self.valid_prefixes, self.valid_targets)
+            validate_variant_formatting(self.inconsistent_multi, self.valid_prefixes, self.valid_targets, True)
 
     def test_multi_target_invalid_prefixes(self):
         with self.assertRaises(ValidationError):
-            validate_variant_formatting(self.valid_multi, self.invalid_prefixes, self.valid_targets)
+            validate_variant_formatting(self.valid_multi, self.invalid_prefixes, self.valid_targets, True)
 
     def test_multi_target_lacking_full_coords(self):
         with self.assertRaises(ValidationError):
-            validate_variant_formatting(self.valid, self.valid_prefixes, self.valid_targets)
+            validate_variant_formatting(self.valid, self.valid_prefixes, self.valid_targets, True)
 
     def test_multi_target_invalid_accessions(self):
         with self.assertRaises(ValidationError):
-            validate_variant_formatting(self.invalid_multi, self.valid_prefixes, self.valid_targets)
+            validate_variant_formatting(self.invalid_multi, self.valid_prefixes, self.valid_targets, True)
 
 
 class TestGenerateVariantPrefixes(DfTestCase):
@@ -761,24 +758,32 @@ class TestValidateTransgenicColumn(DfTestCase):
         for column in self.valid_hgvs_columns:
             with self.subTest(column=column):
                 validate_hgvs_transgenic_column(
-                    column, is_index=False, targets={"test_nt": self.nt_sequence_test_case}  # type: ignore
+                    column,
+                    is_index=False,
+                    targets={"test_nt": self.nt_sequence_test_case},  # type: ignore
                 )
         for column in self.valid_hgvs_columns_invalid_for_index:
             with self.subTest(column=column):
                 validate_hgvs_transgenic_column(
-                    column, is_index=False, targets={"test_nt": self.nt_sequence_test_case}  # type: ignore
+                    column,
+                    is_index=False,
+                    targets={"test_nt": self.nt_sequence_test_case},  # type: ignore
                 )
 
     def test_valid_columns_multi_target(self):
         for column in self.valid_hgvs_columns_multi_target:
             with self.subTest(column=column):
                 validate_hgvs_transgenic_column(
-                    column, is_index=False, targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case}  # type: ignore
+                    column,
+                    is_index=False,
+                    targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case},  # type: ignore
                 )
         for column in self.valid_hgvs_columns_invalid_for_index_multi_target:
             with self.subTest(column=column):
                 validate_hgvs_transgenic_column(
-                    column, is_index=False, targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case}  # type: ignore
+                    column,
+                    is_index=False,
+                    targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case},  # type: ignore
                 )
 
     # Test when supplied targets do not contain a DNA sequence (only valid for hgvs_nt col)
@@ -787,7 +792,9 @@ class TestValidateTransgenicColumn(DfTestCase):
             with self.subTest(column=column):
                 with self.assertRaises(ValueError):
                     validate_hgvs_transgenic_column(
-                        column, is_index=True, targets={"test_pt": self.pt_sequence_test_case}  # type: ignore
+                        column,
+                        is_index=True,
+                        targets={"test_pt": self.pt_sequence_test_case},  # type: ignore
                     )
 
     # Test when multiple supplied targets do not contain a DNA sequence (only valid for hgvs_nt col)
@@ -796,7 +803,9 @@ class TestValidateTransgenicColumn(DfTestCase):
             with self.subTest(column=column):
                 with self.assertRaises(ValueError):
                     validate_hgvs_transgenic_column(
-                        column, is_index=True, targets={"test_pt": self.pt_sequence_test_case, "test_pt_2": self.pt_sequence_test_case}  # type: ignore
+                        column,
+                        is_index=True,
+                        targets={"test_pt": self.pt_sequence_test_case, "test_pt_2": self.pt_sequence_test_case},  # type: ignore
                     )
 
     def test_valid_columns_invalid_column_name(self):
@@ -804,7 +813,9 @@ class TestValidateTransgenicColumn(DfTestCase):
             with self.subTest(column=column):
                 with self.assertRaises(ValueError):
                     validate_hgvs_transgenic_column(
-                        column, is_index=True, targets={"test_nt": self.nt_sequence_test_case}  # type: ignore
+                        column,
+                        is_index=True,
+                        targets={"test_nt": self.nt_sequence_test_case},  # type: ignore
                     )
 
     def test_valid_columns_invalid_column_name_multi_target(self):
@@ -812,33 +823,43 @@ class TestValidateTransgenicColumn(DfTestCase):
             with self.subTest(column=column):
                 with self.assertRaises(ValueError):
                     validate_hgvs_transgenic_column(
-                        column, is_index=True, targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case}  # type: ignore
+                        column,
+                        is_index=True,
+                        targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case},  # type: ignore
                     )
 
     def test_index_columns(self):
         for column in self.valid_hgvs_columns:
             with self.subTest(column=column):
                 validate_hgvs_transgenic_column(
-                    column, is_index=True, targets={"test_nt": self.nt_sequence_test_case}  # type: ignore
+                    column,
+                    is_index=True,
+                    targets={"test_nt": self.nt_sequence_test_case},  # type: ignore
                 )
         for column in self.valid_hgvs_columns_invalid_for_index:
             with self.subTest(column=column):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
-                        column, is_index=True, targets={"test_nt": self.nt_sequence_test_case}  # type: ignore
+                        column,
+                        is_index=True,
+                        targets={"test_nt": self.nt_sequence_test_case},  # type: ignore
                     )
 
     def test_index_columns_multi_target(self):
         for column in self.valid_hgvs_columns_multi_target:
             with self.subTest(column=column):
                 validate_hgvs_transgenic_column(
-                    column, is_index=True, targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case}  # type: ignore
+                    column,
+                    is_index=True,
+                    targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case},  # type: ignore
                 )
         for column in self.valid_hgvs_columns_invalid_for_index_multi_target:
             with self.subTest(column=column):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
-                        column, is_index=True, targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case}  # type: ignore
+                        column,
+                        is_index=True,
+                        targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case},  # type: ignore
                     )
 
     def test_invalid_column_values(self):
@@ -846,13 +867,17 @@ class TestValidateTransgenicColumn(DfTestCase):
             with self.subTest(column=column):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
-                        column, is_index=False, targets={"test_nt": self.nt_sequence_test_case}  # type: ignore
+                        column,
+                        is_index=False,
+                        targets={"test_nt": self.nt_sequence_test_case},  # type: ignore
                     )
         for column in self.invalid_hgvs_columns_by_contents:
             with self.subTest(column=column):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
-                        column, is_index=True, targets={"test_nt": self.nt_sequence_test_case}  # type: ignore
+                        column,
+                        is_index=True,
+                        targets={"test_nt": self.nt_sequence_test_case},  # type: ignore
                     )
 
     def test_invalid_column_values_multi_target(self):
@@ -860,13 +885,17 @@ class TestValidateTransgenicColumn(DfTestCase):
             with self.subTest(column=column):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
-                        column, is_index=False, targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case}  # type: ignore
+                        column,
+                        is_index=False,
+                        targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case},  # type: ignore
                     )
         for column in self.invalid_hgvs_columns_by_contents_multi_target:
             with self.subTest(column=column):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
-                        column, is_index=True, targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case}  # type: ignore
+                        column,
+                        is_index=True,
+                        targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case},  # type: ignore
                     )
 
     def test_valid_column_values_wrong_column_name(self):
@@ -874,13 +903,17 @@ class TestValidateTransgenicColumn(DfTestCase):
             with self.subTest(column=column):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
-                        column, is_index=False, targets={"test_nt": self.nt_sequence_test_case}  # type: ignore
+                        column,
+                        is_index=False,
+                        targets={"test_nt": self.nt_sequence_test_case},  # type: ignore
                     )
         for column in self.invalid_hgvs_columns_by_name:
             with self.subTest(column=column):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
-                        column, is_index=True, targets={"test_nt": self.nt_sequence_test_case}  # type: ignore
+                        column,
+                        is_index=True,
+                        targets={"test_nt": self.nt_sequence_test_case},  # type: ignore
                     )
 
     def test_valid_column_values_wrong_column_name_multi_target(self):
@@ -888,13 +921,17 @@ class TestValidateTransgenicColumn(DfTestCase):
             with self.subTest(column=column):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
-                        column, is_index=False, targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case}  # type: ignore
+                        column,
+                        is_index=False,
+                        targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case},  # type: ignore
                     )
         for column in self.invalid_hgvs_columns_by_name:
             with self.subTest(column=column):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
-                        column, is_index=True, targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case}  # type: ignore
+                        column,
+                        is_index=True,
+                        targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case},  # type: ignore
                     )
 
 
@@ -910,27 +947,38 @@ class TestValidateHgvsGenomicColumn(DfTestCase):
 
         self.accession_test_case = AccessionTestCase()
 
-        self.valid_hgvs_column = pd.Series(["c.1G>A", "c.2A>T"], name=hgvs_nt_column)
-        self.missing_data = pd.Series(["c.3T>G", None], name=hgvs_nt_column)
-        self.duplicate_data = pd.Series(["c.4A>G", "c.4A>G"], name=hgvs_nt_column)
+        self.valid_hgvs_column = pd.Series(
+            [f"{VALID_ACCESSION}:c.1G>A", f"{VALID_ACCESSION}:c.2A>T"], name=hgvs_nt_column
+        )
+        self.missing_data = pd.Series([f"{VALID_ACCESSION}:c.3T>G", None], name=hgvs_nt_column)
+        self.duplicate_data = pd.Series([f"{VALID_ACCESSION}:c.4A>G", f"{VALID_ACCESSION}:c.4A>G"], name=hgvs_nt_column)
 
         self.invalid_hgvs_columns_by_name = [
-            pd.Series(["g.1A>G", "g.1A>T"], name=hgvs_splice_column),
-            pd.Series(["g.1A>G", "g.1A>T"], name=hgvs_pro_column),
-            pd.Series(["c.1A>G", "c.1A>T"], name=hgvs_pro_column),
-            pd.Series(["n.1A>G", "n.1A>T"], name=hgvs_pro_column),
-            pd.Series(["p.Met1Val", "p.Met1Leu"], name=hgvs_nt_column),
+            pd.Series([f"{VALID_ACCESSION}:g.1A>G", f"{VALID_ACCESSION}:g.1A>T"], name=hgvs_splice_column),
+            pd.Series([f"{VALID_ACCESSION}:g.1A>G", f"{VALID_ACCESSION}:g.1A>T"], name=hgvs_pro_column),
+            pd.Series([f"{VALID_ACCESSION}:c.1A>G", f"{VALID_ACCESSION}:c.1A>T"], name=hgvs_pro_column),
+            pd.Series([f"{VALID_ACCESSION}:n.1A>G", f"{VALID_ACCESSION}:n.1A>T"], name=hgvs_pro_column),
+            pd.Series([f"{VALID_ACCESSION}:p.Met1Val", f"{VALID_ACCESSION}:p.Met1Leu"], name=hgvs_nt_column),
         ]
 
         self.invalid_hgvs_columns_by_contents = [
-            pd.Series(["r.1a>g", "r.1a>u"], name=hgvs_splice_column),  # rna not allowed
-            pd.Series(["r.1a>g", "r.1a>u"], name=hgvs_nt_column),  # rna not allowed
-            pd.Series(["c.1A>G", "c.5A>T"], name=hgvs_nt_column),  # out of bounds for target
-            pd.Series(["c.1A>G", "_wt"], name=hgvs_nt_column),  # old special variant
-            pd.Series(["p.Met1Leu", "_sy"], name=hgvs_pro_column),  # old special variant
-            pd.Series(["n.1A>G", "c.1A>T"], name=hgvs_nt_column),  # mixed prefix
-            pd.Series(["c.1A>G", "p.Met1Leu"], name=hgvs_pro_column),  # mixed types/prefix
-            pd.Series(["c.1A>G", 2.5], name=hgvs_nt_column),  # contains numeric
+            pd.Series(
+                [f"{VALID_ACCESSION}:r.1a>g", f"{VALID_ACCESSION}:r.1a>u"], name=hgvs_splice_column
+            ),  # rna not allowed
+            pd.Series(
+                [f"{VALID_ACCESSION}:r.1a>g", f"{VALID_ACCESSION}:r.1a>u"], name=hgvs_nt_column
+            ),  # rna not allowed
+            pd.Series(
+                [f"{VALID_ACCESSION}:c.1A>G", f"{VALID_ACCESSION}:c.5A>T"], name=hgvs_nt_column
+            ),  # out of bounds for target
+            pd.Series([f"{VALID_ACCESSION}:c.1A>G", "_wt"], name=hgvs_nt_column),  # old special variant
+            pd.Series([f"{VALID_ACCESSION}:p.Met1Leu", "_sy"], name=hgvs_pro_column),  # old special variant
+            pd.Series([f"{VALID_ACCESSION}:n.1A>G", f"{VALID_ACCESSION}:c.1A>T"], name=hgvs_nt_column),  # mixed prefix
+            pd.Series(
+                [f"{VALID_ACCESSION}:c.1A>G", f"{VALID_ACCESSION}:p.Met1Leu"], name=hgvs_pro_column
+            ),  # mixed types/prefix
+            pd.Series(["c.1A>G", "p.Met1Leu"], name=hgvs_pro_column),  # variants should be fully qualified
+            pd.Series([f"{VALID_ACCESSION}:c.1A>G", 2.5], name=hgvs_nt_column),  # contains numeric
             pd.Series([1.0, 2.5], name=hgvs_nt_column),  # contains numeric
             pd.Series([1.0, 2.5], name=hgvs_splice_column),  # contains numeric
             pd.Series([1.0, 2.5], name=hgvs_pro_column),  # contains numeric
@@ -942,7 +990,9 @@ class TestValidateHgvsGenomicColumn(DfTestCase):
             "_get_transcript",
             return_value=TEST_CDOT_TRANSCRIPT,
         ):
-            validate_hgvs_genomic_column(self.valid_hgvs_column, is_index=False, targets=[self.accession_test_case], hdp=self.human_data_provider)  # type: ignore
+            validate_hgvs_genomic_column(
+                self.valid_hgvs_column, is_index=False, targets=[self.accession_test_case], hdp=self.human_data_provider
+            )  # type: ignore
 
     def test_valid_variant_valid_missing(self):
         with patch.object(
@@ -950,7 +1000,9 @@ class TestValidateHgvsGenomicColumn(DfTestCase):
             "_get_transcript",
             return_value=TEST_CDOT_TRANSCRIPT,
         ):
-            validate_hgvs_genomic_column(self.missing_data, is_index=False, targets=[self.accession_test_case], hdp=self.human_data_provider)  # type: ignore
+            validate_hgvs_genomic_column(
+                self.missing_data, is_index=False, targets=[self.accession_test_case], hdp=self.human_data_provider
+            )  # type: ignore
 
     def test_valid_variant_valid_duplicate(self):
         with patch.object(
@@ -958,7 +1010,9 @@ class TestValidateHgvsGenomicColumn(DfTestCase):
             "_get_transcript",
             return_value=TEST_CDOT_TRANSCRIPT,
         ):
-            validate_hgvs_genomic_column(self.missing_data, is_index=False, targets=[self.accession_test_case], hdp=self.human_data_provider)  # type: ignore
+            validate_hgvs_genomic_column(
+                self.missing_data, is_index=False, targets=[self.accession_test_case], hdp=self.human_data_provider
+            )  # type: ignore
 
     def test_valid_variant_index(self):
         with patch.object(
@@ -966,7 +1020,9 @@ class TestValidateHgvsGenomicColumn(DfTestCase):
             "_get_transcript",
             return_value=TEST_CDOT_TRANSCRIPT,
         ):
-            validate_hgvs_genomic_column(self.valid_hgvs_column, is_index=True, targets=[self.accession_test_case], hdp=self.human_data_provider)  # type: ignore
+            validate_hgvs_genomic_column(
+                self.valid_hgvs_column, is_index=True, targets=[self.accession_test_case], hdp=self.human_data_provider
+            )  # type: ignore
 
     def test_valid_variant_invalid_missing_index(self):
         with (
@@ -977,7 +1033,9 @@ class TestValidateHgvsGenomicColumn(DfTestCase):
                 return_value=TEST_CDOT_TRANSCRIPT,
             ),
         ):
-            validate_hgvs_genomic_column(self.missing_data, is_index=True, targets=[self.accession_test_case], hdp=self.human_data_provider)  # type: ignore
+            validate_hgvs_genomic_column(
+                self.missing_data, is_index=True, targets=[self.accession_test_case], hdp=self.human_data_provider
+            )  # type: ignore
 
     def test_valid_variant_invalid_duplicate_index(self):
         with (
@@ -988,7 +1046,9 @@ class TestValidateHgvsGenomicColumn(DfTestCase):
                 return_value=TEST_CDOT_TRANSCRIPT,
             ),
         ):
-            validate_hgvs_genomic_column(self.duplicate_data, is_index=True, targets=[self.accession_test_case], hdp=self.human_data_provider)  # type: ignore
+            validate_hgvs_genomic_column(
+                self.duplicate_data, is_index=True, targets=[self.accession_test_case], hdp=self.human_data_provider
+            )  # type: ignore
 
     def test_invalid_column_values(self):
         for column in self.invalid_hgvs_columns_by_contents:
@@ -1002,7 +1062,10 @@ class TestValidateHgvsGenomicColumn(DfTestCase):
                 ),
             ):
                 validate_hgvs_genomic_column(
-                    column, is_index=False, targets=[self.accession_test_case], hdp=self.human_data_provider  # type: ignore
+                    column,
+                    is_index=False,
+                    targets=[self.accession_test_case],
+                    hdp=self.human_data_provider,  # type: ignore
                 )
         for column in self.invalid_hgvs_columns_by_contents:
             with (
@@ -1015,7 +1078,10 @@ class TestValidateHgvsGenomicColumn(DfTestCase):
                 ),
             ):
                 validate_hgvs_genomic_column(
-                    column, is_index=True, targets=[self.accession_test_case], hdp=self.human_data_provider  # type: ignore
+                    column,
+                    is_index=True,
+                    targets=[self.accession_test_case],
+                    hdp=self.human_data_provider,  # type: ignore
                 )
 
     def test_valid_column_values_wrong_column_name(self):
@@ -1030,7 +1096,10 @@ class TestValidateHgvsGenomicColumn(DfTestCase):
                 ),
             ):
                 validate_hgvs_genomic_column(
-                    column, is_index=False, targets=[self.accession_test_case], hdp=self.human_data_provider  # type: ignore
+                    column,
+                    is_index=False,
+                    targets=[self.accession_test_case],
+                    hdp=self.human_data_provider,  # type: ignore
                 )
         for column in self.invalid_hgvs_columns_by_name:
             with (
@@ -1043,7 +1112,10 @@ class TestValidateHgvsGenomicColumn(DfTestCase):
                 ),
             ):
                 validate_hgvs_genomic_column(
-                    column, is_index=True, targets=[self.accession_test_case], hdp=self.human_data_provider  # type: ignore
+                    column,
+                    is_index=True,
+                    targets=[self.accession_test_case],
+                    hdp=self.human_data_provider,  # type: ignore
                 )
 
     # TODO: Test multiple targets

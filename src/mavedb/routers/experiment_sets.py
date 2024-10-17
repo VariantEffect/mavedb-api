@@ -1,13 +1,15 @@
 import logging
-from typing import Any
 from operator import attrgetter
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from mavedb import deps
+from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.permissions import Action, has_permission
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.view_models import experiment_set
 
@@ -27,7 +29,9 @@ logger = logging.getLogger(__name__)
     response_model=experiment_set.ExperimentSet,
     responses={404: {}},
 )
-def fetch_experiment_set(*, urn: str, db: Session = Depends(deps.get_db)) -> Any:
+def fetch_experiment_set(
+    *, urn: str, db: Session = Depends(deps.get_db), user_data: UserData = Depends(get_current_user)
+) -> Any:
     """
     Fetch a single experiment set by URN.
     """
@@ -42,5 +46,10 @@ def fetch_experiment_set(*, urn: str, db: Session = Depends(deps.get_db)) -> Any
         raise HTTPException(status_code=404, detail=f"Experiment set with URN {urn} not found")
     else:
         item.experiments.sort(key=attrgetter("urn"))
+
+    has_permission(user_data, item, Action.READ)
+
+    # Filter experiment sub-resources to only those experiments readable by the requesting user.
+    item.experiments[:] = [exp for exp in item.experiments if has_permission(user_data, exp, Action.READ).permitted]
 
     return item

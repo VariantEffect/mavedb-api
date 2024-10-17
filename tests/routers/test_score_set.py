@@ -4,14 +4,14 @@ from datetime import date
 from unittest.mock import patch
 
 import jsonschema
-import pytest
 from arq import ArqRedis
+
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
-
 from tests.helpers.constants import (
     EXTRA_USER,
     TEST_MINIMAL_ACC_SCORESET,
@@ -20,6 +20,7 @@ from tests.helpers.constants import (
     TEST_ORCID_ID,
     TEST_USER,
 )
+from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util import (
     add_contributor,
     change_ownership,
@@ -27,7 +28,6 @@ from tests.helpers.util import (
     create_seq_score_set,
     create_seq_score_set_with_variants,
 )
-from tests.helpers.dependency_overrider import DependencyOverrider
 
 
 def test_TEST_MINIMAL_SEQ_SCORESET_is_valid():
@@ -95,6 +95,65 @@ def test_create_score_set_with_contributor(client, setup_router_db):
             "familyName": "User",
         }
     ]
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+    response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
+    assert response.status_code == 200
+
+
+def test_create_score_set_with_score_range(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    score_set.update(
+        {
+            "score_ranges": {
+                "wt_score": 0.5,
+                "ranges": [
+                    {"label": "range_1", "range": (-2, 2), "classification": "normal"},
+                    {"label": "range_2", "range": (2, None), "classification": "abnormal"},
+                    {
+                        "label": "custom_1",
+                        "range": (None, -2),
+                        "classification": "abnormal",
+                        "description": "A user provided custom range",
+                    },
+                ],
+            }
+        }
+    )
+
+    response = client.post("/api/v1/score-sets/", json=score_set)
+    assert response.status_code == 200
+
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
+
+    expected_response = deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE)
+    expected_response.update({"urn": response_data["urn"]})
+    expected_response["experiment"].update(
+        {
+            "urn": experiment["urn"],
+            "experimentSetUrn": experiment["experimentSetUrn"],
+            "scoreSetUrns": [response_data["urn"]],
+        }
+    )
+    expected_response["scoreRanges"] = {
+        "wtScore": 0.5,
+        "ranges": [
+            {"label": "range_1", "range": [-2, 2], "classification": "normal"},
+            {"label": "range_2", "range": [2, None], "classification": "abnormal"},
+            {
+                "label": "custom_1",
+                "range": [None, -2],
+                "classification": "abnormal",
+                "description": "A user provided custom range",
+            },
+        ],
+    }
+
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
@@ -944,6 +1003,33 @@ def test_search_score_sets_match(session, data_provider, client, setup_router_db
     assert response.json()[0]["title"] == score_set_1_1["title"]
 
 
+def test_search_score_sets_urn_match(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client)
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
+    )
+
+    search_payload = {"urn": score_set_1_1["urn"]}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["urn"] == score_set_1_1["urn"]
+
+
+# There is space in the end of test urn. The search result returned nothing before.
+def test_search_score_sets_urn_with_space_match(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client)
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
+    )
+    urn_with_space = score_set_1_1["urn"] + "   "
+    search_payload = {"urn": urn_with_space}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["urn"] == score_set_1_1["urn"]
+
+
 def test_anonymous_cannot_delete_other_users_private_scoreset(
     session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
 ):
@@ -1053,3 +1139,88 @@ def test_admin_can_delete_other_users_published_scoreset(
         del_response = client.delete(f"/api/v1/score-sets/{response_data['urn']}")
 
     assert del_response.status_code == 200
+
+
+def test_can_add_score_set_to_own_private_experiment(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = experiment["urn"]
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 200
+
+
+def test_cannot_add_score_set_to_others_private_experiment(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    experiment_urn = experiment["urn"]
+    change_ownership(session, experiment_urn, ExperimentDbModel)
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = experiment_urn
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 404
+    response_data = response.json()
+    assert f"experiment with URN '{experiment_urn}' not found" in response_data["detail"]
+
+
+def test_can_add_score_set_to_own_public_experiment(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    pub_score_set_1 = client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish").json()
+    score_set_2 = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_2["experimentUrn"] = pub_score_set_1["experiment"]["urn"]
+    response = client.post("/api/v1/score-sets/", json=score_set_2)
+    assert response.status_code == 200
+
+
+def test_can_add_score_set_to_others_public_experiment(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    pub_score_set_1 = client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish").json()
+    change_ownership(session, pub_score_set_1["experiment"]["urn"], ExperimentDbModel)
+    score_set_2 = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_2["experimentUrn"] = pub_score_set_1["experiment"]["urn"]
+    response = client.post("/api/v1/score-sets/", json=score_set_2)
+    assert response.status_code == 200
+
+
+def test_contributor_can_add_score_set_to_others_private_experiment(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    add_contributor(
+        session,
+        experiment["urn"],
+        ExperimentDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = experiment["urn"]
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 200
+
+
+def test_contributor_can_add_score_set_to_others_public_experiment(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    change_ownership(session, published_score_set["experiment"]["urn"], ExperimentDbModel)
+    add_contributor(
+        session,
+        published_score_set["experiment"]["urn"],
+        ExperimentDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 200

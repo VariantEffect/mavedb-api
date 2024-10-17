@@ -1,8 +1,8 @@
 import pytest
-
 from fastapi.encoders import jsonable_encoder
-from tests.helpers.constants import TEST_USER
+
 from mavedb.view_models.user import CurrentUserUpdate
+from tests.helpers.constants import TEST_USER
 
 
 # There are lots of potentially invalid emails, but this test is intented to ensure
