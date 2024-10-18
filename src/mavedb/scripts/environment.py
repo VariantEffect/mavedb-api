@@ -11,7 +11,7 @@ from functools import wraps
 from sqlalchemy.orm import configure_mappers
 
 from mavedb import deps
-from mavedb.models import *
+from mavedb.models import *  # noqa: F403
 
 
 logger = logging.getLogger(__name__)
