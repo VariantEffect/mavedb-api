@@ -2,7 +2,7 @@ import logging
 
 from sqlalchemy import text
 from mavedb.models.score_set import ScoreSet
-from alembic_utils.pg_materialized_view import PGMaterializedView
+from alembic_utils.pg_materialized_view import PGMaterializedView  # type: ignore
 
 logger = logging.getLogger(__name__)
 

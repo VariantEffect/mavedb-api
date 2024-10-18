@@ -23,15 +23,12 @@ from mavedb.lib.mave.utils import is_csv_null
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
-from mavedb.models.doi_identifier import DoiIdentifier
-from mavedb.models.ensembl_identifier import EnsemblIdentifier
 from mavedb.models.ensembl_offset import EnsemblOffset
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.publication_identifier import PublicationIdentifier
-from mavedb.models.refseq_identifier import RefseqIdentifier
 from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.score_set_publication_identifier import (
@@ -42,7 +39,6 @@ from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.taxonomy import Taxonomy
-from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.user import User
 from mavedb.models.variant import Variant

@@ -18,7 +18,7 @@ from fakeredis.aioredis import FakeConnection
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 from redis.asyncio.connection import ConnectionPool
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
