@@ -1,11 +1,10 @@
 import pytest
 
+from mavedb.models.enums.user_role import UserRole
 from mavedb.models.license import License
+from mavedb.models.role import Role
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
-from mavedb.models.role import Role
-from mavedb.models.enums.user_role import UserRole
-
 from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_LICENSE, TEST_TAXONOMY, TEST_USER
 
 

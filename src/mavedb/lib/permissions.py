@@ -2,9 +2,9 @@ import logging
 from enum import Enum
 from typing import Optional
 
-from mavedb.lib.authentication import UserData
-from mavedb.lib.logging.context import save_to_logging_context, logging_context
 from mavedb.db.base import Base
+from mavedb.lib.authentication import UserData
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
@@ -15,14 +15,14 @@ logger = logging.getLogger(__name__)
 
 
 class Action(Enum):
-    READ = 1
-    UPDATE = 2
-    DELETE = 3
-    ADD_EXPERIMENT = 4
-    ADD_SCORE_SET = 5
-    SET_SCORES = 6
-    ADD_ROLE = 7
-    PUBLISH = 8
+    READ = "read"
+    UPDATE = "update"
+    DELETE = "delete"
+    ADD_EXPERIMENT = "add_experiment"
+    ADD_SCORE_SET = "add_score_set"
+    SET_SCORES = "set_scores"
+    ADD_ROLE = "add_role"
+    PUBLISH = "publish"
 
 
 class PermissionResponse:
@@ -125,6 +125,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             else:
                 return PermissionResponse(False)
         elif action == Action.ADD_EXPERIMENT:
+            # Only permitted users can add an experiment to an existing experiment set.
             return PermissionResponse(
                 user_may_edit or roles_permitted(active_roles, [UserRole.admin]),
                 404 if private else 403,
@@ -177,15 +178,16 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             else:
                 return PermissionResponse(False)
         elif action == Action.ADD_SCORE_SET:
-            return PermissionResponse(
-                (user_may_edit or roles_permitted(active_roles, [UserRole.admin])),
-                404 if private else 403,
-                (
-                    f"experiment with URN '{item.urn}' not found"
-                    if private
-                    else f"insufficient permissions for URN '{item.urn}'"
-                ),
-            )
+            # Only permitted users can add a score set to a private experiment.
+            if user_may_edit or roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            elif private:
+                return PermissionResponse(False, 404, f"experiment with URN '{item.urn}' not found")
+            # Any signed in user has permissions to add a score set to a public experiment
+            elif user_data is not None:
+                return PermissionResponse(True)
+            else:
+                return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
         else:
             raise NotImplementedError(f"has_permission(User, Experiment, {action}, Role)")
 

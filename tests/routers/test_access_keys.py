@@ -1,13 +1,9 @@
-import pytest
-
-from tests.helpers.constants import EXTRA_USER
-from tests.helpers.dependency_overrider import DependencyOverrider
-
 from mavedb.models.access_key import AccessKey
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.user import User
-
-from tests.helpers.util import create_api_key_for_current_user, create_admin_key_for_current_user
+from tests.helpers.constants import EXTRA_USER
+from tests.helpers.dependency_overrider import DependencyOverrider
+from tests.helpers.util import create_admin_key_for_current_user, create_api_key_for_current_user
 
 
 def test_create_user_access_key(client, setup_router_db, session):

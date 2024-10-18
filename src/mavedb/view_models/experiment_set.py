@@ -1,5 +1,5 @@
 from datetime import date
-from typing import List, Sequence
+from typing import Sequence
 
 from pydantic.types import Optional
 

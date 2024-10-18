@@ -1,9 +1,9 @@
-from fastapi import Response, Request
-from fastapi.routing import APIRoute
-from starlette.background import BackgroundTask, BackgroundTasks
+import time
 from typing import Callable
 
-import time
+from fastapi import Request, Response
+from fastapi.routing import APIRoute
+from starlette.background import BackgroundTask, BackgroundTasks
 
 from mavedb.lib.logging.canonical import log_request
 from mavedb.lib.logging.context import save_to_logging_context

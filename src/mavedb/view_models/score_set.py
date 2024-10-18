@@ -2,16 +2,17 @@
 from __future__ import annotations
 
 from datetime import date
-from pydantic import root_validator
-from typing import Collection, Dict, Optional, Any, Sequence
+from typing import Any, Collection, Dict, Optional, Sequence
+
 from humps import camelize
+from pydantic import root_validator
 
 from mavedb.lib.validation import urn_re
+from mavedb.lib.validation.constants.score_set import default_ranges
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.lib.validation.utilities import is_null
-from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.lib.validation.utilities import inf_or_float, is_null
 from mavedb.models.enums.mapping_state import MappingState
-from mavedb.models.target_sequence import TargetSequence
+from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.view_models import PublicationIdentifiersGetter
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.contributor import Contributor, ContributorCreate
@@ -20,7 +21,6 @@ from mavedb.view_models.doi_identifier import (
     DoiIdentifierCreate,
     SavedDoiIdentifier,
 )
-from mavedb.view_models.experiment import Experiment, SavedExperiment
 from mavedb.view_models.license import ShortLicense
 from mavedb.view_models.publication_identifier import (
     PublicationIdentifier,
@@ -39,6 +39,47 @@ from mavedb.view_models.variant import VariantInDbBase
 
 class ExternalLink(BaseModel):
     url: Optional[str]
+
+
+class ScoreRange(BaseModel):
+    label: str
+    description: Optional[str]
+    classification: str
+    # Purposefully vague type hint because of some odd JSON Schema generation behavior.
+    # Typing this as tuple[Union[float, None], Union[float, None]] will generate an invalid
+    # jsonschema, and fail all tests that access the schema. This may be fixed in pydantic v2,
+    # but it's unclear. Even just typing it as Tuple[Any, Any] will generate an invalid schema!
+    range: list[Any]  # really: tuple[Union[float, None], Union[float, None]]
+
+    @validator("classification")
+    def range_classification_value_is_accepted(cls, field_value: str):
+        classification = field_value.strip().lower()
+        if classification not in default_ranges:
+            raise ValidationError(
+                f"Unexpected classification value(s): {classification}. Permitted values: {default_ranges}"
+            )
+
+        return classification
+
+    @validator("range")
+    def ranges_are_not_backwards(cls, field_value: tuple[Any]):
+        if len(field_value) != 2:
+            raise ValidationError("Only a lower and upper bound are allowed.")
+
+        field_value[0] = inf_or_float(field_value[0], True) if field_value[0] is not None else None
+        field_value[1] = inf_or_float(field_value[1], False) if field_value[1] is not None else None
+
+        if inf_or_float(field_value[0], True) > inf_or_float(field_value[1], False):
+            raise ValidationError("The lower bound of the score range may not be larger than the upper bound.")
+        elif inf_or_float(field_value[0], True) == inf_or_float(field_value[1], False):
+            raise ValidationError("The lower and upper bound of the score range may not be the same.")
+
+        return field_value
+
+
+class ScoreRanges(BaseModel):
+    wt_score: float
+    ranges: list[ScoreRange]  # type: ignore
 
 
 class ScoreSetGetter(PublicationIdentifiersGetter):
@@ -70,6 +111,7 @@ class ScoreSetModify(ScoreSetBase):
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     target_genes: list[TargetGeneCreate]
+    score_ranges: Optional[ScoreRanges]
 
     @validator("title", "short_description", "abstract_text", "method_text")
     def validate_field_is_non_empty(cls, v):
@@ -92,7 +134,13 @@ class ScoreSetModify(ScoreSetBase):
                 if target.target_sequence and target.target_sequence.label is None:
                     raise ValidationError(
                         "Target sequence labels cannot be empty when multiple targets are defined.",
-                        custom_loc=["body", "targetGene", idx, "targetSequence", "label"],
+                        custom_loc=[
+                            "body",
+                            "targetGene",
+                            idx,
+                            "targetSequence",
+                            "label",
+                        ],
                     )
 
         return field_value
@@ -111,7 +159,13 @@ class ScoreSetModify(ScoreSetBase):
                 # just one for now seems fine.
                 raise ValidationError(
                     "Target sequence labels cannot be duplicated.",
-                    custom_loc=["body", "targetGene", dup_indices[-1], "targetSequence", "label"],
+                    custom_loc=[
+                        "body",
+                        "targetGene",
+                        dup_indices[-1],
+                        "targetSequence",
+                        "label",
+                    ],
                 )
 
         return field_value
@@ -123,6 +177,93 @@ class ScoreSetModify(ScoreSetBase):
             raise ValidationError("Score sets should define at least one target.")
 
         return field_value
+
+    @validator("score_ranges")
+    def score_range_labels_must_be_unique(cls, field_value: Optional[ScoreRanges]):
+        if field_value is None:
+            return None
+
+        existing_labels = []
+        for i, range_model in enumerate(field_value.ranges):
+            range_model.label = range_model.label.strip()
+
+            if range_model.label in existing_labels:
+                raise ValidationError(
+                    f"Detected repeated label: `{range_model.label}`. Range labels must be unique.",
+                    custom_loc=["body", "scoreRanges", "ranges", i, "label"],
+                )
+
+            existing_labels.append(range_model.label)
+
+        return field_value
+
+    @validator("score_ranges")
+    def ranges_contain_normal_and_abnormal(cls, field_value: Optional[ScoreRanges]):
+        if field_value is None:
+            return None
+
+        ranges = set([range_model.classification for range_model in field_value.ranges])
+        if not set(default_ranges).issubset(ranges):
+            raise ValidationError(
+                "Both `normal` and `abnormal` ranges must be provided.",
+                # Raise this error inside the first classification provided by the model.
+                custom_loc=["body", "scoreRanges", "ranges", 0, "classification"],
+            )
+
+        return field_value
+
+    @validator("score_ranges")
+    def ranges_do_not_overlap(cls, field_value: Optional[ScoreRanges]):
+        def test_overlap(tp1, tp2) -> bool:
+            # Always check the tuple with the lowest lower bound. If we do not check
+            # overlaps in this manner, checking the overlap of (0,1) and (1,2) will
+            # yield different results depending on the ordering of tuples.
+            if min(inf_or_float(tp1[0], True), inf_or_float(tp2[0], True)) == inf_or_float(tp1[0], True):
+                tp_with_min_value = tp1
+                tp_with_non_min_value = tp2
+            else:
+                tp_with_min_value = tp2
+                tp_with_non_min_value = tp1
+
+            if inf_or_float(tp_with_min_value[1], False) > inf_or_float(
+                tp_with_non_min_value[0], True
+            ) and inf_or_float(tp_with_min_value[0], True) <= inf_or_float(tp_with_non_min_value[1], False):
+                return True
+
+            return False
+
+        if field_value is None:
+            return None
+
+        for i, range_test in enumerate(field_value.ranges):
+            for range_check in list(field_value.ranges)[i + 1 :]:
+                if test_overlap(range_test.range, range_check.range):
+                    raise ValidationError(
+                        f"Score ranges may not overlap; `{range_test.label}` overlaps with `{range_check.label}`",
+                        custom_loc=["body", "scoreRanges", "ranges", i, "range"],
+                    )
+
+        return field_value
+
+    @validator("score_ranges")
+    def wild_type_score_in_normal_range(cls, field_value: Optional[ScoreRanges]):
+        if field_value is None:
+            return None
+
+        normal_ranges = [
+            range_model.range for range_model in field_value.ranges if range_model.classification == "normal"
+        ]
+        for range in normal_ranges:
+            print(range)
+            if field_value.wt_score >= inf_or_float(range[0], lower=True) and field_value.wt_score < inf_or_float(
+                range[1], lower=False
+            ):
+                return field_value
+
+        raise ValidationError(
+            f"The provided wild type score of {field_value.wt_score} is not within any of the provided normal ranges. This score should be within a normal range.",
+            custom_loc=["body", "scoreRanges", "wtScore"],
+        )
 
 
 class ScoreSetCreate(ScoreSetModify):
@@ -193,7 +334,7 @@ class ShortScoreSet(BaseModel):
     published_date: Optional[date]
     replaces_id: Optional[int]
     num_variants: int
-    experiment: Experiment
+    experiment: "Experiment"
     primary_publication_identifiers: list[SavedPublicationIdentifier]
     secondary_publication_identifiers: list[SavedPublicationIdentifier]
     license: ShortLicense
@@ -239,6 +380,7 @@ class SavedScoreSet(ScoreSetBase):
     dataset_columns: Dict
     external_links: Dict[str, ExternalLink]
     contributors: list[Contributor]
+    score_ranges: Optional[ScoreRanges]
 
     class Config:
         orm_mode = True
@@ -260,7 +402,7 @@ class SavedScoreSet(ScoreSetBase):
 class ScoreSet(SavedScoreSet):
     """Score set view model containing most properties visible to non-admin users, but no variant data."""
 
-    experiment: Experiment
+    experiment: "Experiment"
     doi_identifiers: Sequence[DoiIdentifier]
     primary_publication_identifiers: Sequence[PublicationIdentifier]
     secondary_publication_identifiers: Sequence[PublicationIdentifier]
@@ -304,3 +446,10 @@ class ScoreSetPublicDump(SavedScoreSet):
     processing_errors: Optional[Dict]
     mapping_state: Optional[MappingState]
     mapping_errors: Optional[Dict]
+
+
+# ruff: noqa: E402
+from mavedb.view_models.experiment import Experiment
+
+ShortScoreSet.update_forward_refs()
+ScoreSet.update_forward_refs()

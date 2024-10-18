@@ -4,20 +4,22 @@ from typing import Optional
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.models.contributor import Contributor
-from mavedb.lib.logging.context import save_to_logging_context, logging_context
+from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.experiment import Experiment
+from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
+from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.view_models.search import ExperimentsSearch
-from mavedb.models.publication_identifier import PublicationIdentifier
-from mavedb.models.controlled_keyword import ControlledKeyword
-from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 
 logger = logging.getLogger(__name__)
 
 
-def search_experiments(db: Session, owner_or_contributor: Optional[User], search: ExperimentsSearch) -> list[Experiment]:
+def search_experiments(
+    db: Session, owner_or_contributor: Optional[User], search: ExperimentsSearch
+) -> list[Experiment]:
     save_to_logging_context({"experiment_search_criteria": search.dict()})
 
     query = db.query(Experiment)

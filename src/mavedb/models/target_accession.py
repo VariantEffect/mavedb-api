@@ -1,7 +1,6 @@
 from datetime import date
 
-from sqlalchemy import Column, Date, Integer, String, ForeignKey
-from sqlalchemy.orm import backref, relationship
+from sqlalchemy import Column, Date, Integer, String
 
 from mavedb.db.base import Base
 

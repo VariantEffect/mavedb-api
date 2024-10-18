@@ -1,13 +1,12 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Column, Date, DateTime, Integer, String, ForeignKey
-from sqlalchemy.orm import relationship, Mapped
+from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, String
+from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
-from mavedb.models.user import User
 from mavedb.models.role import Role
-
+from mavedb.models.user import User
 
 if TYPE_CHECKING:
     from mavedb.lib.authorization import UserRole

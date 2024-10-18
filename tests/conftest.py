@@ -8,8 +8,8 @@ from unittest.mock import patch
 import cdot.hgvs.dataproviders
 import email_validator
 import pytest
-import pytest_postgresql
 import pytest_asyncio
+import pytest_postgresql
 from arq import ArqRedis
 from arq.worker import Worker
 from fakeredis import FakeServer
@@ -23,15 +23,15 @@ from sqlalchemy.pool import NullPool
 
 from mavedb.db.base import Base
 from mavedb.deps import get_db, get_worker, hgvs_data_provider
+from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.authorization import require_current_user
-from mavedb.lib.authentication import get_current_user, UserData
 from mavedb.models.user import User
 from mavedb.server_main import app
 from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager
 
 sys.path.append(".")
 
-from tests.helpers.constants import TEST_USER, ADMIN_USER
+from tests.helpers.constants import ADMIN_USER, TEST_USER
 
 # needs the pytest_postgresql plugin installed
 assert pytest_postgresql.factories
@@ -48,13 +48,14 @@ def session(postgresql):
     )
 
     engine = create_engine(connection, echo=False, poolclass=NullPool)
-    session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
 
     Base.metadata.create_all(bind=engine)
 
     try:
-        yield session()
+        yield session
     finally:
+        session.close()
         Base.metadata.drop_all(bind=engine)
 
 
@@ -151,6 +152,8 @@ async def arq_worker(data_provider, session, arq_redis):
     async def on_job(ctx):
         ctx["db"] = session
         ctx["hdp"] = data_provider
+        ctx["state"] = {}
+        ctx["pool"] = futures.ProcessPoolExecutor()
 
     worker_ = Worker(
         functions=[create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager],
@@ -170,7 +173,14 @@ async def arq_worker(data_provider, session, arq_redis):
 
 @pytest.fixture
 def standalone_worker_context(session, data_provider, arq_redis):
-    yield {"db": session, "hdp": data_provider, "state": {}, "job_id": "test_job", "redis": arq_redis, "pool": futures.ProcessPoolExecutor()}
+    yield {
+        "db": session,
+        "hdp": data_provider,
+        "state": {},
+        "job_id": "test_job",
+        "redis": arq_redis,
+        "pool": futures.ProcessPoolExecutor(),
+    }
 
 
 @pytest.fixture()

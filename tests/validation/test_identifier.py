@@ -1,16 +1,16 @@
 from unittest import TestCase
 
+from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.identifier import (
+    validate_ensembl_identifier,
+    validate_ensembl_list,
+    validate_genome_identifier,
+    validate_refseq_identifier,
+    validate_refseq_list,
     validate_sra_identifier,
     validate_sra_list,
     validate_uniprot_identifier,
-    validate_refseq_identifier,
-    validate_refseq_list,
-    validate_genome_identifier,
-    validate_ensembl_identifier,
-    validate_ensembl_list,
 )
-from mavedb.lib.validation.exceptions import ValidationError
 
 
 class TestGenomeValidators(TestCase):

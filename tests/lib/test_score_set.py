@@ -1,12 +1,10 @@
 import io
 
+import numpy as np
 import pandas as pd
 import pytest
-import numpy as np
 from sqlalchemy import select
 
-from mavedb.models.score_set import ScoreSet
-from mavedb.models.variant import Variant
 from mavedb.lib.score_sets import (
     HGVSColumns,
     columns_for_dataset,
@@ -21,8 +19,9 @@ from mavedb.lib.validation.constants.general import (
     null_values_list,
     required_score_column,
 )
-
-from tests.helpers.util import create_experiment, create_acc_score_set, create_seq_score_set
+from mavedb.models.score_set import ScoreSet
+from mavedb.models.variant import Variant
+from tests.helpers.util import create_acc_score_set, create_experiment, create_seq_score_set
 
 
 def test_columns_for_dataset_no_dataset():

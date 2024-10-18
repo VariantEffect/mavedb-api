@@ -24,11 +24,11 @@ Unpublished data and data sets licensed other than under the Create Commmons Zer
 and user details are limited to ORCID IDs and names of contributors to published data sets.
 """
 
-from datetime import datetime, timezone
-from itertools import chain
 import json
 import logging
 import os
+from datetime import datetime, timezone
+from itertools import chain
 from typing import Callable, Iterable, TypeVar
 from zipfile import ZipFile
 

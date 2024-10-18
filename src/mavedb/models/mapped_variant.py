@@ -1,10 +1,11 @@
 from datetime import date
 
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship, backref, Mapped
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, backref, relationship
 
 from mavedb.db.base import Base
+
 from .variant import Variant
 
 
@@ -13,8 +14,8 @@ class MappedVariant(Base):
 
     id = Column(Integer, primary_key=True)
 
-    pre_mapped = Column(JSONB(none_as_null = True), nullable=True)
-    post_mapped = Column(JSONB(none_as_null = True), nullable=True)
+    pre_mapped = Column(JSONB(none_as_null=True), nullable=True)
+    post_mapped = Column(JSONB(none_as_null=True), nullable=True)
     vrs_version = Column(String, nullable=True)
     error_message = Column(String, nullable=True)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)

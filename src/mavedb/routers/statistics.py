@@ -1,13 +1,15 @@
 from enum import Enum
+from typing import Union
+
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, Table, select
+from sqlalchemy import Table, func, select
 from sqlalchemy.orm import Session
-from typing import Any, Union
 
 from mavedb.deps import get_db
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
-from mavedb.models.raw_read_identifier import RawReadIdentifier
+from mavedb.models.ensembl_identifier import EnsemblIdentifier
+from mavedb.models.ensembl_offset import EnsemblOffset
 from mavedb.models.experiment import (
     Experiment,
     experiments_doi_identifiers_association_table,
@@ -15,20 +17,19 @@ from mavedb.models.experiment import (
 )
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
-from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.publication_identifier import PublicationIdentifier
+from mavedb.models.raw_read_identifier import RawReadIdentifier
+from mavedb.models.refseq_identifier import RefseqIdentifier
+from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.score_set import (
     ScoreSet,
     score_sets_doi_identifiers_association_table,
     score_sets_raw_read_identifiers_association_table,
 )
-from mavedb.models.target_gene import TargetGene
+from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.target_accession import TargetAccession
+from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
-from mavedb.models.ensembl_identifier import EnsemblIdentifier
-from mavedb.models.ensembl_offset import EnsemblOffset
-from mavedb.models.refseq_identifier import RefseqIdentifier
-from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
@@ -229,8 +230,10 @@ def _record_from_field_and_model(
         dict[
             RecordFields,
             Union[
-                Table, type[ExperimentControlledKeywordAssociation], type[ExperimentPublicationIdentifierAssociation],
-                type[ScoreSetPublicationIdentifierAssociation]
+                Table,
+                type[ExperimentControlledKeywordAssociation],
+                type[ExperimentPublicationIdentifierAssociation],
+                type[ScoreSetPublicationIdentifierAssociation],
             ],
         ],
     ] = {
@@ -334,8 +337,9 @@ def record_object_statistics(
     """
     # Validation to ensure 'keywords' is only used with 'experiment'.
     if model == RecordNames.scoreSet and field == RecordFields.keywords:
-        raise HTTPException(status_code=422,
-                            detail="The 'keywords' field can only be used with the 'experiment' model.")
+        raise HTTPException(
+            status_code=422, detail="The 'keywords' field can only be used with the 'experiment' model."
+        )
 
     count_data = _record_from_field_and_model(db, model, field)
 
