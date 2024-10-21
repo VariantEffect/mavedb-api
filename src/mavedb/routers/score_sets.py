@@ -106,9 +106,17 @@ async def fetch_score_set_by_urn(
     return item
 
 
-def _refresh_scoreset_fulltext(db):
-    # XXX this should cause this to happen via a worker
-    scoreset_fulltext_refresh(db)
+async def _refresh_scoreset_fulltext(
+    worker: ArqRedis,
+    item_id: Optional[int],
+):
+    job = await worker.enqueue_job(
+        "refresh_scoreset_fulltext",
+        correlation_id_for_context(),
+        item_id,
+    )
+    if job is not None:
+        save_to_logging_context({"refresh_scoreset_fulltext worker_job_id": job.job_id})
 
 
 router = APIRouter(
@@ -325,6 +333,7 @@ async def create_score_set(
     item_create: score_set.ScoreSetCreate,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
+    worker: ArqRedis = Depends(deps.get_worker),
 ) -> Any:
     """
     Create a score set.
@@ -590,7 +599,7 @@ async def create_score_set(
 
     save_to_logging_context({"created_resource": item.urn})
 
-    _refresh_scoreset_fulltext(db)
+    await _refresh_scoreset_fulltext(worker, item.id)
 
     return item
 
@@ -637,6 +646,7 @@ async def upload_score_set_variant_data(
         item.processing_state = ProcessingState.processing
 
         # await the insertion of this job into the worker queue, not the job itself.
+        logger.warning("enqueue create_variants_for_score_set %s", worker)
         job = await worker.enqueue_job(
             "create_variants_for_score_set",
             correlation_id_for_context(),
@@ -881,6 +891,8 @@ async def update_score_set(
             # races the score set GET request).
             item.processing_state = ProcessingState.processing
 
+            logger.warning("ENQUEUE create_variants_for_score_set %s", item.id)
+
             # await the insertion of this job into the worker queue, not the job itself.
             job = await worker.enqueue_job(
                 "create_variants_for_score_set",
@@ -929,7 +941,7 @@ async def update_score_set(
 
     save_to_logging_context({"updated_resource": item.urn})
 
-    _refresh_scoreset_fulltext(db)
+    await _refresh_scoreset_fulltext(worker, item.id)
 
     return item
 
@@ -940,6 +952,7 @@ async def delete_score_set(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
+    worker: ArqRedis = Depends(deps.get_worker),
 ) -> Any:
     """
     Delete a score set.
@@ -966,7 +979,8 @@ async def delete_score_set(
     db.delete(item)
     db.commit()
 
-    _refresh_scoreset_fulltext(db)
+    await _refresh_scoreset_fulltext(worker, item.id)
+
 
 @router.post(
     "/score-sets/{urn}/publish",
@@ -979,6 +993,7 @@ def publish_score_set(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
+    worker : ArqRedis = Depends(deps.get_worker),
 ) -> Any:
     """
     Publish a score set.

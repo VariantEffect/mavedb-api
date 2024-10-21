@@ -30,9 +30,9 @@ from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.score_set_fulltext import scoreset_fulltext_refresh
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
-
 logger = logging.getLogger(__name__)
 
 MAPPING_QUEUE_NAME = "vrs_mapping_queue"
@@ -654,3 +654,11 @@ async def variant_mapper_manager(ctx: dict, correlation_id: str, updater_id: int
 
         return {"success": False, "enqueued_job": new_job_id}
 
+
+def refresh_scoreset_fulltext(ctx: dict, item_id: Optional[int]) -> dict:
+
+    logger.info("fresh_scoreset_fulltext %s running", item_id)
+    scoreset_fulltext_refresh(ctx["db"])
+    logger.info("fresh_scoreset_fulltext %s finished", item_id)
+
+    return {"success": True}
