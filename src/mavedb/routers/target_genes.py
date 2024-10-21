@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/v1", tags=["target-genes"], responses={404: {"de
 
 
 @router.post("/me/target-genes/search", status_code=200, response_model=List[target_gene.TargetGene])
-def search_target_genes(
+def search_my_target_genes(
     search: TextSearch,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user)
