@@ -43,14 +43,15 @@ def variant_from_mapping(db: Session, mapping: dict, dcd_mapping_version: str) -
 @click.argument("urns", nargs=-1)
 @click.option("--all", help="Populate mapped variants for every score set in MaveDB.", is_flag=True)
 def populate_mapped_variant_data(db: Session, urns: Sequence[Optional[str]], all: bool):
-    logger.info("Populating mapped variant data")
     score_set_ids: Sequence[Optional[int]]
     if all:
         score_set_ids = db.scalars(select(ScoreSet.id)).all()
-        logger.debug(f"Populating mapped variant data for all score sets ({len(urns)}).")
+        logger.info(
+            f"Command invoked with --all. Routine will populate mapped variant data for {len(urns)} score sets."
+        )
     else:
         score_set_ids = db.scalars(select(ScoreSet.id).where(ScoreSet.urn.in_(urns))).all()
-        logger.debug(f"Populating mapped variant data for the provided score sets ({len(urns)}).")
+        logger.info(f"Populating mapped variant data for the provided score sets ({len(urns)}).")
 
     vrs = vrs_mapper()
 
@@ -71,11 +72,10 @@ def populate_mapped_variant_data(db: Session, urns: Sequence[Optional[str]], all
             for variant in existing_mapped_variants:
                 variant.current = False
 
-            logger.info(f"Populating mapped variant data for {score_set.urn}. ({idx+1}/{len(urns)}).")
-
             assert score_set.urn
+            logger.info(f"Mapping score set {score_set.urn}.")
             mapped_scoreset = vrs.map_score_set(score_set.urn)
-            logger.debug("Done mapping score set.")
+            logger.info(f"Done mapping score set {score_set.urn}.")
 
             dcd_mapping_version = mapped_scoreset["dcd_mapping_version"]
             mapped_scores = mapped_scoreset.get("mapped_scores")
@@ -138,7 +138,10 @@ def populate_mapped_variant_data(db: Session, urns: Sequence[Optional[str]], all
                 num_successful_variants = len(
                     [variant for variant in mapped_variants if variant.post_mapped is not None]
                 )
-                logger.debug(f"{num_successful_variants} variants generated a post-mapped VRS object.")
+                logger.debug(
+                    f"{num_successful_variants}/{len(mapped_variants)} variants generated a post-mapped VRS object."
+                )
+
                 if num_successful_variants == 0:
                     score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {"error_message": "All variants failed to map"}
@@ -150,6 +153,7 @@ def populate_mapped_variant_data(db: Session, urns: Sequence[Optional[str]], all
                 db.bulk_save_objects(mapped_variants)
                 db.commit()
                 logger.info(f"Done populating {len(mapped_variants)} mapped variants for {score_set.urn}.")
+
         except Exception as e:
             logging_context = {
                 "mapped_score_sets": urns[:idx],
@@ -159,6 +163,8 @@ def populate_mapped_variant_data(db: Session, urns: Sequence[Optional[str]], all
             logger.error(f"Score set {score_set.urn} failed to map.", extra=logging_context)
             logger.info(f"Rolling back all changes for scoreset {score_set.urn}")
             db.rollback()
+
+        logger.info(f"Done with score set {score_set.urn}. ({idx+1}/{len(urns)}).")
 
     logger.info("Done populating mapped variant data.")
 
