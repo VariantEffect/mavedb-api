@@ -7,7 +7,7 @@ Create Date: 2024-10-15 14:59:16.297975
 """
 from alembic import op
 
-from mavedb.models.score_set import scoreset_fulltext_view
+from mavedb.models.score_set_fulltext import _scoreset_fulltext_view
 
 # revision identifiers, used by Alembic.
 revision = '0d3732aa62be'
@@ -17,10 +17,10 @@ depends_on = None
 
 
 def upgrade():
-    op.create_entity(scoreset_fulltext_view)
+    op.create_entity(_scoreset_fulltext_view)
     op.execute("create index scoreset_fulltext_idx on scoreset_fulltext using gin (text)")
 
 
 def downgrade():
     op.execute("drop index scoreset_fulltext_idx")
-    op.drop_entity(scoreset_fulltext_view)
+    op.drop_entity(_scoreset_fulltext_view)
