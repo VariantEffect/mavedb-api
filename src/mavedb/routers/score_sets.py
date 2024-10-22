@@ -343,6 +343,11 @@ async def create_score_set(
     if not license_:
         logger.info(msg="Failed to create score set; The requested license does not exist.", extra=logging_context())
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
+    elif not license_.active:
+        logger.info(
+            msg="Failed to create score set; The requested license is no longer active.", extra=logging_context()
+        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid license")
 
     save_to_logging_context({"requested_superseded_score_set": item_create.superseded_score_set_urn})
     if item_create.superseded_score_set_urn is not None:
@@ -673,7 +678,7 @@ async def update_score_set(
         license_ = None
 
         if item_update.license_id is not None:
-            save_to_logging_context({"license": item_update.license_id})
+            save_to_logging_context({"requested_license": item_update.license_id})
             license_ = db.query(License).filter(License.id == item_update.license_id).one_or_none()
 
             if not license_:
@@ -681,6 +686,13 @@ async def update_score_set(
                     msg="Failed to update score set; The requested license does not exist.", extra=logging_context()
                 )
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
+            # Allow in-active licenses to be retained on update if they already exist on the item.
+            elif not license_.active and item.licence_id != item_update.license_id:
+                logger.info(
+                    msg="Failed to update score set license; The requested license is no longer active.",
+                    extra=logging_context(),
+                )
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid license")
 
             item.license = license_
 

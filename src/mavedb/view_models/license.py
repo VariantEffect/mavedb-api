@@ -9,6 +9,7 @@ class LicenseBase(BaseModel):
 
     long_name: str
     short_name: str
+    active: bool
     link: Optional[str]
     version: Optional[str]
 

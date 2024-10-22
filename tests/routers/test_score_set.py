@@ -24,6 +24,7 @@ from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util import (
     add_contributor,
     change_ownership,
+    change_to_inactive_license,
     create_experiment,
     create_seq_score_set,
     create_seq_score_set_with_variants,
@@ -1224,3 +1225,33 @@ def test_contributor_can_add_score_set_to_others_public_experiment(
     score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     assert response.status_code == 200
+
+
+def test_cannot_create_score_set_with_inactive_license(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = experiment["urn"]
+    score_set_post_payload["licenseId"] = 2
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 400
+
+
+def test_cannot_modify_score_set_to_inactive_license(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set_post_payload = score_set.copy()
+    score_set_post_payload.update({"licenseId": 2, "urn": score_set["urn"]})
+    response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_post_payload)
+    assert response.status_code == 400
+
+
+def test_can_modify_metadata_for_score_set_with_inactive_license(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    change_to_inactive_license(session, score_set["urn"])
+    score_set_post_payload = score_set.copy()
+    score_set_post_payload.update({"title": "Update title", "urn": score_set["urn"]})
+    response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_post_payload)
+    assert response.status_code == 200
+    response_data = response.json()
+    assert ("title", response_data["title"]) == ("title", "Update title")

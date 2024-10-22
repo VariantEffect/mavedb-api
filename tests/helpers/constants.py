@@ -291,6 +291,17 @@ TEST_LICENSE = {
     "text": "Don't be evil.",
     "link": "localhost",
     "version": "1.0",
+    "active": True,
+}
+
+TEST_INACTIVE_LICENSE = {
+    "id": 2,
+    "short_name": "Long",
+    "long_name": "Short",
+    "text": "Be evil.",
+    "link": "localhost",
+    "version": "1.0",
+    "active": False,
 }
 
 TEST_SEQ_SCORESET = {
