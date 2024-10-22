@@ -11,7 +11,10 @@ DB_USERNAME = os.getenv("DB_USERNAME")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 
 # DB_URL = "sqlite:///./sql_app.db"
-DB_URL = f"postgresql://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_DATABASE_NAME}"
+if not DB_USERNAME:
+    DB_URL = f"postgresql:///{DB_DATABASE_NAME}"
+else:
+    DB_URL = f"postgresql://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_DATABASE_NAME}"
 
 engine = create_engine(
     # For PostgreSQL:

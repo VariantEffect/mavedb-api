@@ -30,6 +30,7 @@ from mavedb.worker.jobs import (
     create_variants_for_score_set,
     map_variants_for_score_set,
     variant_mapper_manager,
+    refresh_scoreset_fulltext,
 )
 from tests.helpers.constants import (
     TEST_CDOT_TRANSCRIPT,
@@ -53,8 +54,10 @@ async def setup_records_and_files(async_client, data_files, input_score_set):
     score_set_payload = deepcopy(input_score_set)
     score_set_payload["experimentUrn"] = experiment["urn"]
     jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
-    score_set_response = await async_client.post("/api/v1/score-sets/", json=score_set_payload)
-    assert score_set_response.status_code == 200
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+        score_set_response = await async_client.post("/api/v1/score-sets/", json=score_set_payload)
+        assert score_set_response.status_code == 200
+        queue.assert_called_once()
     score_set = score_set_response.json()
     jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
 
@@ -1457,3 +1460,18 @@ async def test_mapping_manager_enqueues_mapping_process_with_unsuccessful_mappin
     assert len(mapped_variants_for_score_set) == 0
     assert score_set.mapping_state == MappingState.failed
     assert score_set.mapping_errors is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.skip
+async def test_refresh_scoreset_fulltext(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    with (
+        patch('mavedb.models.score_set_fulltext.scoreset_fulltext_refresh') as mock
+    ):
+        await arq_redis.enqueue_job("refresh_scoreset_fulltext", {"db": None}, -1)
+        await arq_worker.async_run()
+        await arq_worker.run_check()
+        mock.assert_run_once()
+

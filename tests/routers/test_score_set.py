@@ -2,6 +2,7 @@ import re
 from copy import deepcopy
 from datetime import date
 from unittest.mock import patch
+import logging
 
 import jsonschema
 from arq import ArqRedis
@@ -10,6 +11,7 @@ from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.models.score_set_fulltext import scoreset_fulltext_refresh
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
@@ -30,6 +32,8 @@ from tests.helpers.util import (
 )
 
 
+logger = logging.getLogger(__name__)
+
 def test_TEST_MINIMAL_SEQ_SCORESET_is_valid():
     jsonschema.validate(instance=TEST_MINIMAL_SEQ_SCORESET, schema=ScoreSetCreate.schema())
 
@@ -39,11 +43,13 @@ def test_TEST_MINIMAL_ACC_SCORESET_is_valid():
 
 
 def test_create_minimal_score_set(client, setup_router_db):
-    experiment = create_experiment(client)
-    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
-    score_set_post_payload["experimentUrn"] = experiment["urn"]
-    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
-    assert response.status_code == 200
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+        experiment = create_experiment(client)
+        score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+        score_set_post_payload["experimentUrn"] = experiment["urn"]
+        response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+        assert response.status_code == 200
+        queue.assert_called_once()
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
@@ -69,11 +75,13 @@ def test_create_score_set_with_contributor(client, setup_router_db):
     score_set["experimentUrn"] = experiment["urn"]
     score_set.update({"contributors": [{"orcid_id": TEST_ORCID_ID}]})
 
-    with patch(
-        "mavedb.lib.orcid.fetch_orcid_user",
-        lambda orcid_id: OrcidUser(orcid_id=orcid_id, given_name="ORCID", family_name="User"),
-    ):
+    def orcid_user_mock(orcid_id):
+        return OrcidUser(orcid_id=orcid_id, given_name="ORCID", family_name="User")
+
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue, \
+            patch("mavedb.lib.orcid.fetch_orcid_user", orcid_user_mock):
         response = client.post("/api/v1/score-sets/", json=score_set)
+        queue.assert_called_once()
 
     assert response.status_code == 200
     response_data = response.json()
@@ -124,8 +132,10 @@ def test_create_score_set_with_score_range(client, setup_router_db):
         }
     )
 
-    response = client.post("/api/v1/score-sets/", json=score_set)
-    assert response.status_code == 200
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+        response = client.post("/api/v1/score-sets/", json=score_set)
+        assert response.status_code == 200
+        queue.assert_called_once()
 
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
@@ -979,6 +989,9 @@ def test_search_score_sets_no_match(session, data_provider, client, setup_router
         update={"title": "Test Score Set"},
     )
 
+    # this would be run asynchronously but that is mocked out so we run it manually
+    scoreset_fulltext_refresh(session)
+
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
@@ -995,6 +1008,9 @@ def test_search_score_sets_match(session, data_provider, client, setup_router_db
         data_files / "scores.csv",
         update={"title": "Test Fnord Score Set"},
     )
+
+    # this would be run asynchronously but that is mocked out so we run it manually
+    scoreset_fulltext_refresh(session)
 
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
@@ -1069,9 +1085,11 @@ def test_can_delete_own_private_scoreset(session, data_provider, client, setup_r
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
 
-    response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+        response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
 
     assert response.status_code == 200
+    queue.assert_called_once()
 
 
 def test_cannot_delete_own_published_scoreset(session, data_provider, client, setup_router_db, data_files):
@@ -1106,9 +1124,11 @@ def test_contributor_can_delete_other_users_private_scoreset(
         TEST_USER["last_name"],
     )
 
-    response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+        response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
 
     assert response.status_code == 200
+    queue.assert_called_once()
 
 
 def test_admin_can_delete_other_users_private_scoreset(
@@ -1119,10 +1139,11 @@ def test_admin_can_delete_other_users_private_scoreset(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
 
-    with DependencyOverrider(admin_app_overrides):
+    with DependencyOverrider(admin_app_overrides), patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
         response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
 
     assert response.status_code == 200
+    queue.assert_called_once()
 
 
 def test_admin_can_delete_other_users_published_scoreset(
@@ -1135,18 +1156,21 @@ def test_admin_can_delete_other_users_published_scoreset(
     response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
     response_data = response.json()
 
-    with DependencyOverrider(admin_app_overrides):
+    with DependencyOverrider(admin_app_overrides), patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
         del_response = client.delete(f"/api/v1/score-sets/{response_data['urn']}")
 
     assert del_response.status_code == 200
+    queue.assert_called_once()
 
 
 def test_can_add_score_set_to_own_private_experiment(session, client, setup_router_db):
     experiment = create_experiment(client)
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_post_payload["experimentUrn"] = experiment["urn"]
-    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
-    assert response.status_code == 200
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+        response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+        assert response.status_code == 200
+        queue.assert_called_once()
 
 
 def test_cannot_add_score_set_to_others_private_experiment(session, client, setup_router_db):
@@ -1169,8 +1193,10 @@ def test_can_add_score_set_to_own_public_experiment(session, data_provider, clie
     pub_score_set_1 = client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish").json()
     score_set_2 = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_2["experimentUrn"] = pub_score_set_1["experiment"]["urn"]
-    response = client.post("/api/v1/score-sets/", json=score_set_2)
-    assert response.status_code == 200
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+        response = client.post("/api/v1/score-sets/", json=score_set_2)
+        assert response.status_code == 200
+        queue.assert_called_once()
 
 
 def test_can_add_score_set_to_others_public_experiment(session, data_provider, client, setup_router_db, data_files):
@@ -1182,8 +1208,10 @@ def test_can_add_score_set_to_others_public_experiment(session, data_provider, c
     change_ownership(session, pub_score_set_1["experiment"]["urn"], ExperimentDbModel)
     score_set_2 = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_2["experimentUrn"] = pub_score_set_1["experiment"]["urn"]
-    response = client.post("/api/v1/score-sets/", json=score_set_2)
-    assert response.status_code == 200
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+        response = client.post("/api/v1/score-sets/", json=score_set_2)
+        assert response.status_code == 200
+        queue.assert_called_once()
 
 
 def test_contributor_can_add_score_set_to_others_private_experiment(session, client, setup_router_db):
@@ -1199,8 +1227,10 @@ def test_contributor_can_add_score_set_to_others_private_experiment(session, cli
     )
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_post_payload["experimentUrn"] = experiment["urn"]
-    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
-    assert response.status_code == 200
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+        response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+        assert response.status_code == 200
+        queue.assert_called_once()
 
 
 def test_contributor_can_add_score_set_to_others_public_experiment(
@@ -1222,5 +1252,7 @@ def test_contributor_can_add_score_set_to_others_public_experiment(
     )
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
-    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
-    assert response.status_code == 200
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+        response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+        assert response.status_code == 200
+        queue.assert_called_once()

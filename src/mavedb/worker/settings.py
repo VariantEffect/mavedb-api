@@ -8,13 +8,14 @@ from arq.cron import CronJob
 from mavedb.data_providers.services import cdot_rest
 from mavedb.db.session import SessionLocal
 from mavedb.lib.logging.canonical import log_job
-from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager
+from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager, refresh_scoreset_fulltext
 
 # ARQ requires at least one task on startup.
 BACKGROUND_FUNCTIONS: list[Callable] = [
     create_variants_for_score_set,
     variant_mapper_manager,
     map_variants_for_score_set,
+    refresh_scoreset_fulltext,
 ]
 BACKGROUND_CRONJOBS: list[CronJob] = []
 

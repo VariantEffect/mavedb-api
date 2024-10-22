@@ -68,10 +68,12 @@ def create_seq_score_set(client, experiment_urn, update=None):
         score_set_payload.update(update)
     jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
 
-    response = client.post("/api/v1/score-sets/", json=score_set_payload)
-    assert (
-        response.status_code == 200
-    ), f"Could not create sequence based score set (no variants) within experiment {experiment_urn}"
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+        response = client.post("/api/v1/score-sets/", json=score_set_payload)
+        assert (
+            response.status_code == 200
+        ), f"Could not create sequence based score set (no variants) within experiment {experiment_urn}"
+        queue.assert_called_once()
 
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
@@ -86,12 +88,14 @@ def create_acc_score_set(client, experiment_urn, update=None):
         score_set_payload.update(update)
     jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
 
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT), \
+            patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
         response = client.post("/api/v1/score-sets/", json=score_set_payload)
 
     assert (
         response.status_code == 200
     ), f"Could not create accession based score set (no variants) within experiment {experiment_urn}"
+    queue.assert_called_once()
 
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=ScoreSet.schema())

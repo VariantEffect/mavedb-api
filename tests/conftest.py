@@ -4,6 +4,7 @@ from concurrent import futures
 from inspect import getsourcefile
 from os.path import abspath
 from unittest.mock import patch
+import logging
 
 import cdot.hgvs.dataproviders
 import email_validator
@@ -28,10 +29,13 @@ from mavedb.lib.authorization import require_current_user
 from mavedb.models.user import User
 from mavedb.server_main import app
 from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager
+from mavedb.models.score_set_fulltext import scoreset_fulltext_create, scoreset_fulltext_destroy
 
 sys.path.append(".")
 
 from tests.helpers.constants import ADMIN_USER, TEST_USER
+
+logger = logging.getLogger(__name__)
 
 # needs the pytest_postgresql plugin installed
 assert pytest_postgresql.factories
@@ -51,10 +55,12 @@ def session(postgresql):
     session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
 
     Base.metadata.create_all(bind=engine)
+    scoreset_fulltext_create(session)
 
     try:
         yield session
     finally:
+        scoreset_fulltext_destroy(session)
         session.close()
         Base.metadata.drop_all(bind=engine)
 
