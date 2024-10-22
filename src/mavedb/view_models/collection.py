@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Any
 
+from pydantic import Field
 from pydantic.types import Optional
 
 from mavedb.view_models import UserContributionRoleGetter
@@ -22,10 +23,14 @@ class CollectionGetter(UserContributionRoleGetter):
 
 
 class CollectionBase(BaseModel):
-    private: bool
+    private: bool = Field(
+        description="Whether the collection is visible to all MaveDB users. If set during collection update, input ignored unless requesting user is collection admin."
+    )
     name: str
     description: Optional[str]
-    badge_name: Optional[str]
+    badge_name: Optional[str] = Field(
+        description="Badge name. Input ignored unless requesting user has MaveDB admin privileges."
+    )
 
 
 class CollectionModify(CollectionBase):
