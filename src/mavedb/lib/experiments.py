@@ -99,7 +99,7 @@ def search_experiments(
             )
         )
 
-    items: list[Experiment] = query.order_by(Experiment.urn).all()
+    items: list[Experiment] = query.order_by(Experiment.urn, Experiment.title).all()
     if not items:
         items = []
 
