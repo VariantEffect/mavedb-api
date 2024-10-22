@@ -302,7 +302,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             # Roles which may perform this operation.
             elif roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
-            elif private:
+            elif private and not user_may_view_private:
                 # Do not acknowledge the existence of a private entity.
                 return PermissionResponse(False, 404, f"score set with URN '{item.urn}' not found")
             elif user_data is None or user_data.user is None:
@@ -310,11 +310,12 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             else:
                 return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
         elif action == Action.DELETE:
-            # TODO should this be true? Owner may only delete a collection if it has not already been published.
             # TODO should collection admins be allowed to delete a collection?
+            # TODO who should be allowed to delete an official collection? mavedb admins only?
+            # A collection may be deleted even if it has been published, as long as it is not an official collection.
             if user_is_owner:
-                return PermissionResponse(not published, 403, f"insufficient permissions for URN '{item.urn}'")
-            # Roles which may perform this operation.
+                return PermissionResponse(not item.badge_name, 403, f"insufficient permissions for URN '{item.urn}'")
+            # MaveDB admins may delete official collections.
             elif roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
             elif private and not user_may_view_private:
@@ -322,9 +323,9 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(False, 404, f"collection with URN '{item.urn}' not found")
             else:
                 return PermissionResponse(False)
-        # TODO should collection admins be allowed to publish a collection?
+        # TODO should collection admins be allowed to publish a collection? (I think yes)
         elif action == Action.PUBLISH:
-            if user_is_owner:
+            if user_is_admin:
                 return PermissionResponse(True)
             elif roles_permitted(active_roles, []):
                 return PermissionResponse(True)
