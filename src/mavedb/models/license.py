@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy import Column, Date, Integer, String
+from sqlalchemy import Boolean, Column, Date, Integer, String
 
 from mavedb.db.base import Base
 
@@ -16,3 +16,4 @@ class License(Base):
     version = Column(String, nullable=True, unique=False)
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
+    active = Column(Boolean, nullable=False)
