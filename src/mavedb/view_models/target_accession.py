@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional
 
+from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel, validator
 
 
@@ -31,6 +32,10 @@ class TargetAccessionUpdate(TargetAccessionModify):
 
 # Properties shared by models stored in DB
 class SavedTargetAccession(TargetAccessionBase):
+    record_type: str = None  # type: ignore
+
+    _record_type_factory = record_type_validator()(set_record_type)
+
     class Config:
         orm_mode = True
         arbitrary_types_allowed = True

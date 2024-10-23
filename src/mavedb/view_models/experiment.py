@@ -3,7 +3,7 @@ from typing import Any, Collection, Optional, Sequence
 
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import is_null
-from mavedb.view_models import PublicationIdentifiersGetter
+from mavedb.view_models import PublicationIdentifiersGetter, record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.contributor import Contributor, ContributorCreate
 from mavedb.view_models.doi_identifier import (
@@ -91,6 +91,7 @@ class ExperimentUpdate(ExperimentModify):
 
 # Properties shared by models stored in DB
 class SavedExperiment(ExperimentBase):
+    record_type: str = None  # type: ignore
     urn: str
     created_by: SavedUser
     modified_by: SavedUser
@@ -104,6 +105,8 @@ class SavedExperiment(ExperimentBase):
     raw_read_identifiers: Sequence[SavedRawReadIdentifier]
     contributors: list[Contributor]
     keywords: Sequence[SavedExperimentControlledKeyword]
+
+    _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
         orm_mode = True

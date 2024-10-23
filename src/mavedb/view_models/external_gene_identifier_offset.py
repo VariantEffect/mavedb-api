@@ -1,4 +1,4 @@
-from mavedb.view_models import external_gene_identifier
+from mavedb.view_models import external_gene_identifier, record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel, validator
 
 
@@ -19,7 +19,10 @@ class ExternalGeneIdentifierOffsetCreate(ExternalGeneIdentifierOffsetBase):
 
 # Properties shared by models stored in DB
 class SavedExternalGeneIdentifierOffset(ExternalGeneIdentifierOffsetBase):
+    record_type: str = None  # type: ignore
     identifier: external_gene_identifier.SavedExternalGeneIdentifier
+
+    _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
         orm_mode = True

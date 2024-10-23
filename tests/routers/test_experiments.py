@@ -74,6 +74,7 @@ def test_create_experiment_with_contributor(client, setup_router_db):
     expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
     expected_response["contributors"] = [
         {
+            "recordType": "Contributor",
             "orcidId": TEST_ORCID_ID,
             "givenName": "ORCID",
             "familyName": "User",
@@ -723,6 +724,7 @@ def test_create_experiment_with_new_primary_pubmed_publication(client, setup_rou
             "identifier",
             "title",
             "url",
+            "recordType",
             "referenceHtml",
             "publicationJournal",
             "publicationYear",
@@ -753,6 +755,7 @@ def test_create_experiment_with_new_primary_preprint_publication(client, setup_r
             "identifier",
             "title",
             "url",
+            "recordType",
             "referenceHtml",
             "doi",
             "publicationJournal",
@@ -783,6 +786,7 @@ def test_create_experiment_with_new_primary_crossref_publication(client, setup_r
             "identifier",
             "title",
             "url",
+            "recordType",
             "referenceHtml",
             "doi",
             "publicationJournal",

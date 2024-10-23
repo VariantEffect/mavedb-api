@@ -1,6 +1,7 @@
 from typing import Optional
 
 from mavedb.lib.validation import identifier as identifier_validator
+from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel, validator
 
 
@@ -27,9 +28,12 @@ class ExternalGeneIdentifierCreate(ExternalGeneIdentifierBase):
 
 # Properties shared by models stored in DB
 class SavedExternalGeneIdentifier(ExternalGeneIdentifierBase):
+    record_type: str = None  # type: ignore
     db_version: Optional[str]
     url: Optional[str]
     reference_html: Optional[str]
+
+    _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
         orm_mode = True

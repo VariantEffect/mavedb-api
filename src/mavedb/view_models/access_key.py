@@ -2,6 +2,7 @@ from datetime import date
 from typing import Optional
 
 from mavedb.models.enums.user_role import UserRole
+from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 
 
@@ -14,10 +15,13 @@ class AccessKeyBase(BaseModel):
 
 # Properties shared by models stored in DB
 class SavedAccessKey(AccessKeyBase):
+    record_type: str = None  # type: ignore
+    role: Optional[UserRole]
+
+    _record_type_factory = record_type_validator()(set_record_type)
+
     class Config:
         orm_mode = True
-
-    role: Optional[UserRole]
 
 
 # Properties to return to non-admin clients
