@@ -90,6 +90,7 @@ def test_create_score_set_with_contributor(client, setup_router_db):
     )
     expected_response["contributors"] = [
         {
+            "recordType": "Contributor",
             "orcidId": TEST_ORCID_ID,
             "givenName": "ORCID",
             "familyName": "User",
@@ -238,17 +239,20 @@ def test_contributor_can_get_other_users_private_score_set(session, client, setu
     )
     expected_response["contributors"] = [
         {
+            "recordType": "Contributor",
             "orcidId": TEST_USER["username"],
             "givenName": TEST_USER["first_name"],
             "familyName": TEST_USER["last_name"],
         }
     ]
     expected_response["createdBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
     }
     expected_response["modifiedBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
@@ -424,17 +428,20 @@ def test_contributor_can_add_scores_to_other_user_score_set(session, client, set
     score_set.update({"processingState": "processing"})
     score_set["contributors"] = [
         {
+            "recordType": "Contributor",
             "orcidId": TEST_USER["username"],
             "givenName": TEST_USER["first_name"],
             "familyName": TEST_USER["last_name"],
         }
     ]
     score_set["createdBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
     }
     score_set["modifiedBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
@@ -480,17 +487,20 @@ def test_contributor_can_add_scores_and_counts_to_other_user_score_set(session, 
     score_set.update({"processingState": "processing"})
     score_set["contributors"] = [
         {
+            "recordType": "Contributor",
             "orcidId": TEST_USER["username"],
             "givenName": TEST_USER["first_name"],
             "familyName": TEST_USER["last_name"],
         }
     ]
     score_set["createdBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
     }
     score_set["modifiedBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
@@ -705,17 +715,20 @@ def test_contributor_can_publish_other_users_score_set(session, data_provider, c
     )
     expected_response["contributors"] = [
         {
+            "recordType": "Contributor",
             "orcidId": TEST_USER["username"],
             "givenName": TEST_USER["first_name"],
             "familyName": TEST_USER["last_name"],
         }
     ]
     expected_response["createdBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
     }
     expected_response["modifiedBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
