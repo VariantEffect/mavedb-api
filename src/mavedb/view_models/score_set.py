@@ -13,7 +13,7 @@ from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import inf_or_float, is_null
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
-from mavedb.view_models import PublicationIdentifiersGetter
+from mavedb.view_models import PublicationIdentifiersGetter, record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.contributor import Contributor, ContributorCreate
 from mavedb.view_models.doi_identifier import (
@@ -342,6 +342,9 @@ class ShortScoreSet(BaseModel):
     modification_date: date
     target_genes: list[ShortTargetGene]
     private: bool
+    record_type: str = None  # type: ignore
+
+    _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
         orm_mode = True
@@ -351,6 +354,9 @@ class ShortScoreSet(BaseModel):
 
 class ShorterScoreSet(BaseModel):
     urn: str
+    record_type: str = None  # type: ignore
+
+    _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
         orm_mode = True
@@ -361,6 +367,7 @@ class ShorterScoreSet(BaseModel):
 class SavedScoreSet(ScoreSetBase):
     """Base class for score set view models representing saved records."""
 
+    record_type: str = None  # type: ignore
     urn: str
     num_variants: int
     license: ShortLicense
@@ -381,6 +388,8 @@ class SavedScoreSet(ScoreSetBase):
     external_links: Dict[str, ExternalLink]
     contributors: list[Contributor]
     score_ranges: Optional[ScoreRanges]
+
+    _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
         orm_mode = True
