@@ -1,18 +1,35 @@
 from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from mavedb import deps
+from mavedb.lib.authentication import UserData
+from mavedb.lib.authorization import require_current_user
+from mavedb.lib.target_genes import (
+    search_target_genes as _search_target_genes,
+)
 from mavedb.models.target_gene import TargetGene
 from mavedb.view_models import target_gene
 from mavedb.view_models.search import TextSearch
 
-router = APIRouter(prefix="/api/v1/target-genes", tags=["target-genes"], responses={404: {"description": "Not found"}})
+router = APIRouter(prefix="/api/v1", tags=["target-genes"], responses={404: {"description": "Not found"}})
 
 
-@router.get("/", status_code=200, response_model=List[target_gene.TargetGene], responses={404: {}})
+@router.post("/me/target-genes/search", status_code=200, response_model=List[target_gene.TargetGene])
+def search_my_target_genes(
+    search: TextSearch,
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(require_current_user)
+) -> Any:
+    """
+    Search my target genes.
+    """
+
+    return _search_target_genes(db, user_data.user, search, 50)
+
+
+@router.get("/target-genes", status_code=200, response_model=List[target_gene.TargetGene], responses={404: {}})
 def list_target_genes(
     *,
     db: Session = Depends(deps.get_db),
@@ -24,7 +41,7 @@ def list_target_genes(
     return items
 
 
-@router.get("/names", status_code=200, response_model=List[str], responses={404: {}})
+@router.get("/target-genes/names", status_code=200, response_model=List[str], responses={404: {}})
 def list_target_gene_names(
     *,
     db: Session = Depends(deps.get_db),
@@ -38,7 +55,7 @@ def list_target_gene_names(
     return sorted(list(set(names)))
 
 
-@router.get("/categories", status_code=200, response_model=List[str], responses={404: {}})
+@router.get("/target-genes/categories", status_code=200, response_model=List[str], responses={404: {}})
 def list_target_gene_categories(
     *,
     db: Session = Depends(deps.get_db),
@@ -52,7 +69,7 @@ def list_target_gene_categories(
     return sorted(list(set(categories)))
 
 
-@router.get("/{item_id}", status_code=200, response_model=target_gene.TargetGene, responses={404: {}})
+@router.get("/target-genes/{item_id}", status_code=200, response_model=target_gene.TargetGene, responses={404: {}})
 def fetch_target_gene(
     *,
     item_id: int,
@@ -67,20 +84,13 @@ def fetch_target_gene(
     return item
 
 
-@router.post("/search", status_code=200, response_model=List[target_gene.TargetGene])
-def search_target_genes(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
+@router.post("/target-genes/search", status_code=200, response_model=List[target_gene.TargetGene])
+def search_target_genes(
+    search: TextSearch,
+    db: Session = Depends(deps.get_db)
+) -> Any:
     """
     Search target genes.
     """
 
-    query = db.query(TargetGene)
-
-    if search.text and len(search.text.strip()) > 0:
-        lower_search_text = search.text.strip().lower()
-        query = query.filter(func.lower(TargetGene.name).contains(lower_search_text))
-    else:
-        raise HTTPException(status_code=500, detail="Search text is required")
-    items = query.order_by(TargetGene.name).limit(50).all()
-    if not items:
-        items = []
-    return items
+    return _search_target_genes(db, None, search, 50)
