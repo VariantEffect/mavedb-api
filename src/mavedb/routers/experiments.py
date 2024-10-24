@@ -1,5 +1,7 @@
 import logging
+import json
 from operator import attrgetter
+from sqlalchemy import or_, not_
 from typing import Any, Optional
 
 import pydantic
@@ -75,6 +77,23 @@ def list_experiments(
             )  # .filter(Experiment.published_date is None)
         # else:
         #     query = query.filter(Experiment.created_by_id == user.id).filter(Experiment.published_date is None)
+            try:
+                q_parsed = json.loads(q)
+                l_filter = q_parsed.get('l', {}).get('meta_analysis', None)
+
+                if l_filter == 'false':
+                    logger.debug("Excluding meta-analysis experiments.")
+                    query = query.filter(
+                        or_(
+                            # Keep experiments without any score sets
+                            not_(Experiment.score_sets.any()),
+                            # Keep experiments where score sets exist but have no meta_analyzes_score_sets
+                            Experiment.score_sets.any(not_(ScoreSet.meta_analyzes_score_sets.any()))
+                        )
+                    )
+
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=400, detail="Invalid query format")
     else:
         logger.debug(msg="No query string was provided; Listing all experiments.", extra=logging_context())
 
