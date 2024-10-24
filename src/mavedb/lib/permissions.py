@@ -180,7 +180,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
         elif action == Action.ADD_SCORE_SET:
             # Not allow add score set in meta-analysis experiments.
             if any(score_set.meta_analyzes_score_sets for score_set in item.score_sets):
-                return PermissionResponse(False)
+                return PermissionResponse(False, 403, f"not allow to add score set in meta-analysis experiment")
             # Only permitted users can add a score set to a private experiment.
             elif user_may_edit or roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
