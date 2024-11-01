@@ -1,22 +1,8 @@
 from unittest import TestCase
 
-from mavedb.lib.validation.constants.target import valid_categories, valid_sequence_types
+from mavedb.lib.validation.constants.target import valid_sequence_types
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.lib.validation.target import validate_sequence_category, validate_target_category, validate_target_sequence
-
-
-class TestValidateTargetCategory(TestCase):
-    def test_valid(self):
-        for category in valid_categories:
-            validate_target_category(category)
-
-    def test_invalid_category(self):
-        with self.assertRaises(ValidationError):
-            validate_target_category("Protein")
-
-    def test_invalid_case(self):
-        with self.assertRaises(ValidationError):
-            validate_target_category("protein coding")
+from mavedb.lib.validation.target import validate_sequence_category, validate_target_sequence
 
 
 class TestValidateSequenceCategory(TestCase):
