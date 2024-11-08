@@ -254,7 +254,6 @@ class ScoreSetModify(ScoreSetBase):
             range_model.range for range_model in field_value.ranges if range_model.classification == "normal"
         ]
         for range in normal_ranges:
-            print(range)
             if field_value.wt_score >= inf_or_float(range[0], lower=True) and field_value.wt_score < inf_or_float(
                 range[1], lower=False
             ):
