@@ -13,6 +13,26 @@ TEST_ORCID_ID = "1111-1111-1111-1111"
 VALID_ACCESSION = "NM_001637.3"
 VALID_GENE = "BRCA1"
 
+SAVED_PUBMED_PUBLICATION = {
+    "identifier": "20711194",
+    "dbName": "PubMed",
+    "title": "None",
+    "authors": [],
+    "abstract": "test",
+    "doi": "test",
+    "publicationYear": 1999,
+    "publicationJournal": "test",
+    "url": "http://www.ncbi.nlm.nih.gov/pubmed/20711194",
+    "referenceHtml": ". None. test. 1999; (Unknown volume):(Unknown pages). test",
+    "id": 1,
+}
+
+SAVED_DOI_IDENTIFIER = {
+    "identifier": TEST_CROSSREF_IDENTIFIER,
+    "url": f"https://doi.org/{TEST_CROSSREF_IDENTIFIER}",
+    "id": 1,
+}
+
 TEST_USER = {
     "username": "0000-1111-2222-3333",
     "first_name": "First",
@@ -22,6 +42,18 @@ TEST_USER = {
     "is_staff": False,
     "is_superuser": False,
     "is_first_login": True,
+}
+
+CONTRIBUTOR = {
+    "orcid_id": TEST_USER["username"],
+    "given_name": TEST_USER["first_name"],
+    "family_name": TEST_USER["last_name"],
+}
+
+SAVED_CONTRIBUTOR = {
+    "orcidId": TEST_USER["username"],
+    "givenName": TEST_USER["first_name"],
+    "familyName": TEST_USER["last_name"],
 }
 
 TEST_USER_DECODED_JWT = {
@@ -39,6 +71,18 @@ EXTRA_USER = {
     "is_staff": False,
     "is_superuser": False,
     "is_first_login": True,
+}
+
+EXTRA_CONTRIBUTOR = {
+    "orcid_id": EXTRA_USER["username"],
+    "given_name": EXTRA_USER["first_name"],
+    "family_name": EXTRA_USER["last_name"],
+}
+
+SAVED_EXTRA_CONTRIBUTOR = {
+    "orcidId": EXTRA_USER["username"],
+    "givenName": EXTRA_USER["first_name"],
+    "familyName": EXTRA_USER["last_name"],
 }
 
 EXTRA_USER_DECODED_JWT = {
@@ -293,6 +337,31 @@ TEST_LICENSE = {
     "version": "1.0",
 }
 
+SAVED_SHORT_TEST_LICENSE = {
+    "id": TEST_LICENSE["id"],
+    "shortName": TEST_LICENSE["short_name"],
+    "longName": TEST_LICENSE["long_name"],
+    "link": TEST_LICENSE["link"],
+    "version": TEST_LICENSE["version"],
+}
+
+EXTRA_LICENSE = {
+    "id": 2,
+    "short_name": "Extra",
+    "long_name": "License",
+    "text": "Don't be tooooo evil.",
+    "link": "localhost",
+    "version": "1.0",
+}
+
+SAVED_SHORT_EXTRA_LICENSE = {
+    "id": EXTRA_LICENSE["id"],
+    "shortName": EXTRA_LICENSE["short_name"],
+    "longName": EXTRA_LICENSE["long_name"],
+    "link": EXTRA_LICENSE["link"],
+    "version": EXTRA_LICENSE["version"],
+}
+
 TEST_SEQ_SCORESET = {
     "title": "Test Score Set Title",
     "short_description": "Test score set",
@@ -457,6 +526,7 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     "targetGenes": [
         {
             "name": "TEST2",
+            "id": 2,
             "category": "protein_coding",
             "externalIdentifiers": [],
             "targetAccession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
@@ -514,4 +584,21 @@ TEST_VARIANT_MAPPING_SCAFFOLD = {
     "vrs_version": "2.0",
     "dcd_mapping_version": "pytest.0.0",
     "mapped_date_utc": datetime.isoformat(datetime.now()),
+}
+
+
+TEST_SCORESET_RANGE = {
+    "wt_score": 1.0,
+    "ranges": [
+        {"label": "test1", "classification": "normal", "range": (0, 2.0)},
+        {"label": "test2", "classification": "abnormal", "range": (-2.0, 0)},
+    ],
+}
+
+TEST_SAVED_SCORESET_RANGE = {
+    "wtScore": 1.0,
+    "ranges": [
+        {"label": "test1", "classification": "normal", "range": [0.0, 2.0]},
+        {"label": "test2", "classification": "abnormal", "range": [-2.0, 0.0]},
+    ],
 }

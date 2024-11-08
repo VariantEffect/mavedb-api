@@ -646,7 +646,9 @@ async def upload_score_set_variant_data(
     return item
 
 
-@router.put("/score-sets/{urn}", response_model=score_set.ScoreSet, responses={422: {}})
+@router.put(
+    "/score-sets/{urn}", response_model=score_set.ScoreSet, responses={422: {}}, response_model_exclude_none=True
+)
 async def update_score_set(
     *,
     urn: str,
@@ -668,68 +670,65 @@ async def update_score_set(
 
     assert_permission(user_data, item, Action.UPDATE)
 
-    # Editing unpublished score set
-    if item.private is True:
-        license_ = None
+    for var, value in vars(item_update).items():
+        if var not in [
+            "contributors",
+            "score_ranges",
+            "doi_identifiers",
+            "experiment_urn",
+            "license_id",
+            "secondary_publication_identifiers",
+            "primary_publication_identifiers",
+            "target_genes",
+        ]:
+            setattr(item, var, value) if value else None
 
-        if item_update.license_id is not None:
-            save_to_logging_context({"license": item_update.license_id})
-            license_ = db.query(License).filter(License.id == item_update.license_id).one_or_none()
+    if item_update.license_id is not None:
+        save_to_logging_context({"license": item_update.license_id})
+        license_ = db.query(License).filter(License.id == item_update.license_id).one_or_none()
 
-            if not license_:
-                logger.info(
-                    msg="Failed to update score set; The requested license does not exist.", extra=logging_context()
-                )
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
-
-            item.license = license_
-
-        for var, value in vars(item_update).items():
-            if var not in [
-                "contributors",
-                "score_ranges",
-                "doi_identifiers",
-                "experiment_urn",
-                "license_id",
-                "secondary_publication_identifiers",
-                "primary_publication_identifiers",
-                "target_genes",
-            ]:
-                setattr(item, var, value) if value else None
-
-        try:
-            item.contributors = [
-                await find_or_create_contributor(db, contributor.orcid_id)
-                for contributor in item_update.contributors or []
-            ]
-        except NonexistentOrcidUserError as e:
-            logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-            raise pydantic.ValidationError(
-                [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
-                model=score_set.ScoreSetUpdate,
+        if not license_:
+            logger.info(
+                msg="Failed to update score set; The requested license does not exist.", extra=logging_context()
             )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
 
-        item.doi_identifiers = [
-            await find_or_create_doi_identifier(db, identifier.identifier)
-            for identifier in item_update.doi_identifiers or []
+        item.license = license_
+
+    item.doi_identifiers = [
+        await find_or_create_doi_identifier(db, identifier.identifier)
+        for identifier in item_update.doi_identifiers or []
+    ]
+    primary_publication_identifiers = [
+        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+        for identifier in item_update.primary_publication_identifiers or []
+    ]
+    publication_identifiers = [
+        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+        for identifier in item_update.secondary_publication_identifiers or []
+    ] + primary_publication_identifiers
+
+    # create a temporary `primary` attribute on each of our publications that indicates
+    # to our association proxy whether it is a primary publication or not
+    primary_identifiers = [p.identifier for p in primary_publication_identifiers]
+    for publication in publication_identifiers:
+        setattr(publication, "primary", publication.identifier in primary_identifiers)
+
+    item.publication_identifiers = publication_identifiers
+
+    try:
+        item.contributors = [
+            await find_or_create_contributor(db, contributor.orcid_id) for contributor in item_update.contributors or []
         ]
-        primary_publication_identifiers = [
-            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-            for identifier in item_update.primary_publication_identifiers or []
-        ]
-        publication_identifiers = [
-            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-            for identifier in item_update.secondary_publication_identifiers or []
-        ] + primary_publication_identifiers
+    except NonexistentOrcidUserError as e:
+        logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
+        raise pydantic.ValidationError(
+            [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
+            model=score_set.ScoreSetUpdate,
+        )
 
-        # create a temporary `primary` attribute on each of our publications that indicates
-        # to our association proxy whether it is a primary publication or not
-        primary_identifiers = [pub.identifier for pub in primary_publication_identifiers]
-        for publication in publication_identifiers:
-            setattr(publication, "primary", publication.identifier in primary_identifiers)
-
-        item.publication_identifiers = publication_identifiers
-
+    # Score set has not been published and attributes affecting scores may still be edited.
+    if item.private:
         if item_update.score_ranges:
             item.score_ranges = item_update.score_ranges.dict()
         else:
@@ -884,35 +883,8 @@ async def update_score_set(
             if job is not None:
                 save_to_logging_context({"worker_job_id": job.job_id})
             logger.info(msg="Enqueud variant creation job.", extra=logging_context())
-
-        for var, value in vars(item_update).items():
-            if var not in [
-                "score_ranges",
-                "contributors",
-                "doi_identifiers",
-                "experiment_urn",
-                "primary_publication_identifiers",
-                "secondary_publication_identifiers",
-                "target_genes",
-            ]:
-                setattr(item, var, value) if value else None
-
-    # Editing published score set
     else:
-        for var, value in vars(item_update).items():
-            if var in ["title", "method_text", "abstract_text", "short_description"]:
-                setattr(item, var, value) if value else None
-        try:
-            item.contributors = [
-                await find_or_create_contributor(db, contributor.orcid_id)
-                for contributor in item_update.contributors or []
-            ]
-        except NonexistentOrcidUserError as e:
-            logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-            raise pydantic.ValidationError(
-                [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
-                model=score_set.ScoreSetUpdate,
-            )
+        logger.debug(msg="Skipped score range and target gene update. Score set is published.", extra=logging_context())
 
     db.add(item)
     db.commit()
