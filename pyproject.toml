@@ -99,6 +99,7 @@ mypy_path = "mypy_stubs"
 addopts = "-v -rP --import-mode=importlib --disable-socket --allow-hosts localhost,::1,127.0.0.1"
 asyncio_mode = 'strict'
 testpaths = "tests/"
+pythonpath = "."
 norecursedirs = "tests/helpers/"
 # Uncomment the following lines to include application log output in Pytest logs.
 # log_cli = true
