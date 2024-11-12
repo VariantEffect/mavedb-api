@@ -334,6 +334,10 @@ async def create_score_set(
                 msg="Failed to create score set; The requested experiment does not exist.", extra=logging_context()
             )
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
+        # Not allow add score set in meta-analysis experiments.
+        if any(s.meta_analyzes_score_sets for s in experiment.score_sets):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                detail="Not allow to add score set in meta-analysis experiment")
 
         save_to_logging_context({"experiment": experiment.urn})
         assert_permission(user_data, experiment, Action.ADD_SCORE_SET)
@@ -386,7 +390,7 @@ async def create_score_set(
             )
 
     if len(meta_analyzes_score_sets) > 0:
-        # If any existing score set is a meta-analysis for score sets in the same collection of exepriment sets, use its
+        # If any existing score set is a meta-analysis for score sets in the same collection of experiment sets, use its
         # experiment as the parent of our new meta-analysis. Otherwise, create a new experiment.
         meta_analyzes_experiment_sets = list(
             set(
