@@ -337,7 +337,7 @@ async def create_score_set(
         # Not allow add score set in meta-analysis experiments.
         if any(s.meta_analyzes_score_sets for s in experiment.score_sets):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                                detail="Not allow to add score set in meta-analysis experiment")
+                                detail="Score sets may not be added to a meta-analysis experiment.")
 
         save_to_logging_context({"experiment": experiment.urn})
         assert_permission(user_data, experiment, Action.ADD_SCORE_SET)
