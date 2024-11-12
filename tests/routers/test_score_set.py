@@ -174,6 +174,17 @@ def test_cannot_create_score_set_without_email(client, setup_router_db):
     assert response_data["detail"] in "There must be an email address associated with your account to use this feature."
 
 
+def test_cannot_create_score_set_with_invalid_target_gene_category(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = experiment["urn"]
+    score_set_post_payload["targetGenes"][0]["category"] = "some_invalid_target_category"
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert "value is not a valid enumeration member;" in response_data["detail"][0]["msg"]
+
+
 def test_get_own_private_score_set(client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
