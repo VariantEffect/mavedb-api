@@ -157,6 +157,7 @@ class ScoreSet(Base):
 
     target_genes: Mapped[List["TargetGene"]] = relationship(back_populates="score_set", cascade="all, delete-orphan")
     score_ranges = Column(JSONB, nullable=True)
+    score_thresholds = Column(JSONB, nullable=True)
 
     # Unfortunately, we can't use association_proxy here, because in spite of what the documentation seems to imply, it
     # doesn't check for a pre-existing keyword with the same text.
