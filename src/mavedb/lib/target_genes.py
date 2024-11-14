@@ -11,8 +11,6 @@ from mavedb.models.target_gene import TargetGene
 from mavedb.models.user import User
 from mavedb.view_models.search import TextSearch
 
-VariantData = dict[str, Optional[dict[str, dict]]]
-
 logger = logging.getLogger(__name__)
 
 
