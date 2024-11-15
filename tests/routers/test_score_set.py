@@ -34,6 +34,8 @@ from tests.helpers.constants import (
     SAVED_EXTRA_CONTRIBUTOR,
     SAVED_PUBMED_PUBLICATION,
     SAVED_SHORT_EXTRA_LICENSE,
+    TEST_SCORE_CALIBRATION,
+    TEST_SAVED_SCORE_CALIBRATION,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util import (
@@ -1557,3 +1559,71 @@ def test_can_modify_metadata_for_score_set_with_inactive_license(session, client
     assert response.status_code == 200
     response_data = response.json()
     assert ("title", response_data["title"]) == ("title", "Update title")
+
+
+def test_anonymous_user_cannot_add_score_calibrations_to_score_set(client, setup_router_db, anonymous_app_overrides):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    calibration_payload = deepcopy(TEST_SCORE_CALIBRATION)
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/calibration/data", json={"test_calibrations": calibration_payload}
+        )
+        response_data = response.json()
+
+    assert response.status_code == 401
+    assert "score_calibrations" not in response_data
+
+
+def test_user_cannot_add_score_calibrations_to_own_score_set(client, setup_router_db, anonymous_app_overrides):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    calibration_payload = deepcopy(TEST_SCORE_CALIBRATION)
+
+    response = client.post(
+        f"/api/v1/score-sets/{score_set['urn']}/calibration/data", json={"test_calibrations": calibration_payload}
+    )
+    response_data = response.json()
+
+    assert response.status_code == 401
+    assert "score_calibrations" not in response_data
+
+
+def test_admin_can_add_score_calibrations_to_score_set(client, setup_router_db, admin_app_overrides):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    calibration_payload = deepcopy(TEST_SCORE_CALIBRATION)
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/calibration/data", json={"test_calibrations": calibration_payload}
+        )
+        response_data = response.json()
+
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
+    )
+    expected_response["scoreCalibrations"] = {"test_calibrations": deepcopy(TEST_SAVED_SCORE_CALIBRATION)}
+
+    assert response.status_code == 200
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+
+
+def test_score_set_not_found_for_non_existent_score_set_when_adding_score_calibrations(
+    client, setup_router_db, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    calibration_payload = deepcopy(TEST_SCORE_CALIBRATION)
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']+'xxx'}/calibration/data",
+            json={"test_calibrations": calibration_payload},
+        )
+        response_data = response.json()
+
+    assert response.status_code == 404
+    assert "score_calibrations" not in response_data
