@@ -658,10 +658,41 @@ TEST_SCORESET_RANGE = {
     ],
 }
 
+
 TEST_SAVED_SCORESET_RANGE = {
     "wtScore": 1.0,
     "ranges": [
         {"label": "test1", "classification": "normal", "range": [0.0, 2.0]},
         {"label": "test2", "classification": "abnormal", "range": [-2.0, 0.0]},
     ],
+}
+
+
+TEST_SCORE_CALIBRATION = {
+    "parameter_sets": [
+        {
+            "functionally_altering": {"skew": 1.15, "location": -2.20, "scale": 1.20},
+            "functionally_normal": {"skew": -1.5, "location": 2.25, "scale": 0.8},
+            "fraction_functionally_altering": 0.20,
+        },
+    ],
+    "evidence_strengths": [3, 2, 1, -1],
+    "thresholds": [1.25, 2.5, 3, 5.5],
+    "positive_likelihood_ratios": [100, 10, 1, 0.1],
+    "prior_probability_pathogenicity": 0.20,
+}
+
+
+TEST_SAVED_SCORE_CALIBRATION = {
+    "parameterSets": [
+        {
+            "functionallyAltering": {"skew": 1.15, "location": -2.20, "scale": 1.20},
+            "functionallyNormal": {"skew": -1.5, "location": 2.25, "scale": 0.8},
+            "fractionFunctionallyAltering": 0.20,
+        },
+    ],
+    "evidenceStrengths": [3, 2, 1, -1],
+    "thresholds": [1.25, 2.5, 3, 5.5],
+    "positiveLikelihoodRatios": [100, 10, 1, 0.1],
+    "priorProbabilityPathogenicity": 0.20,
 }
