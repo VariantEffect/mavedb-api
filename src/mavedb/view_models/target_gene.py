@@ -4,7 +4,7 @@ from typing import Any, Optional, Sequence
 from pydantic import root_validator
 from pydantic.utils import GetterDict
 
-from mavedb.lib.validation import target
+from mavedb.models.enums.target_category import TargetCategory
 from mavedb.view_models import external_gene_identifier_offset
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.target_accession import SavedTargetAccession, TargetAccession, TargetAccessionCreate
@@ -40,7 +40,7 @@ class TargetGeneBase(BaseModel):
     """Base class for target gene view models."""
 
     name: str
-    category: str
+    category: TargetCategory
     external_identifiers: Sequence[external_gene_identifier_offset.ExternalGeneIdentifierOffsetBase]
 
     class Config:
@@ -48,10 +48,7 @@ class TargetGeneBase(BaseModel):
 
 
 class TargetGeneModify(TargetGeneBase):
-    @validator("category")
-    def validate_category(cls, v):
-        target.validate_target_category(v)
-        return v
+    pass
 
 
 class TargetGeneCreate(TargetGeneModify):

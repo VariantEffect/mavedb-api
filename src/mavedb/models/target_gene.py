@@ -1,11 +1,12 @@
 from datetime import date
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Column, Date, ForeignKey, Integer, String
+from sqlalchemy import Column, Date, Enum, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, backref, relationship
 
 from mavedb.db.base import Base
+from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_sequence import TargetSequence
@@ -24,7 +25,10 @@ class TargetGene(Base):
     id = Column(Integer, primary_key=True)
 
     name = Column(String, nullable=False)
-    category = Column(String, nullable=False)
+    category = Column(
+        Enum(TargetCategory, create_constraint=True, length=32, native_enum=False, validate_strings=True),
+        nullable=False,
+    )
 
     score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=False)
     score_set: Mapped[ScoreSet] = relationship(back_populates="target_genes", single_parent=True, uselist=True)
