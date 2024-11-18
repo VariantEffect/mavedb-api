@@ -7,7 +7,7 @@ import jsonschema
 from arq import ArqRedis
 from sqlalchemy import select
 
-from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
+from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE, MAVEDB_SCORE_SET_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
@@ -1055,6 +1055,34 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_different_sco
     assert meta_score_set_2["urn"] == "urn:mavedb:00000003-0-2"
     meta_score_set_3 = (client.post(f"/api/v1/score-sets/{meta_score_set_3['urn']}/publish")).json()
     assert meta_score_set_3["urn"] == "urn:mavedb:00000003-0-3"
+
+
+def test_cannot_add_score_set_to_meta_analysis_experiment(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    score_set_1 = (client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish")).json()
+    meta_score_set_1 = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        None,
+        data_files / "scores.csv",
+        update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [score_set_1["urn"]]},
+    )
+
+    meta_score_set_1 = (client.post(f"/api/v1/score-sets/{meta_score_set_1['urn']}/publish")).json()
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set_1["urn"]), re.Match)
+    score_set_2 = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_2["experimentUrn"] = meta_score_set_1['experiment']['urn']
+    jsonschema.validate(instance=score_set_2, schema=ScoreSetCreate.schema())
+
+    response = client.post("/api/v1/score-sets/", json=score_set_2)
+    response_data = response.json()
+    assert response.status_code == 403
+    assert "Score sets may not be added to a meta-analysis experiment." in response_data["detail"]
 
 
 def test_search_score_sets_no_match(session, data_provider, client, setup_router_db, data_files):
