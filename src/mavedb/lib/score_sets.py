@@ -617,6 +617,21 @@ def create_variants(db, score_set: ScoreSet, variants_data: list[VariantData], b
     return len(score_set.variants)
 
 
+def refresh_variant_urns(db: Session, score_set: ScoreSet):
+    variants = db.execute(select(Variant).where(Variant.score_set_id == score_set.id)).scalars()
+
+    for variant in variants:
+        if not variant.urn:
+            raise ValueError("All variants should have an associated URN.")
+
+        variant_number = variant.urn.split("#")[1]
+        refreshed_urn = f"{score_set.urn}#{variant_number}"
+        variant.urn = refreshed_urn
+        db.add(variant)
+
+    db.commit()
+
+
 def bulk_create_urns(n, score_set, reset_counter=False) -> list[str]:
     start_value = 0 if reset_counter else score_set.num_variants
     parent_urn = score_set.urn
