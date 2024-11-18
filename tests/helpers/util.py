@@ -5,6 +5,7 @@ import cdot.hgvs.dataproviders
 import jsonschema
 from arq import ArqRedis
 from sqlalchemy import select
+from sqlalchemy.exc import NoResultFound
 
 from mavedb.lib.score_sets import columns_for_dataset, create_variants, create_variants_data, csv_data_to_df
 from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_pair
@@ -28,8 +29,13 @@ def add_contributor(db, urn, model, orcid_id: str, given_name: str, family_name:
     """Without making an API call, add a new contributor to the record (experiment or score set) with given urn and model."""
     item = db.query(model).filter(model.urn == urn).one_or_none()
     assert item is not None
-    contributor = Contributor(orcid_id=orcid_id, given_name=given_name, family_name=family_name)
-    db.add(contributor)
+
+    try:
+        contributor = db.execute(select(Contributor).where(Contributor.orcid_id == orcid_id)).one()
+    except NoResultFound:
+        contributor = Contributor(orcid_id=orcid_id, given_name=given_name, family_name=family_name)
+        db.add(contributor)
+
     item.contributors = [contributor]
     db.add(item)
     db.commit()
@@ -226,3 +232,16 @@ def mark_user_inactive(session, username):
 
 async def awaitable_exception():
     return Exception()
+
+
+def update_expected_response_for_created_resources(expected_response, created_experiment, created_score_set):
+    expected_response.update({"urn": created_score_set["urn"]})
+    expected_response["experiment"].update(
+        {
+            "urn": created_experiment["urn"],
+            "experimentSetUrn": created_experiment["experimentSetUrn"],
+            "scoreSetUrns": [created_score_set["urn"]],
+        }
+    )
+
+    return expected_response

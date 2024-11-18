@@ -5,6 +5,7 @@ from fqfa import infer_sequence_type
 
 from mavedb.lib.validation import target
 from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.taxonomy import AdminTaxonomy, SavedTaxonomy, Taxonomy, TaxonomyCreate
 
@@ -66,7 +67,10 @@ class TargetSequenceUpdate(TargetSequenceModify):
 
 # Properties shared by models stored in DB
 class SavedTargetSequence(TargetSequenceBase):
+    record_type: str = None  # type: ignore
     taxonomy: SavedTaxonomy
+
+    _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
         orm_mode = True

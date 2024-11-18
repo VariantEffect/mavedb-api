@@ -6,6 +6,7 @@ import cdot.hgvs.dataproviders
 import pytest
 
 from mavedb.models.controlled_keyword import ControlledKeyword
+from mavedb.models.contributor import Contributor
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.license import License
 from mavedb.models.role import Role
@@ -14,10 +15,12 @@ from mavedb.models.user import User
 from tests.helpers.constants import (
     ADMIN_USER,
     EXTRA_USER,
+    EXTRA_CONTRIBUTOR,
     TEST_CDOT_TRANSCRIPT,
     TEST_DB_KEYWORDS,
     TEST_LICENSE,
     TEST_INACTIVE_LICENSE,
+    EXTRA_LICENSE,
     TEST_TAXONOMY,
     TEST_USER,
 )
@@ -43,6 +46,8 @@ def setup_router_db(session):
     db.add(Taxonomy(**TEST_TAXONOMY))
     db.add(License(**TEST_LICENSE))
     db.add(License(**TEST_INACTIVE_LICENSE))
+    db.add(License(**EXTRA_LICENSE))
+    db.add(Contributor(**EXTRA_CONTRIBUTOR))
     db.bulk_save_objects([ControlledKeyword(**keyword_obj) for keyword_obj in TEST_DB_KEYWORDS])
     db.commit()
 
