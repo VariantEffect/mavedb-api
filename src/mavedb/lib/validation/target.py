@@ -1,29 +1,8 @@
 from fqfa import infer_sequence_type
 from fqfa.validator import amino_acids_validator, dna_bases_validator
 
-from mavedb.lib.validation.constants.target import valid_categories, valid_sequence_types
+from mavedb.lib.validation.constants.target import valid_sequence_types
 from mavedb.lib.validation.exceptions import ValidationError
-
-
-def validate_target_category(category: str):
-    """
-    If the target category provided does not fall within a pre-defined list of valid categories.
-
-    Parameters
-    __________
-    category: str
-        The target category to be validated.
-
-    Raises
-    ______
-    ValidationError
-        If the target category provided is not valid.
-    """
-    if category not in valid_categories:
-        raise ValidationError(
-            "{} is not a valid target category. Valid categories are "
-            "Protein coding, Regulatory, and Other noncoding".format(category)
-        )
 
 
 def validate_sequence_category(sequence_type: str):

@@ -5,11 +5,13 @@ from unittest.mock import patch
 
 import jsonschema
 from arq import ArqRedis
+from sqlalchemy import select
 
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
@@ -173,6 +175,17 @@ def test_cannot_create_score_set_without_email(client, setup_router_db):
     assert response_data["detail"] in "There must be an email address associated with your account to use this feature."
 
 
+def test_cannot_create_score_set_with_invalid_target_gene_category(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = experiment["urn"]
+    score_set_post_payload["targetGenes"][0]["category"] = "some_invalid_target_category"
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert "value is not a valid enumeration member;" in response_data["detail"][0]["msg"]
+
+
 def test_get_own_private_score_set(client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -316,6 +329,59 @@ def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setu
     score_set = create_seq_score_set(client, experiment["urn"])
     scores_csv_path = data_files / "scores.csv"
     counts_csv_path = data_files / "counts.csv"
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        open(counts_csv_path, "rb") as counts_file,
+        patch.object(ArqRedis, "enqueue_job", return_value=None) as queue,
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={
+                "scores_file": (scores_csv_path.name, scores_file, "text/csv"),
+                "counts_file": (counts_csv_path.name, counts_file, "text/csv"),
+            },
+        )
+        queue.assert_called_once()
+
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+
+    # We test the worker process that actually adds the variant data separately. Here, we take it as
+    # fact that it would have succeeded.
+    score_set.update({"processingState": "processing"})
+    assert score_set == response_data
+
+
+def test_add_score_set_variants_scores_only_endpoint_utf8_encoded(client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores_utf8_encoded.csv"
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch.object(ArqRedis, "enqueue_job", return_value=None) as queue,
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+        queue.assert_called_once()
+
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+
+    # We test the worker process that actually adds the variant data separately. Here, we take it as
+    # fact that it would have succeeded.
+    score_set.update({"processingState": "processing"})
+    assert score_set == response_data
+
+
+def test_add_score_set_variants_scores_and_counts_endpoint_utf8_encoded(session, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores_utf8_encoded.csv"
+    counts_csv_path = data_files / "counts_utf8_encoded.csv"
     with (
         open(scores_csv_path, "rb") as scores_file,
         open(counts_csv_path, "rb") as counts_file,
@@ -603,6 +669,11 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
     for key in expected_response:
         assert (key, expected_response[key]) == (key, score_set[key])
 
+    score_set_variants = session.execute(
+        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
+    ).scalars()
+    assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_variants])
+
 
 def test_publish_multiple_score_sets(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
@@ -634,6 +705,19 @@ def test_publish_multiple_score_sets(session, data_provider, client, setup_route
     assert pub_score_set_3_data["urn"] == "urn:mavedb:00000001-a-3"
     assert pub_score_set_3_data["title"] == score_set_3["title"]
     assert pub_score_set_3_data["experiment"]["urn"] == "urn:mavedb:00000001-a"
+
+    score_set_1_variants = session.execute(
+        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_1["urn"])
+    ).scalars()
+    assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_1_variants])
+    score_set_2_variants = session.execute(
+        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_2["urn"])
+    ).scalars()
+    assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_2_variants])
+    score_set_3_variants = session.execute(
+        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_3["urn"])
+    ).scalars()
+    assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_3_variants])
 
 
 def test_cannot_publish_score_set_without_variants(client, setup_router_db):
@@ -739,6 +823,11 @@ def test_contributor_can_publish_other_users_score_set(session, data_provider, c
     score_set = (client.get(f"/api/v1/score-sets/{response_data['urn']}")).json()
     for key in expected_response:
         assert (key, expected_response[key]) == (key, score_set[key])
+
+    score_set_variants = session.execute(
+        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
+    ).scalars()
+    assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_variants])
 
 
 def test_admin_cannot_publish_other_user_private_score_set(

@@ -313,7 +313,7 @@ TEST_SEQ_SCORESET = {
     "target_genes": [
         {
             "name": "TEST1",
-            "category": "Protein coding",
+            "category": "protein_coding",
             "external_identifiers": [],
             "target_sequence": {
                 "sequence_type": "dna",
@@ -339,7 +339,7 @@ TEST_MINIMAL_SEQ_SCORESET = {
     "targetGenes": [
         {
             "name": "TEST1",
-            "category": "Protein coding",
+            "category": "protein_coding",
             "externalIdentifiers": [],
             "targetSequence": {
                 "sequenceType": "dna",
@@ -388,7 +388,7 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
         {
             "recordType": "TargetGene",
             "name": "TEST1",
-            "category": "Protein coding",
+            "category": "protein_coding",
             "externalIdentifiers": [],
             "id": 1,
             "targetSequence": {
@@ -434,7 +434,7 @@ TEST_MINIMAL_ACC_SCORESET = {
     "targetGenes": [
         {
             "name": "TEST2",
-            "category": "Protein coding",
+            "category": "protein_coding",
             "externalIdentifiers": [],
             "targetAccession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
         }
@@ -449,7 +449,7 @@ TEST_ACC_SCORESET = {
     "target_genes": [
         {
             "name": "TEST2",
-            "category": "Protein coding",
+            "category": "protein_coding",
             "external_identifiers": [],
             "target_accession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
         }
@@ -485,7 +485,7 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
         {
             "recordType": "TargetGene",
             "name": "TEST2",
-            "category": "Protein coding",
+            "category": "protein_coding",
             "externalIdentifiers": [],
             "targetAccession": {
                 "recordType": "TargetAccession",
