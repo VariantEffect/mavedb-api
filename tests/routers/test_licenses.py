@@ -15,7 +15,7 @@ def test_can_list_licenses_as_any_user_class(setup_router_db, client, user_overr
 
     assert response.status_code == 200
     response_value = response.json()
-    assert len(response_value) == 2
+    assert len(response_value) == 3
 
 
 @pytest.mark.parametrize("user_overrides", [None, "anonymous_app_overrides", "admin_app_overrides"])
@@ -29,7 +29,7 @@ def test_can_list_active_licenses_as_any_user_class(setup_router_db, client, use
 
     assert response.status_code == 200
     response_value = response.json()
-    assert len(response_value) == 1
+    assert len(response_value) == 2
     license_state = [_license["active"] for _license in response_value]
     assert all(license_state)
 

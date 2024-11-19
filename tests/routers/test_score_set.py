@@ -29,6 +29,7 @@ from tests.helpers.constants import (
     TEST_SAVED_SCORESET_RANGE,
     TEST_MINIMAL_ACC_SCORESET_RESPONSE,
     TEST_USER,
+    TEST_INACTIVE_LICENSE,
     SAVED_DOI_IDENTIFIER,
     SAVED_EXTRA_CONTRIBUTOR,
     SAVED_PUBMED_PUBLICATION,
@@ -1532,7 +1533,7 @@ def test_cannot_create_score_set_with_inactive_license(session, client, setup_ro
     experiment = create_experiment(client)
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_post_payload["experimentUrn"] = experiment["urn"]
-    score_set_post_payload["licenseId"] = 2
+    score_set_post_payload["licenseId"] = TEST_INACTIVE_LICENSE["id"]
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     assert response.status_code == 400
 
@@ -1541,7 +1542,7 @@ def test_cannot_modify_score_set_to_inactive_license(session, client, setup_rout
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     score_set_post_payload = score_set.copy()
-    score_set_post_payload.update({"licenseId": 2, "urn": score_set["urn"]})
+    score_set_post_payload.update({"licenseId": TEST_INACTIVE_LICENSE["id"], "urn": score_set["urn"]})
     response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_post_payload)
     assert response.status_code == 400
 
