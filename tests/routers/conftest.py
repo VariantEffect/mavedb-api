@@ -19,6 +19,7 @@ from tests.helpers.constants import (
     TEST_CDOT_TRANSCRIPT,
     TEST_DB_KEYWORDS,
     TEST_LICENSE,
+    TEST_INACTIVE_LICENSE,
     EXTRA_LICENSE,
     TEST_TAXONOMY,
     TEST_USER,
@@ -44,6 +45,7 @@ def setup_router_db(session):
     db.add(User(**ADMIN_USER, role_objs=[Role(name=UserRole.admin)]))
     db.add(Taxonomy(**TEST_TAXONOMY))
     db.add(License(**TEST_LICENSE))
+    db.add(License(**TEST_INACTIVE_LICENSE))
     db.add(License(**EXTRA_LICENSE))
     db.add(Contributor(**EXTRA_CONTRIBUTOR))
     db.bulk_save_objects([ControlledKeyword(**keyword_obj) for keyword_obj in TEST_DB_KEYWORDS])

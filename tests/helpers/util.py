@@ -12,6 +12,7 @@ from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_p
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.models.license import License
 from mavedb.models.user import User
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
@@ -48,6 +49,17 @@ def change_ownership(db, urn, model):
     assert extra_user is not None
     item.created_by_id = extra_user.id
     item.modified_by_id = extra_user.id
+    db.add(item)
+    db.commit()
+
+
+def change_to_inactive_license(db, urn):
+    """Change the license of the score set with given urn to an inactive license."""
+    item = db.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == urn).one_or_none()
+    assert item is not None
+    license = db.query(License).filter(License.active.is_(False)).first()
+    assert license is not None
+    item.license_id = license.id
     db.add(item)
     db.commit()
 

@@ -14,6 +14,7 @@ VALID_ACCESSION = "NM_001637.3"
 VALID_GENE = "BRCA1"
 
 SAVED_PUBMED_PUBLICATION = {
+    "recordType": "PublicationIdentifier",
     "identifier": "20711194",
     "dbName": "PubMed",
     "title": "None",
@@ -28,6 +29,7 @@ SAVED_PUBMED_PUBLICATION = {
 }
 
 SAVED_DOI_IDENTIFIER = {
+    "recordType": "DoiIdentifier",
     "identifier": TEST_CROSSREF_IDENTIFIER,
     "url": f"https://doi.org/{TEST_CROSSREF_IDENTIFIER}",
     "id": 1,
@@ -51,6 +53,7 @@ CONTRIBUTOR = {
 }
 
 SAVED_CONTRIBUTOR = {
+    "recordType": "Contributor",
     "orcidId": TEST_USER["username"],
     "givenName": TEST_USER["first_name"],
     "familyName": TEST_USER["last_name"],
@@ -80,6 +83,7 @@ EXTRA_CONTRIBUTOR = {
 }
 
 SAVED_EXTRA_CONTRIBUTOR = {
+    "recordType": "Contributor",
     "orcidId": EXTRA_USER["username"],
     "givenName": EXTRA_USER["first_name"],
     "familyName": EXTRA_USER["last_name"],
@@ -347,14 +351,17 @@ TEST_LICENSE = {
     "text": "Don't be evil.",
     "link": "localhost",
     "version": "1.0",
+    "active": True,
 }
 
 SAVED_SHORT_TEST_LICENSE = {
+    "recordType": "ShortLicense",
     "id": TEST_LICENSE["id"],
     "shortName": TEST_LICENSE["short_name"],
     "longName": TEST_LICENSE["long_name"],
     "link": TEST_LICENSE["link"],
     "version": TEST_LICENSE["version"],
+    "active": TEST_LICENSE["active"],
 }
 
 EXTRA_LICENSE = {
@@ -364,14 +371,37 @@ EXTRA_LICENSE = {
     "text": "Don't be tooooo evil.",
     "link": "localhost",
     "version": "1.0",
+    "active": True,
 }
 
 SAVED_SHORT_EXTRA_LICENSE = {
+    "recordType": "ShortLicense",
     "id": EXTRA_LICENSE["id"],
     "shortName": EXTRA_LICENSE["short_name"],
     "longName": EXTRA_LICENSE["long_name"],
     "link": EXTRA_LICENSE["link"],
     "version": EXTRA_LICENSE["version"],
+    "active": EXTRA_LICENSE["active"],
+}
+
+TEST_INACTIVE_LICENSE = {
+    "id": 3,
+    "short_name": "Long",
+    "long_name": "Short",
+    "text": "Be evil.",
+    "link": "localhost",
+    "version": "1.0",
+    "active": False,
+}
+
+SAVED_SHORT_INACTIVE_LICENSE = {
+    "recordType": "ShortLicense",
+    "id": TEST_INACTIVE_LICENSE["id"],
+    "shortName": TEST_INACTIVE_LICENSE["short_name"],
+    "longName": TEST_INACTIVE_LICENSE["long_name"],
+    "link": TEST_INACTIVE_LICENSE["link"],
+    "version": TEST_INACTIVE_LICENSE["version"],
+    "active": TEST_INACTIVE_LICENSE["active"],
 }
 
 TEST_SEQ_SCORESET = {
