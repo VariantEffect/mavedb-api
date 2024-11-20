@@ -1,7 +1,7 @@
 """score set level score thresholds
 
 Revision ID: aa73d39b3705
-Revises: 03c7124c33e1
+Revises: 68a0ec57694e
 Create Date: 2024-11-13 11:23:57.917725
 
 """
@@ -12,7 +12,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = "aa73d39b3705"
-down_revision = "03c7124c33e1"
+down_revision = "68a0ec57694e"
 branch_labels = None
 depends_on = None
 
