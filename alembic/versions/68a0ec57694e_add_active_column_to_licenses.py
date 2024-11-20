@@ -1,7 +1,7 @@
 """Add active column to licenses
 
 Revision ID: 68a0ec57694e
-Revises: 2b6f40ea2fb6
+Revises: 03c7124c33e1
 Create Date: 2024-10-22 15:36:41.868909
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "68a0ec57694e"
-down_revision = "2b6f40ea2fb6"
+down_revision = "03c7124c33e1"
 branch_labels = None
 depends_on = None
 
