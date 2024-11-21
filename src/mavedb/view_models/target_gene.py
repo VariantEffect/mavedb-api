@@ -4,8 +4,8 @@ from typing import Any, Optional, Sequence
 from pydantic import root_validator
 from pydantic.utils import GetterDict
 
-from mavedb.lib.validation import target
-from mavedb.view_models import external_gene_identifier_offset
+from mavedb.models.enums.target_category import TargetCategory
+from mavedb.view_models import external_gene_identifier_offset, record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel, validator
 from mavedb.view_models.target_accession import SavedTargetAccession, TargetAccession, TargetAccessionCreate
 from mavedb.view_models.target_sequence import (
@@ -40,7 +40,7 @@ class TargetGeneBase(BaseModel):
     """Base class for target gene view models."""
 
     name: str
-    category: str
+    category: TargetCategory
     external_identifiers: Sequence[external_gene_identifier_offset.ExternalGeneIdentifierOffsetBase]
 
     class Config:
@@ -48,10 +48,7 @@ class TargetGeneBase(BaseModel):
 
 
 class TargetGeneModify(TargetGeneBase):
-    @validator("category")
-    def validate_category(cls, v):
-        target.validate_target_category(v)
-        return v
+    pass
 
 
 class TargetGeneCreate(TargetGeneModify):
@@ -82,9 +79,12 @@ class SavedTargetGene(TargetGeneBase):
     """Base class for target gene view models representing saved records."""
 
     id: int
+    record_type: str = None  # type: ignore
     target_sequence: Optional[SavedTargetSequence]
     target_accession: Optional[SavedTargetAccession]
     external_identifiers: Sequence[external_gene_identifier_offset.SavedExternalGeneIdentifierOffset]
+
+    _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
         orm_mode = True

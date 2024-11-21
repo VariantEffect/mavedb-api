@@ -5,12 +5,14 @@ import cdot.hgvs.dataproviders
 import jsonschema
 from arq import ArqRedis
 from sqlalchemy import select
+from sqlalchemy.exc import NoResultFound
 
 from mavedb.lib.score_sets import columns_for_dataset, create_variants, create_variants_data, csv_data_to_df
 from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_pair
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.models.license import License
 from mavedb.models.user import User
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
@@ -27,8 +29,13 @@ def add_contributor(db, urn, model, orcid_id: str, given_name: str, family_name:
     """Without making an API call, add a new contributor to the record (experiment or score set) with given urn and model."""
     item = db.query(model).filter(model.urn == urn).one_or_none()
     assert item is not None
-    contributor = Contributor(orcid_id=orcid_id, given_name=given_name, family_name=family_name)
-    db.add(contributor)
+
+    try:
+        contributor = db.execute(select(Contributor).where(Contributor.orcid_id == orcid_id)).one()
+    except NoResultFound:
+        contributor = Contributor(orcid_id=orcid_id, given_name=given_name, family_name=family_name)
+        db.add(contributor)
+
     item.contributors = [contributor]
     db.add(item)
     db.commit()
@@ -42,6 +49,17 @@ def change_ownership(db, urn, model):
     assert extra_user is not None
     item.created_by_id = extra_user.id
     item.modified_by_id = extra_user.id
+    db.add(item)
+    db.commit()
+
+
+def change_to_inactive_license(db, urn):
+    """Change the license of the score set with given urn to an inactive license."""
+    item = db.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == urn).one_or_none()
+    assert item is not None
+    license = db.query(License).filter(License.active.is_(False)).first()
+    assert license is not None
+    item.license_id = license.id
     db.add(item)
     db.commit()
 
@@ -214,3 +232,16 @@ def mark_user_inactive(session, username):
 
 async def awaitable_exception():
     return Exception()
+
+
+def update_expected_response_for_created_resources(expected_response, created_experiment, created_score_set):
+    expected_response.update({"urn": created_score_set["urn"]})
+    expected_response["experiment"].update(
+        {
+            "urn": created_experiment["urn"],
+            "experimentSetUrn": created_experiment["experimentSetUrn"],
+            "scoreSetUrns": [created_score_set["urn"]],
+        }
+    )
+
+    return expected_response
