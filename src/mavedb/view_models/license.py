@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional
 
+from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 
 
@@ -9,6 +10,7 @@ class LicenseBase(BaseModel):
 
     long_name: str
     short_name: str
+    active: bool
     link: Optional[str]
     version: Optional[str]
 
@@ -18,6 +20,9 @@ class SavedLicense(LicenseBase):
     """Base class for license view models representing saved records."""
 
     id: int
+    record_type: str = None  # type: ignore
+
+    _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
         orm_mode = True

@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "mavedb"
-version = "2024.4.1"
+version = "2024.4.2"
 description = "API for MaveDB, the database of Multiplexed Assays of Variant Effect."
 license = "AGPL-3.0-only"
 readme = "README.md"
@@ -99,6 +99,7 @@ mypy_path = "mypy_stubs"
 addopts = "-v -rP --import-mode=importlib --disable-socket --allow-hosts localhost,::1,127.0.0.1"
 asyncio_mode = 'strict'
 testpaths = "tests/"
+pythonpath = "."
 norecursedirs = "tests/helpers/"
 # Uncomment the following lines to include application log output in Pytest logs.
 # log_cli = true

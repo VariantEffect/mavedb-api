@@ -13,6 +13,28 @@ TEST_ORCID_ID = "1111-1111-1111-1111"
 VALID_ACCESSION = "NM_001637.3"
 VALID_GENE = "BRCA1"
 
+SAVED_PUBMED_PUBLICATION = {
+    "recordType": "PublicationIdentifier",
+    "identifier": "20711194",
+    "dbName": "PubMed",
+    "title": "None",
+    "authors": [],
+    "abstract": "test",
+    "doi": "test",
+    "publicationYear": 1999,
+    "publicationJournal": "test",
+    "url": "http://www.ncbi.nlm.nih.gov/pubmed/20711194",
+    "referenceHtml": ". None. test. 1999; (Unknown volume):(Unknown pages). test",
+    "id": 1,
+}
+
+SAVED_DOI_IDENTIFIER = {
+    "recordType": "DoiIdentifier",
+    "identifier": TEST_CROSSREF_IDENTIFIER,
+    "url": f"https://doi.org/{TEST_CROSSREF_IDENTIFIER}",
+    "id": 1,
+}
+
 TEST_USER = {
     "username": "0000-1111-2222-3333",
     "first_name": "First",
@@ -22,6 +44,19 @@ TEST_USER = {
     "is_staff": False,
     "is_superuser": False,
     "is_first_login": True,
+}
+
+CONTRIBUTOR = {
+    "orcid_id": TEST_USER["username"],
+    "given_name": TEST_USER["first_name"],
+    "family_name": TEST_USER["last_name"],
+}
+
+SAVED_CONTRIBUTOR = {
+    "recordType": "Contributor",
+    "orcidId": TEST_USER["username"],
+    "givenName": TEST_USER["first_name"],
+    "familyName": TEST_USER["last_name"],
 }
 
 TEST_USER_DECODED_JWT = {
@@ -39,6 +74,19 @@ EXTRA_USER = {
     "is_staff": False,
     "is_superuser": False,
     "is_first_login": True,
+}
+
+EXTRA_CONTRIBUTOR = {
+    "orcid_id": EXTRA_USER["username"],
+    "given_name": EXTRA_USER["first_name"],
+    "family_name": EXTRA_USER["last_name"],
+}
+
+SAVED_EXTRA_CONTRIBUTOR = {
+    "recordType": "Contributor",
+    "orcidId": EXTRA_USER["username"],
+    "givenName": EXTRA_USER["first_name"],
+    "familyName": EXTRA_USER["last_name"],
 }
 
 EXTRA_USER_DECODED_JWT = {
@@ -167,16 +215,19 @@ TEST_MINIMAL_EXPERIMENT = {
 }
 
 TEST_MINIMAL_EXPERIMENT_RESPONSE = {
+    "recordType": "Experiment",
     "title": "Test Experiment Title",
     "shortDescription": "Test experiment",
     "abstractText": "Abstract",
     "methodText": "Methods",
     "createdBy": {
+        "recordType": "User",
         "firstName": TEST_USER["first_name"],
         "lastName": TEST_USER["last_name"],
         "orcidId": TEST_USER["username"],
     },
     "modifiedBy": {
+        "recordType": "User",
         "firstName": TEST_USER["first_name"],
         "lastName": TEST_USER["last_name"],
         "orcidId": TEST_USER["username"],
@@ -196,16 +247,19 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
 }
 
 TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
+    "recordType": "Experiment",
     "title": "Test Experiment Title",
     "shortDescription": "Test experiment",
     "abstractText": "Abstract",
     "methodText": "Methods",
     "createdBy": {
+        "recordType": "User",
         "firstName": TEST_USER["first_name"],
         "lastName": TEST_USER["last_name"],
         "orcidId": TEST_USER["username"],
     },
     "modifiedBy": {
+        "recordType": "User",
         "firstName": TEST_USER["first_name"],
         "lastName": TEST_USER["last_name"],
         "orcidId": TEST_USER["username"],
@@ -216,6 +270,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
     "contributors": [],
     "keywords": [
         {
+            "recordType": "ExperimentControlledKeyword",
             "keyword": {"key": "Delivery method", "value": "Other", "special": False, "description": "Description"},
             "description": "Details of delivery method",
         },
@@ -230,16 +285,19 @@ TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
 }
 
 TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
+    "recordType": "Experiment",
     "title": "Test Experiment Title",
     "shortDescription": "Test experiment",
     "abstractText": "Abstract",
     "methodText": "Methods",
     "createdBy": {
+        "recordType": "User",
         "firstName": TEST_USER["first_name"],
         "lastName": TEST_USER["last_name"],
         "orcidId": TEST_USER["username"],
     },
     "modifiedBy": {
+        "recordType": "User",
         "firstName": TEST_USER["first_name"],
         "lastName": TEST_USER["last_name"],
         "orcidId": TEST_USER["username"],
@@ -250,6 +308,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
     "contributors": [],
     "keywords": [
         {
+            "recordType": "ExperimentControlledKeyword",
             "keyword": {
                 "key": "Variant Library Creation Method",
                 "value": "Other",
@@ -259,6 +318,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
             "description": "Description",
         },
         {
+            "recordType": "ExperimentControlledKeyword",
             "keyword": {"key": "Delivery method", "value": "Other", "special": False, "description": "Description"},
             "description": "Description",
         },
@@ -291,6 +351,57 @@ TEST_LICENSE = {
     "text": "Don't be evil.",
     "link": "localhost",
     "version": "1.0",
+    "active": True,
+}
+
+SAVED_SHORT_TEST_LICENSE = {
+    "recordType": "ShortLicense",
+    "id": TEST_LICENSE["id"],
+    "shortName": TEST_LICENSE["short_name"],
+    "longName": TEST_LICENSE["long_name"],
+    "link": TEST_LICENSE["link"],
+    "version": TEST_LICENSE["version"],
+    "active": TEST_LICENSE["active"],
+}
+
+EXTRA_LICENSE = {
+    "id": 2,
+    "short_name": "Extra",
+    "long_name": "License",
+    "text": "Don't be tooooo evil.",
+    "link": "localhost",
+    "version": "1.0",
+    "active": True,
+}
+
+SAVED_SHORT_EXTRA_LICENSE = {
+    "recordType": "ShortLicense",
+    "id": EXTRA_LICENSE["id"],
+    "shortName": EXTRA_LICENSE["short_name"],
+    "longName": EXTRA_LICENSE["long_name"],
+    "link": EXTRA_LICENSE["link"],
+    "version": EXTRA_LICENSE["version"],
+    "active": EXTRA_LICENSE["active"],
+}
+
+TEST_INACTIVE_LICENSE = {
+    "id": 3,
+    "short_name": "Long",
+    "long_name": "Short",
+    "text": "Be evil.",
+    "link": "localhost",
+    "version": "1.0",
+    "active": False,
+}
+
+SAVED_SHORT_INACTIVE_LICENSE = {
+    "recordType": "ShortLicense",
+    "id": TEST_INACTIVE_LICENSE["id"],
+    "shortName": TEST_INACTIVE_LICENSE["short_name"],
+    "longName": TEST_INACTIVE_LICENSE["long_name"],
+    "link": TEST_INACTIVE_LICENSE["link"],
+    "version": TEST_INACTIVE_LICENSE["version"],
+    "active": TEST_INACTIVE_LICENSE["active"],
 }
 
 TEST_SEQ_SCORESET = {
@@ -348,35 +459,44 @@ TEST_MINIMAL_SEQ_SCORESET = {
 }
 
 TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
+    "recordType": "ScoreSet",
     "title": "Test Score Set Title",
     "shortDescription": "Test score set",
     "abstractText": "Abstract",
     "methodText": "Methods",
     "createdBy": {
+        "recordType": "User",
         "firstName": TEST_USER["first_name"],
         "lastName": TEST_USER["last_name"],
         "orcidId": TEST_USER["username"],
     },
     "modifiedBy": {
+        "recordType": "User",
         "firstName": TEST_USER["first_name"],
         "lastName": TEST_USER["last_name"],
         "orcidId": TEST_USER["username"],
     },
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
-    "license": {camelize(k): v for k, v in TEST_LICENSE.items() if k not in ("text",)},
+    "license": {
+        "recordType": "ShortLicense",
+        **{camelize(k): v for k, v in TEST_LICENSE.items() if k not in ("text",)},
+    },
     "numVariants": 0,
     "targetGenes": [
         {
+            "recordType": "TargetGene",
             "name": "TEST1",
             "category": "protein_coding",
             "externalIdentifiers": [],
             "id": 1,
             "targetSequence": {
+                "recordType": "TargetSequence",
                 "sequenceType": "dna",
                 "sequence": "ACGTTT",
                 "label": "TEST1",
                 "taxonomy": {
+                    "recordType": "Taxonomy",
                     "taxId": TEST_TAXONOMY["tax_id"],
                     "organismName": TEST_TAXONOMY["organism_name"],
                     "commonName": TEST_TAXONOMY["common_name"],
@@ -436,30 +556,43 @@ TEST_ACC_SCORESET = {
 }
 
 TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
+    "recordType": "ScoreSet",
     "title": "Test Score Set Acc Title",
     "shortDescription": "Test accession score set",
     "abstractText": "Abstract",
     "methodText": "Methods",
     "createdBy": {
+        "recordType": "User",
         "firstName": TEST_USER["first_name"],
         "lastName": TEST_USER["last_name"],
         "orcidId": TEST_USER["username"],
     },
     "modifiedBy": {
+        "recordType": "User",
         "firstName": TEST_USER["first_name"],
         "lastName": TEST_USER["last_name"],
         "orcidId": TEST_USER["username"],
     },
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
-    "license": {camelize(k): v for k, v in TEST_LICENSE.items() if k not in ("text",)},
+    "license": {
+        "recordType": "ShortLicense",
+        **{camelize(k): v for k, v in TEST_LICENSE.items() if k not in ("text",)},
+    },
     "numVariants": 0,
     "targetGenes": [
         {
+            "recordType": "TargetGene",
             "name": "TEST2",
+            "id": 2,
             "category": "protein_coding",
             "externalIdentifiers": [],
-            "targetAccession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
+            "targetAccession": {
+                "recordType": "TargetAccession",
+                "accession": VALID_ACCESSION,
+                "assembly": "GRCh37",
+                "gene": VALID_GENE,
+            },
         }
     ],
     "metaAnalyzesScoreSetUrns": [],
@@ -514,4 +647,21 @@ TEST_VARIANT_MAPPING_SCAFFOLD = {
     "vrs_version": "2.0",
     "dcd_mapping_version": "pytest.0.0",
     "mapped_date_utc": datetime.isoformat(datetime.now()),
+}
+
+
+TEST_SCORESET_RANGE = {
+    "wt_score": 1.0,
+    "ranges": [
+        {"label": "test1", "classification": "normal", "range": (0, 2.0)},
+        {"label": "test2", "classification": "abnormal", "range": (-2.0, 0)},
+    ],
+}
+
+TEST_SAVED_SCORESET_RANGE = {
+    "wtScore": 1.0,
+    "ranges": [
+        {"label": "test1", "classification": "normal", "range": [0.0, 2.0]},
+        {"label": "test2", "classification": "abnormal", "range": [-2.0, 0.0]},
+    ],
 }

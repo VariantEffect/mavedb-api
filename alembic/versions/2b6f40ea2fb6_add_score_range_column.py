@@ -1,7 +1,7 @@
 """Add score range column
 
 Revision ID: 2b6f40ea2fb6
-Revises: 1d4933b4b6f7
+Revises: 1cee01c42909
 Create Date: 2024-09-09 12:25:33.180077
 
 """
