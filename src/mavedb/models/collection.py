@@ -3,29 +3,18 @@ from datetime import date
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
 from sqlalchemy.orm import Mapped, relationship
-from sqlalchemy.schema import Table
 
 import mavedb.models.collection_user_association
 from mavedb.db.base import Base
 from mavedb.lib.urns import generate_collection_urn
+from mavedb.models.collection_association import (
+    collection_experiments_association_table,
+    collection_score_sets_association_table,
+)
 
 from .experiment import Experiment
 from .score_set import ScoreSet
 from .user import User
-
-collection_experiments_association_table = Table(
-    "collection_experiments",
-    Base.metadata,
-    Column("collection_id", ForeignKey("collections.id"), primary_key=True),
-    Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
-)
-
-collection_score_sets_association_table = Table(
-    "collection_score_sets",
-    Base.metadata,
-    Column("collection_id", ForeignKey("collections.id"), primary_key=True),
-    Column("score_set_id", ForeignKey("scoresets.id"), primary_key=True),
-)
 
 
 class Collection(Base):
@@ -59,8 +48,8 @@ class Collection(Base):
     )
 
     experiments: Mapped[list[Experiment]] = relationship(
-        "Experiment", secondary=collection_experiments_association_table, backref="collections"
+        "Experiment", secondary=collection_experiments_association_table, back_populates="collections"
     )
     score_sets: Mapped[list[ScoreSet]] = relationship(
-        "ScoreSet", secondary=collection_score_sets_association_table, backref="collections"
+        "ScoreSet", secondary=collection_score_sets_association_table, back_populates="collections"
     )
