@@ -1,5 +1,4 @@
 import logging
-from operator import attrgetter
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,7 +12,7 @@ from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.authorization import require_current_user_with_email
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
-from mavedb.lib.permissions import Action, assert_permission, has_permission
+from mavedb.lib.permissions import Action, assert_permission
 from mavedb.models.collection import Collection
 from mavedb.models.collection_user_association import CollectionUserAssociation
 from mavedb.models.enums.contribution_role import ContributionRole
@@ -21,6 +20,7 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.view_models import collection
+from mavedb.view_models import collection_bundle
 
 logger = logging.getLogger(__name__)
 
@@ -35,37 +35,57 @@ router = APIRouter(
 @router.get(
     "/users/me/collections",
     status_code=200,
-    response_model=list[collection.Collection],
+    # response_model=list[collection.MyCollectionBundle],
+    response_model=collection_bundle.CollectionBundle,
     response_model_exclude_none=True,
 )
 def list_my_collections(
     *,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
-) -> list[Collection]:
+) -> Any:  # TODO typing?
     """
     List my collections.
     """
-    # TODO logging?
+    collection_bundle = {}
+    # owner is not in the contribution role enum, so add owned collections to bundle separately
+    # TODO should owned collections be lumped in with admin collections? Should owner be set as
+    # collection admin upon creation of collection?
+    # TODO need to not allow users to be owners AND be assigned a role, otherwise collections show up multiple times here
+    collection_bundle["owner"] = (
+        db.execute(select(Collection).where(Collection.created_by_id == user_data.user.id)).scalars().all()
+    )
+
+    for role in ContributionRole:
+        collection_bundle[role.value] = (
+            db.execute(
+                select(Collection)
+                .join(CollectionUserAssociation)
+                .where(CollectionUserAssociation.user_id == user_data.user.id)
+                .where(CollectionUserAssociation.contribution_role == role.value)
+            )
+            .scalars()
+            .all()
+        )
 
     # collections_result = db.scalars(select(Collection).where(user_data.user.id in Collection.users)).all()
     # TODO is this too inefficient to select everything? should we do permission checking in the select statement
     # rather than using the permissions module below?
-    collections_result = db.execute(select(Collection)).scalars().all()
+    # collections_result = db.execute(select(Collection)).scalars().all()
 
-    collections_result[:] = [
-        collection for collection in collections_result if has_permission(user_data, collection, Action.READ).permitted
-    ]
+    # collections_result[:] = [
+    #     collection for collection in collections_result if has_permission(user_data, collection, Action.READ).permitted
+    # ]
 
-    # TODO return http exception if no collections? or just return nothing?
-    if not collections_result:
-        logger.info(msg="No collections available.", extra=logging_context())
+    # # TODO return http exception if no collections? or just return nothing?
+    # if not collections_result:
+    #     logger.info(msg="No collections available.", extra=logging_context())
 
-        raise HTTPException(status_code=404, detail="no collections available")
-    else:
-        collections_result.sort(key=attrgetter("urn"))
+    #     raise HTTPException(status_code=404, detail="no collections available")
+    # else:
+    #     collections_result.sort(key=attrgetter("urn"))
 
-    return collections_result
+    return collection_bundle
 
 
 @router.get(
@@ -259,12 +279,12 @@ async def update_collection(
 
 @router.post(
     "/collections/{collection_urn}/score-sets",
-    response_model=str,  # TODO this needs to be a scores set urn view model for documentation purposes
+    response_model=collection.Collection,
     responses={422: {}},
 )
 async def add_score_set_to_collection(
     *,
-    score_set_urn: str,
+    body: collection.AddScoreSetToCollectionRequest,
     collection_urn: str,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
@@ -285,13 +305,13 @@ async def add_score_set_to_collection(
         )
         raise HTTPException(status_code=404, detail=f"collection with URN '{collection_urn}' not found")
 
-    score_set = db.execute(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).scalars().one_or_none()
+    score_set = db.execute(select(ScoreSet).where(ScoreSet.urn == body.score_set_urn)).scalars().one_or_none()
     if not score_set:
         logger.info(
             msg="Failed to add score set to collection; The requested score set does not exist.",
             extra=logging_context(),
         )
-        raise HTTPException(status_code=404, detail=f"score set with URN '{score_set_urn}' not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{body.score_set_urn}' not found")
 
     assert_permission(user_data, item, Action.ADD_SCORE_SET)
 
@@ -367,12 +387,12 @@ async def delete_score_set_from_collection(
 
 @router.post(
     "/collections/{collection_urn}/experiments",
-    response_model=str,  # TODO this needs to be a experiment urn view model for documentation purposes
+    response_model=collection.Collection,
     responses={422: {}},
 )
 async def add_experiment_to_collection(
     *,
-    experiment_urn: str,
+    body: collection.AddExperimentToCollectionRequest,
     collection_urn: str,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
@@ -393,13 +413,13 @@ async def add_experiment_to_collection(
         )
         raise HTTPException(status_code=404, detail=f"collection with URN '{collection_urn}' not found")
 
-    experiment = db.execute(select(Experiment).where(Experiment.urn == experiment_urn)).scalars().one_or_none()
+    experiment = db.execute(select(Experiment).where(Experiment.urn == body.experiment_urn)).scalars().one_or_none()
     if not experiment:
         logger.info(
             msg="Failed to add experiment to collection; The requested experiment does not exist.",
             extra=logging_context(),
         )
-        raise HTTPException(status_code=404, detail=f"experiment with URN '{experiment_urn}' not found")
+        raise HTTPException(status_code=404, detail=f"experiment with URN '{body.experiment_urn}' not found")
 
     assert_permission(user_data, item, Action.ADD_EXPERIMENT)
 
@@ -514,9 +534,9 @@ async def add_user_to_collection_role(
     # TODO there is probably a nicer way to select this since we've already selected the user and collection?
     collection_user_association = (
         db.execute(
-            select(CollectionUserAssociation).where(
-                CollectionUserAssociation.collection_id == item.id and CollectionUserAssociation.user_id == User.id
-            )
+            select(CollectionUserAssociation)
+            .where(CollectionUserAssociation.collection_id == item.id)
+            .where(CollectionUserAssociation.user_id == user.id)
         )
         .scalars()
         .one_or_none()
