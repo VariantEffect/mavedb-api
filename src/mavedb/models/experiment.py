@@ -10,6 +10,7 @@ from sqlalchemy.schema import Table
 
 from mavedb.db.base import Base
 from mavedb.lib.temp_urns import generate_temp_urn
+from mavedb.models.collection_association import collection_experiments_association_table
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
@@ -22,6 +23,7 @@ from mavedb.models.raw_read_identifier import RawReadIdentifier
 from mavedb.models.user import User
 
 if TYPE_CHECKING:
+    from mavedb.models.collection import Collection
     from mavedb.models.score_set import ScoreSet
 
 experiments_contributors_association_table = Table(
@@ -74,6 +76,17 @@ class Experiment(Base):
     # TODO Remove this obsolete column.
     num_score_sets = Column("num_scoresets", Integer, nullable=False, default=0)
     score_sets: Mapped[List["ScoreSet"]] = relationship(back_populates="experiment", cascade="all, delete-orphan")
+
+    collections: Mapped[list["Collection"]] = relationship(
+        "Collection", secondary=collection_experiments_association_table, back_populates="experiments"
+    )
+    official_collections: Mapped[list["Collection"]] = relationship(
+        "Collection",
+        secondary=collection_experiments_association_table,
+        secondaryjoin="and_(collection_experiments.c.collection_id == Collection.id, Collection.badge_name != None)",
+        back_populates="experiments",
+        viewonly=True,
+    )
 
     experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), index=True, nullable=True)
     experiment_set: Mapped[Optional[ExperimentSet]] = relationship(back_populates="experiments")
