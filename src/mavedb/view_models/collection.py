@@ -46,6 +46,14 @@ class CollectionCreate(CollectionModify):
     admins: Optional[list[ContributorCreate]]
 
 
+class AddScoreSetToCollectionRequest(BaseModel):
+    score_set_urn: str
+
+
+class AddExperimentToCollectionRequest(BaseModel):
+    experiment_urn: str
+
+
 # Properties shared by models stored in DB
 class SavedCollection(CollectionBase):
     id: int
