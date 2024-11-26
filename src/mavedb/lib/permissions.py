@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class Action(Enum):
+    LOOKUP = "lookup"
     READ = "read"
     UPDATE = "update"
     DELETE = "delete"
@@ -376,6 +377,15 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             raise NotImplementedError(f"has_permission(User, ScoreSet, {action}, Role)")
 
     elif isinstance(item, User):
+        if action == Action.LOOKUP:
+            # any existing user can look up any mavedb user by Orcid ID
+            # lookup differs from read because lookup means getting the first name, last name, and orcid ID of the user,
+            # while read means getting an admin view of the user's details
+            if user_data is not None and user_data.user is not None:
+                return PermissionResponse(True)
+            else:
+                # TODO is this inappropriately acknowledging the existence of the user?
+                return PermissionResponse(False, 401, "Insufficient permissions for user lookup.")
         if action == Action.READ:
             if user_is_self:
                 return PermissionResponse(True)
