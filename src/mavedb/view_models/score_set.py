@@ -91,6 +91,9 @@ class ScoreSetGetter(PublicationIdentifiersGetter):
         elif key == "meta_analyzed_by_score_set_urns":
             meta_analyzed_by_score_sets = getattr(self._obj, "meta_analyzed_by_score_sets") or []
             return sorted([score_set.urn for score_set in meta_analyzed_by_score_sets])
+        elif key == "official_collection_names":
+            official_collections = getattr(self._obj, "official_collections") or []
+            return sorted([collection.badge_name for collection in official_collections])
         else:
             return super().get(key, default)
 
@@ -416,6 +419,7 @@ class ScoreSet(SavedScoreSet):
     doi_identifiers: Sequence[DoiIdentifier]
     primary_publication_identifiers: Sequence[PublicationIdentifier]
     secondary_publication_identifiers: Sequence[PublicationIdentifier]
+    official_collection_names: list[str]
     created_by: Optional[User]
     modified_by: Optional[User]
     target_genes: Sequence[TargetGene]

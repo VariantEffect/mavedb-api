@@ -37,6 +37,9 @@ class ExperimentGetter(PublicationIdentifiersGetter):
         elif key == "experiment_set_urn":
             experiment_set = getattr(self._obj, "experiment_set")
             return experiment_set.urn if experiment_set is not None else None
+        elif key == "official_collection_names":
+            official_collections = getattr(self._obj, "official_collections") or []
+            return sorted([collection.badge_name for collection in official_collections])
         else:
             return super().get(key, default)
 
@@ -127,6 +130,7 @@ class Experiment(SavedExperiment):
     doi_identifiers: Sequence[DoiIdentifier]
     primary_publication_identifiers: Sequence[PublicationIdentifier]
     secondary_publication_identifiers: Sequence[PublicationIdentifier]
+    official_collection_names: list[str]
     keywords: Sequence[ExperimentControlledKeyword]
     raw_read_identifiers: Sequence[RawReadIdentifier]
     created_by: User
