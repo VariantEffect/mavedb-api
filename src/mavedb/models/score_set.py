@@ -9,6 +9,7 @@ from sqlalchemy.schema import Table
 
 import mavedb.models.score_set_publication_identifier
 from mavedb.db.base import Base
+from mavedb.models.collection_association import collection_score_sets_association_table
 from mavedb.models.contributor import Contributor
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.enums.mapping_state import MappingState
@@ -20,6 +21,7 @@ from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.user import User
 
 if TYPE_CHECKING:
+    from mavedb.models.collection import Collection
     from mavedb.models.target_gene import TargetGene
     from mavedb.models.variant import Variant
 
@@ -158,6 +160,17 @@ class ScoreSet(Base):
     target_genes: Mapped[List["TargetGene"]] = relationship(back_populates="score_set", cascade="all, delete-orphan")
     score_ranges = Column(JSONB, nullable=True)
     score_calibrations = Column(JSONB, nullable=True)
+
+    collections: Mapped[list["Collection"]] = relationship(
+        "Collection", secondary=collection_score_sets_association_table, back_populates="score_sets"
+    )
+    official_collections: Mapped[list["Collection"]] = relationship(
+        "Collection",
+        secondary=collection_score_sets_association_table,
+        secondaryjoin="and_(collection_score_sets.c.collection_id == Collection.id, Collection.badge_name != None)",
+        back_populates="score_sets",
+        viewonly=True,
+    )
 
     # Unfortunately, we can't use association_proxy here, because in spite of what the documentation seems to imply, it
     # doesn't check for a pre-existing keyword with the same text.
