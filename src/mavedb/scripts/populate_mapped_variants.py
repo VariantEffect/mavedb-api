@@ -66,7 +66,11 @@ def populate_mapped_variant_data(db: Session, urns: Sequence[Optional[str]], all
 
         try:
             existing_mapped_variants = (
-                db.query(MappedVariant).join(Variant).join(ScoreSet).filter(MappedVariant.current.is_(True)).all()
+                db.query(MappedVariant)
+                .join(Variant)
+                .join(ScoreSet)
+                .filter(ScoreSet.id == ss_id, MappedVariant.current.is_(True))
+                .all()
             )
 
             for variant in existing_mapped_variants:
