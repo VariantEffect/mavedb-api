@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, not_
 from sqlalchemy.orm import Session
 
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
@@ -98,6 +98,17 @@ def search_experiments(
                 )
             )
         )
+
+    if search.meta_analysis is not None:
+        if not search.meta_analysis:
+            query = query.filter(
+                or_(
+                    # Keep experiments without any score sets
+                    not_(Experiment.score_sets.any()),
+                    # Keep experiments where score sets exist but have no meta_analyzes_score_sets
+                    Experiment.score_sets.any(not_(ScoreSet.meta_analyzes_score_sets.any()))
+                )
+            )
 
     items: list[Experiment] = query.order_by(Experiment.urn, Experiment.title).all()
     if not items:

@@ -11,6 +11,7 @@ class ExperimentsSearch(BaseModel):
     publication_identifiers: Optional[list[str]]
     keywords: Optional[list[str]]
     text: Optional[str]
+    meta_analysis: Optional[bool]
 
 
 class ScoreSetsSearch(BaseModel):
