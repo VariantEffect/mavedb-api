@@ -45,62 +45,6 @@ router = APIRouter(
 )
 
 
-# TODO: Rewrite this function.
-@router.get(
-    "/experiments/",
-    status_code=200,
-    response_model=list[experiment.Experiment],
-    response_model_exclude_none=True,
-)
-def list_experiments(
-    *,
-    editable: Optional[bool] = None,
-    q: Optional[str] = None,
-    db: Session = Depends(deps.get_db),
-    user_data: Optional[UserData] = Depends(get_current_user),
-) -> list[Experiment]:
-    """
-    List experiments.
-    """
-    query = db.query(Experiment)
-    if q is not None:
-        save_to_logging_context({"query_string": q})
-
-        if user_data is None or user_data.user is None:
-            logger.debug(msg="User is anonymous; Cannot list their experiments.", extra=logging_context())
-            return []
-
-        if len(q) > 0:
-            logger.debug(msg="Listing experiments for the current user.", extra=logging_context())
-            query = query.filter(
-                Experiment.created_by_id == user_data.user.id
-            )  # .filter(Experiment.published_date is None)
-        # else:
-        #     query = query.filter(Experiment.created_by_id == user.id).filter(Experiment.published_date is None)
-            try:
-                q_parsed = json.loads(q)
-                l_filter = q_parsed.get('l', {}).get('meta_analysis', None)
-
-                if l_filter == 'false':
-                    logger.debug("Excluding meta-analysis experiments.")
-                    query = query.filter(
-                        or_(
-                            # Keep experiments without any score sets
-                            not_(Experiment.score_sets.any()),
-                            # Keep experiments where score sets exist but have no meta_analyzes_score_sets
-                            Experiment.score_sets.any(not_(ScoreSet.meta_analyzes_score_sets.any()))
-                        )
-                    )
-
-            except json.JSONDecodeError:
-                raise HTTPException(status_code=400, detail="Invalid query format")
-    else:
-        logger.debug(msg="No query string was provided; Listing all experiments.", extra=logging_context())
-
-    items = query.order_by(Experiment.urn).all()
-    return items
-
-
 @router.post(
     "/experiments/search",
     status_code=200,
