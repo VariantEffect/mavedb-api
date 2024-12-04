@@ -140,6 +140,12 @@ async def create_collection(
     user_orcid_ids = set()
 
     try:
+        # always assign creator as admin, as collections permissions do not distinguish between owner/creator and admin
+        creator_user = user_data.user
+        setattr(creator_user, "role", ContributionRole.admin)
+        users.append(creator_user)
+        user_orcid_ids.add(creator_user.username)
+
         for admin in item_create.admins or []:
             admin_orcid = admin.orcid_id
             if admin_orcid not in user_orcid_ids:
