@@ -23,6 +23,19 @@ def list_licenses(
     return items
 
 
+@router.get("/active", status_code=200, response_model=List[license.ShortLicense], responses={404: {}})
+def list_active_licenses(
+    *,
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """
+    List active licenses.
+    """
+
+    items = db.query(License).where(License.active.is_(True)).order_by(License.short_name).all()
+    return items
+
+
 @router.get("/{item_id}", status_code=200, response_model=license.License, responses={404: {}})
 def fetch_license(
     *,

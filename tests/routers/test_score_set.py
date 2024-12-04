@@ -4,10 +4,12 @@ from datetime import date
 from unittest.mock import patch
 
 import jsonschema
+import pytest
 from arq import ArqRedis
+from humps import camelize
 from sqlalchemy import select
 
-from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE, MAVEDB_SCORE_SET_URN_RE
+from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_EXPERIMENT_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
@@ -16,20 +18,38 @@ from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
     EXTRA_USER,
+    EXTRA_LICENSE,
+    TEST_CROSSREF_IDENTIFIER,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
+    TEST_PUBMED_IDENTIFIER,
     TEST_ORCID_ID,
+    TEST_SCORESET_RANGE,
+    TEST_SAVED_SCORESET_RANGE,
+    TEST_MINIMAL_ACC_SCORESET_RESPONSE,
     TEST_USER,
+    TEST_INACTIVE_LICENSE,
+    SAVED_DOI_IDENTIFIER,
+    SAVED_EXTRA_CONTRIBUTOR,
+    SAVED_PUBMED_PUBLICATION,
+    SAVED_SHORT_EXTRA_LICENSE,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util import (
     add_contributor,
     change_ownership,
+    change_to_inactive_license,
     create_experiment,
     create_seq_score_set,
     create_seq_score_set_with_variants,
+    update_expected_response_for_created_resources,
 )
+
+
+########################################################################################################################
+# Score set schemas
+########################################################################################################################
 
 
 def test_TEST_MINIMAL_SEQ_SCORESET_is_valid():
@@ -40,27 +60,31 @@ def test_TEST_MINIMAL_ACC_SCORESET_is_valid():
     jsonschema.validate(instance=TEST_MINIMAL_ACC_SCORESET, schema=ScoreSetCreate.schema())
 
 
+########################################################################################################################
+# Score set creation
+########################################################################################################################
+
+
 def test_create_minimal_score_set(client, setup_router_db):
     experiment = create_experiment(client)
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_post_payload["experimentUrn"] = experiment["urn"]
+
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     assert response.status_code == 200
     response_data = response.json()
+
     jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
-    expected_response = deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE)
-    expected_response.update({"urn": response_data["urn"]})
-    expected_response["experiment"].update(
-        {
-            "urn": experiment["urn"],
-            "experimentSetUrn": experiment["experimentSetUrn"],
-            "scoreSetUrns": [response_data["urn"]],
-        }
+
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
+
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
+
     response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
     assert response.status_code == 200
 
@@ -79,27 +103,26 @@ def test_create_score_set_with_contributor(client, setup_router_db):
 
     assert response.status_code == 200
     response_data = response.json()
+
     jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
-    expected_response = deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE)
-    expected_response.update({"urn": response_data["urn"]})
-    expected_response["experiment"].update(
-        {
-            "urn": experiment["urn"],
-            "experimentSetUrn": experiment["experimentSetUrn"],
-            "scoreSetUrns": [response_data["urn"]],
-        }
+
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
     expected_response["contributors"] = [
         {
+            "recordType": "Contributor",
             "orcidId": TEST_ORCID_ID,
             "givenName": "ORCID",
             "familyName": "User",
         }
     ]
+
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
+
     response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
     assert response.status_code == 200
 
@@ -108,57 +131,24 @@ def test_create_score_set_with_score_range(client, setup_router_db):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set["experimentUrn"] = experiment["urn"]
-    score_set.update(
-        {
-            "score_ranges": {
-                "wt_score": 0.5,
-                "ranges": [
-                    {"label": "range_1", "range": (-2, 2), "classification": "normal"},
-                    {"label": "range_2", "range": (2, None), "classification": "abnormal"},
-                    {
-                        "label": "custom_1",
-                        "range": (None, -2),
-                        "classification": "abnormal",
-                        "description": "A user provided custom range",
-                    },
-                ],
-            }
-        }
-    )
+    score_set.update({"score_ranges": TEST_SCORESET_RANGE})
 
     response = client.post("/api/v1/score-sets/", json=score_set)
     assert response.status_code == 200
-
     response_data = response.json()
+
     jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
 
-    expected_response = deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE)
-    expected_response.update({"urn": response_data["urn"]})
-    expected_response["experiment"].update(
-        {
-            "urn": experiment["urn"],
-            "experimentSetUrn": experiment["experimentSetUrn"],
-            "scoreSetUrns": [response_data["urn"]],
-        }
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
-    expected_response["scoreRanges"] = {
-        "wtScore": 0.5,
-        "ranges": [
-            {"label": "range_1", "range": [-2, 2], "classification": "normal"},
-            {"label": "range_2", "range": [2, None], "classification": "abnormal"},
-            {
-                "label": "custom_1",
-                "range": [None, -2],
-                "classification": "abnormal",
-                "description": "A user provided custom range",
-            },
-        ],
-    }
+    expected_response["scoreRanges"] = TEST_SAVED_SCORESET_RANGE
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
+
     response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
     assert response.status_code == 200
 
@@ -185,21 +175,222 @@ def test_cannot_create_score_set_with_invalid_target_gene_category(client, setup
     assert "value is not a valid enumeration member;" in response_data["detail"][0]["msg"]
 
 
-def test_get_own_private_score_set(client, setup_router_db):
+########################################################################################################################
+# Score set updating
+########################################################################################################################
+
+
+@pytest.mark.parametrize(
+    "attribute,updated_data,expected_response_data",
+    [
+        ("title", "Updated Title", "Updated Title"),
+        ("method_text", "Updated Method Text", "Updated Method Text"),
+        ("abstract_text", "Updated Abstract Text", "Updated Abstract Text"),
+        ("short_description", "Updated Abstract Text", "Updated Abstract Text"),
+        ("extra_metadata", {"updated": "metadata"}, {"updated": "metadata"}),
+        ("data_usage_policy", "data_usage_policy", "data_usage_policy"),
+        ("contributors", [{"orcid_id": EXTRA_USER["username"]}], [SAVED_EXTRA_CONTRIBUTOR]),
+        ("primary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}], [SAVED_PUBMED_PUBLICATION]),
+        ("secondary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}], [SAVED_PUBMED_PUBLICATION]),
+        ("doi_identifiers", [{"identifier": TEST_CROSSREF_IDENTIFIER}], [SAVED_DOI_IDENTIFIER]),
+        ("license_id", EXTRA_LICENSE["id"], SAVED_SHORT_EXTRA_LICENSE),
+        ("target_genes", TEST_MINIMAL_ACC_SCORESET["targetGenes"], TEST_MINIMAL_ACC_SCORESET_RESPONSE["targetGenes"]),
+        ("score_ranges", TEST_SCORESET_RANGE, TEST_SAVED_SCORESET_RANGE),
+    ],
+)
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_update_score_set_data_before_publication(
+    client, setup_router_db, attribute, updated_data, expected_response_data, mock_publication_fetch
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
-    expected_response = deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE)
-    expected_response.update({"urn": score_set["urn"]})
-    expected_response["experiment"].update(
-        {
-            "urn": experiment["urn"],
-            "experimentSetUrn": experiment["experimentSetUrn"],
-            "scoreSetUrns": [score_set["urn"]],
-        }
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
     )
+
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
     assert response.status_code == 200
     response_data = response.json()
+
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+
+    score_set_update_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_update_payload.update({camelize(attribute): updated_data})
+    response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_update_payload)
+    assert response.status_code == 200
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+
+    # Although the client provides the license id, the response includes the full license.
+    if attribute == "license_id":
+        attribute = "license"
+
+    assert expected_response_data == response_data[camelize(attribute)]
+
+
+@pytest.mark.parametrize(
+    "attribute,updated_data,expected_response_data",
+    [
+        ("title", "Updated Title", "Updated Title"),
+        ("method_text", "Updated Method Text", "Updated Method Text"),
+        ("abstract_text", "Updated Abstract Text", "Updated Abstract Text"),
+        ("short_description", "Updated Abstract Text", "Updated Abstract Text"),
+        ("extra_metadata", {"updated": "metadata"}, {"updated": "metadata"}),
+        ("data_usage_policy", "data_usage_policy", "data_usage_policy"),
+        ("contributors", [{"orcid_id": EXTRA_USER["username"]}], [SAVED_EXTRA_CONTRIBUTOR]),
+        ("primary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}], [SAVED_PUBMED_PUBLICATION]),
+        ("secondary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}], [SAVED_PUBMED_PUBLICATION]),
+        ("doi_identifiers", [{"identifier": TEST_CROSSREF_IDENTIFIER}], [SAVED_DOI_IDENTIFIER]),
+        ("license_id", EXTRA_LICENSE["id"], SAVED_SHORT_EXTRA_LICENSE),
+    ],
+)
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_update_score_set_supporting_data_after_publication(
+    session,
+    data_provider,
+    client,
+    setup_router_db,
+    attribute,
+    updated_data,
+    expected_response_data,
+    mock_publication_fetch,
+    data_files,
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    assert response.status_code == 200
+    published_urn = response.json()["urn"]
+    response = client.get(f"/api/v1/score-sets/{published_urn}")
+    assert response.status_code == 200
+    response_data = response.json()
+
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), response_data["experiment"], response_data
+    )
+    expected_response["experiment"].update({"publishedDate": date.today().isoformat()})
+    expected_response.update(
+        {
+            "urn": published_urn,
+            "publishedDate": date.today().isoformat(),
+            "numVariants": 3,
+            "private": False,
+            "datasetColumns": {"countColumns": [], "scoreColumns": ["score"]},
+            "processingState": ProcessingState.success.name,
+        }
+    )
+
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+
+    score_set_update_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_update_payload.update({camelize(attribute): updated_data})
+    response = client.put(f"/api/v1/score-sets/{published_urn}", json=score_set_update_payload)
+    assert response.status_code == 200
+
+    response = client.get(f"/api/v1/score-sets/{published_urn}")
+    assert response.status_code == 200
+    response_data = response.json()
+
+    # Although the client provides the license id, the response includes the full license.
+    if attribute == "license_id":
+        attribute = "license"
+
+    assert expected_response_data == response_data[camelize(attribute)]
+
+
+@pytest.mark.parametrize(
+    "attribute,updated_data,expected_response_data",
+    [
+        ("target_genes", TEST_MINIMAL_ACC_SCORESET["targetGenes"], TEST_MINIMAL_SEQ_SCORESET_RESPONSE["targetGenes"]),
+        (
+            "score_ranges",
+            TEST_SCORESET_RANGE,
+            None,
+        ),
+    ],
+)
+def test_cannot_update_score_set_target_data_after_publication(
+    client, setup_router_db, attribute, expected_response_data, updated_data, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    assert response.status_code == 200
+    published_urn = response.json()["urn"]
+    response = client.get(f"/api/v1/score-sets/{published_urn}")
+    assert response.status_code == 200
+    response_data = response.json()
+
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), response_data["experiment"], response_data
+    )
+    expected_response["experiment"].update({"publishedDate": date.today().isoformat()})
+    expected_response.update(
+        {
+            "urn": published_urn,
+            "publishedDate": date.today().isoformat(),
+            "numVariants": 3,
+            "private": False,
+            "datasetColumns": {"countColumns": [], "scoreColumns": ["score"]},
+            "processingState": ProcessingState.success.name,
+        }
+    )
+
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+
+    score_set_update_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_update_payload.update({camelize(attribute): updated_data})
+    response = client.put(f"/api/v1/score-sets/{published_urn}", json=score_set_update_payload)
+    assert response.status_code == 200
+
+    response = client.get(f"/api/v1/score-sets/{published_urn}")
+    assert response.status_code == 200
+    response_data = response.json()
+
+    if expected_response_data:
+        assert expected_response_data == response_data[camelize(attribute)]
+    else:
+        assert camelize(attribute) not in response_data.keys()
+
+
+########################################################################################################################
+# Score set fetching
+########################################################################################################################
+
+
+def test_get_own_private_score_set(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
@@ -240,35 +431,34 @@ def test_contributor_can_get_other_users_private_score_set(session, client, setu
         TEST_USER["last_name"],
     )
 
-    expected_response = deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE)
-    expected_response.update({"urn": score_set["urn"]})
-    expected_response["experiment"].update(
-        {
-            "urn": experiment["urn"],
-            "experimentSetUrn": experiment["experimentSetUrn"],
-            "scoreSetUrns": [score_set["urn"]],
-        }
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
     )
     expected_response["contributors"] = [
         {
+            "recordType": "Contributor",
             "orcidId": TEST_USER["username"],
             "givenName": TEST_USER["first_name"],
             "familyName": TEST_USER["last_name"],
         }
     ]
     expected_response["createdBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
     }
     expected_response["modifiedBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
     }
+
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
     assert response.status_code == 200
     response_data = response.json()
+
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
@@ -277,15 +467,10 @@ def test_contributor_can_get_other_users_private_score_set(session, client, setu
 def test_admin_can_get_other_user_private_score_set(session, client, admin_app_overrides, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
-    expected_response = deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE)
-    expected_response.update({"urn": score_set["urn"]})
-    expected_response["experiment"].update(
-        {
-            "urn": experiment["urn"],
-            "experimentSetUrn": experiment["experimentSetUrn"],
-            "scoreSetUrns": [score_set["urn"]],
-        }
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
     )
+
     with DependencyOverrider(admin_app_overrides):
         response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
 
@@ -294,6 +479,11 @@ def test_admin_can_get_other_user_private_score_set(session, client, admin_app_o
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
+
+
+########################################################################################################################
+# Adding scores to score set
+########################################################################################################################
 
 
 def test_add_score_set_variants_scores_only_endpoint(client, setup_router_db, data_files):
@@ -490,17 +680,20 @@ def test_contributor_can_add_scores_to_other_user_score_set(session, client, set
     score_set.update({"processingState": "processing"})
     score_set["contributors"] = [
         {
+            "recordType": "Contributor",
             "orcidId": TEST_USER["username"],
             "givenName": TEST_USER["first_name"],
             "familyName": TEST_USER["last_name"],
         }
     ]
     score_set["createdBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
     }
     score_set["modifiedBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
@@ -546,17 +739,20 @@ def test_contributor_can_add_scores_and_counts_to_other_user_score_set(session, 
     score_set.update({"processingState": "processing"})
     score_set["contributors"] = [
         {
+            "recordType": "Contributor",
             "orcidId": TEST_USER["username"],
             "givenName": TEST_USER["first_name"],
             "familyName": TEST_USER["last_name"],
         }
     ]
     score_set["createdBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
     }
     score_set["modifiedBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
@@ -621,6 +817,11 @@ def test_admin_can_add_scores_and_counts_to_other_user_score_set(session, client
     assert score_set == response_data
 
 
+########################################################################################################################
+# Score set publication
+########################################################################################################################
+
+
 def test_publish_score_set(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -630,10 +831,13 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
     response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
     assert response.status_code == 200
     response_data = response.json()
-    assert response_data["urn"] == "urn:mavedb:00000001-a-1"
-    assert response_data["experiment"]["urn"] == "urn:mavedb:00000001-a"
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(response_data["urn"]), re.Match)
+    assert isinstance(MAVEDB_EXPERIMENT_URN_RE.fullmatch(response_data["experiment"]["urn"]), re.Match)
 
-    expected_response = deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE)
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), response_data["experiment"], response_data
+    )
+    expected_response["experiment"].update({"publishedDate": date.today().isoformat()})
     expected_response.update(
         {
             "urn": response_data["urn"],
@@ -642,14 +846,6 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
             "private": False,
             "datasetColumns": {"countColumns": [], "scoreColumns": ["score"]},
             "processingState": ProcessingState.success.name,
-        }
-    )
-    expected_response["experiment"].update(
-        {
-            "urn": response_data["experiment"]["urn"],
-            "experimentSetUrn": response_data["experiment"]["experimentSetUrn"],
-            "scoreSetUrns": [response_data["urn"]],
-            "publishedDate": date.today().isoformat(),
         }
     )
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
@@ -768,7 +964,10 @@ def test_contributor_can_publish_other_users_score_set(session, data_provider, c
     assert response_data["urn"] == "urn:mavedb:00000001-a-1"
     assert response_data["experiment"]["urn"] == "urn:mavedb:00000001-a"
 
-    expected_response = deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE)
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), response_data["experiment"], response_data
+    )
+    expected_response["experiment"].update({"publishedDate": date.today().isoformat()})
     expected_response.update(
         {
             "urn": response_data["urn"],
@@ -779,27 +978,22 @@ def test_contributor_can_publish_other_users_score_set(session, data_provider, c
             "processingState": ProcessingState.success.name,
         }
     )
-    expected_response["experiment"].update(
-        {
-            "urn": response_data["experiment"]["urn"],
-            "experimentSetUrn": response_data["experiment"]["experimentSetUrn"],
-            "scoreSetUrns": [response_data["urn"]],
-            "publishedDate": date.today().isoformat(),
-        }
-    )
     expected_response["contributors"] = [
         {
+            "recordType": "Contributor",
             "orcidId": TEST_USER["username"],
             "givenName": TEST_USER["first_name"],
             "familyName": TEST_USER["last_name"],
         }
     ]
     expected_response["createdBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
     }
     expected_response["modifiedBy"] = {
+        "recordType": "User",
         "orcidId": EXTRA_USER["username"],
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
@@ -831,6 +1025,11 @@ def test_admin_cannot_publish_other_user_private_score_set(
     assert response.status_code == 404
     response_data = response.json()
     assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
+
+
+########################################################################################################################
+# Score set meta-analysis
+########################################################################################################################
 
 
 def test_create_single_score_set_meta_analysis(session, data_provider, client, setup_router_db, data_files):
@@ -1170,6 +1369,10 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_with_differen
     meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
     assert meta_score_set["urn"] == "urn:mavedb:00000003-0-1"
 
+########################################################################################################################
+# Score set search
+########################################################################################################################
+
 
 def test_search_score_sets_no_match(session, data_provider, client, setup_router_db, data_files):
     experiment_1 = create_experiment(client, {"title": "Experiment 1"})
@@ -1231,6 +1434,11 @@ def test_search_score_sets_urn_with_space_match(session, data_provider, client, 
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["urn"] == score_set_1_1["urn"]
+
+
+########################################################################################################################
+# Score set deletion
+########################################################################################################################
 
 
 def test_anonymous_cannot_delete_other_users_private_scoreset(
@@ -1344,6 +1552,11 @@ def test_admin_can_delete_other_users_published_scoreset(
     assert del_response.status_code == 200
 
 
+########################################################################################################################
+# Adding score sets to experiments
+########################################################################################################################
+
+
 def test_can_add_score_set_to_own_private_experiment(session, client, setup_router_db):
     experiment = create_experiment(client)
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
@@ -1427,3 +1640,33 @@ def test_contributor_can_add_score_set_to_others_public_experiment(
     score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     assert response.status_code == 200
+
+
+def test_cannot_create_score_set_with_inactive_license(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = experiment["urn"]
+    score_set_post_payload["licenseId"] = TEST_INACTIVE_LICENSE["id"]
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 400
+
+
+def test_cannot_modify_score_set_to_inactive_license(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set_post_payload = score_set.copy()
+    score_set_post_payload.update({"licenseId": TEST_INACTIVE_LICENSE["id"], "urn": score_set["urn"]})
+    response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_post_payload)
+    assert response.status_code == 400
+
+
+def test_can_modify_metadata_for_score_set_with_inactive_license(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    change_to_inactive_license(session, score_set["urn"])
+    score_set_post_payload = score_set.copy()
+    score_set_post_payload.update({"title": "Update title", "urn": score_set["urn"]})
+    response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_post_payload)
+    assert response.status_code == 200
+    response_data = response.json()
+    assert ("title", response_data["title"]) == ("title", "Update title")

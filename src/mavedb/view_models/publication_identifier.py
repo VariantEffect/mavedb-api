@@ -3,6 +3,7 @@ from typing import Optional
 
 from mavedb.lib.identifiers import PublicationAuthors
 from mavedb.lib.validation.publication import validate_db_name, validate_publication
+from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel, validator
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ class PublicationIdentifierCreate(PublicationIdentifierBase):
 
 # Properties of external publication identifiers
 class ExternalPublicationIdentifier(PublicationIdentifierBase):
+    record_type: str = None  # type: ignore
     title: str
     authors: list[PublicationAuthors]
 
@@ -36,6 +38,8 @@ class ExternalPublicationIdentifier(PublicationIdentifierBase):
     publication_journal: Optional[str]
     url: Optional[str]
     reference_html: Optional[str]
+
+    _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
         orm_mode = True

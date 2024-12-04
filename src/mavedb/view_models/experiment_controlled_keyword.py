@@ -3,7 +3,7 @@ from typing import Optional
 from pydantic import root_validator
 
 from mavedb.lib.validation import keywords
-from mavedb.view_models import keyword
+from mavedb.view_models import keyword, record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 
 
@@ -39,6 +39,10 @@ class ExperimentControlledKeywordUpdate(ExperimentControlledKeywordBase):
 
 class SavedExperimentControlledKeyword(ExperimentControlledKeywordBase):
     """Base class for keyword view models representing saved records."""
+
+    record_type: str = None  # type: ignore
+
+    _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
         orm_mode = True

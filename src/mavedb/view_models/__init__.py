@@ -1,5 +1,6 @@
 from typing import Any
 
+from pydantic import validator
 from pydantic.utils import GetterDict
 
 
@@ -24,3 +25,12 @@ class PublicationIdentifiersGetter(GetterDict):
             return [assc.publication for assc in pub_assc if assc.primary]
         else:
             return super().get(key, default)
+
+
+def record_type_validator():
+    return validator("record_type", allow_reuse=True, pre=True, always=True)
+
+
+def set_record_type(cls, v):
+    # Record type will be set to the class name no matter the input.
+    return cls.__name__
