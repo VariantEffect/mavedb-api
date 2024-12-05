@@ -12,7 +12,7 @@ from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.authorization import require_current_user_with_email
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
-from mavedb.lib.permissions import Action, assert_permission
+from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.models.collection import Collection
 from mavedb.models.collection_user_association import CollectionUserAssociation
 from mavedb.models.enums.contribution_role import ContributionRole
@@ -106,9 +106,7 @@ def fetch_collection(
     """
     save_to_logging_context({"requested_resource": urn})
 
-    # TODO scalars() with one_or_none()? or just one_or_none()?
     item = db.execute(select(Collection).where(Collection.urn == urn)).scalars().one_or_none()
-
     if not item:
         logger.debug(msg="The requested collection does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"Collection with URN {urn} not found")
@@ -116,6 +114,12 @@ def fetch_collection(
     # TODO return admin view if user is mavedb admin? not done for score sets or experiments
 
     assert_permission(user_data, item, Action.READ)
+    # filter score sets and experiments based on user permissions
+    item.score_sets = [score_set for score_set in item.score_sets if has_permission(user_data, score_set, Action.READ)]
+    item.experiments = [
+        experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
+    ]
+
     return item
 
 
@@ -250,14 +254,12 @@ async def update_collection(
     save_to_logging_context({"requested_resource": urn})
     logger.debug(msg="Began collection metadata update.", extra=logging_context())
 
-    # TODO scalars() with one_or_none()? or just one_or_none()?
     item = db.execute(select(Collection).where(Collection.urn == urn)).scalars().one_or_none()
-    # item = db.query(Collection).filter(Collection.urn == urn).one_or_none()
     if item is None:
         logger.info(
             msg="Failed to update collection; The requested collection does not exist.", extra=logging_context()
         )
-        raise HTTPException(status_code=404, detail=f"experiment with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"collection with URN {urn} not found")
 
     assert_permission(user_data, item, Action.UPDATE)
 
@@ -280,6 +282,13 @@ async def update_collection(
     db.refresh(item)
 
     save_to_logging_context({"updated_resource": item.urn})
+    # filter score sets and experiments based on user permissions
+    # note that this filtering occurs after saving changes to db; the filtering is only for the returned view model
+    item.score_sets = [score_set for score_set in item.score_sets if has_permission(user_data, score_set, Action.READ)]
+    item.experiments = [
+        experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
+    ]
+
     return item
 
 
@@ -298,11 +307,8 @@ async def add_score_set_to_collection(
     """
     Add an existing score set to an existing collection.
     """
-    save_to_logging_context(
-        {"requested_resource": collection_urn}
-    )  # TODO best way to label collection vs score set in logging?
+    save_to_logging_context({"requested_resource": collection_urn})
 
-    # TODO have Ben check this query
     item = db.execute(select(Collection).where(Collection.urn == collection_urn)).scalars().one_or_none()
     if not item:
         logger.info(
@@ -329,7 +335,14 @@ async def add_score_set_to_collection(
     db.refresh(item)
 
     save_to_logging_context({"updated_resource": item.urn})
-    # TODO return whole collection, or just the list of the collection's score sets?
+
+    # filter score sets and experiments based on user permissions
+    # note that this filtering occurs after saving changes to db; the filtering is only for the returned view model
+    item.score_sets = [score_set for score_set in item.score_sets if has_permission(user_data, score_set, Action.READ)]
+    item.experiments = [
+        experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
+    ]
+
     return item
 
 
@@ -348,7 +361,6 @@ async def delete_score_set_from_collection(
         {"requested_resource": collection_urn}
     )  # TODO best way to label collection vs score set in logging?
 
-    # TODO have Ben check this query
     item = db.execute(select(Collection).where(Collection.urn == collection_urn)).scalars().one_or_none()
     if not item:
         logger.info(
@@ -387,7 +399,14 @@ async def delete_score_set_from_collection(
     db.refresh(item)
 
     save_to_logging_context({"updated_resource": item.urn})
-    # TODO return whole collection, or just the list of the collection's score sets?
+
+    # filter score sets and experiments based on user permissions
+    # note that this filtering occurs after saving changes to db; the filtering is only for the returned view model
+    item.score_sets = [score_set for score_set in item.score_sets if has_permission(user_data, score_set, Action.READ)]
+    item.experiments = [
+        experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
+    ]
+
     return item
 
 
@@ -406,11 +425,8 @@ async def add_experiment_to_collection(
     """
     Add an existing experiment to an existing collection.
     """
-    save_to_logging_context(
-        {"requested_resource": collection_urn}
-    )  # TODO best way to label collection vs score set in logging?
+    save_to_logging_context({"requested_resource": collection_urn})
 
-    # TODO have Ben check this query
     item = db.execute(select(Collection).where(Collection.urn == collection_urn)).scalars().one_or_none()
     if not item:
         logger.info(
@@ -437,7 +453,14 @@ async def add_experiment_to_collection(
     db.refresh(item)
 
     save_to_logging_context({"updated_resource": item.urn})
-    # TODO return whole collection, or just the list of the collection's score sets?
+
+    # filter score sets and experiments based on user permissions
+    # note that this filtering occurs after saving changes to db; the filtering is only for the returned view model
+    item.score_sets = [score_set for score_set in item.score_sets if has_permission(user_data, score_set, Action.READ)]
+    item.experiments = [
+        experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
+    ]
+
     return item
 
 
@@ -452,11 +475,8 @@ async def delete_experiment_from_collection(
     """
     Remove an experiment from an existing collection. Preserves the experiment in the database, only removes the association between the experiment and the collection.
     """
-    save_to_logging_context(
-        {"requested_resource": collection_urn}
-    )  # TODO best way to label collection vs score set in logging?
+    save_to_logging_context({"requested_resource": collection_urn})
 
-    # TODO have Ben check this query
     item = db.execute(select(Collection).where(Collection.urn == collection_urn)).scalars().one_or_none()
     if not item:
         logger.info(
@@ -495,7 +515,14 @@ async def delete_experiment_from_collection(
     db.refresh(item)
 
     save_to_logging_context({"updated_resource": item.urn})
-    # TODO return whole collection, or just the list of the collection's score sets?
+
+    # filter score sets and experiments based on user permissions
+    # note that this filtering occurs after saving changes to db; the filtering is only for the returned view model
+    item.score_sets = [score_set for score_set in item.score_sets if has_permission(user_data, score_set, Action.READ)]
+    item.experiments = [
+        experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
+    ]
+
     return item
 
 
@@ -518,9 +545,7 @@ async def add_user_to_collection_role(
     """
     save_to_logging_context({"requested_resource": urn})
 
-    # TODO have Ben check this query
     item = db.execute(select(Collection).where(Collection.urn == urn)).scalars().one_or_none()
-    # item = db.query(Collection).filter((Collection).urn == urn).one_or_none()
     if not item:
         logger.info(
             msg="Failed to add user to collection role; The requested collection does not exist.",
@@ -528,7 +553,6 @@ async def add_user_to_collection_role(
         )
         raise HTTPException(status_code=404, detail=f"collection with URN '{urn}' not found")
 
-    # TODO have Ben check this query
     user = db.execute(select(User).where(User.username == orcid_id)).scalars().one_or_none()
     if not user:
         logger.info(
@@ -577,7 +601,14 @@ async def add_user_to_collection_role(
     db.refresh(item)
 
     save_to_logging_context({"updated_resource": item.urn})
-    # TODO return whole collection, or just the list of the collection's users with this role?
+
+    # filter score sets and experiments based on user permissions
+    # note that this filtering occurs after saving changes to db; the filtering is only for the returned view model
+    item.score_sets = [score_set for score_set in item.score_sets if has_permission(user_data, score_set, Action.READ)]
+    item.experiments = [
+        experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
+    ]
+
     return item
 
 
@@ -595,9 +626,7 @@ async def remove_user_from_collection_role(
     """
     save_to_logging_context({"requested_resource": urn})
 
-    # TODO have Ben check this query
     item = db.execute(select(Collection).where(Collection.urn == urn)).scalars().one_or_none()
-    # item = db.query(Collection).filter((Collection).urn == urn).one_or_none()
     if not item:
         logger.info(
             msg="Failed to add user to collection role; The requested collection does not exist.",
@@ -605,7 +634,6 @@ async def remove_user_from_collection_role(
         )
         raise HTTPException(status_code=404, detail=f"collection with URN '{urn}' not found")
 
-    # TODO have Ben check this query
     user = db.execute(select(User).where(User.username == orcid_id)).scalars().one_or_none()
     if not user:
         logger.info(
@@ -648,7 +676,14 @@ async def remove_user_from_collection_role(
     db.refresh(item)
 
     save_to_logging_context({"updated_resource": item.urn})
-    # TODO return whole collection, or just the list of the collection's users with this role?
+
+    # filter score sets and experiments based on user permissions
+    # note that this filtering occurs after saving changes to db; the filtering is only for the returned view model
+    item.score_sets = [score_set for score_set in item.score_sets if has_permission(user_data, score_set, Action.READ)]
+    item.experiments = [
+        experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
+    ]
+
     return item
 
 
@@ -664,9 +699,7 @@ async def delete_collection(
     """
     save_to_logging_context({"requested_resource": urn})
 
-    # TODO have Ben check this query
     item = db.execute(select(Collection).where(Collection.urn == urn)).scalars().one_or_none()
-    # item = db.query(Collection).filter((Collection).urn == urn).one_or_none()
     if not item:
         logger.info(
             msg="Failed to delete collection; The requested collection does not exist.", extra=logging_context()
