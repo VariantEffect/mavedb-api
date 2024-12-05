@@ -48,14 +48,6 @@ def list_my_collections(
     List my collections.
     """
     collection_bundle = {}
-    # owner is not in the contribution role enum, so add owned collections to bundle separately
-    # TODO should owned collections be lumped in with admin collections? Should owner be set as
-    # collection admin upon creation of collection?
-    # TODO need to not allow users to be owners AND be assigned a role, otherwise collections show up multiple times here
-    collection_bundle["owner"] = (
-        db.execute(select(Collection).where(Collection.created_by_id == user_data.user.id)).scalars().all()
-    )
-
     for role in ContributionRole:
         collection_bundle[role.value] = (
             db.execute(
@@ -67,23 +59,6 @@ def list_my_collections(
             .scalars()
             .all()
         )
-
-    # collections_result = db.scalars(select(Collection).where(user_data.user.id in Collection.users)).all()
-    # TODO is this too inefficient to select everything? should we do permission checking in the select statement
-    # rather than using the permissions module below?
-    # collections_result = db.execute(select(Collection)).scalars().all()
-
-    # collections_result[:] = [
-    #     collection for collection in collections_result if has_permission(user_data, collection, Action.READ).permitted
-    # ]
-
-    # # TODO return http exception if no collections? or just return nothing?
-    # if not collections_result:
-    #     logger.info(msg="No collections available.", extra=logging_context())
-
-    #     raise HTTPException(status_code=404, detail="no collections available")
-    # else:
-    #     collections_result.sort(key=attrgetter("urn"))
 
     return collection_bundle
 
