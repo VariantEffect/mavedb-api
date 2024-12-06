@@ -17,7 +17,7 @@ class CollectionGetter(UserContributionRoleGetter):
             return sorted([score_set.urn for score_set in score_sets if score_set.superseding_score_set is None])
         elif key == "experiment_urns":
             experiments = getattr(self._obj, "experiments") or []
-            return [experiment.urn for experiment in experiments]
+            return sorted([experiment.urn for experiment in experiments])
         else:
             return super().get(key, default)
 
@@ -69,14 +69,17 @@ class SavedCollection(CollectionBase):
 
 
 # Properties to return to non-admin clients
+# NOTE: Coupled to ContributionRole enum
 class Collection(SavedCollection):
     experiment_urns: list[str]
     score_set_urns: list[str]
-
-
-# Properties to return to admin clients
-# NOTE: Coupled to ContributionRole enum
-class AdminCollection(Collection):
+    admins: list[User]
     viewers: list[User]
     editors: list[User]
-    admins: list[User]
+
+
+# Properties to return to admin clients or non-admin clients who are admins of the returned collection
+# NOTE: Coupled to ContributionRole enum
+# TODO should MaveDB admins get AdminUsers instead of Users?
+class AdminCollection(Collection):
+    pass

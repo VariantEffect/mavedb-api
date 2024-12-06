@@ -60,14 +60,27 @@ def list_my_collections(
             .scalars()
             .all()
         )
-        # filter score sets and experiments based on user permissions
+
         for item in collection_bundle[role.value]:
+            # filter score sets and experiments based on user permissions
             item.score_sets = [
                 score_set for score_set in item.score_sets if has_permission(user_data, score_set, Action.READ)
             ]
             item.experiments = [
                 experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
             ]
+            # unless user is admin of this collection, filter users to only admins
+            # the rationale is that all collection contributors should be able to see admins
+            # to know who to contact, but only collection admins should be able to see viewers and editors
+            if role in (ContributionRole.viewer, ContributionRole.editor):
+                admins = []
+                for user_assoc in item.user_associations:
+                    if user_assoc.contribution_role == ContributionRole.admin:
+                        admin = user_assoc.user
+                        # role must be set in order to assign users to collection
+                        setattr(admin, "role", ContributionRole.admin)
+                        admins.append(admin)
+                item.users = admins
 
     return collection_bundle
 
@@ -101,6 +114,20 @@ def fetch_collection(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
+    # unless user is admin of this collection, filter users to only admins
+    # the rationale is that all collection contributors should be able to see admins
+    # to know who to contact, but only collection admins should be able to see viewers and editors
+    # TODO either create permissions action for this or look up user's role outside of the permissions module
+    # for now, just assume that if user has permission to add role, they are a collection admin
+    if not has_permission(user_data, item, Action.ADD_ROLE):
+        admins = []
+        for user_assoc in item.user_associations:
+            if user_assoc.contribution_role == ContributionRole.admin:
+                admin = user_assoc.user
+                # role must be set in order to assign users to collection
+                setattr(admin, "role", ContributionRole.admin)
+                admins.append(admin)
+        item.users = admins
 
     return item
 
@@ -270,6 +297,20 @@ async def update_collection(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
+    # unless user is admin of this collection, filter users to only admins
+    # the rationale is that all collection contributors should be able to see admins
+    # to know who to contact, but only collection admins should be able to see viewers and editors
+    # TODO either create permissions action for this or look up user's role outside of the permissions module
+    # for now, just assume that if user has permission to add role, they are a collection admin
+    if not has_permission(user_data, item, Action.ADD_ROLE):
+        admins = []
+        for user_assoc in item.user_associations:
+            if user_assoc.contribution_role == ContributionRole.admin:
+                admin = user_assoc.user
+                # role must be set in order to assign users to collection
+                setattr(admin, "role", ContributionRole.admin)
+                admins.append(admin)
+        item.users = admins
 
     return item
 
@@ -325,6 +366,20 @@ async def add_score_set_to_collection(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
+    # unless user is admin of this collection, filter users to only admins
+    # the rationale is that all collection contributors should be able to see admins
+    # to know who to contact, but only collection admins should be able to see viewers and editors
+    # TODO either create permissions action for this or look up user's role outside of the permissions module
+    # for now, just assume that if user has permission to add role, they are a collection admin
+    if not has_permission(user_data, item, Action.ADD_ROLE):
+        admins = []
+        for user_assoc in item.user_associations:
+            if user_assoc.contribution_role == ContributionRole.admin:
+                admin = user_assoc.user
+                # role must be set in order to assign users to collection
+                setattr(admin, "role", ContributionRole.admin)
+                admins.append(admin)
+        item.users = admins
 
     return item
 
@@ -390,6 +445,20 @@ async def delete_score_set_from_collection(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
+    # unless user is admin of this collection, filter users to only admins
+    # the rationale is that all collection contributors should be able to see admins
+    # to know who to contact, but only collection admins should be able to see viewers and editors
+    # TODO either create permissions action for this or look up user's role outside of the permissions module
+    # for now, just assume that if user has permission to add role, they are a collection admin
+    if not has_permission(user_data, item, Action.ADD_ROLE):
+        admins = []
+        for user_assoc in item.user_associations:
+            if user_assoc.contribution_role == ContributionRole.admin:
+                admin = user_assoc.user
+                # role must be set in order to assign users to collection
+                setattr(admin, "role", ContributionRole.admin)
+                admins.append(admin)
+        item.users = admins
 
     return item
 
@@ -445,6 +514,20 @@ async def add_experiment_to_collection(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
+    # unless user is admin of this collection, filter users to only admins
+    # the rationale is that all collection contributors should be able to see admins
+    # to know who to contact, but only collection admins should be able to see viewers and editors
+    # TODO either create permissions action for this or look up user's role outside of the permissions module
+    # for now, just assume that if user has permission to add role, they are a collection admin
+    if not has_permission(user_data, item, Action.ADD_ROLE):
+        admins = []
+        for user_assoc in item.user_associations:
+            if user_assoc.contribution_role == ContributionRole.admin:
+                admin = user_assoc.user
+                # role must be set in order to assign users to collection
+                setattr(admin, "role", ContributionRole.admin)
+                admins.append(admin)
+        item.users = admins
 
     return item
 
@@ -508,6 +591,20 @@ async def delete_experiment_from_collection(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
+    # unless user is admin of this collection, filter users to only admins
+    # the rationale is that all collection contributors should be able to see admins
+    # to know who to contact, but only collection admins should be able to see viewers and editors
+    # TODO either create permissions action for this or look up user's role outside of the permissions module
+    # for now, just assume that if user has permission to add role, they are a collection admin
+    if not has_permission(user_data, item, Action.ADD_ROLE):
+        admins = []
+        for user_assoc in item.user_associations:
+            if user_assoc.contribution_role == ContributionRole.admin:
+                admin = user_assoc.user
+                # role must be set in order to assign users to collection
+                setattr(admin, "role", ContributionRole.admin)
+                admins.append(admin)
+        item.users = admins
 
     return item
 
@@ -594,6 +691,8 @@ async def add_user_to_collection_role(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
+    # TODO only collection admins can get to this point in the function, so shouldn't need to filter out
+    # viewers and editors before returning item, but should check with others
 
     return item
 
@@ -669,6 +768,8 @@ async def remove_user_from_collection_role(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
+    # TODO only collection admins can get to this point in the function, so shouldn't need to filter out
+    # viewers and editors before returning item, but should check with others
 
     return item
 

@@ -44,7 +44,7 @@ class UserContributionRoleGetter(GetterDict):
         # The standard is to name properties as the plural of the enum value
         if key[:-1] in ContributionRole._member_map_:
             user_assc = getattr(self._obj, "user_associations")
-            return [user.user for user in user_assc if key[:-1] == user_assc.role.name]
+            return [user.user for user in user_assc if key[:-1] == user.contribution_role.name]
         else:
             return super().get(key, default)
 
