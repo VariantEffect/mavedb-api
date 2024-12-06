@@ -60,6 +60,14 @@ def list_my_collections(
             .scalars()
             .all()
         )
+        # filter score sets and experiments based on user permissions
+        for item in collection_bundle[role.value]:
+            item.score_sets = [
+                score_set for score_set in item.score_sets if has_permission(user_data, score_set, Action.READ)
+            ]
+            item.experiments = [
+                experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
+            ]
 
     return collection_bundle
 
@@ -86,8 +94,6 @@ def fetch_collection(
     if not item:
         logger.debug(msg="The requested collection does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"Collection with URN {urn} not found")
-
-    # TODO return admin view if user is mavedb admin? not done for score sets or experiments
 
     assert_permission(user_data, item, Action.READ)
     # filter score sets and experiments based on user permissions
