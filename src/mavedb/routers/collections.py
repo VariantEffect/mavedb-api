@@ -1,4 +1,5 @@
 import logging
+from datetime import date
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -303,6 +304,7 @@ async def add_score_set_to_collection(
     assert_permission(user_data, item, Action.ADD_SCORE_SET)
 
     item.score_sets.append(score_set)
+    item.modification_date = date.today()
     item.modified_by = user_data.user
 
     db.add(item)
@@ -367,6 +369,7 @@ async def delete_score_set_from_collection(
     assert_permission(user_data, item, Action.ADD_SCORE_SET)
 
     item.score_sets.remove(score_set)
+    item.modification_date = date.today()
     item.modified_by = user_data.user
 
     db.add(item)
@@ -421,6 +424,7 @@ async def add_experiment_to_collection(
     assert_permission(user_data, item, Action.ADD_EXPERIMENT)
 
     item.experiments.append(experiment)
+    item.modification_date = date.today()
     item.modified_by = user_data.user
 
     db.add(item)
@@ -483,6 +487,7 @@ async def delete_experiment_from_collection(
     assert_permission(user_data, item, Action.ADD_EXPERIMENT)
 
     item.experiments.remove(experiment)
+    item.modification_date = date.today()
     item.modified_by = user_data.user
 
     db.add(item)
