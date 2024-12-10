@@ -15,6 +15,7 @@ from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.view_models import PublicationIdentifiersGetter, record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models.calibration import Calibration
 from mavedb.view_models.contributor import Contributor, ContributorCreate
 from mavedb.view_models.doi_identifier import (
     DoiIdentifier,
@@ -387,6 +388,7 @@ class SavedScoreSet(ScoreSetBase):
     external_links: Dict[str, ExternalLink]
     contributors: list[Contributor]
     score_ranges: Optional[ScoreRanges]
+    score_calibrations: Optional[dict[str, Calibration]]
 
     _record_type_factory = record_type_validator()(set_record_type)
 
