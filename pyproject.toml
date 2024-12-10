@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "mavedb"
-version = "2024.4.2"
+version = "2024.4.3"
 description = "API for MaveDB, the database of Multiplexed Assays of Variant Effect."
 license = "AGPL-3.0-only"
 readme = "README.md"
