@@ -611,12 +611,12 @@ async def delete_experiment_from_collection(
 
 @router.post(
     "/collections/{urn}/{role}",
-    response_model=str,  # TODO need view model for user orcid id
+    response_model=collection.Collection,
     responses={422: {}},
 )
 async def add_user_to_collection_role(
     *,
-    orcid_id: str,
+    body: collection.AddUserToCollectionRoleRequest,
     urn: str,
     role: ContributionRole,
     db: Session = Depends(deps.get_db),
@@ -636,12 +636,12 @@ async def add_user_to_collection_role(
         )
         raise HTTPException(status_code=404, detail=f"collection with URN '{urn}' not found")
 
-    user = db.execute(select(User).where(User.username == orcid_id)).scalars().one_or_none()
+    user = db.execute(select(User).where(User.username == body.orcid_id)).scalars().one_or_none()
     if not user:
         logger.info(
             msg="Failed to add user to collection role; The requested user does not exist.", extra=logging_context()
         )
-        raise HTTPException(status_code=404, detail=f"user with ORCID iD '{orcid_id}' not found")
+        raise HTTPException(status_code=404, detail=f"user with ORCID iD '{body.orcid_id}' not found")
 
     # get current user role
     # TODO there is probably a nicer way to select this since we've already selected the user and collection?
@@ -658,7 +658,7 @@ async def add_user_to_collection_role(
     assert_permission(user_data, item, Action.ADD_ROLE)
 
     # Since this is a post request, user should not already be in this role
-    if collection_user_association.contribution_role == role:
+    if collection_user_association and collection_user_association.contribution_role == role:
         logger.info(
             msg="Failed to add user to collection role; the requested user already has the requested role for this collection.",
             extra=logging_context(),
@@ -666,12 +666,12 @@ async def add_user_to_collection_role(
         # TODO what error code?
         raise HTTPException(
             status_code=404,
-            detail=f"user with ORCID iD '{orcid_id}' is already a {role} for collection '{urn}'",
+            detail=f"user with ORCID iD '{body.orcid_id}' is already a {role} for collection '{urn}'",
         )
     # A user can only be in one role per collection, so remove from any other roles
     # TODO I think it's easiest just to delete the user from this collection, then add them back,
     # in order to do the adding the same way whether the user already has a contribution role for this collection or not.
-    elif collection_user_association.contribution_role:
+    elif collection_user_association:
         item.users.remove(User)
 
     setattr(user, "role", role)
