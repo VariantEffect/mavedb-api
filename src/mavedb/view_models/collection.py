@@ -54,6 +54,10 @@ class AddExperimentToCollectionRequest(BaseModel):
     experiment_urn: str
 
 
+class AddUserToCollectionRoleRequest(BaseModel):
+    orcid_id: str
+
+
 # Properties shared by models stored in DB
 class SavedCollection(CollectionBase):
     id: int
