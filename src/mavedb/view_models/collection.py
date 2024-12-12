@@ -34,10 +34,14 @@ class CollectionBase(BaseModel):
 
 
 class CollectionModify(CollectionBase):
-    pass
+    # all fields should be optional, because the client should specify only the fields they want to update
+    private: Optional[bool] = Field(
+        description="Whether the collection is visible to all MaveDB users. If set during collection update, input ignored unless requesting user is collection admin."
+    )
+    name: Optional[str]
 
 
-class CollectionCreate(CollectionModify):
+class CollectionCreate(CollectionBase):
     experiment_urns: Optional[list[str]]
     score_set_urns: Optional[list[str]]
 
