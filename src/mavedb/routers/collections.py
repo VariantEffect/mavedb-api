@@ -280,9 +280,10 @@ async def update_collection(
     if item_update.badge_name:
         assert_permission(user_data, item, Action.ADD_BADGE)
 
-    pairs = {k: v for k, v in vars(item_update).items()}
+    # Only access fields set by the user. Note the value of set fields will be updated even if the value is None
+    pairs = {k: v for k, v in vars(item_update).items() if k in item_update.__fields_set__}
     for var, value in pairs.items():  # vars(item_update).items():
-        setattr(item, var, value) if value else None
+        setattr(item, var, value)
 
     item.modified_by = user_data.user
 
