@@ -29,7 +29,7 @@ from mavedb.lib.logging.context import (
     logging_context,
     save_to_logging_context,
 )
-from mavedb.lib.permissions import Action, assert_permission
+from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_sets import (
     csv_data_to_df,
     find_meta_analyses_for_experiment_sets,
@@ -104,15 +104,8 @@ async def fetch_score_set_by_urn(
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user, item, Action.READ)
-    if(
-        item
-        and item.superseding_score_set
-        and not owner_or_contributor
-        and (
-            urn_re.MAVEDB_OLD_TMP_URN_RE.fullmatch(item.superseding_score_set.urn)
-            or urn_re.MAVEDB_TMP_URN_RE.fullmatch(item.superseding_score_set.urn)
-        )
-    ):
+
+    if item.superseding_score_set and not has_permission(user, item.superseding_score_set, Action.READ).permitted:
         item.superseding_score_set = None
 
     return item

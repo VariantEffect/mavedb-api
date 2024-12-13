@@ -1557,3 +1557,93 @@ def test_can_modify_metadata_for_score_set_with_inactive_license(session, client
     assert response.status_code == 200
     response_data = response.json()
     assert ("title", response_data["title"]) == ("title", "Update title")
+
+########################################################################################################################
+# Supersede score set
+########################################################################################################################
+
+def test_create_superseding_score_set(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    published_score_set = publish_score_set_response.json()
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
+    score_set_post_payload["supersededScoreSetUrn"] = published_score_set["urn"]
+    superseding_score_set_response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert superseding_score_set_response.status_code == 200
+
+def test_can_view_unpublished_superseding_score_set(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    unpublished_score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    published_score_set = publish_score_set_response.json()
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
+    score_set_post_payload["supersededScoreSetUrn"] = published_score_set["urn"]
+    superseding_score_set_response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert superseding_score_set_response.status_code == 200
+    superseding_score_set = superseding_score_set_response.json()
+    score_set_response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}")
+    score_set = score_set_response.json()
+    assert score_set_response.status_code == 200
+    assert score_set["urn"] == superseding_score_set["supersededScoreSet"]["urn"]
+    assert score_set["supersedingScoreSet"]["urn"] == superseding_score_set["urn"]
+
+def test_cannot_view_others_unpublished_superseding_score_set(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    unpublished_score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    published_score_set = publish_score_set_response.json()
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
+    score_set_post_payload["supersededScoreSetUrn"] = published_score_set["urn"]
+    superseding_score_set_response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert superseding_score_set_response.status_code == 200
+    superseding_score_set = superseding_score_set_response.json()
+    change_ownership(session, superseding_score_set["urn"], ScoreSetDbModel)
+    score_set_response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}")
+    score_set = score_set_response.json()
+    assert score_set_response.status_code == 200
+    assert score_set["urn"] == superseding_score_set["supersededScoreSet"]["urn"]
+    # Other users can't view the unpublished superseding score set.
+    assert "supersedingScoreSet" not in score_set
+
+def test_can_view_others_published_superseding_score_set(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    unpublished_score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    published_score_set = publish_score_set_response.json()
+
+    superseding_score_set = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        published_score_set["experiment"]["urn"],
+        data_files / "scores.csv",
+        update={"supersededScoreSetUrn": published_score_set["urn"]},
+    )
+    published_superseding_score_set_response = client.post(f"/api/v1/score-sets/{superseding_score_set['urn']}/publish")
+    assert published_superseding_score_set_response.status_code == 200
+    published_superseding_score_set = published_superseding_score_set_response.json()
+
+    change_ownership(session, published_superseding_score_set["urn"], ScoreSetDbModel)
+
+    score_set_response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}")
+    assert score_set_response.status_code == 200
+    score_set = score_set_response.json()
+    assert score_set["urn"] == published_superseding_score_set["supersededScoreSet"]["urn"]
+    # Other users can view published superseding score set.
+    assert score_set["supersedingScoreSet"]["urn"] == published_superseding_score_set["urn"]
