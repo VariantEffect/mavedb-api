@@ -1071,6 +1071,7 @@ def test_publish_single_score_set_meta_analysis(session, data_provider, client, 
     )
 
     meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set["urn"]), re.Match)
     assert meta_score_set["urn"] == "urn:mavedb:00000001-0-1"
 
 
@@ -1101,6 +1102,7 @@ def test_multiple_score_set_meta_analysis_single_experiment(
     assert score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
 
     meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set["urn"]), re.Match)
     assert meta_score_set["urn"] == "urn:mavedb:00000001-0-1"
 
 
@@ -1132,6 +1134,7 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets(
     assert score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
 
     meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set["urn"]), re.Match)
     assert meta_score_set["urn"] == "urn:mavedb:00000003-0-1"
 
 
@@ -1165,6 +1168,7 @@ def test_multiple_score_set_meta_analysis_multiple_experiments(
     assert score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
 
     meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set["urn"]), re.Match)
     assert meta_score_set["urn"] == "urn:mavedb:00000001-0-1"
 
 
@@ -1254,6 +1258,9 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_different_sco
     assert meta_score_set_2["urn"] == "urn:mavedb:00000003-0-2"
     meta_score_set_3 = (client.post(f"/api/v1/score-sets/{meta_score_set_3['urn']}/publish")).json()
     assert meta_score_set_3["urn"] == "urn:mavedb:00000003-0-3"
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set_1["urn"]), re.Match)
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set_2["urn"]), re.Match)
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set_3["urn"]), re.Match)
 
 
 def test_cannot_add_score_set_to_meta_analysis_experiment(session, data_provider, client, setup_router_db, data_files):
@@ -1336,6 +1343,7 @@ def test_multiple_score_set_meta_analysis_single_experiment_with_different_creat
 
     meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
     assert meta_score_set["urn"] == "urn:mavedb:00000001-0-1"
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set["urn"]), re.Match)
 
 
 def test_multiple_score_set_meta_analysis_multiple_experiment_sets_with_different_creator(
@@ -1368,6 +1376,7 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_with_differen
 
     meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
     assert meta_score_set["urn"] == "urn:mavedb:00000003-0-1"
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set["urn"]), re.Match)
 
 ########################################################################################################################
 # Score set search
