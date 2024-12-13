@@ -41,7 +41,6 @@ from mavedb.lib.score_sets import (
     search_score_sets as _search_score_sets,
     refresh_variant_urns,
 )
-from mavedb.lib.validation import urn_re
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.urns import (
     generate_experiment_set_urn,
