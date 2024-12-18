@@ -7,6 +7,7 @@ import requests
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from mavedb import deps
 from mavedb.lib.authentication import UserData, get_current_user
@@ -41,6 +42,40 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
     route_class=LoggedRoute,
 )
+
+
+@router.get(
+    "/experiments/",
+    status_code=200,
+    response_model=list[experiment.Experiment],
+    response_model_exclude_none=True,
+)
+def list_experiments(
+    *,
+    editable: Optional[bool] = None,
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+) -> list[Experiment]:
+    """
+    List experiments.
+    """
+    query = db.query(Experiment)
+
+    if editable:
+        if user_data is None or user_data.user is None:
+            logger.debug(msg="User is anonymous; Cannot list their experiments.", extra=logging_context())
+            return []
+
+        logger.debug(msg="Listing experiments for the current user.", extra=logging_context())
+        query = query.filter(
+            or_(
+                Experiment.created_by_id == user_data.user.id,
+                Experiment.contributors.any(Contributor.orcid_id == user_data.user.username)
+            )
+        )
+
+    items = query.order_by(Experiment.urn).all()
+    return items
 
 
 @router.post(

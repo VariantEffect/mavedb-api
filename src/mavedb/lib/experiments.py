@@ -109,6 +109,8 @@ def search_experiments(
                     Experiment.score_sets.any(not_(ScoreSet.meta_analyzes_score_sets.any()))
                 )
             )
+        else:
+            query = query.filter(Experiment.score_sets.any(ScoreSet.meta_analyzes_score_sets.any()))
 
     items: list[Experiment] = query.order_by(Experiment.urn, Experiment.title).all()
     if not items:
