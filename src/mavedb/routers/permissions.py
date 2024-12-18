@@ -10,6 +10,7 @@ from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, has_permission
+from mavedb.models.collection import Collection
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class ModelName(str, Enum):
+    collection = "collection"
     experiment = "experiment"
     experiment_set = "experiment-set"
     score_set = "score-set"
@@ -52,6 +54,8 @@ async def check_permission(
         item = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
     elif model_name == ModelName.score_set:
         item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
+    elif model_name == ModelName.collection:
+        item = db.query(Collection).filter(Collection.urn == urn).one_or_none()
 
     if item:
         permission = has_permission(user_data, item, action).permitted
