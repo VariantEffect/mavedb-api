@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
 
@@ -244,7 +244,7 @@ async def create_collection(
     return item
 
 
-@router.put(
+@router.patch(
     "/collections/{urn}",
     response_model=collection.Collection,
     responses={422: {}},
@@ -385,7 +385,11 @@ async def add_score_set_to_collection(
     return item
 
 
-@router.delete("/collections/{collection_urn}/score-sets/{score_set_urn}", responses={422: {}})
+@router.delete(
+    "/collections/{collection_urn}/score-sets/{score_set_urn}",
+    response_model=collection.Collection,
+    responses={422: {}},
+)
 async def delete_score_set_from_collection(
     *,
     collection_urn: str,
@@ -533,7 +537,11 @@ async def add_experiment_to_collection(
     return item
 
 
-@router.delete("/collections/{collection_urn}/experiments/{experiment_urn}", responses={422: {}})
+@router.delete(
+    "/collections/{collection_urn}/experiments/{experiment_urn}",
+    response_model=collection.Collection,
+    responses={422: {}},
+)
 async def delete_experiment_from_collection(
     *,
     collection_urn: str,
@@ -698,7 +706,8 @@ async def add_user_to_collection_role(
     return item
 
 
-@router.delete("/collections/{urn}/{role}/{orcid_id}", responses={422: {}})
+# TODO make role plural here. try {role}s
+@router.delete("/collections/{urn}/{role}/{orcid_id}", response_model=collection.Collection, responses={422: {}})
 async def remove_user_from_collection_role(
     *,
     urn: str,
@@ -732,7 +741,7 @@ async def remove_user_from_collection_role(
     collection_user_association = (
         db.execute(
             select(CollectionUserAssociation).where(
-                CollectionUserAssociation.collection_id == item.id and CollectionUserAssociation.user_id == User.id
+                and_(CollectionUserAssociation.collection_id == item.id, CollectionUserAssociation.user_id == user.id)
             )
         )
         .scalars()
@@ -754,7 +763,7 @@ async def remove_user_from_collection_role(
             detail=f"user with ORCID iD '{orcid_id}' does not currently hold the role {role} for collection '{urn}'",
         )
 
-    item.users.remove(User)
+    item.users.remove(user)
     item.modified_by = user_data.user
 
     db.add(item)
