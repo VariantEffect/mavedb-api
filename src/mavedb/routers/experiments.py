@@ -182,10 +182,15 @@ def get_experiment_score_sets(
         while current_version:
             if current_version.superseded_score_set:
                 if not has_permission(user_data, current_version, Action.READ).permitted:
-                    current_version = next(
+                    next_version: Optional[ScoreSet] = next(
                         (sup for sup in superseding_score_sets if sup.urn == current_version.superseded_score_set.urn),
                         None
                     )
+                    # handle poetry run mypy src/ error so that add next_version
+                    if next_version:
+                        current_version = next_version
+                    else:
+                        break
                 else:
                     break
             else:
