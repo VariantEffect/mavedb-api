@@ -169,8 +169,34 @@ def get_experiment_score_sets(
         .filter(~ScoreSet.superseding_score_set.has())
         .all()
     )
+    superseding_score_sets = (
+        db.query(ScoreSet)
+        .filter(ScoreSet.experiment_id == experiment.id)
+        .filter(ScoreSet.superseding_score_set.has())
+        .all()
+    )
+
+    updated_score_set_result = []
+    for s in score_set_result:
+        current_version = s
+        while current_version:
+            if current_version.superseded_score_set:
+                if not has_permission(user_data, current_version, Action.READ).permitted:
+                    current_version = next(
+                        (sup for sup in superseding_score_sets if sup.urn == current_version.superseded_score_set.urn),
+                        None
+                    )
+                else:
+                    break
+            else:
+                break
+        if current_version:
+            updated_score_set_result.append(current_version)
+        else:
+            updated_score_set_result.append(s)
+
     score_set_result[:] = [
-        score_set for score_set in score_set_result if has_permission(user_data, score_set, Action.READ).permitted
+        score_set for score_set in updated_score_set_result if has_permission(user_data, score_set, Action.READ).permitted
     ]
 
     if not score_set_result:
