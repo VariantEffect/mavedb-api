@@ -29,7 +29,7 @@ from mavedb.lib.logging.context import (
     logging_context,
     save_to_logging_context,
 )
-from mavedb.lib.permissions import Action, assert_permission
+from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_sets import (
     csv_data_to_df,
     find_meta_analyses_for_experiment_sets,
@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 
 
 async def fetch_score_set_by_urn(
-    db, urn: str, user: Optional[UserData], owner_or_contributor: Optional[UserData], only_published: bool
+        db, urn: str, user: Optional[UserData], owner_or_contributor: Optional[UserData], only_published: bool
 ) -> Optional[ScoreSet]:
     """
     Fetch one score set by URN, ensuring that the user has read permission.
@@ -103,6 +103,10 @@ async def fetch_score_set_by_urn(
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user, item, Action.READ)
+
+    if item.superseding_score_set and not has_permission(user, item.superseding_score_set, Action.READ).permitted:
+        item.superseding_score_set = None
+
     return item
 
 
@@ -128,9 +132,9 @@ def search_score_sets(search: ScoreSetsSearch, db: Session = Depends(deps.get_db
     response_model=list[score_set.ShortScoreSet],
 )
 def search_my_score_sets(
-    search: ScoreSetsSearch,  # = Body(..., embed=True),
-    db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(require_current_user),
+        search: ScoreSetsSearch,  # = Body(..., embed=True),
+        db: Session = Depends(deps.get_db),
+        user_data: UserData = Depends(require_current_user),
 ) -> Any:
     """
     Search score sets created by the current user..
@@ -146,10 +150,10 @@ def search_my_score_sets(
     response_model_exclude_none=True,
 )
 async def show_score_set(
-    *,
-    urn: str,
-    db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(get_current_user),
+        *,
+        urn: str,
+        db: Session = Depends(deps.get_db),
+        user_data: UserData = Depends(get_current_user),
 ) -> Any:
     """
     Fetch a single score set by URN.
@@ -165,17 +169,17 @@ async def show_score_set(
         200: {
             "content": {"text/csv": {}},
             "description": """Variant scores in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
-            """ and hgvs_splice), plus score columns defined by the score set.""",
+                           """ and hgvs_splice), plus score columns defined by the score set.""",
         }
     },
 )
 def get_score_set_scores_csv(
-    *,
-    urn: str,
-    start: int = Query(default=None, description="Start index for pagination"),
-    limit: int = Query(default=None, description="Number of variants to return"),
-    db: Session = Depends(deps.get_db),
-    user_data: Optional[UserData] = Depends(get_current_user),
+        *,
+        urn: str,
+        start: int = Query(default=None, description="Start index for pagination"),
+        limit: int = Query(default=None, description="Number of variants to return"),
+        db: Session = Depends(deps.get_db),
+        user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
     """
     Return scores from a score set, identified by URN, in CSV format.
@@ -219,17 +223,17 @@ def get_score_set_scores_csv(
         200: {
             "content": {"text/csv": {}},
             "description": """Variant counts in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
-            """ and hgvs_splice), plus score columns defined by the score set.""",
+                           """ and hgvs_splice), plus score columns defined by the score set.""",
         }
     },
 )
 async def get_score_set_counts_csv(
-    *,
-    urn: str,
-    start: int = Query(default=None, description="Start index for pagination"),
-    limit: int = Query(default=None, description="Number of variants to return"),
-    db: Session = Depends(deps.get_db),
-    user_data: Optional[UserData] = Depends(get_current_user),
+        *,
+        urn: str,
+        start: int = Query(default=None, description="Start index for pagination"),
+        limit: int = Query(default=None, description="Number of variants to return"),
+        db: Session = Depends(deps.get_db),
+        user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
     """
     Return counts from a score set, identified by URN, in CSV format.
@@ -272,10 +276,10 @@ async def get_score_set_counts_csv(
     response_model=list[mapped_variant.MappedVariant],
 )
 def get_score_set_mapped_variants(
-    *,
-    urn: str,
-    db: Session = Depends(deps.get_db),
-    user_data: Optional[UserData] = Depends(get_current_user),
+        *,
+        urn: str,
+        db: Session = Depends(deps.get_db),
+        user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
     """
     Return mapped variants from a score set, identified by URN.
@@ -293,10 +297,10 @@ def get_score_set_mapped_variants(
 
     mapped_variants = (
         db.query(MappedVariant)
-        .filter(ScoreSet.urn == urn)
-        .filter(ScoreSet.id == Variant.score_set_id)
-        .filter(Variant.id == MappedVariant.variant_id)
-        .all()
+            .filter(ScoreSet.urn == urn)
+            .filter(ScoreSet.id == Variant.score_set_id)
+            .filter(Variant.id == MappedVariant.variant_id)
+            .all()
     )
 
     if not mapped_variants:
@@ -316,10 +320,10 @@ def get_score_set_mapped_variants(
     response_model_exclude_none=True,
 )
 async def create_score_set(
-    *,
-    item_create: score_set.ScoreSetCreate,
-    db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(require_current_user_with_email),
+        *,
+        item_create: score_set.ScoreSetCreate,
+        db: Session = Depends(deps.get_db),
+        user_data: UserData = Depends(require_current_user_with_email),
 ) -> Any:
     """
     Create a score set.
@@ -461,9 +465,10 @@ async def create_score_set(
         for identifier in item_create.primary_publication_identifiers or []
     ]
     publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_create.secondary_publication_identifiers or []
-    ] + primary_publication_identifiers
+                                  await find_or_create_publication_identifier(db, identifier.identifier,
+                                                                              identifier.db_name)
+                                  for identifier in item_create.secondary_publication_identifiers or []
+                              ] + primary_publication_identifiers
 
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
@@ -603,13 +608,13 @@ async def create_score_set(
     response_model_exclude_none=True,
 )
 async def upload_score_set_variant_data(
-    *,
-    urn: str,
-    counts_file: Optional[UploadFile] = File(None),
-    scores_file: UploadFile = File(...),
-    db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(require_current_user_with_email),
-    worker: ArqRedis = Depends(deps.get_worker),
+        *,
+        urn: str,
+        counts_file: Optional[UploadFile] = File(None),
+        scores_file: UploadFile = File(...),
+        db: Session = Depends(deps.get_db),
+        user_data: UserData = Depends(require_current_user_with_email),
+        worker: ArqRedis = Depends(deps.get_worker),
 ) -> Any:
     """
     Upload scores and variant count files for a score set, and initiate processing these files to
@@ -660,12 +665,12 @@ async def upload_score_set_variant_data(
     "/score-sets/{urn}", response_model=score_set.ScoreSet, responses={422: {}}, response_model_exclude_none=True
 )
 async def update_score_set(
-    *,
-    urn: str,
-    item_update: score_set.ScoreSetUpdate,
-    db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(require_current_user_with_email),
-    worker: ArqRedis = Depends(deps.get_worker),
+        *,
+        urn: str,
+        item_update: score_set.ScoreSetUpdate,
+        db: Session = Depends(deps.get_db),
+        user_data: UserData = Depends(require_current_user_with_email),
+        worker: ArqRedis = Depends(deps.get_worker),
 ) -> Any:
     """
     Update a score set.
@@ -722,9 +727,10 @@ async def update_score_set(
         for identifier in item_update.primary_publication_identifiers or []
     ]
     publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_update.secondary_publication_identifiers or []
-    ] + primary_publication_identifiers
+                                  await find_or_create_publication_identifier(db, identifier.identifier,
+                                                                              identifier.db_name)
+                                  for identifier in item_update.secondary_publication_identifiers or []
+                              ] + primary_publication_identifiers
 
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
@@ -863,15 +869,15 @@ async def update_score_set(
         if item.variants:
             assert item.dataset_columns is not None
             score_columns = [
-                "hgvs_nt",
-                "hgvs_splice",
-                "hgvs_pro",
-            ] + item.dataset_columns["score_columns"]
+                                "hgvs_nt",
+                                "hgvs_splice",
+                                "hgvs_pro",
+                            ] + item.dataset_columns["score_columns"]
             count_columns = [
-                "hgvs_nt",
-                "hgvs_splice",
-                "hgvs_pro",
-            ] + item.dataset_columns["count_columns"]
+                                "hgvs_nt",
+                                "hgvs_splice",
+                                "hgvs_pro",
+                            ] + item.dataset_columns["count_columns"]
 
             scores_data = pd.DataFrame(
                 variants_to_csv_rows(item.variants, columns=score_columns, dtype="score_data")
@@ -914,10 +920,10 @@ async def update_score_set(
 
 @router.delete("/score-sets/{urn}", responses={422: {}})
 async def delete_score_set(
-    *,
-    urn: str,
-    db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(require_current_user),
+        *,
+        urn: str,
+        db: Session = Depends(deps.get_db),
+        user_data: UserData = Depends(require_current_user),
 ) -> Any:
     """
     Delete a score set.
@@ -952,10 +958,10 @@ async def delete_score_set(
     response_model_exclude_none=True,
 )
 def publish_score_set(
-    *,
-    urn: str,
-    db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(require_current_user),
+        *,
+        urn: str,
+        db: Session = Depends(deps.get_db),
+        user_data: UserData = Depends(require_current_user),
 ) -> Any:
     """
     Publish a score set.
