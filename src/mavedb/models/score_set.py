@@ -76,6 +76,7 @@ class ScoreSet(Base):
 
     id = Column(Integer, primary_key=True)
 
+    # TODO(#372)
     urn = Column(String(64), default=generate_temp_urn, index=True, nullable=True, unique=True)
     title = Column(String, nullable=False)
     method_text = Column(String, nullable=False)
