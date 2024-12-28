@@ -9,11 +9,11 @@ from mavedb.view_models.base.base import BaseModel
 
 
 class MappedVariantBase(BaseModel):
-    pre_mapped: Optional[Any]
-    post_mapped: Optional[Any]
+    pre_mapped: Optional[Any] = None
+    post_mapped: Optional[Any] = None
     variant_urn: str
-    vrs_version: Optional[str]
-    error_message: Optional[str]
+    vrs_version: Optional[str] = None
+    error_message: Optional[str] = None
     modification_date: date
     mapped_date: date
     mapping_api_version: str
@@ -42,7 +42,7 @@ class SavedMappedVariant(MappedVariantBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class SavedMappedVariantWithControls(SavedMappedVariant):

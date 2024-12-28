@@ -1,9 +1,7 @@
 from datetime import date
-from typing import Any
+from typing import Any, Optional
 
 from mavedb.view_models.mapped_variant import MappedVariant, SavedMappedVariant
-from pydantic.types import Optional
-
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 
@@ -11,12 +9,12 @@ from mavedb.view_models.base.base import BaseModel
 class VariantBase(BaseModel):
     """Properties shared by most variant view models"""
 
-    urn: Optional[str]
+    urn: Optional[str] = None
     data: Any
     score_set_id: int
-    hgvs_nt: Optional[str]
-    hgvs_pro: Optional[str]
-    hgvs_splice: Optional[str]
+    hgvs_nt: Optional[str] = None
+    hgvs_pro: Optional[str] = None
+    hgvs_splice: Optional[str] = None
     creation_date: date
     modification_date: date
 
@@ -33,16 +31,15 @@ class VariantUpdate(VariantBase):
     pass
 
 
+# Properties shared by models stored in DB
 class SavedVariant(VariantBase):
-    """Base class for variant view models handling saved variants"""
-
     id: int
     record_type: str = None  # type: ignore
 
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class SavedVariantWithMappedVariant(SavedVariant):

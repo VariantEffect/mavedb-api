@@ -2,20 +2,25 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Collection, Dict, Optional, Sequence, Literal
+from typing import Any, Collection, Literal, Optional, Sequence, Union
+from typing_extensions import Self
 
 from humps import camelize
-from pydantic import root_validator
+from pydantic import field_validator, model_validator
 
 from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.lib.validation.transform import (
+    transform_score_set_list_to_urn_list,
+    transform_publication_identifiers_to_primary_and_secondary,
+)
 from mavedb.lib.validation.utilities import inf_or_float, is_null
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
-from mavedb.view_models import PublicationIdentifiersGetter, record_type_validator, set_record_type
-from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models import record_type_validator, set_record_type
+from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.calibration import Calibration
-from mavedb.view_models.contributor import Contributor, ContributorCreate
+from mavedb.view_models.contributor import Contributor, SavedContributor, ContributorCreate
 from mavedb.view_models.doi_identifier import (
     DoiIdentifier,
     DoiIdentifierCreate,
@@ -34,10 +39,14 @@ from mavedb.view_models.target_gene import (
     TargetGeneCreate,
 )
 from mavedb.view_models.user import SavedUser, User
+from mavedb.view_models.variant import SavedVariant
+
+
+UnboundedRange = tuple[Union[float, None], Union[float, None]]
 
 
 class ExternalLink(BaseModel):
-    url: Optional[str]
+    url: Optional[str] = None
 
 
 class OfficialCollection(BaseModel):
@@ -52,45 +61,30 @@ class OfficialCollection(BaseModel):
 
 class ScoreRange(BaseModel):
     label: str
-    description: Optional[str]
+    description: Optional[str] = None
     classification: Literal["normal", "abnormal", "not_specified"]
     # Purposefully vague type hint because of some odd JSON Schema generation behavior.
     # Typing this as tuple[Union[float, None], Union[float, None]] will generate an invalid
     # jsonschema, and fail all tests that access the schema. This may be fixed in pydantic v2,
     # but it's unclear. Even just typing it as Tuple[Any, Any] will generate an invalid schema!
-    range: list[Any]  # really: tuple[Union[float, None], Union[float, None]]
+    range: UnboundedRange  # list[Any]
 
-    @validator("range")
-    def ranges_are_not_backwards(cls, field_value: tuple[Any]):
-        if len(field_value) != 2:
-            raise ValidationError("Only a lower and upper bound are allowed.")
+    @field_validator("range")
+    def ranges_are_not_backwards(cls, value: UnboundedRange) -> UnboundedRange:
+        lower_bound = inf_or_float(value[0], True) if value[0] is not None else None
+        upper_bound = inf_or_float(value[1], False) if value[1] is not None else None
 
-        field_value[0] = inf_or_float(field_value[0], True) if field_value[0] is not None else None
-        field_value[1] = inf_or_float(field_value[1], False) if field_value[1] is not None else None
-
-        if inf_or_float(field_value[0], True) > inf_or_float(field_value[1], False):
+        if inf_or_float(lower_bound, True) > inf_or_float(upper_bound, False):
             raise ValidationError("The lower bound of the score range may not be larger than the upper bound.")
-        elif inf_or_float(field_value[0], True) == inf_or_float(field_value[1], False):
+        elif inf_or_float(lower_bound, True) == inf_or_float(upper_bound, False):
             raise ValidationError("The lower and upper bound of the score range may not be the same.")
 
-        return field_value
+        return (lower_bound, upper_bound)
 
 
 class ScoreRanges(BaseModel):
     wt_score: Optional[float]
     ranges: list[ScoreRange]  # type: ignore
-
-
-class ScoreSetGetter(PublicationIdentifiersGetter):
-    def get(self, key: Any, default: Any = ...) -> Any:
-        if key == "meta_analyzes_score_set_urns":
-            meta_analyzes_score_sets = getattr(self._obj, "meta_analyzes_score_sets") or []
-            return sorted([score_set.urn for score_set in meta_analyzes_score_sets])
-        elif key == "meta_analyzed_by_score_set_urns":
-            meta_analyzed_by_score_sets = getattr(self._obj, "meta_analyzed_by_score_sets") or []
-            return sorted([score_set.urn for score_set in meta_analyzed_by_score_sets])
-        else:
-            return super().get(key, default)
 
 
 class ScoreSetBase(BaseModel):
@@ -100,36 +94,37 @@ class ScoreSetBase(BaseModel):
     method_text: str
     abstract_text: str
     short_description: str
-    extra_metadata: Optional[dict]
-    data_usage_policy: Optional[str]
+    extra_metadata: Optional[dict] = None
+    data_usage_policy: Optional[str] = None
 
 
 class ScoreSetModify(ScoreSetBase):
-    contributors: Optional[list[ContributorCreate]]
-    primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
-    secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
-    doi_identifiers: Optional[list[DoiIdentifierCreate]]
+    contributors: Optional[list[ContributorCreate]] = None
+    primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = None
+    secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = None
+    doi_identifiers: Optional[list[DoiIdentifierCreate]] = None
     target_genes: list[TargetGeneCreate]
-    score_ranges: Optional[ScoreRanges]
+    score_ranges: Optional[ScoreRanges] = None
 
-    @validator("title", "short_description", "abstract_text", "method_text")
-    def validate_field_is_non_empty(cls, v):
-        if is_null(v) or not isinstance(v, str):
+    @field_validator("title", "short_description", "abstract_text", "method_text")
+    def validate_field_is_non_empty(cls, v: str) -> str:
+        if is_null(v):
             raise ValidationError("This field is required and cannot be empty.")
         return v.strip()
 
-    @validator("primary_publication_identifiers")
-    def max_one_primary_publication_identifier(cls, v):
-        if isinstance(v, list):
-            if len(v) > 1:
-                raise ValidationError("multiple primary publication identifiers are not allowed")
+    @field_validator("primary_publication_identifiers")
+    def max_one_primary_publication_identifier(
+        cls, v: list[PublicationIdentifierCreate]
+    ) -> list[PublicationIdentifierCreate]:
+        if len(v) > 1:
+            raise ValidationError("Multiple primary publication identifiers are not allowed.")
         return v
 
     # Validate nested label field within target sequence if there are multiple target genes
-    @validator("target_genes")
-    def targets_need_labels_when_multiple_targets_exist(cls, field_value, values):
-        if len(field_value) > 1:
-            for idx, target in enumerate(field_value):
+    @model_validator(mode="after")
+    def targets_need_labels_when_multiple_targets_exist(self) -> Self:
+        if len(self.target_genes) > 1:
+            for idx, target in enumerate(self.target_genes):
                 if target.target_sequence and target.target_sequence.label is None:
                     raise ValidationError(
                         "Target sequence labels cannot be empty when multiple targets are defined.",
@@ -142,15 +137,15 @@ class ScoreSetModify(ScoreSetBase):
                         ],
                     )
 
-        return field_value
+        return self
 
     # Validate nested label fields are not identical
-    @validator("target_genes")
-    def target_labels_are_unique(cls, field_value, values):
+    @model_validator(mode="after")
+    def target_labels_are_unique(self) -> Self:
         # Labels are only used on target sequence instances.
-        if len(field_value) > 1 and all([target.target_sequence is not None for target in field_value]):
+        if len(self.target_genes) > 1 and all([target.target_sequence is not None for target in self.target_genes]):
             # Labels have already been sanitized by the TargetSequence validator.
-            labels = [target.target_sequence.label for target in field_value]
+            labels = [target.target_sequence.label for target in self.target_genes]  # type: ignore
             dup_indices = [idx for idx, item in enumerate(labels) if item in labels[:idx]]
             if dup_indices:
                 # TODO: surface the error for the each duplicated index. the way these pydantic validators are
@@ -167,18 +162,17 @@ class ScoreSetModify(ScoreSetBase):
                     ],
                 )
 
-        return field_value
+        return self
 
     # Validate that this score set contains at least one target attached to it
-    @validator("target_genes")
-    def at_least_one_target_gene_exists(cls, field_value, values):
-        if len(field_value) < 1:
+    @field_validator("target_genes")
+    def at_least_one_target_gene_exists(cls, v: list[TargetGeneCreate]):
+        if len(v) < 1:
             raise ValidationError("Score sets should define at least one target.")
-
-        return field_value
+        return v
 
     # Validate nested label fields are not identical
-    @validator("target_genes")
+    @field_validator("target_genes")
     def target_accession_base_editor_targets_are_consistent(cls, field_value, values):
         # Only target accessions can have base editor data.
         if len(field_value) > 1 and all([target.target_accession is not None for target in field_value]):
@@ -197,7 +191,7 @@ class ScoreSetModify(ScoreSetBase):
 
         return field_value
 
-    @validator("score_ranges")
+    @field_validator("score_ranges")
     def score_range_labels_must_be_unique(cls, field_value: Optional[ScoreRanges]):
         if field_value is None:
             return None
@@ -216,8 +210,8 @@ class ScoreSetModify(ScoreSetBase):
 
         return field_value
 
-    @validator("score_ranges")
-    def score_range_normal_classification_exists_if_wild_type_score_provided(cls, field_value: Optional[ScoreRanges]):
+    @field_validator("score_ranges")
+    def score_range_normal_classification_exists_if_wild_type_score_provided(cls, field_value: ScoreRanges):
         if field_value is None:
             return None
 
@@ -228,10 +222,8 @@ class ScoreSetModify(ScoreSetBase):
                     custom_loc=["body", "scoreRanges", "wtScore"],
                 )
 
-        return field_value
-
-    @validator("score_ranges")
-    def ranges_do_not_overlap(cls, field_value: Optional[ScoreRanges]):
+    @field_validator("score_ranges")
+    def ranges_do_not_overlap(cls, field_value: ScoreRanges) -> ScoreRanges:
         def test_overlap(tp1, tp2) -> bool:
             # Always check the tuple with the lowest lower bound. If we do not check
             # overlaps in this manner, checking the overlap of (0,1) and (1,2) will
@@ -250,9 +242,6 @@ class ScoreSetModify(ScoreSetBase):
 
             return False
 
-        if field_value is None:
-            return None
-
         for i, range_test in enumerate(field_value.ranges):
             for range_check in list(field_value.ranges)[i + 1 :]:
                 if test_overlap(range_test.range, range_check.range):
@@ -263,11 +252,8 @@ class ScoreSetModify(ScoreSetBase):
 
         return field_value
 
-    @validator("score_ranges")
-    def wild_type_score_in_normal_range(cls, field_value: Optional[ScoreRanges]):
-        if field_value is None:
-            return None
-
+    @field_validator("score_ranges")
+    def wild_type_score_in_normal_range(cls, field_value: ScoreRanges) -> ScoreRanges:
         normal_ranges = [
             range_model.range for range_model in field_value.ranges if range_model.classification == "normal"
         ]
@@ -296,56 +282,49 @@ class ScoreSetModify(ScoreSetBase):
 class ScoreSetCreate(ScoreSetModify):
     """View model for creating a new score set."""
 
-    experiment_urn: Optional[str]
+    experiment_urn: Optional[str] = None
     license_id: int
-    superseded_score_set_urn: Optional[str]
-    meta_analyzes_score_set_urns: Optional[list[str]]
+    superseded_score_set_urn: Optional[str] = None
+    meta_analyzes_score_set_urns: Optional[list[str]] = None
 
-    @validator("superseded_score_set_urn")
-    def validate_superseded_score_set_urn(cls, v):
-        if v is None:
-            pass
-        else:
-            if urn_re.MAVEDB_SCORE_SET_URN_RE.fullmatch(v) is None:
-                if urn_re.MAVEDB_TMP_URN_RE.fullmatch(v) is None:
-                    raise ValueError(f"'{v}' is not a valid score set URN")
-                else:
-                    raise ValueError("cannot supersede a private score set - please edit it instead")
+    @field_validator("superseded_score_set_urn")
+    def validate_superseded_score_set_urn(cls, v: str) -> str:
+        if urn_re.MAVEDB_SCORE_SET_URN_RE.fullmatch(v) is None:
+            if urn_re.MAVEDB_TMP_URN_RE.fullmatch(v) is None:
+                raise ValueError(f"'{v}' is not a valid score set URN")
+            else:
+                raise ValueError("cannot supersede a private score set - please edit it instead")
         return v
 
-    @validator("meta_analyzes_score_set_urns")
-    def validate_score_set_urn(cls, v):
-        if v is not None:
-            for s in v:
-                if (
-                    urn_re.MAVEDB_SCORE_SET_URN_RE.fullmatch(s) is None
-                    and urn_re.MAVEDB_TMP_URN_RE.fullmatch(s) is None
-                ):
-                    raise ValueError(f"'{s}' is not a valid score set URN")
+    @field_validator("meta_analyzes_score_set_urns")
+    def validate_score_set_urn(cls, v: str) -> str:
+        for s in v:
+            if urn_re.MAVEDB_SCORE_SET_URN_RE.fullmatch(s) is None and urn_re.MAVEDB_TMP_URN_RE.fullmatch(s) is None:
+                raise ValueError(f"'{s}' is not a valid score set URN")
         return v
 
-    @validator("experiment_urn")
-    def validate_experiment_urn(cls, v):
+    @field_validator("experiment_urn")
+    def validate_experiment_urn(cls, v: str) -> str:
         if urn_re.MAVEDB_EXPERIMENT_URN_RE.fullmatch(v) is None and urn_re.MAVEDB_TMP_URN_RE.fullmatch(v) is None:
             raise ValueError(f"'{v}' is not a valid experiment URN")
         return v
 
-    @root_validator
-    def validate_experiment_urn_required_except_for_meta_analyses(cls, values):
-        experiment_urn = values.get("experiment_urn")
-        meta_analyzes_score_set_urns = values.get("meta_analyzes_score_set_urns")
-        is_meta_analysis = not (meta_analyzes_score_set_urns is None or len(meta_analyzes_score_set_urns) == 0)
-        if experiment_urn is None and not is_meta_analysis:
+    @model_validator(mode="after")
+    def validate_experiment_urn_required_except_for_meta_analyses(self) -> Self:
+        is_meta_analysis = not (
+            self.meta_analyzes_score_set_urns is None or len(self.meta_analyzes_score_set_urns) == 0
+        )
+        if self.experiment_urn is None and not is_meta_analysis:
             raise ValidationError("experiment URN is required unless your score set is a meta-analysis")
-        if experiment_urn is not None and is_meta_analysis:
+        if self.experiment_urn is not None and is_meta_analysis:
             raise ValidationError("experiment URN should not be supplied when your score set is a meta-analysis")
-        return values
+        return self
 
 
 class ScoreSetUpdate(ScoreSetModify):
     """View model for updating a score set."""
 
-    license_id: Optional[int]
+    license_id: Optional[int] = None
 
 
 class ShortScoreSet(BaseModel):
@@ -358,8 +337,8 @@ class ShortScoreSet(BaseModel):
     urn: str
     title: str
     short_description: str
-    published_date: Optional[date]
-    replaces_id: Optional[int]
+    published_date: Optional[date] = None
+    replaces_id: Optional[int] = None
     num_variants: int
     experiment: "Experiment"
     primary_publication_identifiers: list[SavedPublicationIdentifier]
@@ -374,9 +353,28 @@ class ShortScoreSet(BaseModel):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
         arbitrary_types_allowed = True
-        getter_dict = ScoreSetGetter
+
+    # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
+    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.
+    @model_validator(mode="before")
+    def generate_primary_and_secondary_publications(cls, data: Any):
+        try:
+            publication_identifiers = transform_publication_identifiers_to_primary_and_secondary(
+                data.publication_identifier_associations
+            )
+            data.__setattr__(
+                "primary_publication_identifiers", publication_identifiers["primary_publication_identifiers"]
+            )
+            data.__setattr__(
+                "secondary_publication_identifiers", publication_identifiers["secondary_publication_identifiers"]
+            )
+        except AttributeError as exc:
+            raise ValidationError(
+                f"Unable to create {cls.__name__} without attribute: {exc}."  # type: ignore
+            )
+        return data
 
 
 class ShorterScoreSet(BaseModel):
@@ -386,9 +384,8 @@ class ShorterScoreSet(BaseModel):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
         arbitrary_types_allowed = True
-        getter_dict = ScoreSetGetter
 
 
 class SavedScoreSet(ScoreSetBase):
@@ -398,42 +395,82 @@ class SavedScoreSet(ScoreSetBase):
     urn: str
     num_variants: int
     license: ShortLicense
-    superseded_score_set: Optional[ShorterScoreSet]
-    superseding_score_set: Optional[ShorterScoreSet]
+    superseded_score_set: Optional[ShorterScoreSet] = None
+    superseding_score_set: Optional[ShorterScoreSet] = None
     meta_analyzes_score_set_urns: list[str]
     meta_analyzed_by_score_set_urns: list[str]
     doi_identifiers: Sequence[SavedDoiIdentifier]
     primary_publication_identifiers: Sequence[SavedPublicationIdentifier]
     secondary_publication_identifiers: Sequence[SavedPublicationIdentifier]
-    published_date: Optional[date]
+    published_date: Optional[date] = None
     creation_date: date
     modification_date: date
-    created_by: Optional[SavedUser]
-    modified_by: Optional[SavedUser]
+    created_by: Optional[SavedUser] = None
+    modified_by: Optional[SavedUser] = None
     target_genes: Sequence[SavedTargetGene]
-    dataset_columns: Dict
-    external_links: Dict[str, ExternalLink]
-    contributors: list[Contributor]
-    score_ranges: Optional[ScoreRanges]
-    score_calibrations: Optional[dict[str, Calibration]]
+    dataset_columns: dict
+    external_links: dict[str, ExternalLink]
+    contributors: Sequence[SavedContributor]
+    score_ranges: Optional[ScoreRanges] = None
+    score_calibrations: Optional[dict[str, Calibration]] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
         arbitrary_types_allowed = True
-        getter_dict = ScoreSetGetter
 
     # Association proxy objects return an untyped _AssocitionList object.
     # Recast it into something more generic.
-    @validator("secondary_publication_identifiers", "primary_publication_identifiers", pre=True)
-    def publication_identifiers_validator(cls, value) -> list[PublicationIdentifier]:
+    @field_validator("secondary_publication_identifiers", "primary_publication_identifiers", mode="before")
+    def publication_identifiers_validator(cls, value: Any) -> list[PublicationIdentifier]:
         assert isinstance(value, Collection), "Publication identifier lists must be a collection"
         return list(value)  # Re-cast into proper list-like type
 
-    @validator("dataset_columns")
-    def camelize_dataset_columns_keys(cls, value) -> dict:
+    @field_validator("dataset_columns")
+    def camelize_dataset_columns_keys(cls, value: dict) -> dict:
         return camelize(value)
+
+    # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
+    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.
+    @model_validator(mode="before")
+    def generate_primary_and_secondary_publications(cls, data: Any):
+        try:
+            publication_identifiers = transform_publication_identifiers_to_primary_and_secondary(
+                data.publication_identifier_associations
+            )
+            data.__setattr__(
+                "primary_publication_identifiers", publication_identifiers["primary_publication_identifiers"]
+            )
+            data.__setattr__(
+                "secondary_publication_identifiers", publication_identifiers["secondary_publication_identifiers"]
+            )
+        except AttributeError as exc:
+            raise ValidationError(
+                f"Unable to create {cls.__name__} without attribute: {exc}."  # type: ignore
+            )
+        return data
+
+    @model_validator(mode="before")
+    def transform_meta_analysis_objects_to_urns(cls, data: Any):
+        try:
+            data.__setattr__(
+                "meta_analyzes_score_set_urns", transform_score_set_list_to_urn_list(data.meta_analyzes_score_sets)
+            )
+        except AttributeError as exc:
+            raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
+        return data
+
+    @model_validator(mode="before")
+    def transform_meta_analyzed_objects_to_urns(cls, data: Any):
+        try:
+            data.__setattr__(
+                "meta_analyzed_by_score_set_urns",
+                transform_score_set_list_to_urn_list(data.meta_analyzed_by_score_sets),
+            )
+        except AttributeError as exc:
+            raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
+        return data
 
 
 class ScoreSet(SavedScoreSet):
@@ -444,14 +481,15 @@ class ScoreSet(SavedScoreSet):
     primary_publication_identifiers: Sequence[PublicationIdentifier]
     secondary_publication_identifiers: Sequence[PublicationIdentifier]
     official_collections: Sequence[OfficialCollection]
-    created_by: Optional[User]
-    modified_by: Optional[User]
+    created_by: Optional[User] = None
+    modified_by: Optional[User] = None
     target_genes: Sequence[TargetGene]
     private: bool
-    processing_state: Optional[ProcessingState]
-    processing_errors: Optional[dict]
-    mapping_state: Optional[MappingState]
-    mapping_errors: Optional[dict]
+    contributors: Sequence[Contributor]
+    processing_state: Optional[ProcessingState] = None
+    processing_errors: Optional[dict] = None
+    mapping_state: Optional[MappingState] = None
+    mapping_errors: Optional[dict] = None
 
 
 class ScoreSetWithVariants(ScoreSet):
@@ -476,20 +514,19 @@ class ScoreSetPublicDump(SavedScoreSet):
     doi_identifiers: Sequence[DoiIdentifier]
     primary_publication_identifiers: Sequence[PublicationIdentifier]
     secondary_publication_identifiers: Sequence[PublicationIdentifier]
-    created_by: Optional[User]
-    modified_by: Optional[User]
+    created_by: Optional[User] = None
+    modified_by: Optional[User] = None
     target_genes: Sequence[TargetGene]
     private: bool
-    processing_state: Optional[ProcessingState]
-    processing_errors: Optional[Dict]
+    contributors: Sequence[Contributor]
+    processing_state: Optional[ProcessingState] = None
+    processing_errors: Optional[dict]
     mapping_state: Optional[MappingState]
-    mapping_errors: Optional[Dict]
+    mapping_errors: Optional[dict]
 
 
 # ruff: noqa: E402
 from mavedb.view_models.experiment import Experiment
-from mavedb.view_models.variant import SavedVariant
 
-ShortScoreSet.update_forward_refs()
-ScoreSet.update_forward_refs()
-ScoreSetWithVariants.update_forward_refs()
+ShortScoreSet.model_rebuild()
+ScoreSet.model_rebuild()
