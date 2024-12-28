@@ -4,11 +4,25 @@ from humps import camelize
 
 from mavedb.models.enums.processing_state import ProcessingState
 
+# TODO#373 - Cleanup test constants
+
+VALID_EXPERIMENT_SET_URN = "urn:mavedb:01234567"
+VALID_EXPERIMENT_URN = "urn:mavedb:01234567-abcd"
+VALID_SCORE_SET_URN = "urn:mavedb:01234567-abcd-0123"
+
 TEST_PUBMED_IDENTIFIER = "20711194"
 TEST_BIORXIV_IDENTIFIER = "2021.06.21.212592"
 TEST_MEDRXIV_IDENTIFIER = "2021.06.22.21259265"
 TEST_CROSSREF_IDENTIFIER = "10.1371/2021.06.22.21259265"
 TEST_ORCID_ID = "1111-1111-1111-1111"
+
+TEST_REFSEQ_IDENTIFIER = "NM_003345"
+TEST_UNIPROT_IDENTIFIER = "P63279"
+TEST_ENSEMBL_IDENTIFIER = "ENSG00000103275"
+
+TEST_REFSEQ_EXTERNAL_IDENTIFIER = {"identifier": TEST_REFSEQ_IDENTIFIER, "db_name": "RefSeq"}
+TEST_UNIPROT_EXTERNAL_IDENTIFIER = {"identifier": TEST_UNIPROT_IDENTIFIER, "db_name": "Uniprot"}
+TEST_ENSEMBLE_EXTERNAL_IDENTIFIER = {"identifier": TEST_ENSEMBL_IDENTIFIER, "db_name": "Ensembl"}
 
 VALID_ACCESSION = "NM_001637.3"
 VALID_GENE = "BRCA1"
@@ -53,7 +67,7 @@ CONTRIBUTOR = {
 }
 
 SAVED_CONTRIBUTOR = {
-    "recordType": "Contributor",
+    "recordType": "SavedContributor",
     "orcidId": TEST_USER["username"],
     "givenName": TEST_USER["first_name"],
     "familyName": TEST_USER["last_name"],
@@ -335,15 +349,23 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
     "officialCollections": [],
 }
 
-TEST_TAXONOMY = {
-    "id": 1,
+TEST_MINIMAL_TAXONOMY = {
     "tax_id": 9606,
+}
+
+TEST_POPULATED_TAXONOMY = {
+    **TEST_MINIMAL_TAXONOMY,
     "organism_name": "Organism name",
     "common_name": "Common name",
     "rank": "Rank",
     "has_described_species_name": True,
     "article_reference": "NCBI:txid9606",
     "genome_identifier_id": None,
+}
+
+TEST_SAVED_TAXONOMY = {
+    **TEST_POPULATED_TAXONOMY,
+    "id": 1,
     "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606",
 }
 
@@ -447,14 +469,14 @@ TEST_MINIMAL_SEQ_SCORESET = {
                 "sequenceType": "dna",
                 "sequence": "ACGTTT",
                 "taxonomy": {
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         }
@@ -500,14 +522,14 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
                 "label": "TEST1",
                 "taxonomy": {
                     "recordType": "Taxonomy",
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         }
@@ -737,4 +759,94 @@ TEST_COLLECTION_RESPONSE = {
     ],
     "editors": [],
     "viewers": [],
+}
+
+SEQUENCE = (
+    "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCT"
+    "GAAGATCAGTTGGGTGCACGAGTGGGTTACATCGAACTGGATCTCAACAGCGGTAAGATCCTTGAGAGTTTTCGCCCCGAAGAACGTTTTCCAATGATGAGCACTTTTAAAGTTCT"
+    "GCTATGTGGCGCGGTATTATCCCGTGTTGACGCCGGGCAAGAGCAACTCGGTCGCCGCATACACTATTCTCAGAATGACTTGGTTGAGTACTCACCAGTCACAGAAAAGCATCTTA"
+    "CGGATGGCATGACAGTAAGAGAATTATGCAGTGCTGCCATAACCATGAGTGATAACACTGCGGCCAACTTACTTCTGACAACGATCGGAGGACCGAAGGAGCTAACCGCTTTTTTG"
+    "CACAACATGGGGGATCATGTAACTCGCCTTGATCGTTGGGAACCGGAGCTGAATGAAGCCATACCAAACGACGAGCGTGACACCACGATGCCTGCAGCAATGGCAACAACGTTGCG"
+    "CAAACTATTAACTGGCGAACTACTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGT"
+    "TTATTGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGACGGGGAGTCAGGCA"
+    "ACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA"
+)
+
+
+TEST_MINIMAL_MAPPED_VARIANT = {
+    "variant_id": 1,
+    "modification_date": date.today(),
+    "mapped_date": date.today(),
+    "mapping_api_version": "pytest.0.0",
+    "current": True,
+}
+
+
+TEST_MINIMAL_ORCID_AUTH_TOKEN_REQUEST = {
+    "code": "xxx.test.xxx",
+    "redirect_uri": "https://www.fake.orcid.org/redirect_uri",
+}
+
+
+TEST_MINIMAL_ORCID_AUTH_TOKEN_RESPONSE = {
+    "access_token": "yyy.test.yyy",
+    "expires_in": 30,
+    "id_token": "zzz.test.zzz",
+    "token_type": "bearer",
+}
+
+TEST_MINIMAL_ORCID_USER = {"orcid_id": TEST_ORCID_ID}
+
+TEST_MINIMAL_RAW_READ_IDENTIFIER = {"identifier": "test_raw_read"}
+
+TEST_SAVED_MINIMAL_RAW_READ_IDENTIFIER = {
+    **TEST_MINIMAL_RAW_READ_IDENTIFIER,
+    "id": 1,
+    "url": "https://www.test.rawreadidentifiers.org",
+}
+
+TEST_POPULATED_EXPERIMENT_SEARCH = {
+    "published": True,
+    "authors": ["last-name"],
+    "databases": ["uniprot"],
+    "journals": ["biomed"],
+    "publication_identifiers": ["12345678"],
+    "keywords": ["keyword"],
+    "text": "testtesttest",
+}
+
+TEST_POPULATED_SCORE_SET_SEARCH = {
+    "published": True,
+    "targets": ["BRCA1"],
+    "target_organism_names": ["homo sapiens"],
+    "target_types": ["protein_coding"],
+    "target_accessions": ["NC_12345.1"],
+    "authors": ["last-name"],
+    "databases": ["uniprot"],
+    "journals": ["biomed"],
+    "publication_identifiers": ["12345678"],
+    "keywords": ["keyword"],
+    "text": "testtesttest",
+}
+
+TEST_POPULATED_TEXT_SEARCH = {"text": "testtesttest"}
+
+TEST_MINIMAL_VARIANT = {
+    "data": {},
+    "score_set_id": 1,
+    "creation_date": date.today(),
+    "modification_date": date.today(),
+}
+
+TEST_POPULATED_VARIANT = {
+    **TEST_MINIMAL_VARIANT,
+    "urn": f"{VALID_SCORE_SET_URN}#1",
+    "hgvs_nt": "c.1A>T",
+    "hgvs_pro": "p.1M>T",
+    "hgvs_splice": "c.1A>T",
+}
+
+TEST_SAVED_VARIANT = {
+    **TEST_POPULATED_VARIANT,
+    "id": 1,
 }

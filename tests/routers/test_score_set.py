@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_EXPERIMENT_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
@@ -55,11 +56,11 @@ from tests.helpers.util import (
 
 
 def test_TEST_MINIMAL_SEQ_SCORESET_is_valid():
-    jsonschema.validate(instance=TEST_MINIMAL_SEQ_SCORESET, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=TEST_MINIMAL_SEQ_SCORESET, schema=ScoreSetCreate.model_json_schema())
 
 
 def test_TEST_MINIMAL_ACC_SCORESET_is_valid():
-    jsonschema.validate(instance=TEST_MINIMAL_ACC_SCORESET, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=TEST_MINIMAL_ACC_SCORESET, schema=ScoreSetCreate.model_json_schema())
 
 
 ########################################################################################################################
@@ -76,7 +77,7 @@ def test_create_minimal_score_set(client, setup_router_db):
     assert response.status_code == 200
     response_data = response.json()
 
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
 
     expected_response = update_expected_response_for_created_resources(
@@ -106,7 +107,7 @@ def test_create_score_set_with_contributor(client, setup_router_db):
     assert response.status_code == 200
     response_data = response.json()
 
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
 
     expected_response = update_expected_response_for_created_resources(
@@ -139,7 +140,7 @@ def test_create_score_set_with_score_range(client, setup_router_db):
     assert response.status_code == 200
     response_data = response.json()
 
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
 
     expected_response = update_expected_response_for_created_resources(
@@ -174,7 +175,8 @@ def test_cannot_create_score_set_with_invalid_target_gene_category(client, setup
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     assert response.status_code == 422
     response_data = response.json()
-    assert "value is not a valid enumeration member;" in response_data["detail"][0]["msg"]
+    assert "Input should be" in response_data["detail"][0]["msg"]
+    assert all(field in response_data["detail"][0]["msg"] for field in TargetCategory._member_names_)
 
 
 ########################################################################################################################
@@ -504,7 +506,7 @@ def test_add_score_set_variants_scores_only_endpoint(client, setup_router_db, da
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -533,7 +535,7 @@ def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setu
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -557,7 +559,7 @@ def test_add_score_set_variants_scores_only_endpoint_utf8_encoded(client, setup_
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -586,7 +588,7 @@ def test_add_score_set_variants_scores_and_counts_endpoint_utf8_encoded(session,
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -675,8 +677,9 @@ def test_contributor_can_add_scores_to_other_user_score_set(session, client, set
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
+    print(response_data)
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
     score_set.update({"processingState": "processing"})
@@ -734,7 +737,7 @@ def test_contributor_can_add_scores_and_counts_to_other_user_score_set(session, 
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -782,7 +785,7 @@ def test_admin_can_add_scores_to_other_user_score_set(
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -811,7 +814,7 @@ def test_admin_can_add_scores_and_counts_to_other_user_score_set(session, client
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.

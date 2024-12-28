@@ -1,5 +1,6 @@
 from copy import deepcopy
 from unittest.mock import patch
+from typing import Any
 
 import cdot.hgvs.dataproviders
 import jsonschema
@@ -83,13 +84,13 @@ def create_experiment(client, update=None):
     experiment_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     if update is not None:
         experiment_payload.update(update)
-    jsonschema.validate(instance=experiment_payload, schema=ExperimentCreate.schema())
+    jsonschema.validate(instance=experiment_payload, schema=ExperimentCreate.model_json_schema())
 
     response = client.post("/api/v1/experiments/", json=experiment_payload)
     assert response.status_code == 200, "Could not create experiment."
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    jsonschema.validate(instance=response_data, schema=Experiment.model_json_schema())
     return response_data
 
 
@@ -99,7 +100,7 @@ def create_seq_score_set(client, experiment_urn, update=None):
         score_set_payload["experimentUrn"] = experiment_urn
     if update is not None:
         score_set_payload.update(update)
-    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.model_json_schema())
 
     response = client.post("/api/v1/score-sets/", json=score_set_payload)
     assert (
@@ -107,7 +108,7 @@ def create_seq_score_set(client, experiment_urn, update=None):
     ), f"Could not create sequence based score set (no variants) within experiment {experiment_urn}"
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     return response_data
 
 
@@ -117,7 +118,7 @@ def create_acc_score_set(client, experiment_urn, update=None):
         score_set_payload["experimentUrn"] = experiment_urn
     if update is not None:
         score_set_payload.update(update)
-    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.model_json_schema())
 
     with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
         response = client.post("/api/v1/score-sets/", json=score_set_payload)
@@ -127,7 +128,7 @@ def create_acc_score_set(client, experiment_urn, update=None):
     ), f"Could not create accession based score set (no variants) within experiment {experiment_urn}"
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     return response_data
 
 
@@ -195,7 +196,7 @@ def create_seq_score_set_with_variants(
         score_set["numVariants"] == 3
     ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
 
-    jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
 
 
@@ -209,7 +210,7 @@ def create_acc_score_set_with_variants(
         score_set["numVariants"] == 3
     ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
 
-    jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
 
 
@@ -218,7 +219,7 @@ def publish_score_set(client, score_set_urn):
     assert response.status_code == 200, f"Could not publish score set {score_set_urn}"
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     return response_data
 
 
@@ -260,3 +261,17 @@ def update_expected_response_for_created_resources(expected_response, created_ex
     )
 
     return expected_response
+
+
+def dummy_attributed_object_from_dict(properties: dict[str, Any], recursive=False):
+    class Object(object):
+        pass
+
+    attr_obj = Object()
+    for k, v in properties.items():
+        if recursive and isinstance(dict, v):
+            attr_obj.__setattr__(k, dummy_attributed_object_from_dict(v, True))
+        else:
+            attr_obj.__setattr__(k, v)
+
+    return attr_obj

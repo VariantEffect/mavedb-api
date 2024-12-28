@@ -102,7 +102,7 @@ def test_target_accession_invalid_field(client):
     response = client.get("/api/v1/statistics/target/accession/invalid-field")
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["path", "field"]
-    assert response.json()["detail"][0]["ctx"]["enum_values"] == TARGET_ACCESSION_FIELDS
+    assert all(field in response.json()["detail"][0]["ctx"]["expected"] for field in TARGET_ACCESSION_FIELDS)
 
 
 def test_target_accession_empty_field(client):
@@ -130,7 +130,7 @@ def test_target_sequence_invalid_field(client):
     response = client.get("/api/v1/statistics/target/sequence/invalid-field")
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["path", "field"]
-    assert response.json()["detail"][0]["ctx"]["enum_values"] == TARGET_SEQUENCE_FIELDS
+    assert all(field in response.json()["detail"][0]["ctx"]["expected"] for field in TARGET_SEQUENCE_FIELDS)
 
 
 def test_target_sequence_empty_field(client):
@@ -215,7 +215,10 @@ def test_target_gene_invalid_field(client):
     response = client.get("/api/v1/statistics/target/gene/invalid-field")
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["path", "field"]
-    assert response.json()["detail"][0]["ctx"]["enum_values"] == TARGET_GENE_FIELDS + TARGET_GENE_IDENTIFIER_FIELDS
+    assert all(
+        field in response.json()["detail"][0]["ctx"]["expected"]
+        for field in TARGET_GENE_FIELDS + TARGET_GENE_IDENTIFIER_FIELDS
+    )
 
 
 def test_target_gene_empty_field(client):
@@ -346,7 +349,7 @@ def test_record_statistics_invalid_field(client, model_value):
     response = client.get(f"/api/v1/statistics/record/{model_value}/invalid-field")
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["path", "field"]
-    assert response.json()["detail"][0]["ctx"]["enum_values"] == RECORD_SHARED_FIELDS
+    assert all(field in response.json()["detail"][0]["ctx"]["expected"] for field in RECORD_SHARED_FIELDS)
 
 
 @pytest.mark.parametrize("model_value", RECORD_MODELS)
@@ -364,6 +367,6 @@ def test_record_statistics_invalid_record_and_field(client):
     # The order of this list should be reliable.
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["path", "model"]
-    assert response.json()["detail"][0]["ctx"]["enum_values"] == RECORD_MODELS
+    assert all(field in response.json()["detail"][0]["ctx"]["expected"] for field in RECORD_MODELS)
     assert response.json()["detail"][1]["loc"] == ["path", "field"]
-    assert response.json()["detail"][1]["ctx"]["enum_values"] == RECORD_SHARED_FIELDS
+    assert all(field in response.json()["detail"][1]["ctx"]["expected"] for field in RECORD_SHARED_FIELDS)

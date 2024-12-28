@@ -2,7 +2,7 @@
 # python-base
 # Set up shared environment variables
 ################################
-FROM python:3.9 as python-base
+FROM python:3.11 as python-base
 
     # Poetry
     # https://python-poetry.org/docs/configuration/#using-environment-variables

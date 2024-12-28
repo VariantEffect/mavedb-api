@@ -24,7 +24,7 @@ Or add `mavedb` to your Python project's dependencies.
 
 ### Prerequisites
 
-- Python 3.9 or later
+- Python 3.11 or later
 - PIP
 - [Poetry](https://python-poetry.org/) for building and publishing distributions. For details on installing poetry, consult its [documentation](https://python-poetry.org/docs/#installation).
 
