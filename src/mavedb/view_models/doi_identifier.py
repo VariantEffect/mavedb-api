@@ -1,8 +1,10 @@
 import idutils
 
+from pydantic import field_validator
+
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models import record_type_validator, set_record_type
-from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models.base.base import BaseModel
 
 
 class DoiIdentifierBase(BaseModel):
@@ -10,8 +12,8 @@ class DoiIdentifierBase(BaseModel):
 
 
 class DoiIdentifierCreate(DoiIdentifierBase):
-    @validator("identifier")
-    def must_be_valid_doi(cls, v):
+    @field_validator("identifier")
+    def must_be_valid_doi(cls, v: str):
         if not idutils.is_doi(v):
             raise ValidationError("'{}' is not a valid DOI identifier.".format(v))
         return v
@@ -26,7 +28,7 @@ class SavedDoiIdentifier(DoiIdentifierBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Properties to return to non-admin clients

@@ -19,7 +19,7 @@ class SavedRawReadIdentifier(RawReadIdentifierBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Properties to return to non-admin clients

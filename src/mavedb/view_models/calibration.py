@@ -1,6 +1,7 @@
 from typing import Union
+from typing_extensions import Self
 
-from pydantic import root_validator
+from pydantic import model_validator
 
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models.base.base import BaseModel
@@ -25,11 +26,11 @@ class PillarProjectCalibration(BaseModel):
     positive_likelihood_ratios: list[float]
     prior_probability_pathogenicity: float
 
-    @root_validator
-    def validate_all_calibrations_have_a_pairwise_companion(cls, values):
-        num_es = len(values.get("evidence_strengths"))
-        num_st = len(values.get("thresholds"))
-        num_plr = len(values.get("positive_likelihood_ratios"))
+    @model_validator(mode="after")
+    def validate_all_calibrations_have_a_pairwise_companion(self: Self):
+        num_es = len(self.evidence_strengths)
+        num_st = len(self.thresholds)
+        num_plr = len(self.positive_likelihood_ratios)
 
         if len(set((num_es, num_st, num_plr))) != 1:
             raise ValidationError(
@@ -37,7 +38,7 @@ class PillarProjectCalibration(BaseModel):
                 "One or more of these provided objects was not the same length as the others."
             )
 
-        return values
+        return self
 
 
 Calibration = Union[PillarProjectCalibration]

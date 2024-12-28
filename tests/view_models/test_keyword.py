@@ -30,7 +30,7 @@ def test_create_keyword_without_description():
     assert keyword_obj.keyword.value == "Endogenous locus library method"
 
 
-def test_create_keyword_value_is_other():
+def test_create_keyword_with_other_value():
     # Keyword must have description if its value is Other.
     keyword = {
         "key": "Variant Library Creation Method",
@@ -43,7 +43,7 @@ def test_create_keyword_value_is_other():
     assert keyword_obj.keyword.value == "Other"
 
 
-def test_create_keyword_value_is_other_without_description():
+def test_cannot_create_keyword_without_description_if_value_is_other():
     # Keyword must have description if its value is Other.
     keyword = {
         "key": "Variant Library Creation Method",
@@ -54,3 +54,6 @@ def test_create_keyword_value_is_other_without_description():
     with pytest.raises(ValueError) as exc_info:
         ExperimentControlledKeywordCreate(keyword=keyword, description=None)
     assert "Other option does not allow empty description." in str(exc_info.value)
+
+
+# TODO#273: Add view model tests for required keyword values.
