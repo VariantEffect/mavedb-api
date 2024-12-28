@@ -47,14 +47,14 @@ from tests.helpers.util.variant import mock_worker_variant_insertion
 
 
 def test_test_minimal_experiment_is_valid():
-    jsonschema.validate(instance=TEST_MINIMAL_EXPERIMENT, schema=ExperimentCreate.schema())
+    jsonschema.validate(instance=TEST_MINIMAL_EXPERIMENT, schema=ExperimentCreate.model_json_schema())
 
 
 def test_create_minimal_experiment(client, setup_router_db):
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    jsonschema.validate(instance=response_data, schema=Experiment.model_json_schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
@@ -78,7 +78,7 @@ def test_create_experiment_with_contributor(client, setup_router_db):
         response = client.post("/api/v1/experiments/", json=experiment)
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    jsonschema.validate(instance=response_data, schema=Experiment.model_json_schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
@@ -103,7 +103,7 @@ def test_create_experiment_with_keywords(session, client, setup_router_db):
     response = client.post("/api/v1/experiments/", json=TEST_EXPERIMENT_WITH_KEYWORD)
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    jsonschema.validate(instance=response_data, schema=Experiment.model_json_schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE)
@@ -307,8 +307,7 @@ def test_cannot_create_experiment_that_keyword_value_is_other_without_descriptio
     response = client.post("/api/v1/experiments/", json=experiment)
     assert response.status_code == 422
     response_data = response.json()
-    error_messages = [error["msg"] for error in response_data["detail"]]
-    assert "Other option does not allow empty description." in error_messages
+    assert "Other option does not allow empty description." in response_data["detail"][0]["msg"]
 
 
 def test_cannot_create_experiment_that_keywords_have_duplicate_keys(client, setup_router_db):
@@ -399,7 +398,7 @@ def test_create_experiment_that_keywords_have_duplicate_others(client, setup_rou
     response = client.post("/api/v1/experiments/", json=experiment)
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    jsonschema.validate(instance=response_data, schema=Experiment.model_json_schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE)
@@ -622,7 +621,7 @@ def test_can_edit_private_experiment(client, setup_router_db, test_field, test_v
     response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    jsonschema.validate(instance=response_data, schema=Experiment.model_json_schema())
     assert (test_field, response_data[test_field]) == (test_field, test_value)
 
 
@@ -698,7 +697,7 @@ def test_contributor_can_update_other_users_private_experiment(
     response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    jsonschema.validate(instance=response_data, schema=Experiment.model_json_schema())
     assert (test_field, response_data[test_field]) == (test_field, test_value)
 
 
@@ -721,7 +720,7 @@ def test_admin_can_update_other_users_private_experiment(
         response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    jsonschema.validate(instance=response_data, schema=Experiment.model_json_schema())
     assert (test_field, response_data[test_field]) == (test_field, test_value)
 
 
@@ -767,7 +766,7 @@ def test_required_fields(client, setup_router_db, test_field):
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
     response_data = response.json()
     assert response.status_code == 422
-    assert "field required" in response_data["detail"][0]["msg"]
+    assert "Field required" in response_data["detail"][0]["msg"]
 
 
 @pytest.mark.parametrize(
@@ -1013,7 +1012,7 @@ def test_get_own_private_experiment(client, setup_router_db):
     response = client.get(f"/api/v1/experiments/{experiment['urn']}")
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    jsonschema.validate(instance=response_data, schema=Experiment.model_json_schema())
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
@@ -1051,7 +1050,7 @@ def test_admin_can_get_other_users_private_experiment(client, admin_app_override
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    jsonschema.validate(instance=response_data, schema=Experiment.model_json_schema())
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])

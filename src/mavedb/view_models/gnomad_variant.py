@@ -1,3 +1,6 @@
+# See https://pydantic-docs.helpmanual.io/usage/postponed_annotations/#self-referencing-models
+from __future__ import annotations
+
 from datetime import date
 from typing import Optional, Sequence
 
@@ -44,8 +47,8 @@ class SavedGnomADVariant(GnomADVariantBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
         arbitrary_types_allowed = True
+        from_attributes = True
 
 
 class SavedGnomADVariantWithMappedVariants(SavedGnomADVariant):
@@ -69,6 +72,6 @@ class GnomADVariantWithMappedVariants(SavedGnomADVariantWithMappedVariants):
 # ruff: noqa: E402
 from mavedb.view_models.mapped_variant import MappedVariant, SavedMappedVariant, MappedVariantCreate
 
-GnomADVariantCreate.update_forward_refs()
-SavedGnomADVariantWithMappedVariants.update_forward_refs()
-GnomADVariantWithMappedVariants.update_forward_refs()
+GnomADVariantUpdate.model_rebuild()
+SavedGnomADVariantWithMappedVariants.model_rebuild()
+GnomADVariantWithMappedVariants.model_rebuild()

@@ -149,7 +149,7 @@ def enrich_experiment_with_num_score_sets(
         }
     )
 
-    updated_experiment = experiment.Experiment.from_orm(item_update).copy(
+    updated_experiment = experiment.Experiment.model_validate(item_update).copy(
         update={
             "num_score_sets": len(filtered_score_set_urns),
             "score_set_urns": filtered_score_set_urns,

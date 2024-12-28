@@ -17,5 +17,5 @@ def create_collection(client: TestClient, update: Optional[Dict[str, Any]] = Non
     assert response.status_code == 200, "Could not create collection."
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Collection.schema())
+    jsonschema.validate(instance=response_data, schema=Collection.model_json_schema())
     return response_data

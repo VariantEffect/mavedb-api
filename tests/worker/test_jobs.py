@@ -87,19 +87,19 @@ def populate_worker_db(data_files, client):
 
 async def setup_records_and_files(async_client, data_files, input_score_set):
     experiment_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
-    jsonschema.validate(instance=experiment_payload, schema=ExperimentCreate.schema())
+    jsonschema.validate(instance=experiment_payload, schema=ExperimentCreate.model_json_schema())
     experiment_response = await async_client.post("/api/v1/experiments/", json=experiment_payload)
     assert experiment_response.status_code == 200
     experiment = experiment_response.json()
-    jsonschema.validate(instance=experiment, schema=Experiment.schema())
+    jsonschema.validate(instance=experiment, schema=Experiment.model_json_schema())
 
     score_set_payload = deepcopy(input_score_set)
     score_set_payload["experimentUrn"] = experiment["urn"]
-    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.model_json_schema())
     score_set_response = await async_client.post("/api/v1/score-sets/", json=score_set_payload)
     assert score_set_response.status_code == 200
     score_set = score_set_response.json()
-    jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
 
     scores_fp = (
         "scores_multi_target.csv"

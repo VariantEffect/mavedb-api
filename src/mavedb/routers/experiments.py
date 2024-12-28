@@ -195,7 +195,7 @@ def get_experiment_score_sets(
         enriched_score_sets = []
         for fs in filtered_score_sets:
             enriched_experiment = enrich_experiment_with_num_score_sets(fs.experiment, user_data)
-            response_item = score_set.ScoreSet.from_orm(fs).copy(update={"experiment": enriched_experiment})
+            response_item = score_set.ScoreSet.model_validate(fs).copy(update={"experiment": enriched_experiment})
             enriched_score_sets.append(response_item)
 
         return enriched_score_sets

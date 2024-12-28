@@ -115,7 +115,7 @@ def export_public_data(db: Session):
     # Issue: https://github.com/VariantEffect/mavedb-api/issues/192
     # See, for instance, https://stackoverflow.com/questions/12670395/json-encoding-very-long-iterators.
 
-    experiment_set_views = list(map(lambda es: ExperimentSetPublicDump.from_orm(es), experiment_sets))
+    experiment_set_views = list(map(lambda es: ExperimentSetPublicDump.model_validate(es), experiment_sets))
 
     # Get a list of IDS of all the score sets included.
     score_set_ids = list(

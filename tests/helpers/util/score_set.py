@@ -36,13 +36,13 @@ def create_seq_score_set(
         score_set_payload["experimentUrn"] = experiment_urn
     if update is not None:
         score_set_payload.update(update)
-    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.model_json_schema())
 
     response = client.post("/api/v1/score-sets/", json=score_set_payload)
     assert response.status_code == 200, "Could not create sequence based score set"
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     return response_data
 
 
@@ -55,7 +55,7 @@ def create_acc_score_set(
     if update is not None:
         score_set_payload.update(update)
 
-    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.model_json_schema())
 
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
@@ -65,7 +65,7 @@ def create_acc_score_set(
     assert response.status_code == 200, "Could not create accession based score set"
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     return response_data
 
 
@@ -77,13 +77,13 @@ def create_multi_target_score_set(
         score_set_payload["experimentUrn"] = experiment_urn
     if update is not None:
         score_set_payload.update(update)
-    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.model_json_schema())
 
     response = client.post("/api/v1/score-sets/", json=score_set_payload)
     assert response.status_code == 200, "Could not create sequence based score set"
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     return response_data
 
 
@@ -95,7 +95,7 @@ def create_seq_score_set_with_mapped_variants(
     )
     score_set = mock_worker_vrs_mapping(client, db, score_set)
 
-    jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
 
 
@@ -107,7 +107,7 @@ def create_acc_score_set_with_mapped_variants(
     )
     score_set = mock_worker_vrs_mapping(client, db, score_set)
 
-    jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
 
 
@@ -121,7 +121,7 @@ def create_seq_score_set_with_variants(
         score_set["numVariants"] == 3
     ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
 
-    jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
 
 
@@ -135,7 +135,7 @@ def create_acc_score_set_with_variants(
         score_set["numVariants"] == 3
     ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
 
-    jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
 
 

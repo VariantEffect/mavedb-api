@@ -17,24 +17,24 @@ from mavedb.models.mapped_variant import MappedVariant
 from tests.helpers.constants import (
     ADMIN_USER,
     EXTRA_USER,
+    TEST_EXPERIMENT,
+    TEST_EXPERIMENT_SET,
     TEST_LICENSE,
     TEST_INACTIVE_LICENSE,
     TEST_MAVEDB_ATHENA_ROW,
     TEST_MINIMAL_MAPPED_VARIANT,
     TEST_MINIMAL_VARIANT,
-    TEST_TAXONOMY,
+    TEST_PUBMED_IDENTIFIER,
+    TEST_SAVED_TAXONOMY,
+    TEST_SEQ_SCORESET,
     TEST_USER,
+    TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
+    TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
     VALID_VARIANT_URN,
     VALID_SCORE_SET_URN,
     VALID_EXPERIMENT_URN,
     VALID_EXPERIMENT_SET_URN,
-    TEST_PUBMED_IDENTIFIER,
-    TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
-    TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
-    TEST_SEQ_SCORESET,
-    TEST_EXPERIMENT,
-    TEST_EXPERIMENT_SET,
 )
 
 
@@ -48,7 +48,7 @@ def setup_lib_db(session):
     db.add(User(**TEST_USER))
     db.add(User(**EXTRA_USER))
     db.add(User(**ADMIN_USER, role_objs=[Role(name=UserRole.admin)]))
-    db.add(Taxonomy(**TEST_TAXONOMY))
+    db.add(Taxonomy(**TEST_SAVED_TAXONOMY))
     db.add(License(**TEST_LICENSE))
     db.add(License(**TEST_INACTIVE_LICENSE))
     db.commit()

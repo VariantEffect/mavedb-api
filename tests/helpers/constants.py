@@ -27,6 +27,12 @@ TEST_SEQUENCE_LOCATION_ACCESSION = "ga4gh:SL.test"
 
 TEST_REFSEQ_IDENTIFIER = "NM_003345"
 TEST_HGVS_IDENTIFIER = f"{TEST_REFSEQ_IDENTIFIER}:p.Asp5Phe"
+TEST_UNIPROT_IDENTIFIER = "P63279"
+TEST_ENSEMBL_IDENTIFIER = "ENSG00000103275"
+
+TEST_REFSEQ_EXTERNAL_IDENTIFIER = {"identifier": TEST_REFSEQ_IDENTIFIER, "db_name": "RefSeq"}
+TEST_UNIPROT_EXTERNAL_IDENTIFIER = {"identifier": TEST_UNIPROT_IDENTIFIER, "db_name": "Uniprot"}
+TEST_ENSEMBLE_EXTERNAL_IDENTIFIER = {"identifier": TEST_ENSEMBL_IDENTIFIER, "db_name": "Ensembl"}
 
 VALID_CHR_ACCESSION = "NC_000001.11"
 VALID_ACCESSION = "NM_001637.3"
@@ -224,7 +230,7 @@ CONTRIBUTOR = {
 }
 
 SAVED_CONTRIBUTOR = {
-    "recordType": "Contributor",
+    "recordType": "SavedContributor",
     "orcidId": TEST_USER["username"],
     "givenName": TEST_USER["first_name"],
     "familyName": TEST_USER["last_name"],
@@ -527,15 +533,23 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
     "numScoreSets": 0,  # NOTE: This is context-dependent and may need overriding per test
 }
 
-TEST_TAXONOMY = {
-    "id": 1,
+TEST_MINIMAL_TAXONOMY = {
     "tax_id": 9606,
+}
+
+TEST_POPULATED_TAXONOMY = {
+    **TEST_MINIMAL_TAXONOMY,
     "organism_name": "Organism name",
     "common_name": "Common name",
     "rank": "Rank",
     "has_described_species_name": True,
     "article_reference": "NCBI:txid9606",
     "genome_identifier_id": None,
+}
+
+TEST_SAVED_TAXONOMY = {
+    **TEST_POPULATED_TAXONOMY,
+    "id": 1,
     "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606",
 }
 
@@ -613,12 +627,12 @@ TEST_SEQ_SCORESET = {
                 "sequence_type": "dna",
                 "sequence": "ACGTTT",
                 "taxonomy": {
-                    "tax_id": TEST_TAXONOMY["tax_id"],
-                    "organism_name": TEST_TAXONOMY["organism_name"],
-                    "common_name": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "tax_id": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organism_name": TEST_SAVED_TAXONOMY["organism_name"],
+                    "common_name": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         }
@@ -640,14 +654,14 @@ TEST_MINIMAL_SEQ_SCORESET = {
                 "sequenceType": "dna",
                 "sequence": "ACGTTT",
                 "taxonomy": {
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         }
@@ -693,14 +707,14 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
                 "label": "TEST1",
                 "taxonomy": {
                     "recordType": "Taxonomy",
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         }
@@ -851,14 +865,14 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET = {
                 "sequence": "ACGTTT",
                 "label": "TEST3",
                 "taxonomy": {
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         },
@@ -871,14 +885,14 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET = {
                 "sequence": "TAATGCC",
                 "label": "TEST4",
                 "taxonomy": {
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         },
@@ -924,14 +938,14 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
                 "label": "TEST3",
                 "taxonomy": {
                     "recordType": "Taxonomy",
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         },
@@ -948,14 +962,14 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
                 "label": "TEST4",
                 "taxonomy": {
                     "recordType": "Taxonomy",
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         },
@@ -1157,19 +1171,27 @@ TEST_MINIMAL_VARIANT = {
         "score_data": {"sd": 0.100412839533719, "se": 0.0409933700802629, "score": 0.406972991738182},
     },
     "hgvs_nt": "c.[197A>G;472T>C]",
-    "creation_date": datetime.date(datetime.now()).isoformat(),
-    "modification_date": datetime.date(datetime.now()).isoformat(),
+    "creation_date": datetime.date(datetime.now()),
+    "modification_date": datetime.date(datetime.now()),
 }
 
 
 TEST_MINIMAL_MAPPED_VARIANT = {
     "pre_mapped": {},
     "post_mapped": {},
-    "modification_date": datetime.date(datetime.now()).isoformat(),
-    "mapped_date": datetime.date(datetime.now()).isoformat(),
+    "modification_date": datetime.date(datetime.now()),
+    "mapped_date": datetime.date(datetime.now()),
     "current": True,
     "vrs_version": "2.0",
     "mapping_api_version": "pytest.0.0",
+}
+
+
+TEST_MINIMAL_MAPPED_VARIANT_CREATE = {
+    **TEST_MINIMAL_MAPPED_VARIANT,
+    "variant_urn": VALID_VARIANT_URN,
+    "clinical_controls": [],
+    "gnomad_variants": []
 }
 
 TEST_POST_MAPPED_VRS_WITH_HGVS_G_EXPRESSION = {
@@ -1869,4 +1891,79 @@ TEST_SAVED_GNOMAD_VARIANT = {
     "modificationDate": date.today().isoformat(),
     "recordType": "GnomADVariantWithMappedVariants",
     "id": 1,  # Presuming this is the only gnomAD variant in the database
+}
+
+
+SEQUENCE = (
+    "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCT"
+    "GAAGATCAGTTGGGTGCACGAGTGGGTTACATCGAACTGGATCTCAACAGCGGTAAGATCCTTGAGAGTTTTCGCCCCGAAGAACGTTTTCCAATGATGAGCACTTTTAAAGTTCT"
+    "GCTATGTGGCGCGGTATTATCCCGTGTTGACGCCGGGCAAGAGCAACTCGGTCGCCGCATACACTATTCTCAGAATGACTTGGTTGAGTACTCACCAGTCACAGAAAAGCATCTTA"
+    "CGGATGGCATGACAGTAAGAGAATTATGCAGTGCTGCCATAACCATGAGTGATAACACTGCGGCCAACTTACTTCTGACAACGATCGGAGGACCGAAGGAGCTAACCGCTTTTTTG"
+    "CACAACATGGGGGATCATGTAACTCGCCTTGATCGTTGGGAACCGGAGCTGAATGAAGCCATACCAAACGACGAGCGTGACACCACGATGCCTGCAGCAATGGCAACAACGTTGCG"
+    "CAAACTATTAACTGGCGAACTACTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGT"
+    "TTATTGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGACGGGGAGTCAGGCA"
+    "ACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA"
+)
+
+
+TEST_MINIMAL_ORCID_AUTH_TOKEN_REQUEST = {
+    "code": "xxx.test.xxx",
+    "redirect_uri": "https://www.fake.orcid.org/redirect_uri",
+}
+
+
+TEST_MINIMAL_ORCID_AUTH_TOKEN_RESPONSE = {
+    "access_token": "yyy.test.yyy",
+    "expires_in": 30,
+    "id_token": "zzz.test.zzz",
+    "token_type": "bearer",
+}
+
+TEST_MINIMAL_ORCID_USER = {"orcid_id": TEST_ORCID_ID}
+
+TEST_MINIMAL_RAW_READ_IDENTIFIER = {"identifier": "test_raw_read"}
+
+TEST_SAVED_MINIMAL_RAW_READ_IDENTIFIER = {
+    **TEST_MINIMAL_RAW_READ_IDENTIFIER,
+    "id": 1,
+    "url": "https://www.test.rawreadidentifiers.org",
+}
+
+TEST_POPULATED_EXPERIMENT_SEARCH = {
+    "published": True,
+    "authors": ["last-name"],
+    "databases": ["uniprot"],
+    "journals": ["biomed"],
+    "publication_identifiers": ["12345678"],
+    "keywords": ["keyword"],
+    "text": "testtesttest",
+}
+
+TEST_POPULATED_SCORE_SET_SEARCH = {
+    "published": True,
+    "targets": ["BRCA1"],
+    "target_organism_names": ["homo sapiens"],
+    "target_types": ["protein_coding"],
+    "target_accessions": ["NC_12345.1"],
+    "authors": ["last-name"],
+    "databases": ["uniprot"],
+    "journals": ["biomed"],
+    "publication_identifiers": ["12345678"],
+    "keywords": ["keyword"],
+    "text": "testtesttest",
+}
+
+TEST_POPULATED_TEXT_SEARCH = {"text": "testtesttest"}
+
+TEST_POPULATED_VARIANT = {
+    **TEST_MINIMAL_VARIANT,
+    "urn": f"{VALID_SCORE_SET_URN}#1",
+    "hgvs_nt": "c.1A>T",
+    "hgvs_pro": "p.1M>T",
+    "hgvs_splice": "c.1A>T",
+}
+
+TEST_SAVED_VARIANT = {
+    **TEST_POPULATED_VARIANT,
+    "id": 1,
 }

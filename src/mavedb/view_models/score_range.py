@@ -6,7 +6,7 @@ from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import inf_or_float
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
-from mavedb.view_models.publication_identifier import PublicationIdentifierBase
+from mavedb.view_models.publication_identifier import PublicationIdentifierBase, PublicationIdentifierCreate
 from mavedb.view_models.odds_path import OddsPathCreate, OddsPathBase, OddsPathModify, SavedOddsPath, OddsPath
 
 
@@ -144,10 +144,12 @@ class ScoreRangesBase(BaseModel):
 
 class ScoreRangesModify(ScoreRangesBase):
     ranges: Sequence[ScoreRangeModify]
+    odds_path_source: Optional[Sequence[PublicationIdentifierCreate]] = None
 
 
 class ScoreRangesCreate(ScoreRangesModify):
     ranges: Sequence[ScoreRangeCreate]
+    odds_path_source: Optional[Sequence[PublicationIdentifierCreate]] = None
 
 
 class SavedScoreRanges(ScoreRangesBase):

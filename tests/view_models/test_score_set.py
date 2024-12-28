@@ -1,9 +1,12 @@
 import pytest
 from copy import deepcopy
 
-from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
-from mavedb.view_models.score_set import ScoreSetCreate, ScoreSetModify
-from mavedb.view_models.target_gene import TargetGeneCreate
+from fastapi.encoders import jsonable_encoder
+from humps import camelize
+
+from mavedb.view_models.publication_identifier import PublicationIdentifierCreate, PublicationIdentifier
+from mavedb.view_models.score_set import ScoreSetCreate, ScoreSetModify, SavedScoreSet
+from mavedb.view_models.target_gene import TargetGeneCreate, SavedTargetGene
 from tests.helpers.constants import (
     TEST_PUBMED_IDENTIFIER,
     TEST_MINIMAL_ACC_SCORESET,
@@ -11,7 +14,23 @@ from tests.helpers.constants import (
     TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
     TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
     TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    SAVED_PUBMED_PUBLICATION,
+    TEST_BIORXIV_IDENTIFIER,
+    TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
+    VALID_EXPERIMENT_URN,
 )
+from tests.helpers.util.common import dummy_attributed_object_from_dict
+
+
+def test_can_create_score_set():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
+    score_set = ScoreSetCreate(**jsonable_encoder(score_set_test))
+
+    assert score_set.title == "Test Score Set Title"
+    assert score_set.short_description == "Test score set"
+    assert score_set.abstract_text == "Abstract"
+    assert score_set.method_text == "Methods"
 
 
 def test_cannot_create_score_set_without_a_target():
@@ -38,7 +57,7 @@ def test_cannot_create_score_set_with_multiple_primary_publications():
             primary_publication_identifiers=[identifier_one, identifier_two],
         )
 
-    assert "multiple primary publication identifiers are not allowed" in str(exc_info.value)
+    assert "Multiple primary publication identifiers are not allowed" in str(exc_info.value)
 
 
 def test_cannot_create_score_set_without_target_gene_labels_when_multiple_targets_exist():
@@ -84,7 +103,7 @@ def test_cannot_create_score_set_without_a_title():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetCreate(**score_set)
 
-    assert "field required" in str(exc_info.value)
+    assert "Field required" in str(exc_info.value)
     assert "title" in str(exc_info.value)
 
 
@@ -106,7 +125,7 @@ def test_cannot_create_score_set_with_an_empty_title():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetCreate(**score_set)
 
-    assert "none is not an allowed value" in str(exc_info.value)
+    assert "Input should be a valid string" in str(exc_info.value)
     assert "title" in str(exc_info.value)
 
 
@@ -117,7 +136,7 @@ def test_cannot_create_score_set_without_a_short_description():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetCreate(**score_set)
 
-    assert "field required" in str(exc_info.value)
+    assert "Field required" in str(exc_info.value)
     assert "shortDescription" in str(exc_info.value)
 
 
@@ -139,7 +158,7 @@ def test_cannot_create_score_set_with_an_empty_short_description():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetCreate(**score_set)
 
-    assert "none is not an allowed value" in str(exc_info.value)
+    assert "Input should be a valid string" in str(exc_info.value)
     assert "shortDescription" in str(exc_info.value)
 
 
@@ -150,7 +169,7 @@ def test_cannot_create_score_set_without_an_abstract():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetCreate(**score_set)
 
-    assert "field required" in str(exc_info.value)
+    assert "Field required" in str(exc_info.value)
     assert "abstractText" in str(exc_info.value)
 
 
@@ -172,7 +191,7 @@ def test_cannot_create_score_set_with_an_empty_abstract():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetCreate(**score_set)
 
-    assert "none is not an allowed value" in str(exc_info.value)
+    assert "Input should be a valid string" in str(exc_info.value)
     assert "abstractText" in str(exc_info.value)
 
 
@@ -183,7 +202,7 @@ def test_cannot_create_score_set_without_a_method():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetCreate(**score_set)
 
-    assert "field required" in str(exc_info.value)
+    assert "Field required" in str(exc_info.value)
     assert "methodText" in str(exc_info.value)
 
 
@@ -205,7 +224,7 @@ def test_cannot_create_score_set_with_an_empty_method():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetCreate(**score_set)
 
-    assert "none is not an allowed value" in str(exc_info.value)
+    assert "Input should be a valid string" in str(exc_info.value)
     assert "methodText" in str(exc_info.value)
 
 
@@ -272,3 +291,202 @@ def test_cannot_create_score_set_with_inconsistent_base_editor_flags():
         )
 
     assert "All target accessions must be of the same base editor type." in str(exc_info.value)
+
+
+def test_saved_score_set_synthetic_properties():
+    score_set = TEST_MINIMAL_SEQ_SCORESET_RESPONSE.copy()
+    score_set["urn"] = "urn:score-set-xxx"
+
+    # Remove pre-set synthetic properties
+    score_set.pop("metaAnalyzesScoreSetUrns")
+    score_set.pop("metaAnalyzedByScoreSetUrns")
+    score_set.pop("primaryPublicationIdentifiers")
+    score_set.pop("secondaryPublicationIdentifiers")
+
+    # Convert fields expecting an object to attributed objects
+    external_identifiers = {"refseq_offset": None, "ensembl_offset": None, "uniprot_offset": None}
+    target_genes = [
+        dummy_attributed_object_from_dict({**target, **external_identifiers}) for target in score_set["targetGenes"]
+    ]
+    score_set["targetGenes"] = [SavedTargetGene.model_validate(target) for target in target_genes]
+
+    # Set synthetic properties with dummy attributed objects to mock SQLAlchemy model objects.
+    score_set["meta_analyzes_score_sets"] = [
+        dummy_attributed_object_from_dict({"urn": "urn:meta-analyzes-xxx", "superseding_score_set": None})
+    ]
+    score_set["meta_analyzed_by_score_sets"] = [
+        dummy_attributed_object_from_dict({"urn": "urn:meta-analyzed-xxx", "superseding_score_set": None})
+    ]
+    score_set["publication_identifier_associations"] = [
+        dummy_attributed_object_from_dict(
+            {
+                "publication": PublicationIdentifier(**SAVED_PUBMED_PUBLICATION),
+                "primary": True,
+            }
+        ),
+        dummy_attributed_object_from_dict(
+            {
+                "publication": PublicationIdentifier(
+                    **{**SAVED_PUBMED_PUBLICATION, **{"identifier": TEST_BIORXIV_IDENTIFIER}}
+                ),
+                "primary": False,
+            }
+        ),
+        dummy_attributed_object_from_dict(
+            {
+                "publication": PublicationIdentifier(
+                    **{**SAVED_PUBMED_PUBLICATION, **{"identifier": TEST_BIORXIV_IDENTIFIER}}
+                ),
+                "primary": False,
+            }
+        ),
+    ]
+
+    score_set_attributed_object = dummy_attributed_object_from_dict(score_set)
+    saved_score_set = SavedScoreSet.model_validate(score_set_attributed_object)
+
+    # meta_analyzes_score_sets
+    assert len(saved_score_set.meta_analyzes_score_set_urns) == 1
+    assert all([urn == "urn:meta-analyzes-xxx" for urn in saved_score_set.meta_analyzes_score_set_urns])
+    # meta_analyzed_by_score_sets
+    assert len(saved_score_set.meta_analyzed_by_score_set_urns) == 1
+    assert all([urn == "urn:meta-analyzed-xxx" for urn in saved_score_set.meta_analyzed_by_score_set_urns])
+
+    # primary_publication_identifiers, secondary_publication_identifiers
+    assert len(saved_score_set.primary_publication_identifiers) == 1
+    assert len(saved_score_set.secondary_publication_identifiers) == 2
+    assert all(
+        [
+            publication.identifier == TEST_PUBMED_IDENTIFIER
+            for publication in saved_score_set.primary_publication_identifiers
+        ]
+    )
+    assert all(
+        [
+            publication.identifier == TEST_BIORXIV_IDENTIFIER
+            for publication in saved_score_set.secondary_publication_identifiers
+        ]
+    )
+
+
+def test_saved_score_set_data_set_columns_are_camelized():
+    score_set = TEST_MINIMAL_SEQ_SCORESET_RESPONSE.copy()
+    score_set["urn"] = "urn:score-set-xxx"
+
+    # Remove pre-set synthetic properties
+    score_set.pop("metaAnalyzesScoreSetUrns")
+    score_set.pop("metaAnalyzedByScoreSetUrns")
+    score_set.pop("primaryPublicationIdentifiers")
+    score_set.pop("secondaryPublicationIdentifiers")
+    score_set.pop("datasetColumns")
+
+    # Convert fields expecting an object to attributed objects
+    external_identifiers = {"refseq_offset": None, "ensembl_offset": None, "uniprot_offset": None}
+    target_genes = [
+        dummy_attributed_object_from_dict({**target, **external_identifiers}) for target in score_set["targetGenes"]
+    ]
+    score_set["targetGenes"] = [SavedTargetGene.model_validate(target) for target in target_genes]
+
+    # Set synthetic properties with dummy attributed objects to mock SQLAlchemy model objects.
+    score_set["meta_analyzes_score_sets"] = [
+        dummy_attributed_object_from_dict({"urn": "urn:meta-analyzes-xxx", "superseding_score_set": None})
+    ]
+    score_set["meta_analyzed_by_score_sets"] = [
+        dummy_attributed_object_from_dict({"urn": "urn:meta-analyzed-xxx", "superseding_score_set": None})
+    ]
+    score_set["publication_identifier_associations"] = [
+        dummy_attributed_object_from_dict(
+            {
+                "publication": PublicationIdentifier(**SAVED_PUBMED_PUBLICATION),
+                "primary": True,
+            }
+        ),
+        dummy_attributed_object_from_dict(
+            {
+                "publication": PublicationIdentifier(
+                    **{**SAVED_PUBMED_PUBLICATION, **{"identifier": TEST_BIORXIV_IDENTIFIER}}
+                ),
+                "primary": False,
+            }
+        ),
+        dummy_attributed_object_from_dict(
+            {
+                "publication": PublicationIdentifier(
+                    **{**SAVED_PUBMED_PUBLICATION, **{"identifier": TEST_BIORXIV_IDENTIFIER}}
+                ),
+                "primary": False,
+            }
+        ),
+    ]
+
+    # The camelized dataset columns we are testing
+    score_set["dataset_columns"] = {"camelize_me": "test", "noNeed": "test"}
+
+    score_set_attributed_object = dummy_attributed_object_from_dict(score_set)
+    saved_score_set = SavedScoreSet.model_validate(score_set_attributed_object)
+
+    assert sorted(list(saved_score_set.dataset_columns.keys())) == sorted(
+        [camelize(k) for k in score_set["dataset_columns"].keys()]
+    )
+
+
+@pytest.mark.parametrize(
+    "exclude",
+    ["publication_identifier_associations", "meta_analyzes_score_sets", "meta_analyzed_by_score_sets"],
+)
+def test_cannot_create_saved_score_set_without_all_attributed_properties(exclude):
+    score_set = TEST_MINIMAL_SEQ_SCORESET_RESPONSE.copy()
+    score_set["urn"] = "urn:score-set-xxx"
+
+    # Remove pre-set synthetic properties
+    score_set.pop("metaAnalyzesScoreSetUrns")
+    score_set.pop("metaAnalyzedByScoreSetUrns")
+    score_set.pop("primaryPublicationIdentifiers")
+    score_set.pop("secondaryPublicationIdentifiers")
+
+    # Convert fields expecting an object to attributed objects
+    external_identifiers = {"refseq_offset": None, "ensembl_offset": None, "uniprot_offset": None}
+    target_genes = [
+        dummy_attributed_object_from_dict({**target, **external_identifiers}) for target in score_set["targetGenes"]
+    ]
+    score_set["targetGenes"] = [SavedTargetGene.model_validate(target) for target in target_genes]
+
+    # Set synthetic properties with dummy attributed objects to mock SQLAlchemy model objects.
+    score_set["meta_analyzes_score_sets"] = [
+        dummy_attributed_object_from_dict({"urn": "urn:meta-analyzes-xxx", "superseding_score_set": None})
+    ]
+    score_set["meta_analyzed_by_score_sets"] = [
+        dummy_attributed_object_from_dict({"urn": "urn:meta-analyzed-xxx", "superseding_score_set": None})
+    ]
+    score_set["publication_identifier_associations"] = [
+        dummy_attributed_object_from_dict(
+            {
+                "publication": PublicationIdentifier(**SAVED_PUBMED_PUBLICATION),
+                "primary": True,
+            }
+        ),
+        dummy_attributed_object_from_dict(
+            {
+                "publication": PublicationIdentifier(
+                    **{**SAVED_PUBMED_PUBLICATION, **{"identifier": TEST_BIORXIV_IDENTIFIER}}
+                ),
+                "primary": False,
+            }
+        ),
+        dummy_attributed_object_from_dict(
+            {
+                "publication": PublicationIdentifier(
+                    **{**SAVED_PUBMED_PUBLICATION, **{"identifier": TEST_BIORXIV_IDENTIFIER}}
+                ),
+                "primary": False,
+            }
+        ),
+    ]
+
+    score_set.pop(exclude)
+    score_set_attributed_object = dummy_attributed_object_from_dict(score_set)
+    with pytest.raises(ValueError) as exc_info:
+        SavedScoreSet.model_validate(score_set_attributed_object)
+
+    assert "Unable to create SavedScoreSet without attribute" in str(exc_info.value)
+    assert exclude in str(exc_info.value)

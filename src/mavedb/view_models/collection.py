@@ -1,57 +1,51 @@
 from datetime import date
-from typing import Any, Sequence
+from typing import Any, Sequence, Optional
 
-from pydantic import Field
-from pydantic.types import Optional
+from pydantic import Field, model_validator
 
-from mavedb.view_models import UserContributionRoleGetter, record_type_validator, set_record_type
+from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.lib.validation.transform import (
+    transform_contribution_role_associations_to_roles,
+    transform_experiment_list_to_urn_list,
+    transform_score_set_list_to_urn_list,
+)
+from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.contributor import ContributorCreate
 from mavedb.view_models.user import SavedUser, User
 
 
-class CollectionGetter(UserContributionRoleGetter):
-    def get(self, key: Any, default: Any = ...) -> Any:
-        if key == "score_set_urns":
-            score_sets = getattr(self._obj, "score_sets") or []
-            return sorted([score_set.urn for score_set in score_sets if score_set.superseding_score_set is None])
-        elif key == "experiment_urns":
-            experiments = getattr(self._obj, "experiments") or []
-            return sorted([experiment.urn for experiment in experiments])
-        else:
-            return super().get(key, default)
-
-
 class CollectionBase(BaseModel):
     private: bool = Field(
-        description="Whether the collection is visible to all MaveDB users. If set during collection update, input ignored unless requesting user is collection admin."
+        description="Whether the collection is visible to all MaveDB users. If set during collection update, input ignored unless requesting user is collection admin.",
     )
     name: str
-    description: Optional[str]
+    description: Optional[str] = None
     badge_name: Optional[str] = Field(
-        description="Badge name. Input ignored unless requesting user has MaveDB admin privileges."
+        description="Badge name. Input ignored unless requesting user has MaveDB admin privileges.", default=None
     )
 
 
 class CollectionModify(BaseModel):
     # all fields should be optional, because the client should specify only the fields they want to update
     private: Optional[bool] = Field(
-        description="Whether the collection is visible to all MaveDB users. If set during collection update, input ignored unless requesting user is collection admin."
+        description="Whether the collection is visible to all MaveDB users. If set during collection update, input ignored unless requesting user is collection admin.",
+        default=None,
     )
-    name: Optional[str]
-    description: Optional[str]
+    name: Optional[str] = None
+    description: Optional[str] = None
     badge_name: Optional[str] = Field(
-        description="Badge name. Input ignored unless requesting user has MaveDB admin privileges."
+        description="Badge name. Input ignored unless requesting user has MaveDB admin privileges.", default=None
     )
 
 
 class CollectionCreate(CollectionBase):
-    experiment_urns: Optional[list[str]]
-    score_set_urns: Optional[list[str]]
+    experiment_urns: Optional[list[str]] = []
+    score_set_urns: Optional[list[str]] = []
 
-    viewers: Optional[list[ContributorCreate]]
-    editors: Optional[list[ContributorCreate]]
-    admins: Optional[list[ContributorCreate]]
+    viewers: Optional[list[ContributorCreate]] = []
+    editors: Optional[list[ContributorCreate]] = []
+    admins: Optional[list[ContributorCreate]] = []
 
 
 class AddScoreSetToCollectionRequest(BaseModel):
@@ -71,8 +65,8 @@ class SavedCollection(CollectionBase):
     record_type: str = None  # type: ignore
     urn: str
 
-    created_by: Optional[SavedUser]
-    modified_by: Optional[SavedUser]
+    created_by: Optional[SavedUser] = None
+    modified_by: Optional[SavedUser] = None
 
     experiment_urns: list[str]
     score_set_urns: list[str]
@@ -87,15 +81,47 @@ class SavedCollection(CollectionBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
-        getter_dict = CollectionGetter
+        from_attributes = True
+
+    # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
+    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.
+    @model_validator(mode="before")
+    def generate_contribution_role_user_relationships(cls, data: Any):
+        try:
+            user_associations = transform_contribution_role_associations_to_roles(data.user_associations)
+            for k, v in user_associations.items():
+                data.__setattr__(k, v)
+
+        except AttributeError as exc:
+            raise ValidationError(
+                f"Unable to create {cls.__name__} without attribute: {exc}."  # type: ignore
+            )
+        return data
+
+    @model_validator(mode="before")
+    def generate_score_set_urn_list(cls, data: Any):
+        if not hasattr(data, "score_set_urns"):
+            try:
+                data.__setattr__("score_set_urns", transform_score_set_list_to_urn_list(data.score_sets))
+            except AttributeError as exc:
+                raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
+        return data
+
+    @model_validator(mode="before")
+    def generate_experiment_urn_list(cls, data: Any):
+        if not hasattr(data, "experiment_urns"):
+            try:
+                data.__setattr__("experiment_urns", transform_experiment_list_to_urn_list(data.experiments))
+            except AttributeError as exc:
+                raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
+        return data
 
 
 # Properties to return to non-admin clients
 # NOTE: Coupled to ContributionRole enum
 class Collection(SavedCollection):
-    created_by: Optional[User]
-    modified_by: Optional[User]
+    created_by: Optional[User] = None
+    modified_by: Optional[User] = None
 
     admins: Sequence[User]
     viewers: Sequence[User]
