@@ -33,7 +33,7 @@ class PillarProjectCalibration(BaseModel):
 
         if len(set((num_es, num_st, num_plr))) != 1:
             raise ValidationError(
-                "Calibration object must provide the same number of evidence strenghts, score thresholds, and positive likelihood ratios. "
+                "Calibration object must provide the same number of evidence strengths, score thresholds, and positive likelihood ratios. "
                 "One or more of these provided objects was not the same length as the others."
             )
 
