@@ -29,6 +29,16 @@ from mavedb.view_models.raw_read_identifier import (
 from mavedb.view_models.user import SavedUser, User
 
 
+class OfficialCollection(BaseModel):
+    badge_name: Optional[str]
+    name: str
+    urn: str
+
+    class Config:
+        orm_mode = True
+        arbitrary_types_allowed = True
+
+
 class ExperimentGetter(PublicationIdentifiersGetter):
     def get(self, key: Any, default: Any = ...) -> Any:
         if key == "score_set_urns":
@@ -37,9 +47,6 @@ class ExperimentGetter(PublicationIdentifiersGetter):
         elif key == "experiment_set_urn":
             experiment_set = getattr(self._obj, "experiment_set")
             return experiment_set.urn if experiment_set is not None else None
-        elif key == "official_collection_names":
-            official_collections = getattr(self._obj, "official_collections") or []
-            return sorted([collection.badge_name for collection in official_collections])
         else:
             return super().get(key, default)
 
@@ -130,7 +137,7 @@ class Experiment(SavedExperiment):
     doi_identifiers: Sequence[DoiIdentifier]
     primary_publication_identifiers: Sequence[PublicationIdentifier]
     secondary_publication_identifiers: Sequence[PublicationIdentifier]
-    official_collection_names: list[str]
+    official_collections: Sequence[OfficialCollection]
     keywords: Sequence[ExperimentControlledKeyword]
     raw_read_identifiers: Sequence[RawReadIdentifier]
     created_by: User
