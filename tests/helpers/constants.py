@@ -696,3 +696,36 @@ TEST_SAVED_SCORE_CALIBRATION = {
     "positiveLikelihoodRatios": [100, 10, 1, 0.1],
     "priorProbabilityPathogenicity": 0.20,
 }
+
+
+TEST_COLLECTION = {"name": "Test collection", "description": None, "private": True}
+
+
+TEST_COLLECTION_RESPONSE = {
+    "name": "Test collection",
+    # "description": None,
+    "private": True,
+    "createdBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "modifiedBy": {
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
+    "experimentUrns": [],
+    "scoreSetUrns": [],
+    "admins": [
+        {
+            "firstName": TEST_USER["first_name"],
+            "lastName": TEST_USER["last_name"],
+            "orcidId": TEST_USER["username"],
+        }
+    ],
+    "editors": [],
+    "viewers": [],
+}

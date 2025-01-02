@@ -64,7 +64,6 @@ class AddUserToCollectionRoleRequest(BaseModel):
 
 # Properties shared by models stored in DB
 class SavedCollection(CollectionBase):
-    id: int
     urn: str
     created_by: Optional[SavedUser]
     modified_by: Optional[SavedUser]
