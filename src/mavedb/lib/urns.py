@@ -141,4 +141,4 @@ def generate_collection_urn():
 
     :return: A new collection URN
     """
-    return f"urn:mavedb:{uuid4()}"
+    return f"urn:mavedb:collection-{uuid4()}"
