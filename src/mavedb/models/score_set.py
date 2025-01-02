@@ -90,7 +90,13 @@ class ScoreSet(Base):
     approved = Column(Boolean, nullable=False, default=False)
     published_date = Column(Date, nullable=True)
     processing_state = Column(
-        Enum(ProcessingState, create_constraint=True, length=32, native_enum=False, validate_strings=True),
+        Enum(
+            ProcessingState,
+            create_constraint=True,
+            length=32,
+            native_enum=False,
+            validate_strings=True,
+        ),
         nullable=True,
     )
     processing_errors = Column(JSONB, nullable=True)
@@ -100,7 +106,13 @@ class ScoreSet(Base):
     variants: Mapped[list["Variant"]] = relationship(back_populates="score_set", cascade="all, delete-orphan")
 
     mapping_state = Column(
-        Enum(MappingState, create_constraint=True, length=32, native_enum=False, validate_strings=True),
+        Enum(
+            MappingState,
+            create_constraint=True,
+            length=32,
+            native_enum=False,
+            validate_strings=True,
+        ),
         nullable=True,
     )
     mapping_errors = Column(JSONB, nullable=True)
@@ -113,7 +125,10 @@ class ScoreSet(Base):
     license: Mapped["License"] = relationship("License")
     superseded_score_set_id = Column("replaces_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=True)
     superseded_score_set: Mapped[Optional["ScoreSet"]] = relationship(
-        "ScoreSet", uselist=False, foreign_keys="ScoreSet.superseded_score_set_id", remote_side=[id]
+        "ScoreSet",
+        uselist=False,
+        foreign_keys="ScoreSet.superseded_score_set_id",
+        remote_side=[id],
     )
     superseding_score_set: Mapped[Optional["ScoreSet"]] = relationship(
         "ScoreSet", uselist=False, back_populates="superseded_score_set"
@@ -127,18 +142,26 @@ class ScoreSet(Base):
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
     legacy_keyword_objs: Mapped[list["LegacyKeyword"]] = relationship(
-        "LegacyKeyword", secondary=score_sets_legacy_keywords_association_table, backref="score_sets"
+        "LegacyKeyword",
+        secondary=score_sets_legacy_keywords_association_table,
+        backref="score_sets",
     )
     contributors: Mapped[list["Contributor"]] = relationship(
-        "Contributor", secondary=score_sets_contributors_association_table, backref="score_sets"
+        "Contributor",
+        secondary=score_sets_contributors_association_table,
+        backref="score_sets",
     )
     doi_identifiers: Mapped[list["DoiIdentifier"]] = relationship(
-        "DoiIdentifier", secondary=score_sets_doi_identifiers_association_table, backref="score_sets"
+        "DoiIdentifier",
+        secondary=score_sets_doi_identifiers_association_table,
+        backref="score_sets",
     )
     publication_identifier_associations: Mapped[
         list[mavedb.models.score_set_publication_identifier.ScoreSetPublicationIdentifierAssociation]
     ] = relationship(
-        "ScoreSetPublicationIdentifierAssociation", back_populates="score_set", cascade="all, delete-orphan"
+        "ScoreSetPublicationIdentifierAssociation",
+        back_populates="score_set",
+        cascade="all, delete-orphan",
     )
     publication_identifiers: AssociationProxy[List[PublicationIdentifier]] = association_proxy(
         "publication_identifier_associations",
@@ -162,7 +185,9 @@ class ScoreSet(Base):
     score_calibrations = Column(JSONB, nullable=True)
 
     collections: Mapped[list["Collection"]] = relationship(
-        "Collection", secondary=collection_score_sets_association_table, back_populates="score_sets"
+        "Collection",
+        secondary=collection_score_sets_association_table,
+        back_populates="score_sets",
     )
     official_collections: Mapped[list["Collection"]] = relationship(
         "Collection",

@@ -32,7 +32,11 @@ class ModelName(str, Enum):
     score_set = "score-set"
 
 
-@router.get("/user-is-permitted/{model_name}/{urn}/{action}", status_code=200, response_model=bool)
+@router.get(
+    "/user-is-permitted/{model_name}/{urn}/{action}",
+    status_code=200,
+    response_model=bool,
+)
 async def check_permission(
     *,
     model_name: ModelName,

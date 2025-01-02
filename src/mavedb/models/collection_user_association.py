@@ -18,7 +18,13 @@ class CollectionUserAssociation(Base):
     collection_id = Column("collection_id", Integer, ForeignKey("collections.id"), primary_key=True)
     user_id = Column("user_id", Integer, ForeignKey("users.id"), primary_key=True)
     contribution_role: Mapped["ContributionRole"] = Column(
-        Enum(ContributionRole, create_constraint=True, length=32, native_enum=False, validate_strings=True),
+        Enum(
+            ContributionRole,
+            create_constraint=True,
+            length=32,
+            native_enum=False,
+            validate_strings=True,
+        ),
         nullable=False,
     )
 

@@ -22,7 +22,13 @@ class Collection(Base):
 
     id = Column(Integer, primary_key=True)
 
-    urn = Column(String(64), nullable=True, default=generate_collection_urn, unique=True, index=True)
+    urn = Column(
+        String(64),
+        nullable=True,
+        default=generate_collection_urn,
+        unique=True,
+        index=True,
+    )
     private = Column(Boolean, nullable=False, default=True)
 
     name = Column(String, nullable=False)
@@ -37,7 +43,9 @@ class Collection(Base):
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
     user_associations: Mapped[list[mavedb.models.collection_user_association.CollectionUserAssociation]] = relationship(
-        "CollectionUserAssociation", back_populates="collection", cascade="all, delete-orphan"
+        "CollectionUserAssociation",
+        back_populates="collection",
+        cascade="all, delete-orphan",
     )
     users: AssociationProxy[list[User]] = association_proxy(
         "user_associations",
@@ -48,8 +56,12 @@ class Collection(Base):
     )
 
     experiments: Mapped[list[Experiment]] = relationship(
-        "Experiment", secondary=collection_experiments_association_table, back_populates="collections"
+        "Experiment",
+        secondary=collection_experiments_association_table,
+        back_populates="collections",
     )
     score_sets: Mapped[list[ScoreSet]] = relationship(
-        "ScoreSet", secondary=collection_score_sets_association_table, back_populates="collections"
+        "ScoreSet",
+        secondary=collection_score_sets_association_table,
+        back_populates="collections",
     )

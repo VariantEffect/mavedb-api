@@ -12,10 +12,18 @@ from sqlalchemy.orm import configure_mappers
 from starlette import status
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from starlette_context.plugins import CorrelationIdPlugin, RequestIdPlugin, UserAgentPlugin
+from starlette_context.plugins import (
+    CorrelationIdPlugin,
+    RequestIdPlugin,
+    UserAgentPlugin,
+)
 
 from mavedb import __version__
-from mavedb.lib.exceptions import AmbiguousIdentifierError, MixedTargetError, NonexistentIdentifierError
+from mavedb.lib.exceptions import (
+    AmbiguousIdentifierError,
+    MixedTargetError,
+    NonexistentIdentifierError,
+)
 from mavedb.lib.logging.canonical import log_request
 from mavedb.lib.logging.context import (
     PopulatedRawContextMiddleware,
@@ -148,7 +156,11 @@ async def mixed_target_exception_handler(request: Request, exc: MixedTargetError
 def customize_validation_error(error):
     # surface custom validation loc context
     if error.get("ctx", {}).get("custom_loc"):
-        error = {"loc": error["ctx"]["custom_loc"], "msg": error["msg"], "type": error["type"]}
+        error = {
+            "loc": error["ctx"]["custom_loc"],
+            "msg": error["msg"],
+            "type": error["type"],
+        }
 
     if error["type"] == "type_error.none.not_allowed":
         return {"loc": error["loc"], "msg": "Required", "type": error["type"]}

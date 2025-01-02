@@ -12,7 +12,11 @@ from mavedb import deps
 from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.authorization import require_current_user_with_email
 from mavedb.lib.logging import LoggedRoute
-from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
+from mavedb.lib.logging.context import (
+    format_raised_exception_info_as_dict,
+    logging_context,
+    save_to_logging_context,
+)
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.models.collection import Collection
 from mavedb.models.collection_user_association import CollectionUserAssociation
@@ -183,13 +187,19 @@ async def create_collection(
 
     except NoResultFound as e:
         save_to_logging_context(format_raised_exception_info_as_dict(e))
-        logger.error(msg="No existing user found with the given ORCID iD", extra=logging_context())
+        logger.error(
+            msg="No existing user found with the given ORCID iD",
+            extra=logging_context(),
+        )
         raise HTTPException(status_code=404, detail="No MaveDB user found with the given ORCID iD")
 
     except MultipleResultsFound as e:
         save_to_logging_context(format_raised_exception_info_as_dict(e))
         logger.error(msg="Multiple users found with the given ORCID iD", extra=logging_context())
-        raise HTTPException(status_code=400, detail="Multiple MaveDB users found with the given ORCID iD")
+        raise HTTPException(
+            status_code=400,
+            detail="Multiple MaveDB users found with the given ORCID iD",
+        )
 
     try:
         score_sets = [
@@ -216,7 +226,14 @@ async def create_collection(
         **jsonable_encoder(
             item_create,
             by_alias=False,
-            exclude={"viewers", "editors", "admins", "score_set_urns", "experiment_urns", "badge_name"},
+            exclude={
+                "viewers",
+                "editors",
+                "admins",
+                "score_set_urns",
+                "experiment_urns",
+                "badge_name",
+            },
         ),
         users=users,
         score_sets=score_sets,
@@ -255,7 +272,8 @@ async def update_collection(
     item = db.execute(select(Collection).where(Collection.urn == urn)).scalars().one_or_none()
     if item is None:
         logger.info(
-            msg="Failed to update collection; The requested collection does not exist.", extra=logging_context()
+            msg="Failed to update collection; The requested collection does not exist.",
+            extra=logging_context(),
         )
         raise HTTPException(status_code=404, detail=f"collection with URN {urn} not found")
 
@@ -264,7 +282,7 @@ async def update_collection(
     # Editors may update metadata, but not all editors can publish (which is just setting private to public).
     if item.private and not item_update.private:
         assert_permission(user_data, item, Action.PUBLISH)
-    
+
     # Unpublishing requires the same permissions as publishing.
     if not item.private and item_update.private:
         assert_permission(user_data, item, Action.PUBLISH)
@@ -338,7 +356,10 @@ async def add_score_set_to_collection(
             msg="Failed to add score set to collection; The requested score set does not exist.",
             extra=logging_context(),
         )
-        raise HTTPException(status_code=404, detail=f"score set with URN '{body.score_set_urn}' not found")
+        raise HTTPException(
+            status_code=404,
+            detail=f"score set with URN '{body.score_set_urn}' not found",
+        )
 
     assert_permission(user_data, item, Action.ADD_SCORE_SET)
 
@@ -390,9 +411,7 @@ async def delete_score_set_from_collection(
     """
     Remove a score set from an existing collection. Preserves the score set in the database, only removes the association between the score set and the collection.
     """
-    save_to_logging_context(
-        {"requested_resource": collection_urn}
-    )
+    save_to_logging_context({"requested_resource": collection_urn})
 
     item = db.execute(select(Collection).where(Collection.urn == collection_urn)).scalars().one_or_none()
     if not item:
@@ -487,7 +506,10 @@ async def add_experiment_to_collection(
             msg="Failed to add experiment to collection; The requested experiment does not exist.",
             extra=logging_context(),
         )
-        raise HTTPException(status_code=404, detail=f"experiment with URN '{body.experiment_urn}' not found")
+        raise HTTPException(
+            status_code=404,
+            detail=f"experiment with URN '{body.experiment_urn}' not found",
+        )
 
     assert_permission(user_data, item, Action.ADD_EXPERIMENT)
 
@@ -633,7 +655,8 @@ async def add_user_to_collection_role(
     user = db.execute(select(User).where(User.username == body.orcid_id)).scalars().one_or_none()
     if not user:
         logger.info(
-            msg="Failed to add user to collection role; The requested user does not exist.", extra=logging_context()
+            msg="Failed to add user to collection role; The requested user does not exist.",
+            extra=logging_context(),
         )
         raise HTTPException(status_code=404, detail=f"user with ORCID iD '{body.orcid_id}' not found")
 
@@ -688,7 +711,11 @@ async def add_user_to_collection_role(
     return item
 
 
-@router.delete("/collections/{urn}/{role}s/{orcid_id}", response_model=collection.Collection, responses={422: {}})
+@router.delete(
+    "/collections/{urn}/{role}s/{orcid_id}",
+    response_model=collection.Collection,
+    responses={422: {}},
+)
 async def remove_user_from_collection_role(
     *,
     urn: str,
@@ -713,7 +740,8 @@ async def remove_user_from_collection_role(
     user = db.execute(select(User).where(User.username == orcid_id)).scalars().one_or_none()
     if not user:
         logger.info(
-            msg="Failed to add user to collection role; The requested user does not exist.", extra=logging_context()
+            msg="Failed to add user to collection role; The requested user does not exist.",
+            extra=logging_context(),
         )
         raise HTTPException(status_code=404, detail=f"user with ORCID iD '{orcid_id}' not found")
 
@@ -721,7 +749,10 @@ async def remove_user_from_collection_role(
     collection_user_association = (
         db.execute(
             select(CollectionUserAssociation).where(
-                and_(CollectionUserAssociation.collection_id == item.id, CollectionUserAssociation.user_id == user.id)
+                and_(
+                    CollectionUserAssociation.collection_id == item.id,
+                    CollectionUserAssociation.user_id == user.id,
+                )
             )
         )
         .scalars()
@@ -778,7 +809,8 @@ async def delete_collection(
     item = db.execute(select(Collection).where(Collection.urn == urn)).scalars().one_or_none()
     if not item:
         logger.info(
-            msg="Failed to delete collection; The requested collection does not exist.", extra=logging_context()
+            msg="Failed to delete collection; The requested collection does not exist.",
+            extra=logging_context(),
         )
         raise HTTPException(status_code=404, detail=f"collection with URN '{urn}' not found")
 

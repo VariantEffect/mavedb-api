@@ -10,12 +10,18 @@ from sqlalchemy.schema import Table
 
 from mavedb.db.base import Base
 from mavedb.lib.temp_urns import generate_temp_urn
-from mavedb.models.collection_association import collection_experiments_association_table
+from mavedb.models.collection_association import (
+    collection_experiments_association_table,
+)
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
-from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
-from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
+from mavedb.models.experiment_controlled_keyword import (
+    ExperimentControlledKeywordAssociation,
+)
+from mavedb.models.experiment_publication_identifier import (
+    ExperimentPublicationIdentifierAssociation,
+)
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.legacy_keyword import LegacyKeyword
 from mavedb.models.publication_identifier import PublicationIdentifier
@@ -78,7 +84,9 @@ class Experiment(Base):
     score_sets: Mapped[List["ScoreSet"]] = relationship(back_populates="experiment", cascade="all, delete-orphan")
 
     collections: Mapped[list["Collection"]] = relationship(
-        "Collection", secondary=collection_experiments_association_table, back_populates="experiments"
+        "Collection",
+        secondary=collection_experiments_association_table,
+        back_populates="experiments",
     )
     official_collections: Mapped[list["Collection"]] = relationship(
         "Collection",
@@ -98,19 +106,27 @@ class Experiment(Base):
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
     contributors: Mapped[list["Contributor"]] = relationship(
-        "Contributor", secondary=experiments_contributors_association_table, backref="experiments"
+        "Contributor",
+        secondary=experiments_contributors_association_table,
+        backref="experiments",
     )
     keyword_objs: Mapped[list["ExperimentControlledKeywordAssociation"]] = relationship(
         back_populates="experiment", cascade="all, delete-orphan"
     )
     legacy_keyword_objs: Mapped[list[LegacyKeyword]] = relationship(
-        "LegacyKeyword", secondary=experiments_legacy_keywords_association_table, backref="experiments"
+        "LegacyKeyword",
+        secondary=experiments_legacy_keywords_association_table,
+        backref="experiments",
     )
     doi_identifiers: Mapped[list[DoiIdentifier]] = relationship(
-        "DoiIdentifier", secondary=experiments_doi_identifiers_association_table, backref="experiments"
+        "DoiIdentifier",
+        secondary=experiments_doi_identifiers_association_table,
+        backref="experiments",
     )
     publication_identifier_associations: Mapped[list[ExperimentPublicationIdentifierAssociation]] = relationship(
-        "ExperimentPublicationIdentifierAssociation", back_populates="experiment", cascade="all, delete-orphan"
+        "ExperimentPublicationIdentifierAssociation",
+        back_populates="experiment",
+        cascade="all, delete-orphan",
     )
     publication_identifiers: AssociationProxy[List[PublicationIdentifier]] = association_proxy(
         "publication_identifier_associations",
@@ -120,7 +136,9 @@ class Experiment(Base):
 
     # sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
     raw_read_identifiers: Mapped[list[RawReadIdentifier]] = relationship(
-        "RawReadIdentifier", secondary=experiments_raw_read_identifiers_association_table, backref="experiments"
+        "RawReadIdentifier",
+        secondary=experiments_raw_read_identifiers_association_table,
+        backref="experiments",
     )
 
     # Unfortunately, we can't use association_proxy here, because in spite of what the documentation seems to imply, it
@@ -170,7 +188,10 @@ class Experiment(Base):
                 ExperimentControlledKeywordAssociation(
                     experiment=self,
                     controlled_keyword=await self._find_keyword(
-                        db, keyword_obj.keyword.key, keyword_obj.keyword.value, keyword_obj.keyword.vocabulary
+                        db,
+                        keyword_obj.keyword.key,
+                        keyword_obj.keyword.value,
+                        keyword_obj.keyword.vocabulary,
                     ),
                     description=keyword_obj.description,
                 )

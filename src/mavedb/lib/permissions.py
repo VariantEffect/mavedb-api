@@ -37,9 +37,15 @@ class PermissionResponse:
 
         save_to_logging_context({"permission_message": self.message, "access_permitted": self.permitted})
         if self.permitted:
-            logger.debug(msg="Access to the requested resource is permitted.", extra=logging_context())
+            logger.debug(
+                msg="Access to the requested resource is permitted.",
+                extra=logging_context(),
+            )
         else:
-            logger.debug(msg="Access to the requested resource is not permitted.", extra=logging_context())
+            logger.debug(
+                msg="Access to the requested resource is not permitted.",
+                extra=logging_context(),
+            )
 
 
 class PermissionException(Exception):
@@ -315,7 +321,11 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             # TODO who should be allowed to delete an official collection? mavedb admins only?
             # A collection may be deleted even if it has been published, as long as it is not an official collection.
             if user_is_owner:
-                return PermissionResponse(not item.badge_name, 403, f"insufficient permissions for URN '{item.urn}'")
+                return PermissionResponse(
+                    not item.badge_name,
+                    403,
+                    f"insufficient permissions for URN '{item.urn}'",
+                )
             # MaveDB admins may delete official collections.
             elif roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
