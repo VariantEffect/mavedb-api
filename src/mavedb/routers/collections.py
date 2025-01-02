@@ -1,6 +1,6 @@
 import logging
 from datetime import date
-from typing import Any, Optional
+from typing import Any, Dict, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -36,7 +36,6 @@ router = APIRouter(
 @router.get(
     "/users/me/collections",
     status_code=200,
-    # response_model=list[collection.MyCollectionBundle],
     response_model=collection_bundle.CollectionBundle,
     response_model_exclude_none=True,
 )
@@ -44,11 +43,11 @@ def list_my_collections(
     *,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
-) -> Any:  # TODO typing?
+) -> Dict[str, Sequence[Collection]]:
     """
     List my collections.
     """
-    collection_bundle = {}
+    collection_bundle: Dict[str, Sequence[Collection]] = {}
     for role in ContributionRole:
         collection_bundle[role.value] = (
             db.execute(
@@ -114,11 +113,10 @@ def fetch_collection(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
-    # unless user is admin of this collection, filter users to only admins
-    # the rationale is that all collection contributors should be able to see admins
-    # to know who to contact, but only collection admins should be able to see viewers and editors
-    # TODO either create permissions action for this or look up user's role outside of the permissions module
-    # for now, just assume that if user has permission to add role, they are a collection admin
+
+    # Only collection admins can see all user roles for the collection. Other users can only see the list of admins.
+    # We could create a new permission action for this. But for now, assume that any user who has the ADD_ROLE
+    # permission is a collection admin and should be able to see all user roles for the collection.
     if not has_permission(user_data, item, Action.ADD_ROLE):
         admins = []
         for user_assoc in item.user_associations:
@@ -214,15 +212,6 @@ async def create_collection(
         logger.error(msg="Multiple resources found with the given URN", extra=logging_context())
         raise HTTPException(status_code=400, detail="Multiple resources found with the given URN")
 
-    # TODO require MaveDB admin permissions to set badge name
-    # in the current permissions model, the item needs to already exist to assert permission
-    # so maybe we only want to allow modifying badge name, rather than setting it upon creation
-    # or, we need to modify permission assertion to allow for it when an item doesn't exist
-    # or even just check user data directly here.
-    # or I could create the collection and then update it in the same function.
-    # if item_create.badge_name:
-    #     assert_permission(user_data, )
-
     item = Collection(
         **jsonable_encoder(
             item_create,
@@ -272,9 +261,12 @@ async def update_collection(
 
     assert_permission(user_data, item, Action.UPDATE)
 
-    # editors may update metadata, but not all editors can publish (which is just setting private to public)
-    # TODO permissions check for making a public collection private (unpublishing)?
+    # Editors may update metadata, but not all editors can publish (which is just setting private to public).
     if item.private and not item_update.private:
+        assert_permission(user_data, item, Action.PUBLISH)
+    
+    # Unpublishing requires the same permissions as publishing.
+    if not item.private and item_update.private:
         assert_permission(user_data, item, Action.PUBLISH)
 
     if item_update.badge_name:
@@ -298,11 +290,10 @@ async def update_collection(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
-    # unless user is admin of this collection, filter users to only admins
-    # the rationale is that all collection contributors should be able to see admins
-    # to know who to contact, but only collection admins should be able to see viewers and editors
-    # TODO either create permissions action for this or look up user's role outside of the permissions module
-    # for now, just assume that if user has permission to add role, they are a collection admin
+
+    # Only collection admins can see all user roles for the collection. Other users can only see the list of admins.
+    # We could create a new permission action for this. But for now, assume that any user who has the ADD_ROLE
+    # permission is a collection admin and should be able to see all user roles for the collection.
     if not has_permission(user_data, item, Action.ADD_ROLE):
         admins = []
         for user_assoc in item.user_associations:
@@ -367,11 +358,10 @@ async def add_score_set_to_collection(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
-    # unless user is admin of this collection, filter users to only admins
-    # the rationale is that all collection contributors should be able to see admins
-    # to know who to contact, but only collection admins should be able to see viewers and editors
-    # TODO either create permissions action for this or look up user's role outside of the permissions module
-    # for now, just assume that if user has permission to add role, they are a collection admin
+
+    # Only collection admins can see all user roles for the collection. Other users can only see the list of admins.
+    # We could create a new permission action for this. But for now, assume that any user who has the ADD_ROLE
+    # permission is a collection admin and should be able to see all user roles for the collection.
     if not has_permission(user_data, item, Action.ADD_ROLE):
         admins = []
         for user_assoc in item.user_associations:
@@ -402,7 +392,7 @@ async def delete_score_set_from_collection(
     """
     save_to_logging_context(
         {"requested_resource": collection_urn}
-    )  # TODO best way to label collection vs score set in logging?
+    )
 
     item = db.execute(select(Collection).where(Collection.urn == collection_urn)).scalars().one_or_none()
     if not item:
@@ -425,7 +415,6 @@ async def delete_score_set_from_collection(
             msg="Failed to remove score set from collection; The requested score set is not associated with the requested collection.",
             extra=logging_context(),
         )
-        # TODO what kind of http error is this?
         raise HTTPException(
             status_code=404,
             detail=f"association between score set '{score_set_urn}' and collection '{collection_urn}' not found",
@@ -450,11 +439,10 @@ async def delete_score_set_from_collection(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
-    # unless user is admin of this collection, filter users to only admins
-    # the rationale is that all collection contributors should be able to see admins
-    # to know who to contact, but only collection admins should be able to see viewers and editors
-    # TODO either create permissions action for this or look up user's role outside of the permissions module
-    # for now, just assume that if user has permission to add role, they are a collection admin
+
+    # Only collection admins can see all user roles for the collection. Other users can only see the list of admins.
+    # We could create a new permission action for this. But for now, assume that any user who has the ADD_ROLE
+    # permission is a collection admin and should be able to see all user roles for the collection.
     if not has_permission(user_data, item, Action.ADD_ROLE):
         admins = []
         for user_assoc in item.user_associations:
@@ -519,11 +507,10 @@ async def add_experiment_to_collection(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
-    # unless user is admin of this collection, filter users to only admins
-    # the rationale is that all collection contributors should be able to see admins
-    # to know who to contact, but only collection admins should be able to see viewers and editors
-    # TODO either create permissions action for this or look up user's role outside of the permissions module
-    # for now, just assume that if user has permission to add role, they are a collection admin
+
+    # Only collection admins can see all user roles for the collection. Other users can only see the list of admins.
+    # We could create a new permission action for this. But for now, assume that any user who has the ADD_ROLE
+    # permission is a collection admin and should be able to see all user roles for the collection.
     if not has_permission(user_data, item, Action.ADD_ROLE):
         admins = []
         for user_assoc in item.user_associations:
@@ -575,7 +562,6 @@ async def delete_experiment_from_collection(
             msg="Failed to remove experiment from collection; The requested experiment is not associated with the requested collection.",
             extra=logging_context(),
         )
-        # TODO what kind of http error is this?
         raise HTTPException(
             status_code=404,
             detail=f"association between experiment '{experiment_urn}' and collection '{collection_urn}' not found",
@@ -600,11 +586,10 @@ async def delete_experiment_from_collection(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
-    # unless user is admin of this collection, filter users to only admins
-    # the rationale is that all collection contributors should be able to see admins
-    # to know who to contact, but only collection admins should be able to see viewers and editors
-    # TODO either create permissions action for this or look up user's role outside of the permissions module
-    # for now, just assume that if user has permission to add role, they are a collection admin
+
+    # Only collection admins can see all user roles for the collection. Other users can only see the list of admins.
+    # We could create a new permission action for this. But for now, assume that any user who has the ADD_ROLE
+    # permission is a collection admin and should be able to see all user roles for the collection.
     if not has_permission(user_data, item, Action.ADD_ROLE):
         admins = []
         for user_assoc in item.user_associations:
@@ -619,7 +604,7 @@ async def delete_experiment_from_collection(
 
 
 @router.post(
-    "/collections/{urn}/{role}",
+    "/collections/{urn}/{role}s",
     response_model=collection.Collection,
     responses={422: {}},
 )
@@ -653,7 +638,6 @@ async def add_user_to_collection_role(
         raise HTTPException(status_code=404, detail=f"user with ORCID iD '{body.orcid_id}' not found")
 
     # get current user role
-    # TODO there is probably a nicer way to select this since we've already selected the user and collection?
     collection_user_association = (
         db.execute(
             select(CollectionUserAssociation)
@@ -672,14 +656,11 @@ async def add_user_to_collection_role(
             msg="Failed to add user to collection role; the requested user already has the requested role for this collection.",
             extra=logging_context(),
         )
-        # TODO what error code?
         raise HTTPException(
-            status_code=404,
+            status_code=400,
             detail=f"user with ORCID iD '{body.orcid_id}' is already a {role} for collection '{urn}'",
         )
     # A user can only be in one role per collection, so remove from any other roles
-    # TODO I think it's easiest just to delete the user from this collection, then add them back,
-    # in order to do the adding the same way whether the user already has a contribution role for this collection or not.
     elif collection_user_association:
         item.users.remove(User)
 
@@ -700,14 +681,14 @@ async def add_user_to_collection_role(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
-    # TODO only collection admins can get to this point in the function, so shouldn't need to filter out
-    # viewers and editors before returning item, but should check with others
+
+    # Only collection admins can get to this point in the function, so here we don't need to filter the list of user
+    # roles to show only admins.
 
     return item
 
 
-# TODO make role plural here. try {role}s
-@router.delete("/collections/{urn}/{role}/{orcid_id}", response_model=collection.Collection, responses={422: {}})
+@router.delete("/collections/{urn}/{role}s/{orcid_id}", response_model=collection.Collection, responses={422: {}})
 async def remove_user_from_collection_role(
     *,
     urn: str,
@@ -737,7 +718,6 @@ async def remove_user_from_collection_role(
         raise HTTPException(status_code=404, detail=f"user with ORCID iD '{orcid_id}' not found")
 
     # get current user role
-    # TODO there is probably a nicer way to select this since we've already selected the user and collection?
     collection_user_association = (
         db.execute(
             select(CollectionUserAssociation).where(
@@ -748,7 +728,6 @@ async def remove_user_from_collection_role(
         .one_or_none()
     )
 
-    # TODO add and delete permissions for collection role are the same I assume?
     assert_permission(user_data, item, Action.ADD_ROLE)
 
     # Since this is a post request, user should not already be in this role
@@ -757,7 +736,6 @@ async def remove_user_from_collection_role(
             msg="Failed to remove user from collection role; the requested user does not currently hold the requested role for this collection.",
             extra=logging_context(),
         )
-        # TODO what error code?
         raise HTTPException(
             status_code=404,
             detail=f"user with ORCID iD '{orcid_id}' does not currently hold the role {role} for collection '{urn}'",
@@ -778,8 +756,9 @@ async def remove_user_from_collection_role(
     item.experiments = [
         experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ)
     ]
-    # TODO only collection admins can get to this point in the function, so shouldn't need to filter out
-    # viewers and editors before returning item, but should check with others
+
+    # Only collection admins can get to this point in the function, so here we don't need to filter the list of user
+    # roles to show only admins.
 
     return item
 
