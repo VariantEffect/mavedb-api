@@ -50,7 +50,7 @@ async def check_permission(
     """
     save_to_logging_context({"requested_resource": urn})
 
-    item: Optional[Union[ExperimentSet, Experiment, ScoreSet]] = None
+    item: Optional[Union[Collection, ExperimentSet, Experiment, ScoreSet]] = None
 
     if model_name == ModelName.experiment_set:
         item = db.query(ExperimentSet).filter(ExperimentSet.urn == urn).one_or_none()

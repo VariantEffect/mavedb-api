@@ -244,6 +244,7 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     # keys to be set after receiving response
     "urn": None,
     "experimentSetUrn": None,
+    "officialCollections": [],
 }
 
 TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
@@ -282,6 +283,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
     # keys to be set after receiving response
     "urn": None,
     "experimentSetUrn": None,
+    "officialCollections": [],
 }
 
 TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
@@ -330,6 +332,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
     # keys to be set after receiving response
     "urn": None,
     "experimentSetUrn": None,
+    "officialCollections": [],
 }
 
 TEST_TAXONOMY = {
@@ -522,6 +525,7 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     # keys to be set after receiving response
     "urn": None,
     "processingState": ProcessingState.incomplete.name,
+    "officialCollections": [],
 }
 
 TEST_MINIMAL_ACC_SCORESET = {
@@ -606,6 +610,7 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     # keys to be set after receiving response
     "urn": None,
     "processingState": ProcessingState.incomplete.name,
+    "officialCollections": [],
 }
 
 TEST_CDOT_TRANSCRIPT = {

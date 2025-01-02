@@ -10,7 +10,7 @@ from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
 
 from mavedb import deps
 from mavedb.lib.authentication import UserData, get_current_user
-from mavedb.lib.authorization import require_current_user_with_email
+from mavedb.lib.authorization import require_current_user, require_current_user_with_email
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
     format_raised_exception_info_as_dict,
@@ -46,7 +46,7 @@ router = APIRouter(
 def list_my_collections(
     *,
     db: Session = Depends(deps.get_db),
-    user_data: Optional[UserData] = Depends(get_current_user),
+    user_data: UserData = Depends(require_current_user),
 ) -> Dict[str, Sequence[Collection]]:
     """
     List my collections.
@@ -685,7 +685,7 @@ async def add_user_to_collection_role(
         )
     # A user can only be in one role per collection, so remove from any other roles
     elif collection_user_association:
-        item.users.remove(User)
+        item.users.remove(user)
 
     setattr(user, "role", role)
     item.users.append(user)
@@ -762,7 +762,7 @@ async def remove_user_from_collection_role(
     assert_permission(user_data, item, Action.ADD_ROLE)
 
     # Since this is a post request, user should not already be in this role
-    if collection_user_association.contribution_role != role:
+    if collection_user_association is not None and collection_user_association.contribution_role != role:
         logger.info(
             msg="Failed to remove user from collection role; the requested user does not currently hold the requested role for this collection.",
             extra=logging_context(),
