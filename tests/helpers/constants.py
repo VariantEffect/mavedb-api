@@ -71,6 +71,56 @@ TEST_SEQREPO_INITIAL_STATE = [
     },
 ]
 
+TEST_VALID_PRE_MAPPED_VRS_ALLELE = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "V"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 2,
+        "type": "SequenceLocation",
+        "start": 1,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "W"}],
+}
+
+TEST_VALID_POST_MAPPED_VRS_ALLELE = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "F"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 6,
+        "type": "SequenceLocation",
+        "start": 5,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "label": TEST_REFSEQ_IDENTIFIER,
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "D"}],
+    "expressions": [{"value": f"{TEST_REFSEQ_IDENTIFIER}:p.Asp5Phe", "syntax": "hgvs.p"}],
+}
+
+TEST_VALID_PRE_MAPPED_VRS_HAPLOTYPE = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_PRE_MAPPED_VRS_ALLELE, TEST_VALID_PRE_MAPPED_VRS_ALLELE],
+}
+
+TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE, TEST_VALID_POST_MAPPED_VRS_ALLELE],
+}
+
 SAVED_PUBMED_PUBLICATION = {
     "recordType": "PublicationIdentifier",
     "identifier": "20711194",
