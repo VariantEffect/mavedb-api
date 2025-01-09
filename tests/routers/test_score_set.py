@@ -47,6 +47,7 @@ from tests.helpers.util import (
     create_seq_score_set,
     create_seq_score_set_with_variants,
     update_expected_response_for_created_resources,
+    create_seq_score_set_with_mapped_variants,
 )
 
 
@@ -2367,31 +2368,6 @@ def test_upload_a_non_utf8_file(session, client, setup_router_db, data_files):
 ########################################################################################################################
 
 
-# Test file doesn't have hgvs_splice so its values are all NA.
-def test_download_scores_file(session, data_provider, client, setup_router_db, data_files):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
-    )
-
-    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
-        publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
-        assert publish_score_set_response.status_code == 200
-        queue.assert_called_once()
-    publish_score_set = publish_score_set_response.json()
-
-    download_scores_csv_response = client.get(
-        f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_na_columns=true"
-    )
-    assert download_scores_csv_response.status_code == 200
-    download_scores_csv = download_scores_csv_response.text
-    csv_header = download_scores_csv.split("\n")[0]
-    columns = csv_header.split(",")
-    assert "hgvs_nt" in columns
-    assert "hgvs_pro" in columns
-    assert "hgvs_splice" not in columns
-
-
 def test_download_counts_file(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -2418,3 +2394,192 @@ def test_download_counts_file(session, data_provider, client, setup_router_db, d
     assert "hgvs_nt" in columns
     assert "hgvs_pro" in columns
     assert "hgvs_splice" not in columns
+
+
+# Test file doesn't have hgvs_splice so its values are all NA.
+def test_download_scores_file(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+        publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+        assert publish_score_set_response.status_code == 200
+        queue.assert_called_once()
+
+    publish_score_set = publish_score_set_response.json()
+
+    download_scores_csv_response = client.get(
+        f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_na_columns=true"
+    )
+    assert download_scores_csv_response.status_code == 200
+    download_scores_csv = download_scores_csv_response.text
+    csv_header = download_scores_csv.split("\n")[0]
+    columns = csv_header.split(",")
+    assert "hgvs_nt" in columns
+    assert "hgvs_pro" in columns
+    assert "hgvs_splice" not in columns
+
+
+########################################################################################################################
+# Fetching annotated variants for a score set
+########################################################################################################################
+
+
+def test_cannot_get_annotated_variants_for_nonexistent_score_set(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/annotated-variants")
+    response_data = response.json()
+
+    assert response.status_code == 404
+    assert f"score set with URN {score_set['urn']+'xxx'} not found" in response_data["detail"]
+
+
+def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+        publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+        assert publish_score_set_response.status_code == 200
+        queue.assert_called_once()
+
+    publish_score_set = publish_score_set_response.json()
+
+    download_scores_csv_response = client.get(
+        f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_na_columns=true"
+    )
+    assert download_scores_csv_response.status_code == 200
+    download_scores_csv = download_scores_csv_response.text
+    csv_header = download_scores_csv.split("\n")[0]
+    columns = csv_header.split(",")
+    assert "hgvs_nt" in columns
+    assert "hgvs_pro" in columns
+    assert "hgvs_splice" not in columns
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
+    response_data = response.json()
+
+    assert response.status_code == 404
+    assert (
+        f"No annotated variants associated with score set URN {score_set['urn']} were found" in response_data["detail"]
+    )
+
+
+def test_get_annotated_variants_for_minimal_clinical_score_set(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    # The contents of the annotated variants objects should be tested in more detail elsewhere.
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    # More detailed tests for annotated variant contents are performed elsewhere.
+    annotated_variants = {k: v for d in response_data for k, v in d.items()}
+    for annotated_variant_urn, annotated_variant in annotated_variants.items():
+        variant = session.scalar(select(VariantDbModel).filter(VariantDbModel.urn == annotated_variant_urn))
+
+        assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
+        assert len(annotated_variant.values()) == 1
+        assert (
+            annotated_variant["assayVariantEffectMeasurementStudyResult"]["score"]
+            == variant.data["score_data"]["score"]
+        )
+
+
+def test_get_annotated_variants_for_clinical_score_set_with_thresholds(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    # The contents of the annotated variants objects should be tested in more detail elsewhere.
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    # More detailed tests for annotated variant contents are performed elsewhere.
+    annotated_variants = {k: v for d in response_data for k, v in d.items()}
+    for annotated_variant_urn, annotated_variant in annotated_variants.items():
+        variant = session.scalar(select(VariantDbModel).filter(VariantDbModel.urn == annotated_variant_urn))
+
+        assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
+        assert len(annotated_variant.values()) == 1
+        assert (
+            annotated_variant["assayVariantEffectMeasurementStudyResult"]["score"]
+            == variant.data["score_data"]["score"]
+        )
+
+
+def test_get_annotated_variants_for_clinical_score_set_with_ranges(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    # The contents of the annotated variants objects should be tested in more detail elsewhere.
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    # More detailed tests for annotated variant contents are performed elsewhere.
+    annotated_variants = {k: v for d in response_data for k, v in d.items()}
+    for annotated_variant_urn, annotated_variant in annotated_variants.items():
+        variant = session.scalar(select(VariantDbModel).filter(VariantDbModel.urn == annotated_variant_urn))
+
+        assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
+        assert len(annotated_variant.values()) == 1
+        assert (
+            annotated_variant["assayVariantEffectMeasurementStudyResult"]["score"]
+            == variant.data["score_data"]["score"]
+        )
+
+
+def test_get_annotated_variants_for_clinical_score_set_with_ranges_and_thresholds(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    # The contents of the annotated variants objects should be tested in more detail elsewhere.
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    # More detailed tests for annotated variant contents are performed elsewhere.
+    annotated_variants = {k: v for d in response_data for k, v in d.items()}
+    for annotated_variant_urn, annotated_variant in annotated_variants.items():
+        variant = session.scalar(select(VariantDbModel).filter(VariantDbModel.urn == annotated_variant_urn))
+
+        assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
+        assert len(annotated_variant.values()) == 1
+        assert (
+            annotated_variant["assayVariantEffectMeasurementStudyResult"]["score"]
+            == variant.data["score_data"]["score"]
+        )
