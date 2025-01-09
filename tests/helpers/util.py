@@ -1,4 +1,5 @@
 from copy import deepcopy
+from datetime import date
 from unittest.mock import patch
 from typing import Any
 
@@ -15,6 +16,8 @@ from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
+from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.models.license import License
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.user import User
@@ -23,6 +26,9 @@ from mavedb.view_models.collection import Collection
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
+    TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE,
+    TEST_VALID_PRE_MAPPED_VRS_ALLELE,
+    TEST_VALID_POST_MAPPED_VRS_ALLELE,
     EXTRA_USER,
     TEST_CDOT_TRANSCRIPT,
     TEST_COLLECTION,
@@ -32,6 +38,7 @@ from tests.helpers.constants import (
     TEST_MINIMAL_POST_MAPPED_METADATA,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_MINIMAL_MAPPED_VARIANT,
+    TEST_VALID_PRE_MAPPED_VRS_HAPLOTYPE,
 )
 
 
@@ -211,6 +218,30 @@ def create_mapped_variants_for_score_set(db, score_set_urn):
     db.commit()
     return
 
+def mock_worker_vrs_mapping(client, db, score_set, alleles=True):
+    # The mapping job is tested elsewhere, so insert mapped variants manually.
+    variants = db.scalars(
+        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
+    ).all()
+
+    # It's un-important what the contents of each mapped VRS object are, so use the same constant for each variant.
+    for variant in variants:
+        mapped_variant = MappedVariantDbModel(
+            pre_mapped=TEST_VALID_PRE_MAPPED_VRS_ALLELE if alleles else TEST_VALID_PRE_MAPPED_VRS_HAPLOTYPE,
+            post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE if alleles else TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE,
+            variant=variant,
+            vrs_version="2.0",
+            modification_date=date.today(),
+            mapped_date=date.today(),
+            mapping_api_version="pytest.0.0",
+            current=True,
+        )
+        db.add(mapped_variant)
+
+    db.commit()
+
+    return client.get(f"/api/v1/score-sets/{score_set['urn']}").json()
+
 
 def create_seq_score_set_with_variants(
     client, db, data_provider, experiment_urn, scores_csv_path, update=None, counts_csv_path=None
@@ -235,6 +266,30 @@ def create_acc_score_set_with_variants(
     assert (
         score_set["numVariants"] == 3
     ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
+
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
+    return score_set
+
+
+def create_seq_score_set_with_mapped_variants(
+    client, db, data_provider, experiment_urn, scores_csv_path, update=None, counts_csv_path=None
+):
+    score_set = create_seq_score_set_with_variants(
+        client, db, data_provider, experiment_urn, scores_csv_path, update, counts_csv_path
+    )
+    score_set = mock_worker_vrs_mapping(client, db, score_set)
+
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
+    return score_set
+
+
+def create_acc_score_set_with_mapped_variants(
+    client, db, data_provider, experiment_urn, scores_csv_path, update=None, counts_csv_path=None
+):
+    score_set = create_acc_score_set_with_variants(
+        client, db, data_provider, experiment_urn, scores_csv_path, update, counts_csv_path
+    )
+    score_set = mock_worker_vrs_mapping(client, db, score_set)
 
     jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
