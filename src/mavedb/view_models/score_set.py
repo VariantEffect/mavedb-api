@@ -412,7 +412,7 @@ class SavedScoreSet(ScoreSetBase):
     external_links: dict[str, ExternalLink]
     contributors: Sequence[SavedContributor]
     score_ranges: Optional[ScoreRanges] = None
-    score_calibrations: Optional[dict[str, Calibration]] = None
+    score_calibrations: Optional[Calibration] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
 

@@ -14,6 +14,7 @@ from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.orm import Session
 
 from mavedb import deps
+from mavedb.lib.annotation.variant import annotation_for_variant
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import (
     get_current_user,
@@ -64,7 +65,7 @@ from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
-from mavedb.view_models import mapped_variant, score_set, calibration, clinical_control
+from mavedb.view_models import annotated_variant, mapped_variant, score_set, calibration, clinical_control
 from mavedb.view_models.search import ScoreSetsSearch
 
 logger = logging.getLogger(__name__)
@@ -357,6 +358,52 @@ def get_score_set_mapped_variants(
         )
 
     return mapped_variants
+
+
+@router.get(
+    "/score-sets/{urn}/annotated-variants",
+    status_code=200,
+    response_model=list[dict[str, annotated_variant.AnnotatedVariant]],
+    response_model_exclude_none=True,
+)
+def get_score_set_annotated_variants(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+) -> Any:
+    """
+    Return annotated variants from a score set, identified by URN.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "annotated-variants"})
+
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
+    if not score_set:
+        logger.info(
+            msg="Could not fetch the requested annotated variants; No such score set exists.", extra=logging_context()
+        )
+        raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
+
+    assert_permission(user_data, score_set, Action.READ)
+
+    mapped_variants = (
+        db.query(MappedVariant)
+        .filter(ScoreSet.urn == urn)
+        .filter(ScoreSet.id == Variant.score_set_id)
+        .filter(Variant.id == MappedVariant.variant_id)
+        .all()
+    )
+
+    if not mapped_variants:
+        logger.info(msg="No annotated variants are associated with the requested score set.", extra=logging_context())
+        raise HTTPException(
+            status_code=404,
+            detail=f"No annotated variants associated with score set URN {urn} were found",
+        )
+
+    annotated_variants = [annotation_for_variant(mapped_variant) for mapped_variant in mapped_variants]
+
+    return annotated_variants
 
 
 @router.post(

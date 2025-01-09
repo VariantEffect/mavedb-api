@@ -42,6 +42,56 @@ VALID_CLINGEN_PA_ID = "PA2579908752"
 VALID_CLINGEN_CA_ID = "CA341478553"
 VALID_CLINGEN_LDH_ID = "2786738861"
 
+TEST_VALID_PRE_MAPPED_VRS_ALLELE = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "V"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 2,
+        "type": "SequenceLocation",
+        "start": 1,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "W"}],
+}
+
+TEST_VALID_POST_MAPPED_VRS_ALLELE = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "F"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 6,
+        "type": "SequenceLocation",
+        "start": 5,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "label": TEST_REFSEQ_IDENTIFIER,
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "D"}],
+    "expressions": [{"value": f"{TEST_REFSEQ_IDENTIFIER}:p.Asp5Phe", "syntax": "hgvs.p"}],
+}
+
+TEST_VALID_PRE_MAPPED_VRS_HAPLOTYPE = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_PRE_MAPPED_VRS_ALLELE, TEST_VALID_PRE_MAPPED_VRS_ALLELE],
+}
+
+TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE, TEST_VALID_POST_MAPPED_VRS_ALLELE],
+}
+
 SAVED_PUBMED_PUBLICATION = {
     "recordType": "PublicationIdentifier",
     "identifier": "20711194",
@@ -1099,6 +1149,7 @@ SEQUENCE = (
 TEST_MINIMAL_MAPPED_VARIANT = {
     "variant_id": 1,
     "modification_date": date.today(),
+    "vrs_version": "2.0",
     "mapped_date": date.today(),
     "mapping_api_version": "pytest.0.0",
     "current": True,
