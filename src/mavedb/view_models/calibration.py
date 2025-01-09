@@ -1,5 +1,4 @@
-from typing import Union
-from typing_extensions import Self
+from typing_extensions import Self, TypedDict
 
 from pydantic import model_validator
 
@@ -27,7 +26,7 @@ class PillarProjectCalibration(BaseModel):
     prior_probability_pathogenicity: float
 
     @model_validator(mode="after")
-    def validate_all_calibrations_have_a_pairwise_companion(self: Self):
+    def validate_all_calibrations_have_a_pairwise_companion(self: Self) -> Self:
         num_es = len(self.evidence_strengths)
         num_st = len(self.thresholds)
         num_plr = len(self.positive_likelihood_ratios)
@@ -41,4 +40,5 @@ class PillarProjectCalibration(BaseModel):
         return self
 
 
-Calibration = Union[PillarProjectCalibration]
+class Calibration(TypedDict):
+    pillar_project: PillarProjectCalibration
