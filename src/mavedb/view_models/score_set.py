@@ -43,7 +43,7 @@ class ExternalLink(BaseModel):
 
 
 class OfficialCollection(BaseModel):
-    badge_name: Optional[str]
+    badge_name: str
     name: str
     urn: str
 

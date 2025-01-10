@@ -91,6 +91,5 @@ class Collection(SavedCollection):
 
 # Properties to return to admin clients or non-admin clients who are admins of the returned collection
 # NOTE: Coupled to ContributionRole enum
-# TODO should MaveDB admins get AdminUsers instead of Users?
 class AdminCollection(Collection):
     pass

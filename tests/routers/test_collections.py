@@ -2,8 +2,10 @@ import re
 from copy import deepcopy
 
 import jsonschema
+import pytest
 
 from mavedb.lib.validation.urn_re import MAVEDB_COLLECTION_URN_RE
+from mavedb.models.enums.contribution_role import ContributionRole 
 from mavedb.view_models.collection import Collection
 from tests.helpers.constants import (
     EXTRA_USER,
@@ -48,7 +50,11 @@ def test_create_public_collection(client, setup_router_db):
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
-def test_add_collection_admin(client, setup_router_db):
+@pytest.mark.parametrize(
+     "role",
+     ContributionRole._member_names_
+)
+def test_add_collection_user_to_collection_role(role, client, setup_router_db):
     collection = create_collection(client, {"private": True})
 
     response = client.post(f"/api/v1/collections/{collection['urn']}/admins", json={"orcid_id": EXTRA_USER["username"]})
@@ -71,62 +77,6 @@ def test_add_collection_admin(client, setup_router_db):
                     "lastName": EXTRA_USER["last_name"],
                     "orcidId": EXTRA_USER["username"],
                 },
-            ],
-        }
-    )
-    assert sorted(expected_response.keys()) == sorted(response_data.keys())
-    for key in expected_response:
-        assert (key, expected_response[key]) == (key, response_data[key])
-
-
-def test_add_collection_editor(client, setup_router_db):
-    collection = create_collection(client)
-
-    response = client.post(
-        f"/api/v1/collections/{collection['urn']}/editors", json={"orcid_id": EXTRA_USER["username"]}
-    )
-    assert response.status_code == 200
-    response_data = response.json()
-    expected_response = deepcopy(TEST_COLLECTION_RESPONSE)
-    expected_response.update(
-        {
-            "urn": collection["urn"],
-            "badgeName": None,
-            "description": None,
-            "editors": [
-                {
-                    "firstName": EXTRA_USER["first_name"],
-                    "lastName": EXTRA_USER["last_name"],
-                    "orcidId": EXTRA_USER["username"],
-                }
-            ],
-        }
-    )
-    assert sorted(expected_response.keys()) == sorted(response_data.keys())
-    for key in expected_response:
-        assert (key, expected_response[key]) == (key, response_data[key])
-
-
-def test_add_collection_viewer(client, setup_router_db):
-    collection = create_collection(client)
-
-    response = client.post(
-        f"/api/v1/collections/{collection['urn']}/viewers", json={"orcid_id": EXTRA_USER["username"]}
-    )
-    assert response.status_code == 200
-    response_data = response.json()
-    expected_response = deepcopy(TEST_COLLECTION_RESPONSE)
-    expected_response.update(
-        {
-            "urn": response_data["urn"],
-            "badgeName": None,
-            "description": None,
-            "viewers": [
-                {
-                    "firstName": EXTRA_USER["first_name"],
-                    "lastName": EXTRA_USER["last_name"],
-                    "orcidId": EXTRA_USER["username"],
-                }
             ],
         }
     )
@@ -239,7 +189,6 @@ def test_unauthorized_user_cannot_read_private_collection(session, client, setup
 
     with DependencyOverrider(extra_user_app_overrides):
         response = client.get(f"/api/v1/collections/{collection['urn']}")
-        # response = client.get(f"/api/v1/users/me")
 
     assert response.status_code == 404
     assert f"collection with URN '{collection['urn']}' not found" in response.json()["detail"]
@@ -250,7 +199,6 @@ def test_anonymous_cannot_read_private_collection(session, client, setup_router_
 
     with DependencyOverrider(anonymous_app_overrides):
         response = client.get(f"/api/v1/collections/{collection['urn']}")
-        # response = client.get(f"/api/v1/users/me")
 
     assert response.status_code == 404
     assert f"collection with URN '{collection['urn']}' not found" in response.json()["detail"]

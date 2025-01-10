@@ -98,10 +98,8 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 editor_user_ids.add(user_association.user_id)
             elif user_association.contribution_role == ContributionRole.viewer:
                 viewer_user_ids.add(user_association.user_id)
-        user_is_admin = user_is_owner or (user_data is not None and (user_data.user.id in admin_user_ids))
-        user_may_edit = user_is_admin or (
-            user_data is not None and (user_data.user.id in admin_user_ids or user_data.user.id in editor_user_ids)
-        )
+        user_is_admin = user_is_owner or (user_data is not None and user_data.user.id in admin_user_ids)
+        user_may_edit = user_is_admin or (user_data is not None and user_data.user.id in editor_user_ids)
         user_may_view_private = user_may_edit or (user_data is not None and (user_data.user.id in viewer_user_ids))
 
         save_to_logging_context({"resource_is_published": published})
@@ -293,7 +291,6 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             if user_may_view_private or not private:
                 return PermissionResponse(True)
             # Roles which may perform this operation.
-            # TODO should the mapper be able to list all collections? Do we ever intend to pass a collection urn to the mapper?
             elif roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
             elif private:
@@ -317,8 +314,6 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             else:
                 return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
         elif action == Action.DELETE:
-            # TODO should collection admins be allowed to delete a collection?
-            # TODO who should be allowed to delete an official collection? mavedb admins only?
             # A collection may be deleted even if it has been published, as long as it is not an official collection.
             if user_is_owner:
                 return PermissionResponse(
@@ -334,7 +329,6 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(False, 404, f"collection with URN '{item.urn}' not found")
             else:
                 return PermissionResponse(False)
-        # TODO should collection admins be allowed to publish a collection? (I think yes)
         elif action == Action.PUBLISH:
             if user_is_admin:
                 return PermissionResponse(True)
@@ -364,7 +358,6 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                     else f"insufficient permissions for URN '{item.urn}'"
                 ),
             )
-        # TODO is add_role an ok name for this action, or should we create a new action called "add_user"?
         elif action == Action.ADD_ROLE:
             # Both collection admins and MaveDB admins can add a user to a collection role
             if user_is_admin or roles_permitted(active_roles, [UserRole.admin]):
