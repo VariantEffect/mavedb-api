@@ -2,7 +2,8 @@ import csv
 import io
 import logging
 import re
-from typing import Any, BinaryIO, Iterable, Optional, Sequence
+from operator import attrgetter
+from typing import Any, BinaryIO, Iterable, Optional, TYPE_CHECKING, Sequence
 
 import numpy as np
 import pandas as pd
@@ -43,9 +44,12 @@ from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
-from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.view_models.search import ScoreSetsSearch
+
+if TYPE_CHECKING:
+    from mavedb.lib.authentication import UserData
+    from mavedb.lib.permissions import Action
 
 VariantData = dict[str, Optional[dict[str, dict]]]
 
@@ -62,20 +66,19 @@ class HGVSColumns:
         return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
-def search_score_sets(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
+def search_score_sets(db: Session, owner_or_contributor: Optional["UserData"], search: ScoreSetsSearch) -> list[ScoreSet]:
+    # Prevent circular import
+    from mavedb.lib.permissions import Action
     save_to_logging_context({"score_set_search_criteria": search.dict()})
 
     query = db.query(ScoreSet)  # \
     # .filter(ScoreSet.private.is_(False))
 
-    #  filter out the score sets that are replaced by other score sets
-    query = query.filter(~ScoreSet.superseding_score_set.has())
-
     if owner_or_contributor is not None:
         query = query.filter(
             or_(
-                ScoreSet.created_by_id == owner_or_contributor.id,
-                ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.username),
+                ScoreSet.created_by_id == owner_or_contributor.user.id,
+                ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.user.username),
             )
         )
 
@@ -253,13 +256,36 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
         .order_by(Experiment.title)
         .all()
     )
+    # Remove superseded score set
     if not score_sets:
-        score_sets = []
+        final_score_sets: list[ScoreSet] = []
+    else:
+        published_filter = search.published if search.published is not None else None
+        print(len(score_sets))
+        filtered_score_sets = [
+            find_superseded_score_set_tail(
+                score_set,
+                Action.READ,
+                owner_or_contributor,
+                published_filter
+            ) for score_set in score_sets
+        ]
+        print(len(filtered_score_sets))
+        # Remove None item.
+        filtered_score_sets = [score_set for score_set in filtered_score_sets if score_set is not None]
+        print(len(filtered_score_sets))
+        if filtered_score_sets:
+            # final_score_sets = sorted(set(filtered_score_sets), key=attrgetter("urn"))
+            final_score_sets = filtered_score_sets.sort(key=attrgetter("urn"))
+            for f in filtered_score_sets:
+                print(f.urn)
+        else:
+            final_score_sets = []
 
-    save_to_logging_context({"matching_resources": len(score_sets)})
-    logger.debug(msg=f"Score set search yielded {len(score_sets)} matching resources.", extra=logging_context())
-
-    return score_sets  # filter_visible_score_sets(score_sets)
+    save_to_logging_context({"matching_resources": len(final_score_sets)})
+    logger.debug(msg=f"Score set search yielded {len(final_score_sets)} matching resources.", extra=logging_context())
+    print(len(final_score_sets))
+    return final_score_sets  # filter_visible_score_sets(score_sets)
 
 
 def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list[ScoreSet]:
@@ -304,6 +330,54 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
         .having(func.count(func.distinct(analyzed_experiment_set.id)) == len(urns))
         .all()
     )
+
+
+def find_superseded_score_set_tail(
+        score_set: ScoreSet,
+        action: Optional["Action"] = None,
+        user_data: Optional["UserData"] = None,
+        publish: Optional[bool] = None) -> Optional[ScoreSet]:
+    from mavedb.lib.permissions import has_permission
+    if publish is not None:
+        if publish is True:
+            while score_set.superseding_score_set is not None:
+                next_score_set_in_chain = score_set.superseding_score_set
+                # Find the final published one.
+                if action is not None and has_permission(user_data, score_set, action).permitted \
+                        and next_score_set_in_chain.published_date is None:
+                    return score_set
+                score_set = next_score_set_in_chain
+        else:
+            # Unpublished score set should not be superseded.
+            # It should not have superseding score set, but possible have superseded score set.
+            if action is not None and score_set.published_date is None \
+                    and has_permission(user_data, score_set, action).permitted:
+                return score_set
+            else:
+                return None
+    else:
+        while score_set.superseding_score_set is not None:
+            next_score_set_in_chain = score_set.superseding_score_set
+
+            # If we were given a permission to check and the next score set in the chain does not have that permission,
+            # pretend like we have reached the end of the chain. Otherwise, continue to the next score set.
+            if action is not None and not has_permission(user_data, next_score_set_in_chain, action).permitted:
+                return score_set
+
+            score_set = next_score_set_in_chain
+
+        # Handle unpublished superseding score set case.
+        # The score set has superseded score set but has not superseding score set.
+        if action is not None and not has_permission(user_data, score_set, action).permitted:
+            while score_set.superseded_score_set is not None:
+                next_score_set_in_chain = score_set.superseded_score_set
+                if has_permission(user_data, next_score_set_in_chain, action).permitted:
+                    return next_score_set_in_chain
+                else:
+                    score_set = next_score_set_in_chain
+            return None
+
+    return score_set
 
 
 def get_score_set_counts_as_csv(

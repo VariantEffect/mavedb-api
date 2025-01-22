@@ -139,7 +139,7 @@ def search_my_score_sets(
     """
     Search score sets created by the current user..
     """
-    return _search_score_sets(db, user_data.user, search)
+    return _search_score_sets(db, user_data, search)
 
 
 @router.get(

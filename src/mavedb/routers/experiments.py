@@ -22,7 +22,8 @@ from mavedb.lib.identifiers import (
 from mavedb.lib.keywords import search_keyword
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.lib.permissions import Action, assert_permission, has_permission
+from mavedb.lib.permissions import Action, assert_permission
+from mavedb.lib.score_sets import find_superseded_score_set_tail
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import validate_keyword_list
 from mavedb.models.contributor import Contributor
@@ -169,51 +170,26 @@ def get_experiment_score_sets(
         .filter(~ScoreSet.superseding_score_set.has())
         .all()
     )
-    superseding_score_sets = (
-        db.query(ScoreSet)
-        .filter(ScoreSet.experiment_id == experiment.id)
-        .filter(ScoreSet.superseding_score_set.has())
-        .all()
-    )
 
-    updated_score_set_result = []
-    for s in score_set_result:
-        current_version = s
-        while current_version:
-            if current_version.superseded_score_set:
-                if not has_permission(user_data, current_version, Action.READ).permitted:
-                    next_version: Optional[ScoreSet] = next(
-                        (sup for sup in superseding_score_sets if sup.urn == current_version.superseded_score_set.urn),
-                        None
-                    )
-                    # handle poetry run mypy src/ error so that add next_version
-                    if next_version:
-                        current_version = next_version
-                    else:
-                        break
-                else:
-                    break
-            else:
-                break
-        if current_version:
-            updated_score_set_result.append(current_version)
-        else:
-            updated_score_set_result.append(s)
-
-    score_set_result[:] = [
-        score_set for score_set in updated_score_set_result if has_permission(user_data, score_set, Action.READ).permitted
+    superseded_score_set_tails = [
+        find_superseded_score_set_tail(
+            score_set,
+            Action.READ,
+            user_data,
+            None
+        ) for score_set in score_set_result
     ]
 
-    if not score_set_result:
+    if not superseded_score_set_tails:
         save_to_logging_context({"associated_resources": []})
         logger.info(msg="No score sets are associated with the requested experiment.", extra=logging_context())
 
         raise HTTPException(status_code=404, detail="no associated score sets")
     else:
-        score_set_result.sort(key=attrgetter("urn"))
+        superseded_score_set_tails.sort(key=attrgetter("urn"))
         save_to_logging_context({"associated_resources": [item.urn for item in score_set_result]})
 
-    return score_set_result
+    return superseded_score_set_tails
 
 
 @router.post(
