@@ -21,7 +21,7 @@ PROTEIN_ACCESSION = "NP_000005.2"
 
 
 def test_hgvs_fetch_valid(client, setup_router_db):
-    response = client.get(f"/api/v1/transcripts/fetch/{VALID_ACCESSION}")
+    response = client.get(f"/api/v1/hgvs/fetch/{VALID_ACCESSION}")
 
     assert response.status_code == 200
     assert response.text == '"GATTACAGATTACAGATTACAGATTACAGATTACAGATTACAGATTACA"'
@@ -31,7 +31,7 @@ def test_hgvs_fetch_invalid(client, setup_router_db):
     with patch.object(
         cdot.hgvs.dataproviders.ChainedSeqFetcher, "fetch_seq", side_effect=HGVSDataNotAvailableError()
     ) as p:
-        response = client.get(f"/api/v1/transcripts/fetch/{SMALL_ACCESSION}")
+        response = client.get(f"/api/v1/hgvs/fetch/{SMALL_ACCESSION}")
         p.assert_called_once()
         assert response.status_code == 404
 
@@ -39,43 +39,43 @@ def test_hgvs_fetch_invalid(client, setup_router_db):
 def test_hgvs_validate_valid(client, setup_router_db):
     with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
         payload = {"variant": VALID_VARIANT}
-        response = client.post("/api/v1/transcripts/validate", json=payload)
+        response = client.post("/api/v1/hgvs/validate", json=payload)
         assert response.status_code == 200
 
 
 def test_hgvs_validate_invalid(client, setup_router_db):
     with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
         payload = {"variant": INVALID_VARIANT}
-        response = client.post("/api/v1/transcripts/validate", json=payload)
+        response = client.post("/api/v1/hgvs/validate", json=payload)
 
         assert response.status_code == 400
         assert "does not agree" in response.json()["detail"]
 
 
 def test_hgvs_list_assemblies(client, setup_router_db):
-    response = client.get("/api/v1/transcripts/assemblies")
+    response = client.get("/api/v1/hgvs/assemblies")
     assert response.status_code == 200
     assert VALID_MAJOR_ASSEMBLY in response.json()
 
 
 def test_hgvs_accessions_major(client, setup_router_db):
-    response = client.get(f"/api/v1/transcripts/{VALID_MAJOR_ASSEMBLY}/accessions")
+    response = client.get(f"/api/v1/hgvs/{VALID_MAJOR_ASSEMBLY}/accessions")
     assert response.status_code == 200
     assert "NC_000001.11" in response.json()
 
 
 def test_hgvs_accessions_minor(client, setup_router_db):
-    response = client.get(f"/api/v1/transcripts/{VALID_MINOR_ASSEMBLY}/accessions")
+    response = client.get(f"/api/v1/hgvs/{VALID_MINOR_ASSEMBLY}/accessions")
     assert response.status_code == 404
 
 
 def test_hgvs_accessions_invalid(client, setup_router_db):
-    response = client.get(f"/api/v1/transcripts/{INVALID_ASSEMBLY}/accessions")
+    response = client.get(f"/api/v1/hgvs/{INVALID_ASSEMBLY}/accessions")
     assert response.status_code == 404
 
 
 def test_hgvs_genes(client, setup_router_db):
-    response = client.get("/api/v1/transcripts/genes")
+    response = client.get("/api/v1/hgvs/genes")
     assert response.status_code == 200
     assert VALID_GENE in response.json()
 
@@ -93,7 +93,7 @@ def test_hgvs_gene_info_valid(client, setup_router_db):
                 "summary": "This gene, etc",
             },
         )
-        response = client.get(f"/api/v1/transcripts/genes/{VALID_GENE}")
+        response = client.get(f"/api/v1/hgvs/genes/{VALID_GENE}")
 
         assert m.called
 
@@ -108,7 +108,7 @@ def test_hgvs_gene_info_invalid(client, setup_router_db):
             "https://cdot.cc/gene/fnord",
             status_code=404,
         )
-        response = client.get(f"/api/v1/transcripts/genes/{INVALID_GENE}")
+        response = client.get(f"/api/v1/hgvs/genes/{INVALID_GENE}")
 
         assert m.called
         assert response.status_code == 404
@@ -122,7 +122,7 @@ def test_hgvs_gene_transcript_valid(client, setup_router_db):
             json={"results": [{"hgnc": f"{VALID_GENE}", "tx_ac": VALID_TRANSCRIPT}]},
         )
 
-        response = client.get(f"/api/v1/transcripts/gene/{VALID_GENE}")
+        response = client.get(f"/api/v1/hgvs/gene/{VALID_GENE}")
         assert response.status_code == 200
         assert VALID_TRANSCRIPT in response.json()
 
@@ -131,7 +131,7 @@ def test_hgvs_gene_transcript_invalid(client, setup_router_db):
     with requests_mock.mock() as m:
         m.get(f"https://cdot.cc/transcripts/gene/{INVALID_GENE}", status_code=404)
 
-        response = client.get(f"/api/v1/transcripts/gene/{INVALID_GENE}")
+        response = client.get(f"/api/v1/hgvs/gene/{INVALID_GENE}")
 
         assert m.called
         assert response.status_code == 404
@@ -139,7 +139,7 @@ def test_hgvs_gene_transcript_invalid(client, setup_router_db):
 
 def test_hgvs_transcript_valid(client, setup_router_db):
     with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
-        response = client.get(f"/api/v1/transcripts/{VALID_TRANSCRIPT}")
+        response = client.get(f"/api/v1/hgvs/{VALID_TRANSCRIPT}")
 
     assert response.status_code == 200
     assert response.json()["hgnc"] == VALID_GENE
@@ -149,7 +149,7 @@ def test_hgvs_transcript_invalid(client, setup_router_db):
     with requests_mock.mock() as m:
         m.get(f"https://cdot.cc/transcript/{INVALID_TRANSCRIPT}", status_code=404)
 
-        response = client.get(f"/api/v1/transcripts/{INVALID_TRANSCRIPT}")
+        response = client.get(f"/api/v1/hgvs/{INVALID_TRANSCRIPT}")
 
         assert m.called
         assert response.status_code == 404
@@ -163,7 +163,7 @@ def test_hgvs_transcript_protein_valid(client, setup_router_db):
             json={"biotype": ["protein_coding"], "gene_name": "A2M", "gene_vesion": "2", "protein": "NP_000005.2"},
         )
 
-        response = client.get(f"/api/v1/transcripts/protein/{HAS_PROTEIN_ACCESSION}")
+        response = client.get(f"/api/v1/hgvs/protein/{HAS_PROTEIN_ACCESSION}")
 
         assert m.called
 
@@ -175,7 +175,7 @@ def test_hgvs_transcript_protein_no_protein(client, setup_router_db):
     with requests_mock.mock() as m:
         m.get(f"https://cdot.cc/transcript/{SMALL_ACCESSION}", status_code=404)
 
-        response = client.get(f"/api/v1/transcripts/protein/{SMALL_ACCESSION}")
+        response = client.get(f"/api/v1/hgvs/protein/{SMALL_ACCESSION}")
 
         assert m.called
         assert response.status_code == 404
@@ -185,7 +185,7 @@ def test_hgvs_transcript_protein_invalid(client, setup_router_db):
     with requests_mock.mock() as m:
         m.get(f"https://cdot.cc/transcript/{INVALID_ACCESSION}", status_code=404)
 
-        response = client.get(f"/api/v1/transcripts/protein/{INVALID_ACCESSION}")
+        response = client.get(f"/api/v1/hgvs/protein/{INVALID_ACCESSION}")
 
         assert m.called
         assert response.status_code == 404
