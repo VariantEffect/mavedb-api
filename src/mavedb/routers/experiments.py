@@ -7,6 +7,7 @@ import requests
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from mavedb import deps
 from mavedb.lib.authentication import UserData, get_current_user
@@ -43,7 +44,7 @@ router = APIRouter(
 )
 
 
-# TODO: Rewrite this function.
+# None of any part calls this function. Feel free to modify it if we need it in the future.
 @router.get(
     "/experiments/",
     status_code=200,
@@ -53,7 +54,6 @@ router = APIRouter(
 def list_experiments(
     *,
     editable: Optional[bool] = None,
-    q: Optional[str] = None,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> list[Experiment]:
@@ -61,22 +61,19 @@ def list_experiments(
     List experiments.
     """
     query = db.query(Experiment)
-    if q is not None:
-        save_to_logging_context({"query_string": q})
 
+    if editable:
         if user_data is None or user_data.user is None:
             logger.debug(msg="User is anonymous; Cannot list their experiments.", extra=logging_context())
             return []
 
-        if len(q) > 0:
-            logger.debug(msg="Listing experiments for the current user.", extra=logging_context())
-            query = query.filter(
-                Experiment.created_by_id == user_data.user.id
-            )  # .filter(Experiment.published_date is None)
-        # else:
-        #     query = query.filter(Experiment.created_by_id == user.id).filter(Experiment.published_date is None)
-    else:
-        logger.debug(msg="No query string was provided; Listing all experiments.", extra=logging_context())
+        logger.debug(msg="Listing experiments for the current user.", extra=logging_context())
+        query = query.filter(
+            or_(
+                Experiment.created_by_id == user_data.user.id,
+                Experiment.contributors.any(Contributor.orcid_id == user_data.user.username)
+            )
+        )
 
     items = query.order_by(Experiment.urn).all()
     return items
