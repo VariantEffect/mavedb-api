@@ -171,25 +171,24 @@ def get_experiment_score_sets(
         .all()
     )
 
-    superseded_score_set_tails = [
+    filter_superseded_score_set_tails = [
         find_superseded_score_set_tail(
             score_set,
             Action.READ,
-            user_data,
-            None
+            user_data
         ) for score_set in score_set_result
     ]
-
-    if not superseded_score_set_tails:
+    filtered_score_sets = [score_set for score_set in filter_superseded_score_set_tails if score_set is not None]
+    if not filtered_score_sets:
         save_to_logging_context({"associated_resources": []})
         logger.info(msg="No score sets are associated with the requested experiment.", extra=logging_context())
 
         raise HTTPException(status_code=404, detail="no associated score sets")
     else:
-        superseded_score_set_tails.sort(key=attrgetter("urn"))
+        filtered_score_sets.sort(key=attrgetter("urn"))
         save_to_logging_context({"associated_resources": [item.urn for item in score_set_result]})
 
-    return superseded_score_set_tails
+    return filtered_score_sets
 
 
 @router.post(

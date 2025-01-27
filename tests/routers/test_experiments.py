@@ -24,6 +24,7 @@ from tests.helpers.constants import (
     TEST_MEDRXIV_IDENTIFIER,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_EXPERIMENT_RESPONSE,
+    TEST_MINIMAL_SEQ_SCORESET,
     TEST_ORCID_ID,
     TEST_PUBMED_IDENTIFIER,
     TEST_USER,
@@ -989,6 +990,112 @@ def test_search_score_sets_for_experiments(session, client, setup_router_db, dat
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["urn"] == published_score_set["urn"]
+
+
+# Creator created a superseding score set but not published it yet.
+def test_owner_searches_score_sets_with_unpublished_superseding_score_sets_for_experiments(session, client, setup_router_db, data_files, data_provider):
+    experiment = create_experiment(client)
+    unpublished_score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    published_score_set = publish_score_set_response.json()
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
+    score_set_post_payload["supersededScoreSetUrn"] = published_score_set["urn"]
+    superseding_score_set_response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert superseding_score_set_response.status_code == 200
+    superseding_score_set = superseding_score_set_response.json()
+
+    # On score set publication, the experiment will get a new urn
+    experiment_urn = published_score_set["experiment"]["urn"]
+    response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["urn"] == superseding_score_set["urn"]
+
+
+def test_non_owner_searches_score_sets_with_unpublished_superseding_score_sets_for_experiments(session, client, setup_router_db, data_files, data_provider):
+    experiment = create_experiment(client)
+    unpublished_score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    published_score_set = publish_score_set_response.json()
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
+    score_set_post_payload["supersededScoreSetUrn"] = published_score_set["urn"]
+    superseding_score_set_response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert superseding_score_set_response.status_code == 200
+    superseding_score_set = superseding_score_set_response.json()
+    change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
+    change_ownership(session, superseding_score_set["urn"], ScoreSetDbModel)
+    # On score set publication, the experiment will get a new urn
+    experiment_urn = published_score_set["experiment"]["urn"]
+    response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["urn"] == published_score_set["urn"]
+
+
+def test_owner_searches_published_superseding_score_sets_for_experiments(session, client, setup_router_db, data_files, data_provider):
+    experiment = create_experiment(client)
+    unpublished_score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    published_score_set = publish_score_set_response.json()
+
+    superseding_score_set = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        published_score_set["experiment"]["urn"],
+        data_files / "scores.csv",
+        update={"supersededScoreSetUrn": published_score_set["urn"]},
+    )
+    published_superseding_score_set_response = client.post(f"/api/v1/score-sets/{superseding_score_set['urn']}/publish")
+    assert published_superseding_score_set_response.status_code == 200
+    published_superseding_score_set = published_superseding_score_set_response.json()
+    # On score set publication, the experiment will get a new urn
+    experiment_urn = published_score_set["experiment"]["urn"]
+    response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["urn"] == published_superseding_score_set["urn"]
+
+
+def test_non_owner_searches_published_superseding_score_sets_for_experiments(session, client, setup_router_db, data_files, data_provider):
+    experiment = create_experiment(client)
+    unpublished_score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    published_score_set = publish_score_set_response.json()
+
+    superseding_score_set = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        published_score_set["experiment"]["urn"],
+        data_files / "scores.csv",
+        update={"supersededScoreSetUrn": published_score_set["urn"]},
+    )
+    published_superseding_score_set_response = client.post(f"/api/v1/score-sets/{superseding_score_set['urn']}/publish")
+    assert published_superseding_score_set_response.status_code == 200
+    published_superseding_score_set = published_superseding_score_set_response.json()
+    change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
+    change_ownership(session, published_superseding_score_set["urn"], ScoreSetDbModel)
+    # On score set publication, the experiment will get a new urn
+    experiment_urn = published_score_set["experiment"]["urn"]
+    response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["urn"] == published_superseding_score_set["urn"]
 
 
 def test_search_score_sets_for_contributor_experiments(session, client, setup_router_db, data_files, data_provider):

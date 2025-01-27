@@ -25,6 +25,7 @@ class ScoreSetsSearch(BaseModel):
     publication_identifiers: Optional[list[str]]
     keywords: Optional[list[str]]
     text: Optional[str]
+    me: Optional[bool]
 
 
 class TextSearch(BaseModel):

@@ -8,7 +8,7 @@ from typing import Any, BinaryIO, Iterable, Optional, TYPE_CHECKING, Sequence
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
-from sqlalchemy import Integer, cast, func, or_, select
+from sqlalchemy import and_, Integer, cast, func, or_, select
 from sqlalchemy.orm import Session, aliased, contains_eager, joinedload, selectinload
 
 from mavedb.lib.exceptions import ValidationError
@@ -74,13 +74,21 @@ def search_score_sets(db: Session, owner_or_contributor: Optional["UserData"], s
     query = db.query(ScoreSet)  # \
     # .filter(ScoreSet.private.is_(False))
 
-    if owner_or_contributor is not None:
-        query = query.filter(
-            or_(
-                ScoreSet.created_by_id == owner_or_contributor.user.id,
-                ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.user.username),
+    if owner_or_contributor is not None and search.me is not None:
+        if search.me:
+            query = query.filter(
+                or_(
+                    ScoreSet.created_by_id == owner_or_contributor.user.id,
+                    ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.user.username),
+                )
             )
-        )
+        else:
+            query = query.filter(
+                and_(
+                    ScoreSet.created_by_id != owner_or_contributor.user.id,
+                    ~ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.user.username),
+                )
+            )
 
     if search.published is not None:
         if search.published:
@@ -256,27 +264,36 @@ def search_score_sets(db: Session, owner_or_contributor: Optional["UserData"], s
         .order_by(Experiment.title)
         .all()
     )
+    print(score_sets)
     # Remove superseded score set
     if not score_sets:
+        print("if no score set")
         final_score_sets: list[ScoreSet] = []
     else:
-        published_filter = search.published if search.published is not None else None
-        print(len(score_sets))
-        filtered_score_sets = [
-            find_superseded_score_set_tail(
-                score_set,
-                Action.READ,
-                owner_or_contributor,
-                published_filter
-            ) for score_set in score_sets
-        ]
-        print(len(filtered_score_sets))
+        if search.published:
+            filtered_score_sets_tail = [
+                find_publish_or_private_superseded_score_set_tail(
+                    score_set,
+                    Action.READ,
+                    owner_or_contributor,
+                    search.published
+                ) for score_set in score_sets
+            ]
+        else:
+            print("filtered_tail")
+            filtered_score_sets_tail = [
+                find_superseded_score_set_tail(
+                    score_set,
+                    Action.READ,
+                    owner_or_contributor
+                ) for score_set in score_sets
+            ]
+        print(len(filtered_score_sets_tail))
         # Remove None item.
-        filtered_score_sets = [score_set for score_set in filtered_score_sets if score_set is not None]
+        filtered_score_sets = [score_set for score_set in filtered_score_sets_tail if score_set is not None]
         print(len(filtered_score_sets))
         if filtered_score_sets:
-            # final_score_sets = sorted(set(filtered_score_sets), key=attrgetter("urn"))
-            final_score_sets = filtered_score_sets.sort(key=attrgetter("urn"))
+            final_score_sets = sorted(set(filtered_score_sets), key=attrgetter("urn"))
             for f in filtered_score_sets:
                 print(f.urn)
         else:
@@ -335,48 +352,54 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
 def find_superseded_score_set_tail(
         score_set: ScoreSet,
         action: Optional["Action"] = None,
-        user_data: Optional["UserData"] = None,
-        publish: Optional[bool] = None) -> Optional[ScoreSet]:
+        user_data: Optional["UserData"] = None) -> Optional[ScoreSet]:
     from mavedb.lib.permissions import has_permission
-    if publish is not None:
-        if publish is True:
-            while score_set.superseding_score_set is not None:
-                next_score_set_in_chain = score_set.superseding_score_set
-                # Find the final published one.
-                if action is not None and has_permission(user_data, score_set, action).permitted \
-                        and next_score_set_in_chain.published_date is None:
-                    return score_set
-                score_set = next_score_set_in_chain
-        else:
-            # Unpublished score set should not be superseded.
-            # It should not have superseding score set, but possible have superseded score set.
-            if action is not None and score_set.published_date is None \
-                    and has_permission(user_data, score_set, action).permitted:
-                return score_set
+    while score_set.superseding_score_set is not None:
+        next_score_set_in_chain = score_set.superseding_score_set
+
+        # If we were given a permission to check and the next score set in the chain does not have that permission,
+        # pretend like we have reached the end of the chain. Otherwise, continue to the next score set.
+        if action is not None and not has_permission(user_data, next_score_set_in_chain, action).permitted:
+            return score_set
+
+        score_set = next_score_set_in_chain
+
+    # Handle unpublished superseding score set case.
+    # The score set has a published superseded score set but has not superseding score set.
+    if action is not None and not has_permission(user_data, score_set, action).permitted:
+        while score_set.superseded_score_set is not None:
+            next_score_set_in_chain = score_set.superseded_score_set
+            if has_permission(user_data, next_score_set_in_chain, action).permitted:
+                return next_score_set_in_chain
             else:
-                return None
-    else:
+                score_set = next_score_set_in_chain
+        return None
+
+    return score_set
+
+
+def find_publish_or_private_superseded_score_set_tail(
+        score_set: ScoreSet,
+        action: Optional["Action"] = None,
+        user_data: Optional["UserData"] = None,
+        publish: bool = True) -> Optional[ScoreSet]:
+    from mavedb.lib.permissions import has_permission
+    if publish:
         while score_set.superseding_score_set is not None:
             next_score_set_in_chain = score_set.superseding_score_set
-
-            # If we were given a permission to check and the next score set in the chain does not have that permission,
-            # pretend like we have reached the end of the chain. Otherwise, continue to the next score set.
-            if action is not None and not has_permission(user_data, next_score_set_in_chain, action).permitted:
+            # Find the final published one.
+            if action is not None and has_permission(user_data, score_set, action).permitted \
+                    and next_score_set_in_chain.published_date is None:
                 return score_set
-
             score_set = next_score_set_in_chain
-
-        # Handle unpublished superseding score set case.
-        # The score set has superseded score set but has not superseding score set.
-        if action is not None and not has_permission(user_data, score_set, action).permitted:
-            while score_set.superseded_score_set is not None:
-                next_score_set_in_chain = score_set.superseded_score_set
-                if has_permission(user_data, next_score_set_in_chain, action).permitted:
-                    return next_score_set_in_chain
-                else:
-                    score_set = next_score_set_in_chain
+    else:
+        # Unpublished score set should not be superseded.
+        # It should not have superseding score set, but possible have superseded score set.
+        if action is not None and score_set.published_date is None \
+                and has_permission(user_data, score_set, action).permitted:
+            return score_set
+        else:
             return None
-
     return score_set
 
 

@@ -119,11 +119,15 @@ router = APIRouter(
 
 
 @router.post("/score-sets/search", status_code=200, response_model=list[score_set.ShortScoreSet])
-def search_score_sets(search: ScoreSetsSearch, db: Session = Depends(deps.get_db)) -> Any:  # = Body(..., embed=True),
+def search_score_sets(
+    search: ScoreSetsSearch,
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+) -> Any:  # = Body(..., embed=True),
     """
     Search score sets.
     """
-    return _search_score_sets(db, None, search)
+    return _search_score_sets(db, user_data, search)
 
 
 @router.post(
@@ -139,6 +143,7 @@ def search_my_score_sets(
     """
     Search score sets created by the current user..
     """
+    search.me = True
     return _search_score_sets(db, user_data, search)
 
 
