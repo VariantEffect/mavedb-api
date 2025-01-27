@@ -35,7 +35,6 @@ from mavedb.view_models.target_gene import (
     TargetGeneCreate,
 )
 from mavedb.view_models.user import SavedUser, User
-from mavedb.view_models.variant import VariantInDbBase
 
 
 class ExternalLink(BaseModel):
@@ -432,7 +431,7 @@ class ScoreSetWithVariants(ScoreSet):
     are requested.
     """
 
-    variants: list[VariantInDbBase]
+    variants: list[SavedVariant]
 
 
 class AdminScoreSet(ScoreSet):
@@ -460,6 +459,8 @@ class ScoreSetPublicDump(SavedScoreSet):
 
 # ruff: noqa: E402
 from mavedb.view_models.experiment import Experiment
+from mavedb.view_models.variant import SavedVariant
 
 ShortScoreSet.update_forward_refs()
 ScoreSet.update_forward_refs()
+ScoreSetWithVariants.update_forward_refs()
