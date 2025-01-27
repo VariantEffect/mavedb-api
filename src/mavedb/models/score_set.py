@@ -9,6 +9,7 @@ from sqlalchemy.schema import Table
 
 import mavedb.models.score_set_publication_identifier
 from mavedb.db.base import Base
+from mavedb.models.collection_association import collection_score_sets_association_table
 from mavedb.models.contributor import Contributor
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.enums.mapping_state import MappingState
@@ -20,6 +21,7 @@ from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.user import User
 
 if TYPE_CHECKING:
+    from mavedb.models.collection import Collection
     from mavedb.models.target_gene import TargetGene
     from mavedb.models.variant import Variant
 
@@ -88,7 +90,13 @@ class ScoreSet(Base):
     approved = Column(Boolean, nullable=False, default=False)
     published_date = Column(Date, nullable=True)
     processing_state = Column(
-        Enum(ProcessingState, create_constraint=True, length=32, native_enum=False, validate_strings=True),
+        Enum(
+            ProcessingState,
+            create_constraint=True,
+            length=32,
+            native_enum=False,
+            validate_strings=True,
+        ),
         nullable=True,
     )
     processing_errors = Column(JSONB, nullable=True)
@@ -98,7 +106,13 @@ class ScoreSet(Base):
     variants: Mapped[list["Variant"]] = relationship(back_populates="score_set", cascade="all, delete-orphan")
 
     mapping_state = Column(
-        Enum(MappingState, create_constraint=True, length=32, native_enum=False, validate_strings=True),
+        Enum(
+            MappingState,
+            create_constraint=True,
+            length=32,
+            native_enum=False,
+            validate_strings=True,
+        ),
         nullable=True,
     )
     mapping_errors = Column(JSONB, nullable=True)
@@ -111,7 +125,10 @@ class ScoreSet(Base):
     license: Mapped["License"] = relationship("License")
     superseded_score_set_id = Column("replaces_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=True)
     superseded_score_set: Mapped[Optional["ScoreSet"]] = relationship(
-        "ScoreSet", uselist=False, foreign_keys="ScoreSet.superseded_score_set_id", remote_side=[id]
+        "ScoreSet",
+        uselist=False,
+        foreign_keys="ScoreSet.superseded_score_set_id",
+        remote_side=[id],
     )
     superseding_score_set: Mapped[Optional["ScoreSet"]] = relationship(
         "ScoreSet", uselist=False, back_populates="superseded_score_set"
@@ -125,18 +142,26 @@ class ScoreSet(Base):
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
     legacy_keyword_objs: Mapped[list["LegacyKeyword"]] = relationship(
-        "LegacyKeyword", secondary=score_sets_legacy_keywords_association_table, backref="score_sets"
+        "LegacyKeyword",
+        secondary=score_sets_legacy_keywords_association_table,
+        backref="score_sets",
     )
     contributors: Mapped[list["Contributor"]] = relationship(
-        "Contributor", secondary=score_sets_contributors_association_table, backref="score_sets"
+        "Contributor",
+        secondary=score_sets_contributors_association_table,
+        backref="score_sets",
     )
     doi_identifiers: Mapped[list["DoiIdentifier"]] = relationship(
-        "DoiIdentifier", secondary=score_sets_doi_identifiers_association_table, backref="score_sets"
+        "DoiIdentifier",
+        secondary=score_sets_doi_identifiers_association_table,
+        backref="score_sets",
     )
     publication_identifier_associations: Mapped[
         list[mavedb.models.score_set_publication_identifier.ScoreSetPublicationIdentifierAssociation]
     ] = relationship(
-        "ScoreSetPublicationIdentifierAssociation", back_populates="score_set", cascade="all, delete-orphan"
+        "ScoreSetPublicationIdentifierAssociation",
+        back_populates="score_set",
+        cascade="all, delete-orphan",
     )
     publication_identifiers: AssociationProxy[List[PublicationIdentifier]] = association_proxy(
         "publication_identifier_associations",
@@ -158,6 +183,19 @@ class ScoreSet(Base):
     target_genes: Mapped[List["TargetGene"]] = relationship(back_populates="score_set", cascade="all, delete-orphan")
     score_ranges = Column(JSONB, nullable=True)
     score_calibrations = Column(JSONB, nullable=True)
+
+    collections: Mapped[list["Collection"]] = relationship(
+        "Collection",
+        secondary=collection_score_sets_association_table,
+        back_populates="score_sets",
+    )
+    official_collections: Mapped[list["Collection"]] = relationship(
+        "Collection",
+        secondary=collection_score_sets_association_table,
+        secondaryjoin="and_(collection_score_sets.c.collection_id == Collection.id, Collection.badge_name != None)",
+        back_populates="score_sets",
+        viewonly=True,
+    )
 
     # Unfortunately, we can't use association_proxy here, because in spite of what the documentation seems to imply, it
     # doesn't check for a pre-existing keyword with the same text.

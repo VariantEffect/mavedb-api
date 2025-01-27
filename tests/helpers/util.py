@@ -14,11 +14,13 @@ from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.license import License
 from mavedb.models.user import User
+from mavedb.view_models.collection import Collection
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
     EXTRA_USER,
     TEST_CDOT_TRANSCRIPT,
+    TEST_COLLECTION,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_SEQ_SCORESET,
@@ -62,6 +64,19 @@ def change_to_inactive_license(db, urn):
     item.license_id = license.id
     db.add(item)
     db.commit()
+
+
+def create_collection(client, update=None):
+    collection_payload = deepcopy(TEST_COLLECTION)
+    if update is not None:
+        collection_payload.update(update)
+
+    response = client.post("/api/v1/collections/", json=collection_payload)
+    assert response.status_code == 200, "Could not create collection."
+
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Collection.schema())
+    return response_data
 
 
 def create_experiment(client, update=None):

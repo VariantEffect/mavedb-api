@@ -42,6 +42,16 @@ class ExternalLink(BaseModel):
     url: Optional[str]
 
 
+class OfficialCollection(BaseModel):
+    badge_name: str
+    name: str
+    urn: str
+
+    class Config:
+        orm_mode = True
+        arbitrary_types_allowed = True
+
+
 class ScoreRange(BaseModel):
     label: str
     description: Optional[str]
@@ -416,6 +426,7 @@ class ScoreSet(SavedScoreSet):
     doi_identifiers: Sequence[DoiIdentifier]
     primary_publication_identifiers: Sequence[PublicationIdentifier]
     secondary_publication_identifiers: Sequence[PublicationIdentifier]
+    official_collections: Sequence[OfficialCollection]
     created_by: Optional[User]
     modified_by: Optional[User]
     target_genes: Sequence[TargetGene]

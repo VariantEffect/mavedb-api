@@ -65,9 +65,8 @@ def test_cannot_get_permission_with_wrong_action_in_experiment_set(client, setup
     assert response.status_code == 422
     response_data = response.json()
     assert (
-        response_data["detail"][0]["msg"] == "value is not a valid enumeration member; permitted: 'read', "
-        "'update', 'delete', 'add_experiment', 'add_score_set', 'set_scores',"
-        " 'add_role', 'publish'"
+        response_data["detail"][0]["msg"] == "value is not a valid enumeration member; permitted: 'lookup', 'read', "
+        "'update', 'delete', 'add_experiment', 'add_score_set', 'set_scores', 'add_role', 'publish', 'add_badge'"
     )
 
 
@@ -210,9 +209,8 @@ def test_cannot_get_permission_with_wrong_action_in_experiment(client, setup_rou
     assert response.status_code == 422
     response_data = response.json()
     assert (
-        response_data["detail"][0]["msg"] == "value is not a valid enumeration member; permitted: 'read', "
-        "'update', 'delete', 'add_experiment', 'add_score_set', 'set_scores',"
-        " 'add_role', 'publish'"
+        response_data["detail"][0]["msg"] == "value is not a valid enumeration member; permitted: 'lookup', 'read', "
+        "'update', 'delete', 'add_experiment', 'add_score_set', 'set_scores', 'add_role', 'publish', 'add_badge'"
     )
 
 
@@ -347,9 +345,8 @@ def test_cannot_get_permission_with_wrong_action_in_score_set(client, setup_rout
     assert response.status_code == 422
     response_data = response.json()
     assert (
-        response_data["detail"][0]["msg"] == "value is not a valid enumeration member; permitted: 'read', "
-        "'update', 'delete', 'add_experiment', 'add_score_set', 'set_scores',"
-        " 'add_role', 'publish'"
+        response_data["detail"][0]["msg"] == "value is not a valid enumeration member; permitted: 'lookup', 'read', "
+        "'update', 'delete', 'add_experiment', 'add_score_set', 'set_scores', 'add_role', 'publish', 'add_badge'"
     )
 
 
@@ -369,5 +366,5 @@ def test_cannot_get_permission_with_non_existing_item(client, setup_router_db):
     response_data = response.json()
     assert (
         response_data["detail"][0]["msg"] == "value is not a valid enumeration member; permitted: "
-        "'experiment', 'experiment-set', 'score-set'"
+        "'collection', 'experiment', 'experiment-set', 'score-set'"
     )

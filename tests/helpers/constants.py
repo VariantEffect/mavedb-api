@@ -244,6 +244,7 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     # keys to be set after receiving response
     "urn": None,
     "experimentSetUrn": None,
+    "officialCollections": [],
 }
 
 TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
@@ -282,6 +283,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
     # keys to be set after receiving response
     "urn": None,
     "experimentSetUrn": None,
+    "officialCollections": [],
 }
 
 TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
@@ -330,6 +332,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
     # keys to be set after receiving response
     "urn": None,
     "experimentSetUrn": None,
+    "officialCollections": [],
 }
 
 TEST_TAXONOMY = {
@@ -522,6 +525,7 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     # keys to be set after receiving response
     "urn": None,
     "processingState": ProcessingState.incomplete.name,
+    "officialCollections": [],
 }
 
 TEST_MINIMAL_ACC_SCORESET = {
@@ -606,6 +610,7 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     # keys to be set after receiving response
     "urn": None,
     "processingState": ProcessingState.incomplete.name,
+    "officialCollections": [],
 }
 
 TEST_CDOT_TRANSCRIPT = {
@@ -695,4 +700,41 @@ TEST_SAVED_SCORE_CALIBRATION = {
     "thresholds": [1.25, 2.5, 3, 5.5],
     "positiveLikelihoodRatios": [100, 10, 1, 0.1],
     "priorProbabilityPathogenicity": 0.20,
+}
+
+
+TEST_COLLECTION = {"name": "Test collection", "description": None, "private": True}
+
+
+TEST_COLLECTION_RESPONSE = {
+    "recordType": "Collection",
+    "name": "Test collection",
+    # "description": None,
+    "private": True,
+    "createdBy": {
+        "recordType": "User",
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "modifiedBy": {
+        "recordType": "User",
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
+    "experimentUrns": [],
+    "scoreSetUrns": [],
+    "admins": [
+        {
+            "recordType": "User",
+            "firstName": TEST_USER["first_name"],
+            "lastName": TEST_USER["last_name"],
+            "orcidId": TEST_USER["username"],
+        }
+    ],
+    "editors": [],
+    "viewers": [],
 }
