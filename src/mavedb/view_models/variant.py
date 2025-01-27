@@ -8,6 +8,7 @@ from mavedb.view_models.base.base import BaseModel
 
 
 class VariantBase(BaseModel):
+    """Properties shared by most variant view models"""
     urn: Optional[str]
     data: Any
     score_set_id: int
@@ -19,17 +20,20 @@ class VariantBase(BaseModel):
 
 
 class VariantCreate(VariantBase):
+    """Input view model for creating variants"""
     pass
 
 
 class VariantUpdate(VariantBase):
+    """Input view model for updating variants"""
     pass
 
 
-# Properties shared by models stored in DB
-class VariantInDbBase(VariantBase):
+class SavedVariant(VariantBase):
+    """Base class for variant view models handling saved variants"""
     id: int
     record_type: str = None  # type: ignore
+    clingen_allele_id: Optional[str]
 
     _record_type_factory = record_type_validator()(set_record_type)
 
@@ -37,11 +41,22 @@ class VariantInDbBase(VariantBase):
         orm_mode = True
 
 
-# Properties to return to client
-class Variant(VariantInDbBase):
+class Variant(SavedVariant):
+    """Variant view model returned to most clients"""
     pass
 
 
-# Properties stored in DB
-class VariantInDb(VariantInDbBase):
-    pass
+class VariantWithShortScoreSet(SavedVariant):
+    """Variant view model with a limited set of score set details"""
+    score_set: "ShortScoreSet"
+
+
+class ClingenAlleleIdVariantLookupsRequest(BaseModel):
+    """A request to search for variants matching a list of ClinGen allele IDs"""
+    clingen_allele_ids: list[str]
+
+
+# ruff: noqa: E402
+from mavedb.view_models.score_set import ShortScoreSet
+
+VariantWithShortScoreSet.update_forward_refs()
