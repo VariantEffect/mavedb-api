@@ -15,6 +15,7 @@ class Variant(Base):
     id = Column(Integer, primary_key=True)
 
     urn = Column(String(64), index=True, nullable=True, unique=True)
+    clingen_allele_id = Column(String, index=True, nullable=True)
     data = Column(JSONB, nullable=False)
 
     score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=False)
