@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Any
+from typing import Any, Sequence
 
 from pydantic import Field
 from pydantic.types import Optional
@@ -77,9 +77,9 @@ class SavedCollection(CollectionBase):
     experiment_urns: list[str]
     score_set_urns: list[str]
 
-    admins: list[SavedUser]
-    viewers: list[SavedUser]
-    editors: list[SavedUser]
+    admins: Sequence[SavedUser]
+    viewers: Sequence[SavedUser]
+    editors: Sequence[SavedUser]
 
     creation_date: date
     modification_date: date
@@ -97,9 +97,9 @@ class Collection(SavedCollection):
     created_by: Optional[User]
     modified_by: Optional[User]
 
-    admins: list[User]
-    viewers: list[User]
-    editors: list[User]
+    admins: Sequence[User]
+    viewers: Sequence[User]
+    editors: Sequence[User]
 
 
 # Properties to return to admin clients or non-admin clients who are admins of the returned collection
