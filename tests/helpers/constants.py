@@ -707,15 +707,18 @@ TEST_COLLECTION = {"name": "Test collection", "description": None, "private": Tr
 
 
 TEST_COLLECTION_RESPONSE = {
+    "recordType": "Collection",
     "name": "Test collection",
     # "description": None,
     "private": True,
     "createdBy": {
+        "recordType": "User",
         "firstName": TEST_USER["first_name"],
         "lastName": TEST_USER["last_name"],
         "orcidId": TEST_USER["username"],
     },
     "modifiedBy": {
+        "recordType": "User",
         "firstName": TEST_USER["first_name"],
         "lastName": TEST_USER["last_name"],
         "orcidId": TEST_USER["username"],
@@ -726,6 +729,7 @@ TEST_COLLECTION_RESPONSE = {
     "scoreSetUrns": [],
     "admins": [
         {
+            "recordType": "User",
             "firstName": TEST_USER["first_name"],
             "lastName": TEST_USER["last_name"],
             "orcidId": TEST_USER["username"],

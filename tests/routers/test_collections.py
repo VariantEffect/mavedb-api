@@ -5,7 +5,7 @@ import jsonschema
 import pytest
 
 from mavedb.lib.validation.urn_re import MAVEDB_COLLECTION_URN_RE
-from mavedb.models.enums.contribution_role import ContributionRole 
+from mavedb.models.enums.contribution_role import ContributionRole
 from mavedb.view_models.collection import Collection
 from tests.helpers.constants import (
     EXTRA_USER,
@@ -50,14 +50,13 @@ def test_create_public_collection(client, setup_router_db):
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
-@pytest.mark.parametrize(
-     "role",
-     ContributionRole._member_names_
-)
+@pytest.mark.parametrize("role", ContributionRole._member_names_)
 def test_add_collection_user_to_collection_role(role, client, setup_router_db):
     collection = create_collection(client, {"private": True})
 
-    response = client.post(f"/api/v1/collections/{collection['urn']}/admins", json={"orcid_id": EXTRA_USER["username"]})
+    response = client.post(
+        f"/api/v1/collections/{collection['urn']}/{role}s", json={"orcid_id": EXTRA_USER["username"]}
+    )
     assert response.status_code == 200
     response_data = response.json()
     expected_response = deepcopy(TEST_COLLECTION_RESPONSE)
@@ -66,19 +65,17 @@ def test_add_collection_user_to_collection_role(role, client, setup_router_db):
             "urn": collection["urn"],
             "badgeName": None,
             "description": None,
-            "admins": [
-                {
-                    "firstName": TEST_USER["first_name"],
-                    "lastName": TEST_USER["last_name"],
-                    "orcidId": TEST_USER["username"],
-                },
-                {
-                    "firstName": EXTRA_USER["first_name"],
-                    "lastName": EXTRA_USER["last_name"],
-                    "orcidId": EXTRA_USER["username"],
-                },
-            ],
         }
+    )
+    expected_response[f"{role}s"].extend(
+        [
+            {
+                "recordType": "User",
+                "firstName": EXTRA_USER["first_name"],
+                "lastName": EXTRA_USER["last_name"],
+                "orcidId": EXTRA_USER["username"],
+            },
+        ]
     )
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -113,11 +110,13 @@ def test_admin_can_read_private_collection(session, client, setup_router_db, ext
             "urn": response_data["urn"],
             "admins": [
                 {
+                    "recordType": "User",
                     "firstName": TEST_USER["first_name"],
                     "lastName": TEST_USER["last_name"],
                     "orcidId": TEST_USER["username"],
                 },
                 {
+                    "recordType": "User",
                     "firstName": EXTRA_USER["first_name"],
                     "lastName": EXTRA_USER["last_name"],
                     "orcidId": EXTRA_USER["username"],
@@ -145,6 +144,7 @@ def test_editor_can_read_private_collection(session, client, setup_router_db, ex
             "urn": response_data["urn"],
             "editors": [
                 {
+                    "recordType": "User",
                     "firstName": EXTRA_USER["first_name"],
                     "lastName": EXTRA_USER["last_name"],
                     "orcidId": EXTRA_USER["username"],
@@ -172,6 +172,7 @@ def test_viewer_can_read_private_collection(session, client, setup_router_db, ex
             "urn": response_data["urn"],
             "viewers": [
                 {
+                    "recordType": "User",
                     "firstName": EXTRA_USER["first_name"],
                     "lastName": EXTRA_USER["last_name"],
                     "orcidId": EXTRA_USER["username"],
@@ -246,17 +247,20 @@ def test_admin_can_add_experiment_to_collection(
             "badgeName": None,
             "description": None,
             "modifiedBy": {
+                "recordType": "User",
                 "firstName": EXTRA_USER["first_name"],
                 "lastName": EXTRA_USER["last_name"],
                 "orcidId": EXTRA_USER["username"],
             },
             "admins": [
                 {
+                    "recordType": "User",
                     "firstName": TEST_USER["first_name"],
                     "lastName": TEST_USER["last_name"],
                     "orcidId": TEST_USER["username"],
                 },
                 {
+                    "recordType": "User",
                     "firstName": EXTRA_USER["first_name"],
                     "lastName": EXTRA_USER["last_name"],
                     "orcidId": EXTRA_USER["username"],
@@ -297,12 +301,14 @@ def test_editor_can_add_experiment_to_collection(
             "badgeName": None,
             "description": None,
             "modifiedBy": {
+                "recordType": "User",
                 "firstName": EXTRA_USER["first_name"],
                 "lastName": EXTRA_USER["last_name"],
                 "orcidId": EXTRA_USER["username"],
             },
             "editors": [
                 {
+                    "recordType": "User",
                     "firstName": EXTRA_USER["first_name"],
                     "lastName": EXTRA_USER["last_name"],
                     "orcidId": EXTRA_USER["username"],
@@ -407,17 +413,20 @@ def test_admin_can_add_score_set_to_collection(
             "badgeName": None,
             "description": None,
             "modifiedBy": {
+                "recordType": "User",
                 "firstName": EXTRA_USER["first_name"],
                 "lastName": EXTRA_USER["last_name"],
                 "orcidId": EXTRA_USER["username"],
             },
             "admins": [
                 {
+                    "recordType": "User",
                     "firstName": TEST_USER["first_name"],
                     "lastName": TEST_USER["last_name"],
                     "orcidId": TEST_USER["username"],
                 },
                 {
+                    "recordType": "User",
                     "firstName": EXTRA_USER["first_name"],
                     "lastName": EXTRA_USER["last_name"],
                     "orcidId": EXTRA_USER["username"],
@@ -457,12 +466,14 @@ def test_editor_can_add_score_set_to_collection(
             "badgeName": None,
             "description": None,
             "modifiedBy": {
+                "recordType": "User",
                 "firstName": EXTRA_USER["first_name"],
                 "lastName": EXTRA_USER["last_name"],
                 "orcidId": EXTRA_USER["username"],
             },
             "editors": [
                 {
+                    "recordType": "User",
                     "firstName": EXTRA_USER["first_name"],
                     "lastName": EXTRA_USER["last_name"],
                     "orcidId": EXTRA_USER["username"],

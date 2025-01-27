@@ -4,7 +4,7 @@ from typing import Any
 from pydantic import Field
 from pydantic.types import Optional
 
-from mavedb.view_models import UserContributionRoleGetter
+from mavedb.view_models import UserContributionRoleGetter, record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.contributor import ContributorCreate
 from mavedb.view_models.user import SavedUser, User
@@ -68,11 +68,23 @@ class AddUserToCollectionRoleRequest(BaseModel):
 
 # Properties shared by models stored in DB
 class SavedCollection(CollectionBase):
+    record_type: str = None  # type: ignore
     urn: str
+
     created_by: Optional[SavedUser]
     modified_by: Optional[SavedUser]
+
+    experiment_urns: list[str]
+    score_set_urns: list[str]
+
+    admins: list[SavedUser]
+    viewers: list[SavedUser]
+    editors: list[SavedUser]
+
     creation_date: date
     modification_date: date
+
+    _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
         orm_mode = True
@@ -82,8 +94,9 @@ class SavedCollection(CollectionBase):
 # Properties to return to non-admin clients
 # NOTE: Coupled to ContributionRole enum
 class Collection(SavedCollection):
-    experiment_urns: list[str]
-    score_set_urns: list[str]
+    created_by: Optional[User]
+    modified_by: Optional[User]
+
     admins: list[User]
     viewers: list[User]
     editors: list[User]
