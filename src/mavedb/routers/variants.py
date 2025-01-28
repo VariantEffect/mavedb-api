@@ -39,14 +39,12 @@ def lookup_variants(
     ]
     variants_by_allele_id: dict[str, list[Variant]] = {allele_id: [] for allele_id in request.clingen_allele_ids}
     for variant in variants:
-        # mypy is quite stubborn about this potentially being None.
-        if variant.clingen_allele_id is not None:
-            variants_by_allele_id[variant.clingen_allele_id].append(variant)  # type: ignore
+        variants_by_allele_id[variant.clingen_allele_id].append(variant)
 
     return [variants_by_allele_id[allele_id] for allele_id in request.clingen_allele_ids]
 
 
-@router.post(
+@router.get(
     "/variants/{urn}",
     status_code=200,
     response_model=VariantWithShortScoreSet,
