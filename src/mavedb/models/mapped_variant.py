@@ -1,4 +1,5 @@
 from datetime import date
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
@@ -6,7 +7,8 @@ from sqlalchemy.orm import Mapped, backref, relationship
 
 from mavedb.db.base import Base
 
-from .variant import Variant
+if TYPE_CHECKING:
+    from .variant import Variant
 
 
 class MappedVariant(Base):
@@ -24,4 +26,4 @@ class MappedVariant(Base):
     current = Column(Boolean, nullable=False)
 
     variant_id = Column(Integer, ForeignKey("variants.id"), index=True, nullable=False)
-    variant: Mapped[Variant] = relationship("Variant", backref=backref("mapped_variants", cascade="all,delete-orphan"))
+    variant: Mapped["Variant"] = relationship("Variant", back_populates="mapped_variants")

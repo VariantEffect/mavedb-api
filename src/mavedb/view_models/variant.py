@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Any
 
+from mavedb.view_models.mapped_variant import MappedVariant
 from pydantic.types import Optional
 
 from mavedb.view_models import record_type_validator, set_record_type
@@ -47,8 +48,9 @@ class Variant(SavedVariant):
 
 
 class VariantWithShortScoreSet(SavedVariant):
-    """Variant view model with a limited set of score set details"""
+    """Variant view model with mapped variants and a limited set of score set details"""
     score_set: "ShortScoreSet"
+    mapped_variants: list[MappedVariant]
 
 
 class ClingenAlleleIdVariantLookupsRequest(BaseModel):
