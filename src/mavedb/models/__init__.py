@@ -1,5 +1,6 @@
 __all__ = [
     "access_key",
+    "clinvar_variant",
     "controlled_keyword",
     "doi_identifier",
     "ensembl_identifier",
