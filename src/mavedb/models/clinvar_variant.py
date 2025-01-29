@@ -7,7 +7,7 @@ from sqlalchemy.orm import Mapped, relationship
 from mavedb.db.base import Base
 
 if TYPE_CHECKING:
-    from .variant import Variant
+    from .mapped_variant import MappedVariant
 
 
 class ClinvarVariant(Base):
@@ -25,4 +25,4 @@ class ClinvarVariant(Base):
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    mapped_variants: Mapped[list["Variant"]] = relationship(back_populates="clinvar_variant")
+    mapped_variants: Mapped[list["MappedVariant"]] = relationship(back_populates="clinvar_variant")
