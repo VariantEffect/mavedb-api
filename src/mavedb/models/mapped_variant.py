@@ -3,11 +3,12 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, backref, relationship
+from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
 
 if TYPE_CHECKING:
+    from .clinvar_variant import ClinvarVariant
     from .variant import Variant
 
 
@@ -27,3 +28,6 @@ class MappedVariant(Base):
 
     variant_id = Column(Integer, ForeignKey("variants.id"), index=True, nullable=False)
     variant: Mapped["Variant"] = relationship("Variant", back_populates="mapped_variants")
+
+    clinvar_variant_id = Column(Integer, ForeignKey("clinvar_variants.id"), nullable=True, index=True)
+    clinvar_variant: Mapped["ClinvarVariant"] = relationship("ClinvarVariant", back_populates="mapped_variants")
