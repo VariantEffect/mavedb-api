@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from fastapi.exceptions import HTTPException
 from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.permissions import Action, assert_permission, has_permission
-from sqlalchemy.exc import MultipleResultsFound, NoResultFound
+from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import Session, joinedload
 
 from mavedb import deps
@@ -26,40 +26,34 @@ def lookup_variants(
     *,
     request: ClingenAlleleIdVariantLookupsRequest,
     db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(get_current_user)
+    user_data: UserData = Depends(get_current_user),
 ):
     variants = (
         db.query(Variant)
-            .options(
-                joinedload(Variant.score_set).joinedload(ScoreSet.experiment),
-                joinedload(Variant.mapped_variants)
-            )
-            .filter(Variant.clingen_allele_id.in_(request.clingen_allele_ids))
-            .all()
+        .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment), joinedload(Variant.mapped_variants))
+        .filter(Variant.clingen_allele_id.in_(request.clingen_allele_ids))
+        .all()
     )
     variants[:] = [
         variant for variant in variants if has_permission(user_data, variant.score_set, Action.READ).permitted
-    ]    
+    ]
     variants_by_allele_id: dict[str, list[Variant]] = {allele_id: [] for allele_id in request.clingen_allele_ids}
     for variant in variants:
-        variants_by_allele_id[variant.clingen_allele_id].append(variant)
-    
+        # mypy is quite stubborn about this potentially being None.
+        if variant.clingen_allele_id is not None:
+            variants_by_allele_id[variant.clingen_allele_id].append(variant)  # type: ignore
+
     return [variants_by_allele_id[allele_id] for allele_id in request.clingen_allele_ids]
 
 
 @router.post(
-    "/variants/{urn}", 
+    "/variants/{urn}",
     status_code=200,
     response_model=VariantWithShortScoreSet,
     responses={404: {}, 500: {}},
     response_model_exclude_none=True,
 )
-def get_variant(
-    *,
-    urn: str,
-    db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(get_current_user)
-):
+def get_variant(*, urn: str, db: Session = Depends(deps.get_db), user_data: UserData = Depends(get_current_user)):
     """
     Fetch a single variant by URN.
     """
