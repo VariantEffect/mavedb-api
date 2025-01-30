@@ -12,7 +12,7 @@ from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
-from mavedb.view_models.variant import ClingenAlleleIdVariantLookupsRequest, VariantWithShortScoreSet
+from mavedb.view_models.variant import ClingenAlleleIdVariantLookupsRequest, VariantWithScoreSet, VariantWithShortScoreSet
 
 router = APIRouter(
     prefix="/api/v1", tags=["access keys"], responses={404: {"description": "Not found"}}, route_class=LoggedRoute
@@ -49,7 +49,7 @@ def lookup_variants(
 @router.post(
     "/variants/{urn}",
     status_code=200,
-    response_model=VariantWithShortScoreSet,
+    response_model=VariantWithScoreSet,
     responses={404: {}, 500: {}},
     response_model_exclude_none=True,
 )

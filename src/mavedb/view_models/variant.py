@@ -72,6 +72,12 @@ class VariantWithMappedVariant(SavedVariantWithMappedVariant):
     mapped_variant: Optional[MappedVariant]
 
 
+class VariantWithScoreSet(SavedVariant):
+    """Variant view model with mapped variants and score set"""
+    score_set: "ScoreSet"
+    mapped_variants: list[MappedVariant]
+
+
 class VariantWithShortScoreSet(SavedVariant):
     """Variant view model with mapped variants and a limited set of score set details"""
 
@@ -86,6 +92,7 @@ class ClingenAlleleIdVariantLookupsRequest(BaseModel):
 
 
 # ruff: noqa: E402
-from mavedb.view_models.score_set import ShortScoreSet
+from mavedb.view_models.score_set import ScoreSet, ShortScoreSet
 
+VariantWithScoreSet.update_forward_refs()
 VariantWithShortScoreSet.update_forward_refs()
