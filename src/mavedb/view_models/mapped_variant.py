@@ -1,3 +1,6 @@
+# See https://pydantic-docs.helpmanual.io/usage/postponed_annotations/#self-referencing-models
+from __future__ import annotations
+
 from datetime import date
 from typing import Any, Optional
 
@@ -18,7 +21,7 @@ class MappedVariantBase(BaseModel):
 
 
 class MappedVariantCreate(MappedVariantBase):
-    pass
+    clinvar_variant: Optional[ClinvarVariantCreate]
 
 
 class MappedVariantUpdate(MappedVariantBase):
@@ -28,8 +31,9 @@ class MappedVariantUpdate(MappedVariantBase):
 # Properties shared by models stored in DB
 class SavedMappedVariant(MappedVariantBase):
     id: int
-    record_type: str = None  # type: ignore
+    clinvar_variant: Optional[SavedClinvarVariant]
 
+    record_type: str = None  # type: ignore
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
@@ -38,4 +42,12 @@ class SavedMappedVariant(MappedVariantBase):
 
 # Properties to return to non-admin clients
 class MappedVariant(SavedMappedVariant):
-    pass
+    clinvar_variant: Optional[ClinvarVariant]
+
+
+# ruff: noqa: E402
+from mavedb.view_models.clinvar_variant import ClinvarVariant, ClinvarVariantCreate, SavedClinvarVariant
+
+MappedVariantCreate.update_forward_refs()
+SavedMappedVariant.update_forward_refs()
+MappedVariant.update_forward_refs()
