@@ -46,7 +46,7 @@ def lookup_variants(
     return [variants_by_allele_id[allele_id] for allele_id in request.clingen_allele_ids]
 
 
-@router.post(
+@router.get(
     "/variants/{urn}",
     status_code=200,
     response_model=VariantWithScoreSet,
