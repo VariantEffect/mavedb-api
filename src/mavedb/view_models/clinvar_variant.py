@@ -29,7 +29,7 @@ class SavedClinvarVariant(ClinvarVariantBase):
     id: int
     modification_date: date
     creation_date: date
-    mapped_variants: Sequence[SavedMappedVariant]
+    #mapped_variants: Sequence[SavedMappedVariant]
 
     record_type: str = None  # type: ignore
     _record_type_factory = record_type_validator()(set_record_type)
@@ -40,7 +40,8 @@ class SavedClinvarVariant(ClinvarVariantBase):
 
 # Properties to return to non-admin clients
 class ClinvarVariant(SavedClinvarVariant):
-    mapped_variants: Sequence[MappedVariant]
+    pass
+    #mapped_variants: Sequence[MappedVariant]
 
 
 # ruff: noqa: E402
