@@ -411,7 +411,7 @@ def get_score_set_counts_as_csv(
     count_columns = [str(x) for x in list(score_set.dataset_columns.get("count_columns", []))]
     # HACK
     columns = (
-        ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + count_columns + ["mavedb_clinsig", "mavedb_reviewstat"]
+        ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + count_columns + ["mavedb_clnsig", "mavedb_clnrevstat"]
     )
     type_column = "count_data"
 
@@ -446,13 +446,14 @@ def get_score_set_scores_as_csv(
     score_columns = [str(x) for x in list(score_set.dataset_columns.get("score_columns", []))]
     # HACK
     columns = (
-        ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_columns + ["mavedb_clinsig", "mavedb_reviewstat"]
+        ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_columns + ["mavedb_clnsig", "mavedb_clnrevstat"]
     )
     type_column = "score_data"
 
     # HACK: This is a poorly tested and very temporary solution to surface clinical significance and
     # clinical review status within the CSV export in a way our front end can handle and display.
-    current_mapped_variants_subquery = db.query(MappedVariant).filter(MappedVariant.current.is_(True)).subquery()
+    # current_mapped_variants_subquery = db.query(MappedVariant).filter(MappedVariant.current.is_(True)).subquery()
+    current_mapped_variants_subquery = db.query(MappedVariant).filter(MappedVariant.vrs_version == '1.3').subquery()
     variants_query = (
         select(Variant, ClinvarVariant.clinical_significance, ClinvarVariant.clinical_review_status)
         .join(
@@ -547,8 +548,8 @@ def variant_to_csv_row(
 
     # HACK: Overwrite any potential values of ClinVar fields present in the data
     # object with db results from the tuple directly.
-    row["mavedb_clinsig"] = variant[1]
-    row["mavedb_reviewstat"] = variant[2]
+    row["mavedb_clnsig"] = variant[1]
+    row["mavedb_clnrevstat"] = variant[2]
     return row
 
 
