@@ -302,6 +302,22 @@ def mark_user_inactive(session, username):
     return user
 
 
+def add_thresholds_to_score_set(client, score_set_urn, thresholds):
+    """
+    Add calibration thresholds to a score set via the dedicated endpoint. Once this
+    feature is complete and users can add thresholds directly via the object, we can
+    likely retire this helper, but for now NOTE: Must be invoked from within an admin context.
+    """
+    calibration_payload = {"pillar_project": deepcopy(thresholds)}
+    response = client.post(f"/api/v1/score-sets/{score_set_urn}/calibration/data", json=calibration_payload)
+    assert response.status_code == 200, f"Could not add calibration thresholds to score set {score_set_urn}"
+
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
+
+    return response_data
+
+
 async def awaitable_exception():
     return Exception()
 

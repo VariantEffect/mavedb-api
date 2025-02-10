@@ -734,11 +734,11 @@ TEST_VARIANT_MAPPING_SCAFFOLD = {
 }
 
 
-TEST_SCORESET_RANGE = {
+TEST_SCORE_SET_RANGE = {
     "wt_score": 1.0,
     "ranges": [
-        {"label": "test1", "classification": "normal", "range": (0, 2.0)},
-        {"label": "test2", "classification": "abnormal", "range": (-2.0, 0)},
+        {"label": "test1", "classification": "normal", "range": [0, 2.0]},
+        {"label": "test2", "classification": "abnormal", "range": [-2.0, 0]},
     ],
 }
 
