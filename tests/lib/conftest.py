@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 from datetime import datetime
+from pathlib import Path
+from shutil import copytree
 
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment_set import ExperimentSet
@@ -30,7 +32,6 @@ from tests.helpers.constants import (
     TEST_USER,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
-    VALID_VARIANT_URN,
     VALID_SCORE_SET_URN,
     VALID_EXPERIMENT_URN,
     VALID_EXPERIMENT_SET_URN,
@@ -177,7 +178,7 @@ def mock_score_set(mock_user, mock_experiment, mock_publication_associations):
 @pytest.fixture
 def mock_variant(mock_score_set):
     variant = mock.Mock(spec=Variant)
-    variant.urn = VALID_VARIANT_URN
+    variant.urn = f"{VALID_SCORE_SET_URN}#1"
     variant.score_set = mock_score_set
     variant.data = {"score_data": {"score": 1.0}}
     variant.creation_date = datetime(2023, 1, 2)
@@ -206,3 +207,8 @@ def mocked_gnomad_variant_row():
         setattr(gnomad_variant, key, value)
 
     return gnomad_variant
+
+
+def data_files(tmp_path):
+    copytree(Path(__file__).absolute().parent / "data", tmp_path / "data")
+    return tmp_path / "data"

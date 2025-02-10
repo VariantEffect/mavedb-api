@@ -673,6 +673,7 @@ TEST_SEQ_SCORESET = {
         {
             "name": "TEST1",
             "category": "protein_coding",
+            "external_identifiers": [],
             "target_sequence": {
                 "sequence_type": "dna",
                 "sequence": "ACGTTT",

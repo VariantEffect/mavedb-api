@@ -56,7 +56,7 @@ def mavedb_user_agent(user: User) -> Agent:
     )
 
 
-# TODO: Ideally, this becomes versioned software.
+# XXX: Ideally, this becomes versioned software.
 def pillar_project_calibration_agent():
     """
     Create a [VA Agent](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/agent.html)
@@ -65,5 +65,5 @@ def pillar_project_calibration_agent():
     return Agent(
         subtype=AgentSubtype.SOFTWARE,
         label="Pillar project variant calibrator",
-        reportedIn="https://github.com/Dzeiberg/mave_calibration",
+        description="Pillar project variant calibrator, see https://github.com/Dzeiberg/mave_calibration",
     )
