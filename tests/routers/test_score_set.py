@@ -1749,3 +1749,50 @@ def test_score_set_not_found_for_non_existent_score_set_when_adding_score_calibr
 
     assert response.status_code == 404
     assert "score_calibrations" not in response_data
+
+
+########################################################################################################################
+# Score set download files
+########################################################################################################################
+
+# Test file doesn't have hgvs_splice so its values are all NA.
+def test_download_scores_file(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    publish_score_set = publish_score_set_response.json()
+    print(publish_score_set)
+
+    download_scores_csv_response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/scores?download=true")
+    assert download_scores_csv_response.status_code == 200
+    download_scores_csv = download_scores_csv_response.text
+    csv_header = download_scores_csv.split("\n")[0]
+    columns = csv_header.split(",")
+    assert "hgvs_nt" in columns
+    assert "hgvs_pro" in columns
+    assert "hgvs_splice" not in columns
+
+
+def test_download_counts_file(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"],
+        scores_csv_path=data_files / "scores.csv",
+        counts_csv_path = data_files / "counts.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    publish_score_set = publish_score_set_response.json()
+
+    download_counts_csv_response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/counts?download=true")
+    assert download_counts_csv_response.status_code == 200
+    download_counts_csv = download_counts_csv_response.text
+    csv_header = download_counts_csv.split("\n")[0]
+    columns = csv_header.split(",")
+    assert "hgvs_nt" in columns
+    assert "hgvs_pro" in columns
+    assert "hgvs_splice" not in columns

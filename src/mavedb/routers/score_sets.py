@@ -180,6 +180,7 @@ def get_score_set_scores_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Number of variants to return"),
+    download: Optional[bool] = None,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
@@ -214,7 +215,7 @@ def get_score_set_scores_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_scores_as_csv(db, score_set, start, limit)
+    csv_str = get_score_set_scores_as_csv(db, score_set, start, limit, download)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
@@ -234,6 +235,7 @@ async def get_score_set_counts_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Number of variants to return"),
+    download: Optional[bool] = None,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
@@ -268,7 +270,7 @@ async def get_score_set_counts_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_counts_as_csv(db, score_set, start, limit)
+    csv_str = get_score_set_counts_as_csv(db, score_set, start, limit, download)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
