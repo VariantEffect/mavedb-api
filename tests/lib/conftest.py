@@ -1,4 +1,6 @@
 import pytest
+from pathlib import Path
+from shutil import copytree
 
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.license import License
@@ -29,3 +31,9 @@ def setup_lib_db(session):
     db.add(License(**TEST_LICENSE))
     db.add(License(**TEST_INACTIVE_LICENSE))
     db.commit()
+
+
+@pytest.fixture
+def data_files(tmp_path):
+    copytree(Path(__file__).absolute().parent / "data", tmp_path / "data")
+    return tmp_path / "data"
