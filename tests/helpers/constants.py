@@ -495,7 +495,7 @@ TEST_SEQ_SCORESET = {
         {
             "name": "TEST1",
             "category": "protein_coding",
-            "external_identifiers": [],
+            "external_identifiers": [{"ensembl_offset": None}, {"uniprot_offset": None}, {"refseq_offset": None}],
             "target_sequence": {
                 "sequence_type": "dna",
                 "sequence": "ACGTTT",
@@ -589,6 +589,10 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
                     "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
+            # TODO
+            "uniprot_offset": None,
+            "ensembl_offset": None,
+            "refseq_offset": None,
         }
     ],
     "metaAnalyzesScoreSetUrns": [],
@@ -737,8 +741,8 @@ TEST_VARIANT_MAPPING_SCAFFOLD = {
 TEST_SCORE_SET_RANGE = {
     "wt_score": 1.0,
     "ranges": [
-        {"label": "test1", "classification": "normal", "range": [0, 2.0]},
-        {"label": "test2", "classification": "abnormal", "range": [-2.0, 0]},
+        {"label": "test1", "classification": "normal", "range": [0.5, 2.0]},
+        {"label": "test2", "classification": "abnormal", "range": [-2.0, -0.5]},
     ],
 }
 
@@ -746,8 +750,8 @@ TEST_SCORE_SET_RANGE = {
 TEST_SAVED_SCORESET_RANGE = {
     "wtScore": 1.0,
     "ranges": [
-        {"label": "test1", "classification": "normal", "range": [0.0, 2.0]},
-        {"label": "test2", "classification": "abnormal", "range": [-2.0, 0.0]},
+        {"label": "test1", "classification": "normal", "range": [0.5, 2.0]},
+        {"label": "test2", "classification": "abnormal", "range": [-2.0, -0.5]},
     ],
 }
 
@@ -760,9 +764,9 @@ TEST_SCORE_CALIBRATION = {
             "fraction_functionally_altering": 0.20,
         },
     ],
-    "evidence_strengths": [3, 2, 1, -1],
-    "thresholds": [1.25, 2.5, 3, 5.5],
-    "positive_likelihood_ratios": [100, 10, 1, 0.1],
+    "evidence_strengths": [8, 4, 2, 1, -1, -2, -4, -8],
+    "thresholds": [8, 4, 2, 1, -1, -2, -4, -8],
+    "positive_likelihood_ratios": [1000, 100, 10, 1, 0.1, 0.01, 0.001, 0.0001],
     "prior_probability_pathogenicity": 0.20,
 }
 

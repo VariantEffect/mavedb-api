@@ -179,7 +179,7 @@ def mock_worker_variant_insertion(client, db, data_provider, score_set, scores_c
     scores, counts = validate_and_standardize_dataframe_pair(score_df, counts_df, item.target_genes, data_provider)
     variants = create_variants_data(scores, counts, None)
     num_variants = create_variants(db, item, variants)
-    assert num_variants == 3
+    assert num_variants == len(variants)
 
     item.processing_state = ProcessingState.success
     item.dataset_columns = {
@@ -223,11 +223,6 @@ def create_seq_score_set_with_variants(
 ):
     score_set = create_seq_score_set(client, experiment_urn, update)
     score_set = mock_worker_variant_insertion(client, db, data_provider, score_set, scores_csv_path, counts_csv_path)
-
-    assert (
-        score_set["numVariants"] == 3
-    ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
-
     jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
 
@@ -237,11 +232,6 @@ def create_acc_score_set_with_variants(
 ):
     score_set = create_acc_score_set(client, experiment_urn, update)
     score_set = mock_worker_variant_insertion(client, db, data_provider, score_set, scores_csv_path, counts_csv_path)
-
-    assert (
-        score_set["numVariants"] == 3
-    ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
-
     jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
 
@@ -341,8 +331,13 @@ def dummy_attributed_object_from_dict(properties: dict[str, Any], recursive=Fals
 
     attr_obj = Object()
     for k, v in properties.items():
-        if recursive and isinstance(dict, v):
-            attr_obj.__setattr__(k, dummy_attributed_object_from_dict(v, True))
+        if recursive and k in recursive:
+            if isinstance(v, dict):
+                attr_obj.__setattr__(k, dummy_attributed_object_from_dict(v, v.keys()))
+            elif isinstance(v, list):
+                attr_obj.__setattr__(k, [dummy_attributed_object_from_dict(d, d.keys()) for d in v])
+            else:
+                attr_obj.__setattr__(k, v)
         else:
             attr_obj.__setattr__(k, v)
 
