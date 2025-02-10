@@ -53,6 +53,7 @@ from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.license import change_to_inactive_license
 from tests.helpers.util.score_set import (
+    add_thresholds_to_score_set,
     create_seq_score_set,
     create_seq_score_set_with_mapped_variants,
     link_clinical_controls_to_mapped_variants,
@@ -60,6 +61,7 @@ from tests.helpers.util.score_set import (
     create_seq_score_set_with_variants,
     update_expected_response_for_created_resources,
     create_seq_score_set_with_mapped_variants,
+    add_thresholds_to_score_set,
 )
 from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import mock_worker_variant_insertion
@@ -2183,14 +2185,14 @@ def test_admin_can_add_score_calibrations_to_score_set(client, setup_router_db, 
 
     with DependencyOverrider(admin_app_overrides):
         response = client.post(
-            f"/api/v1/score-sets/{score_set['urn']}/calibration/data", json={"test_calibrations": calibration_payload}
+            f"/api/v1/score-sets/{score_set['urn']}/calibration/data", json={"pillar_project": calibration_payload}
         )
         response_data = response.json()
 
     expected_response = update_expected_response_for_created_resources(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
     )
-    expected_response["scoreCalibrations"] = {"test_calibrations": deepcopy(TEST_SAVED_SCORE_CALIBRATION)}
+    expected_response["scoreCalibrations"] = {"pillarProject": deepcopy(TEST_SAVED_SCORE_CALIBRATION)}
 
     assert response.status_code == 200
     for key in expected_response:
@@ -2207,7 +2209,7 @@ def test_score_set_not_found_for_non_existent_score_set_when_adding_score_calibr
     with DependencyOverrider(admin_app_overrides):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']+'xxx'}/calibration/data",
-            json={"test_calibrations": calibration_payload},
+            json={"pillar_project": calibration_payload},
         )
         response_data = response.json()
 
@@ -2429,7 +2431,7 @@ def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
 
-    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue:
         publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
         assert publish_score_set_response.status_code == 200
         queue.assert_called_once()
@@ -2528,25 +2530,16 @@ def test_cannot_fetch_clinical_control_options_for_score_set_when_none_exist(
 
 
 def test_get_annotated_variants_for_clinical_score_set_with_thresholds(
-    client, session, data_provider, data_files, setup_router_db
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
 
-    # removes all clinical controls from the db.
-    session.execute(delete(ClinicalControl))
-    session.commit()
+    with DependencyOverrider(admin_app_overrides):
+        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
-
-    assert response.status_code == 404
-    response_data = response.json()
-    assert (
-        f"no clinical control variants associated with score set URN {score_set['urn']} were found"
-        in response_data["detail"]
-    )
     # The contents of the annotated variants objects should be tested in more detail elsewhere.
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
     response_data = response.json()
@@ -2560,7 +2553,8 @@ def test_get_annotated_variants_for_clinical_score_set_with_thresholds(
         variant = session.scalar(select(VariantDbModel).filter(VariantDbModel.urn == annotated_variant_urn))
 
         assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
-        assert len(annotated_variant.values()) == 1
+        assert "assayVariantEffectClinicalClassificationStatement" in annotated_variant
+        assert len(annotated_variant.values()) == 2
         assert (
             annotated_variant["assayVariantEffectMeasurementStudyResult"]["score"]
             == variant.data["score_data"]["score"]
@@ -2572,7 +2566,12 @@ def test_get_annotated_variants_for_clinical_score_set_with_ranges(
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
     )
 
     # The contents of the annotated variants objects should be tested in more detail elsewhere.
@@ -2588,7 +2587,8 @@ def test_get_annotated_variants_for_clinical_score_set_with_ranges(
         variant = session.scalar(select(VariantDbModel).filter(VariantDbModel.urn == annotated_variant_urn))
 
         assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
-        assert len(annotated_variant.values()) == 1
+        assert "assayVariantEffectFunctionalClassificationStatement" in annotated_variant
+        assert len(annotated_variant.values()) == 2
         assert (
             annotated_variant["assayVariantEffectMeasurementStudyResult"]["score"]
             == variant.data["score_data"]["score"]
@@ -2596,12 +2596,19 @@ def test_get_annotated_variants_for_clinical_score_set_with_ranges(
 
 
 def test_get_annotated_variants_for_clinical_score_set_with_ranges_and_thresholds(
-    client, session, data_provider, data_files, setup_router_db
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
     )
+    with DependencyOverrider(admin_app_overrides):
+        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
 
     # The contents of the annotated variants objects should be tested in more detail elsewhere.
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
@@ -2616,7 +2623,9 @@ def test_get_annotated_variants_for_clinical_score_set_with_ranges_and_threshold
         variant = session.scalar(select(VariantDbModel).filter(VariantDbModel.urn == annotated_variant_urn))
 
         assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
-        assert len(annotated_variant.values()) == 1
+        assert "assayVariantEffectFunctionalClassificationStatement" in annotated_variant
+        assert "assayVariantEffectClinicalClassificationStatement" in annotated_variant
+        assert len(annotated_variant.values()) == 3
         assert (
             annotated_variant["assayVariantEffectMeasurementStudyResult"]["score"]
             == variant.data["score_data"]["score"]

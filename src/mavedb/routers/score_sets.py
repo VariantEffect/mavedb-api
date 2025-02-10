@@ -770,7 +770,7 @@ async def upload_score_set_variant_data(
 async def update_score_set_calibration_data(
     *,
     urn: str,
-    calibration_update: dict[str, calibration.Calibration],
+    calibration_update: calibration.Calibration,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(RoleRequirer([UserRole.admin])),
 ):
