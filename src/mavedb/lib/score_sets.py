@@ -378,7 +378,7 @@ def get_score_set_scores_as_csv(
 def process_downloadable_data(
     rows_data: Iterable[dict[str, Any]],
     columns: list[str]
-) -> tuple[list[str], list[dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], list[str]]:
     """Process rows_data for downloadable CSV by removing empty columns."""
     # Convert map to list.
     rows_data = list(rows_data)
