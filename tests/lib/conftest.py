@@ -8,6 +8,7 @@ from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
+from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.role import Role
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.score_set import ScoreSet
@@ -24,6 +25,7 @@ from tests.helpers.constants import (
     VALID_SCORE_SET_URN,
     VALID_EXPERIMENT_URN,
     VALID_EXPERIMENT_SET_URN,
+    TEST_PUBMED_IDENTIFIER,
 )
 
 
@@ -53,6 +55,14 @@ def data_files(tmp_path):
 def mock_user():
     mv = mock.Mock(spec=User)
     mv.username = TEST_USER["username"]
+    return mv
+
+
+@pytest.fixture
+def mock_publication():
+    mv = mock.Mock(spec=PublicationIdentifier)
+    mv.identifier = TEST_PUBMED_IDENTIFIER
+    mv.url = f"http://www.ncbi.nlm.nih.gov/pubmed/{TEST_PUBMED_IDENTIFIER}"
     return mv
 
 

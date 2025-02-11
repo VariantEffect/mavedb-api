@@ -37,7 +37,7 @@ def test_pillar_project_calibration_contribution():
     assert len(contribution.specifiedBy) > 0
 
 
-@pytest.mark.parameterize("mock_resource"["mock_experiment_set", "mock_experiment", "mock_score_set"])
+@pytest.mark.parametrize("mock_resource", ["mock_experiment_set", "mock_experiment", "mock_score_set"])
 def test_mavedb_creator_contribution(mock_resource, mock_user, request):
     mocked_resource = request.getfixturevalue(mock_resource)
     contribution = mavedb_creator_contribution(mocked_resource, mock_user)
@@ -48,7 +48,7 @@ def test_mavedb_creator_contribution(mock_resource, mock_user, request):
     assert contribution.extensions[0].value == mocked_resource.__class__.__name__
 
 
-@pytest.mark.parameterize("mock_resource"["mock_experiment_set", "mock_experiment", "mock_score_set"])
+@pytest.mark.parametrize("mock_resource", ["mock_experiment_set", "mock_experiment", "mock_score_set"])
 def test_mavedb_modifier_contribution(mock_resource, mock_user, request):
     mocked_resource = request.getfixturevalue(mock_resource)
     contribution = mavedb_modifier_contribution(mocked_resource, mock_user)
