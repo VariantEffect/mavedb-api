@@ -1,3 +1,5 @@
+import pytest
+
 from ga4gh.core.entity_models import Contribution
 
 from mavedb.lib.annotation.contribution import (
@@ -35,19 +37,23 @@ def test_pillar_project_calibration_contribution():
     assert len(contribution.specifiedBy) > 0
 
 
-def test_mavedb_creator_contribution(mock_resource, mock_user):
-    contribution = mavedb_creator_contribution(mock_resource, mock_user)
+@pytest.mark.parameterize("mock_resource"["mock_experiment_set", "mock_experiment", "mock_score_set"])
+def test_mavedb_creator_contribution(mock_resource, mock_user, request):
+    mocked_resource = request.getfixturevalue(mock_resource)
+    contribution = mavedb_creator_contribution(mocked_resource, mock_user)
     assert isinstance(contribution, Contribution)
     assert contribution.activityType.code.root == "CRO_0000105"
     assert len(contribution.contributor) > 0
-    assert contribution.date == mock_resource.creation_date.strftime("%Y-%m-%d")
-    assert contribution.extensions[0].value == mock_resource.__class__.__name__
+    assert contribution.date == mocked_resource.creation_date.strftime("%Y-%m-%d")
+    assert contribution.extensions[0].value == mocked_resource.__class__.__name__
 
 
-def test_mavedb_modifier_contribution(mock_resource, mock_user):
-    contribution = mavedb_modifier_contribution(mock_resource, mock_user)
+@pytest.mark.parameterize("mock_resource"["mock_experiment_set", "mock_experiment", "mock_score_set"])
+def test_mavedb_modifier_contribution(mock_resource, mock_user, request):
+    mocked_resource = request.getfixturevalue(mock_resource)
+    contribution = mavedb_modifier_contribution(mocked_resource, mock_user)
     assert isinstance(contribution, Contribution)
     assert contribution.activityType.code.root == "CRO_0000103"
     assert len(contribution.contributor) > 0
-    assert contribution.date == mock_resource.modification_date.strftime("%Y-%m-%d")
-    assert contribution.extensions[0].value == mock_resource.__class__.__name__
+    assert contribution.date == mocked_resource.modification_date.strftime("%Y-%m-%d")
+    assert contribution.extensions[0].value == mocked_resource.__class__.__name__
