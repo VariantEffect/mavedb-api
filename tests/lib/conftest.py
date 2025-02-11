@@ -9,6 +9,7 @@ from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
 from mavedb.models.publication_identifier import PublicationIdentifier
+from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.role import Role
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.score_set import ScoreSet
@@ -26,6 +27,9 @@ from tests.helpers.constants import (
     VALID_EXPERIMENT_URN,
     VALID_EXPERIMENT_SET_URN,
     TEST_PUBMED_IDENTIFIER,
+    TEST_VALID_POST_MAPPED_VRS_ALLELE,
+    TEST_SCORE_SET_RANGE,
+    TEST_SCORE_CALIBRATION,
 )
 
 
@@ -67,19 +71,11 @@ def mock_publication():
 
 
 @pytest.fixture
-def mock_mapped_variant():
-    mv = mock.Mock(spec=MappedVariant)
-    mv.mapping_api_version = "1.0"
-    mv.mapped_date = datetime(2023, 1, 1)
-    return mv
-
-
-@pytest.fixture
-def mock_variant():
-    variant = mock.Mock(spec=Variant)
-    variant.urn = f"{VALID_SCORE_SET_URN}#1"
-    variant.score_set.urn = VALID_SCORE_SET_URN
-    return variant
+def mock_publication_associations(mock_publication):
+    mv = mock.Mock(spec=ScoreSetPublicationIdentifierAssociation)
+    mv.publication = mock_publication
+    mv.primary = True
+    return [mv]
 
 
 @pytest.fixture
@@ -102,9 +98,11 @@ def mock_experiment():
 
 
 @pytest.fixture
-def mock_score_set(mock_user):
+def mock_score_set(mock_user, mock_experiment, mock_publication_associations):
     score_set = mock.Mock(spec=ScoreSet)
     score_set.urn = VALID_SCORE_SET_URN
+    score_set.score_ranges = TEST_SCORE_SET_RANGE
+    score_set.score_calibrations = {"pillar_project": TEST_SCORE_CALIBRATION}
     score_set.license.short_name = "MIT"
     score_set.created_by = mock_user
     score_set.modified_by = mock_user
@@ -112,4 +110,29 @@ def mock_score_set(mock_user):
     score_set.title = "Mock score set"
     score_set.creation_date = datetime(2023, 1, 2)
     score_set.modification_date = datetime(2023, 1, 3)
+    score_set.experiment = mock_experiment
+    score_set.publication_identifier_associations = mock_publication_associations
     return score_set
+
+
+@pytest.fixture
+def mock_variant(mock_score_set):
+    variant = mock.Mock(spec=Variant)
+    variant.urn = f"{VALID_SCORE_SET_URN}#1"
+    variant.score_set = mock_score_set
+    variant.data = {"score_data": {"score": 1.0}}
+    variant.creation_date = datetime(2023, 1, 2)
+    variant.modification_date = datetime(2023, 1, 3)
+    return variant
+
+
+@pytest.fixture
+def mock_mapped_variant(mock_variant):
+    mv = mock.Mock(spec=MappedVariant)
+    mv.mapping_api_version = "1.0"
+    mv.mapped_date = datetime(2023, 1, 1)
+    mv.variant = mock_variant
+    mv.post_mapped = TEST_VALID_POST_MAPPED_VRS_ALLELE
+    mv.mapped_date = datetime(2023, 1, 2)
+    mv.modification_date = datetime(2023, 1, 3)
+    return mv
