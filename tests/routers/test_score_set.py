@@ -1767,7 +1767,7 @@ def test_download_scores_file(session, data_provider, client, setup_router_db, d
     publish_score_set = publish_score_set_response.json()
     print(publish_score_set)
 
-    download_scores_csv_response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/scores?download=true")
+    download_scores_csv_response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_na_columns=true")
     assert download_scores_csv_response.status_code == 200
     download_scores_csv = download_scores_csv_response.text
     csv_header = download_scores_csv.split("\n")[0]
@@ -1788,7 +1788,7 @@ def test_download_counts_file(session, data_provider, client, setup_router_db, d
     assert publish_score_set_response.status_code == 200
     publish_score_set = publish_score_set_response.json()
 
-    download_counts_csv_response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/counts?download=true")
+    download_counts_csv_response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/counts?drop_na_columns=true")
     assert download_counts_csv_response.status_code == 200
     download_counts_csv = download_counts_csv_response.text
     csv_header = download_counts_csv.split("\n")[0]

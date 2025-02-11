@@ -312,7 +312,7 @@ def get_score_set_counts_as_csv(
     score_set: ScoreSet,
     start: Optional[int] = None,
     limit: Optional[int] = None,
-    download: Optional[bool] = None,
+    drop_na_columns: Optional[bool] = None,
 ) -> str:
     assert type(score_set.dataset_columns) is dict
     count_columns = [str(x) for x in list(score_set.dataset_columns.get("count_columns", []))]
@@ -331,8 +331,8 @@ def get_score_set_counts_as_csv(
     variants = db.scalars(variants_query).all()
 
     rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column)
-    if download:
-        rows_data, columns = process_downloadable_data(rows_data, columns)
+    if drop_na_columns:
+        rows_data, columns = drop_na_columns_from_csv_file_rows(rows_data, columns)
 
     stream = io.StringIO()
     writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
@@ -346,7 +346,7 @@ def get_score_set_scores_as_csv(
     score_set: ScoreSet,
     start: Optional[int] = None,
     limit: Optional[int] = None,
-    download: Optional[bool] = None,
+    drop_na_columns: Optional[bool] = None,
 ) -> str:
     assert type(score_set.dataset_columns) is dict
     score_columns = [str(x) for x in list(score_set.dataset_columns.get("score_columns", []))]
@@ -365,8 +365,8 @@ def get_score_set_scores_as_csv(
     variants = db.scalars(variants_query).all()
 
     rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column)
-    if download:
-        rows_data, columns = process_downloadable_data(rows_data, columns)
+    if drop_na_columns:
+        rows_data, columns = drop_na_columns_from_csv_file_rows(rows_data, columns)
 
     stream = io.StringIO()
     writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
@@ -375,7 +375,7 @@ def get_score_set_scores_as_csv(
     return stream.getvalue()
 
 
-def process_downloadable_data(
+def drop_na_columns_from_csv_file_rows(
     rows_data: Iterable[dict[str, Any]],
     columns: list[str]
 ) -> tuple[list[dict[str, Any]], list[str]]:
