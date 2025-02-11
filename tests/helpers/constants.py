@@ -495,7 +495,7 @@ TEST_SEQ_SCORESET = {
         {
             "name": "TEST1",
             "category": "protein_coding",
-            "external_identifiers": [{"ensembl_offset": None}, {"uniprot_offset": None}, {"refseq_offset": None}],
+            "external_identifiers": [],
             "target_sequence": {
                 "sequence_type": "dna",
                 "sequence": "ACGTTT",
@@ -589,10 +589,6 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
                     "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
-            # TODO
-            "uniprot_offset": None,
-            "ensembl_offset": None,
-            "refseq_offset": None,
         }
     ],
     "metaAnalyzesScoreSetUrns": [],
@@ -779,9 +775,9 @@ TEST_SAVED_SCORE_CALIBRATION = {
             "fractionFunctionallyAltering": 0.20,
         },
     ],
-    "evidenceStrengths": [3, 2, 1, -1],
-    "thresholds": [1.25, 2.5, 3, 5.5],
-    "positiveLikelihoodRatios": [100, 10, 1, 0.1],
+    "evidenceStrengths": [8, 4, 2, 1, -1, -2, -4, -8],
+    "thresholds": [8, 4, 2, 1, -1, -2, -4, -8],
+    "positiveLikelihoodRatios": [1000, 100, 10, 1, 0.1, 0.01, 0.001, 0.0001],
     "priorProbabilityPathogenicity": 0.20,
 }
 
