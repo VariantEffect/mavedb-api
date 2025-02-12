@@ -713,7 +713,6 @@ def test_required_fields(client, setup_router_db, test_field):
 def test_create_experiment_with_new_primary_pubmed_publication(client, setup_router_db, mock_publication_fetch):
     mocked_publication = mock_publication_fetch
     response_data = create_experiment(client, {"primaryPublicationIdentifiers": [mocked_publication]})
-    print(response_data)
 
     assert len(response_data["primaryPublicationIdentifiers"]) == 1
     assert sorted(response_data["primaryPublicationIdentifiers"][0]) == sorted(
@@ -742,7 +741,6 @@ def test_create_experiment_with_new_primary_pubmed_publication(client, setup_rou
 def test_create_experiment_with_new_primary_pubmed_url_publication(client, setup_router_db, mock_publication_fetch):
     mocked_publication = mock_publication_fetch
     response_data = create_experiment(client, {"primaryPublicationIdentifiers": [mocked_publication]})
-    print(response_data)
 
     assert len(response_data["primaryPublicationIdentifiers"]) == 1
     assert sorted(response_data["primaryPublicationIdentifiers"][0]) == sorted(
@@ -762,7 +760,6 @@ def test_create_experiment_with_new_primary_pubmed_url_publication(client, setup
         ]
     )
     assert response_data["primaryPublicationIdentifiers"][0]["identifier"] == '37162834'
-
 
 
 @pytest.mark.parametrize(
