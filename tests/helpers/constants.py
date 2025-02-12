@@ -5,6 +5,7 @@ from humps import camelize
 from mavedb.models.enums.processing_state import ProcessingState
 
 TEST_PUBMED_IDENTIFIER = "20711194"
+TEST_PUBMED_URL_IDENTIFIER = "https://pubmed.ncbi.nlm.nih.gov/37162834/"
 TEST_BIORXIV_IDENTIFIER = "2021.06.21.212592"
 TEST_MEDRXIV_IDENTIFIER = "2021.06.22.21259265"
 TEST_CROSSREF_IDENTIFIER = "10.1371/2021.06.22.21259265"
