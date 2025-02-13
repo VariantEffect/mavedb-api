@@ -94,6 +94,7 @@ server = ["alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "
 plugins = [
     "sqlalchemy.ext.mypy.plugin",
     "numpy.typing.mypy_plugin",
+    "pydantic.mypy",
 ]
 mypy_path = "mypy_stubs"
 
