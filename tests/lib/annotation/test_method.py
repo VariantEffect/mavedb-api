@@ -28,11 +28,23 @@ def test_publication_as_iri(mock_publication):
     assert publication_as_iri(mock_publication) == mock_publication.url
 
 
+def test_publication_as_iri_no_url(mock_publication):
+    mock_publication.url = None
+    assert publication_as_iri(mock_publication) is None
+
+
 def test_publication_identifier_to_method(mock_publication):
     method = publication_identifier_to_method(mock_publication, subtype="Test subtype")
     assert method.label == "Test subtype"
     assert len(method.reportedIn) > 0
     assert mock_publication.url in [iri.root for iri in method.reportedIn]
+
+
+def test_publication_identifier_to_method_no_url(mock_publication):
+    mock_publication.url = None
+    method = publication_identifier_to_method(mock_publication, subtype="Test subtype")
+    assert method.label == "Test subtype"
+    assert method.reportedIn is None
 
 
 def test_publication_identifiers_to_method(mock_publication):

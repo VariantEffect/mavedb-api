@@ -10,12 +10,12 @@ from mavedb.models.experiment_publication_identifier import ExperimentPublicatio
 logger = logging.getLogger(__name__)
 
 
-def publication_as_iri(publication: PublicationIdentifier) -> IRI:
+def publication_as_iri(publication: PublicationIdentifier) -> Optional[IRI]:
     """
     Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for the provided publication. Within
     the context of VA-Spec, these can be used interchangeably with an equivalent method object for brevity.
     """
-    return publication.url
+    return IRI(publication.url) if publication.url else None
 
 
 def publication_identifier_to_method(publication: PublicationIdentifier, subtype: Optional[str] = None) -> Method:
@@ -23,9 +23,11 @@ def publication_identifier_to_method(publication: PublicationIdentifier, subtype
     Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
     object based on the provided publication identifier.
     """
+    reporter = publication_as_iri(publication)
+
     return Method(
         label=subtype,
-        reportedIn=[publication_as_iri(publication)],
+        reportedIn=[reporter] if reporter else None,
     )
 
 
@@ -63,7 +65,7 @@ def mavedb_api_releases_as_iri() -> IRI:
     Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for releases of the MaveDB software distribution. Within
     the context of VA-Spec, this IRI can be used interchangeably with an equivalent method object for brevity.
     """
-    return "https://github.com/VariantEffect/mavedb-api/releases"
+    return IRI("https://github.com/VariantEffect/mavedb-api/releases")
 
 
 def mavedb_api_as_method():
@@ -79,7 +81,7 @@ def mavedb_vrs_releases_as_iri() -> IRI:
     Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for releases of the MaveDB VRS mapping software distribution. Within
     the context of VA-Spec, this IRI can be used interchangeably with an equivalent method object for brevity.
     """
-    return "https://github.com/VariantEffect/dcd_mapping2/releases"
+    return IRI("https://github.com/VariantEffect/dcd_mapping2/releases")
 
 
 def mavedb_vrs_as_method():
@@ -95,7 +97,7 @@ def pillar_project_calibrations_as_iri() -> IRI:
     Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for the software used to generate pillar project calibrations. Within
     the context of VA-Spec, this IRI can be used interchangeably with an equivalent method object for brevity.
     """
-    return "https://github.com/Dzeiberg/mave_calibration"
+    return IRI("https://github.com/Dzeiberg/mave_calibration")
 
 
 def pillar_project_calibration_method():
@@ -111,7 +113,7 @@ def variant_interpretation_functional_guideline_as_iri() -> IRI:
     Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for functional variant interpretation guidelines. Within
     the context of VA-Spec, this IRI can be used interchangeably with an equivalent method object for brevity.
     """
-    return "https://pubmed.ncbi.nlm.nih.gov/29785012/"
+    return IRI("https://pubmed.ncbi.nlm.nih.gov/29785012/")
 
 
 def variant_interpretation_functional_guideline_method():
@@ -129,7 +131,7 @@ def variant_interpretation_clinical_guideline_as_iri() -> IRI:
     Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for clinical variant interpretation guidelines. Within
     the context of VA-Spec, this IRI can be used interchangeably with an equivalent method object for brevity.
     """
-    return "https://pubmed.ncbi.nlm.nih.gov/29785012/"
+    return IRI("https://pubmed.ncbi.nlm.nih.gov/29785012/")
 
 
 def variant_interpretation_clinical_guideline_method():
