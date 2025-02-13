@@ -17,6 +17,7 @@ cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_EXPERIMENT_URN_RE
+from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
@@ -230,6 +231,24 @@ def test_cannot_create_score_set_with_score_range_and_source_when_publication_no
         "Score range source publication at index 0 is not defined in score set publications."
         in response_data["detail"][0]["msg"]
     )
+
+
+
+def test_cannot_create_score_set_with_nonexistent_contributor(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    score_set.update({"contributors": [{"orcid_id": TEST_ORCID_ID}]})
+
+    with patch(
+        "mavedb.lib.orcid.fetch_orcid_user",
+        side_effect=NonexistentOrcidUserError(f"No ORCID user was found for ORCID ID {TEST_ORCID_ID}."),
+    ):
+        response = client.post("/api/v1/score-sets/", json=score_set)
+
+    assert response.status_code == 422
+    response_data = response.json()
+    assert "No ORCID user was found for ORCID ID 1111-1111-1111-1111." in response_data["detail"]
 
 
 @pytest.mark.parametrize(
@@ -538,6 +557,27 @@ def test_cannot_update_score_set_target_data_after_publication(
         assert expected_response_data == response_data[camelize(attribute)]
     else:
         assert camelize(attribute) not in response_data.keys()
+
+
+def test_cannot_update_score_set_with_nonexistent_contributor(
+    client,
+    setup_router_db,
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    score_set_update_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_update_payload.update({"contributors": [{"orcid_id": TEST_ORCID_ID}]})
+
+    with patch(
+        "mavedb.lib.orcid.fetch_orcid_user",
+        side_effect=NonexistentOrcidUserError(f"No ORCID user was found for ORCID ID {TEST_ORCID_ID}."),
+    ):
+        response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_update_payload)
+
+    assert response.status_code == 422
+    response_data = response.json()
+    assert "No ORCID user was found for ORCID ID 1111-1111-1111-1111." in response_data["detail"]
 
 
 ########################################################################################################################

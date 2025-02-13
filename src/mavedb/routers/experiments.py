@@ -2,7 +2,6 @@ import logging
 from operator import attrgetter
 from typing import Any, Optional
 
-import pydantic
 import requests
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -72,7 +71,7 @@ def list_experiments(
         query = query.filter(
             or_(
                 Experiment.created_by_id == user_data.user.id,
-                Experiment.contributors.any(Contributor.orcid_id == user_data.user.username)
+                Experiment.contributors.any(Contributor.orcid_id == user_data.user.username),
             )
         )
 
@@ -246,10 +245,7 @@ async def create_experiment(
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise pydantic.ValidationError(
-            [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
-            model=experiment.ExperimentCreate,
-        )
+        raise HTTPException(status_code=422, detail=str(e))
 
     try:
         doi_identifiers = [
@@ -390,10 +386,7 @@ async def update_experiment(
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise pydantic.ValidationError(
-            [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
-            model=experiment.ExperimentUpdate,
-        )
+        raise HTTPException(status_code=422, detail=str(e))
 
     doi_identifiers = [
         await find_or_create_doi_identifier(db, identifier.identifier)

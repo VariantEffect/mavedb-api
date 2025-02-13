@@ -3,7 +3,6 @@ from datetime import date
 from typing import Any, List, Optional, Sequence, Union
 
 import pandas as pd
-import pydantic
 from arq import ArqRedis
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
@@ -23,7 +22,7 @@ from mavedb.lib.authorization import (
     require_current_user_with_email,
 )
 from mavedb.lib.contributors import find_or_create_contributor
-from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError, ValidationError
+from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
@@ -655,10 +654,7 @@ async def create_score_set(
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise pydantic.ValidationError(
-            [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
-            model=score_set.ScoreSetCreate,
-        )
+        raise HTTPException(status_code=422, detail=str(e))
 
     doi_identifiers = [
         await find_or_create_doi_identifier(db, identifier.identifier)
@@ -993,10 +989,7 @@ async def update_score_set(
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise pydantic.ValidationError(
-            [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
-            model=score_set.ScoreSetUpdate,
-        )
+        raise HTTPException(status_code=422, detail=str(e))
 
     # Score set has not been published and attributes affecting scores may still be edited.
     if item.private:
