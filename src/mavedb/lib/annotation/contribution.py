@@ -48,8 +48,9 @@ def mavedb_vrs_contribution(mapped_variant: MappedVariant) -> Contribution:
     object from the provided mapped variant.
     """
     return Contribution(
-        contributor=[mavedb_vrs_agent(mapped_variant.mapping_api_version)],
-        date=datetime.strftime(mapped_variant.mapped_date, "%Y-%m-%d"),
+        # Guaranteed to be a str via DB constraints.
+        contributor=[mavedb_vrs_agent(mapped_variant.mapping_api_version)],  # type: ignore
+        date=datetime.strftime(mapped_variant.mapped_date, "%Y-%m-%d"),  # type: ignore
         specifiedBy=[mavedb_vrs_as_method()],
         activityType=Coding(
             label="planned process",
@@ -84,7 +85,8 @@ def mavedb_creator_contribution(created_resource: ResourceWithCreationModificati
     """
     return Contribution(
         contributor=[mavedb_user_agent(creator)],
-        date=datetime.strftime(created_resource.creation_date, "%Y-%m-%d"),
+        # Guaranteed to be a str via DB constraints.
+        date=datetime.strftime(created_resource.creation_date, "%Y-%m-%d"),  # type: ignore
         label="Resource First Submitted",
         activityType=Coding(
             label="submitter role",
@@ -105,7 +107,8 @@ def mavedb_modifier_contribution(
     """
     return Contribution(
         contributor=[mavedb_user_agent(modifier)],
-        date=datetime.strftime(modified_resource.modification_date, "%Y-%m-%d"),
+        # Guaranteed to be a str via DB constraints.
+        date=datetime.strftime(modified_resource.modification_date, "%Y-%m-%d"),  # type: ignore
         label="Resource Last Updated",
         activityType=Coding(
             label="modifier role",
