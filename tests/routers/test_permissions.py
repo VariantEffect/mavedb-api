@@ -1,3 +1,4 @@
+from mavedb.lib.permissions import Action
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
@@ -64,10 +65,8 @@ def test_cannot_get_permission_with_wrong_action_in_experiment_set(client, setup
 
     assert response.status_code == 422
     response_data = response.json()
-    assert (
-        response_data["detail"][0]["msg"] == "value is not a valid enumeration member; permitted: 'lookup', 'read', "
-        "'update', 'delete', 'add_experiment', 'add_score_set', 'set_scores', 'add_role', 'publish', 'add_badge'"
-    )
+    assert "Input should be" in response_data["detail"][0]["msg"]
+    assert all(action in response_data["detail"][0]["msg"] for action in (a.value for a in Action))
 
 
 def test_cannot_get_permission_with_non_existing_experiment_set(client, setup_router_db):
@@ -208,10 +207,8 @@ def test_cannot_get_permission_with_wrong_action_in_experiment(client, setup_rou
 
     assert response.status_code == 422
     response_data = response.json()
-    assert (
-        response_data["detail"][0]["msg"] == "value is not a valid enumeration member; permitted: 'lookup', 'read', "
-        "'update', 'delete', 'add_experiment', 'add_score_set', 'set_scores', 'add_role', 'publish', 'add_badge'"
-    )
+    assert "Input should be" in response_data["detail"][0]["msg"]
+    assert all(action in response_data["detail"][0]["msg"] for action in (a.value for a in Action))
 
 
 def test_cannot_get_permission_with_non_existing_experiment(client, setup_router_db):
@@ -344,10 +341,8 @@ def test_cannot_get_permission_with_wrong_action_in_score_set(client, setup_rout
 
     assert response.status_code == 422
     response_data = response.json()
-    assert (
-        response_data["detail"][0]["msg"] == "value is not a valid enumeration member; permitted: 'lookup', 'read', "
-        "'update', 'delete', 'add_experiment', 'add_score_set', 'set_scores', 'add_role', 'publish', 'add_badge'"
-    )
+    assert "Input should be" in response_data["detail"][0]["msg"]
+    assert all(action in response_data["detail"][0]["msg"] for action in (a.value for a in Action))
 
 
 def test_cannot_get_permission_with_non_existing_score_set(client, setup_router_db):
@@ -365,6 +360,6 @@ def test_cannot_get_permission_with_non_existing_item(client, setup_router_db):
     assert response.status_code == 422
     response_data = response.json()
     assert (
-        response_data["detail"][0]["msg"] == "value is not a valid enumeration member; permitted: "
-        "'collection', 'experiment', 'experiment-set', 'score-set'"
+        response_data["detail"][0]["msg"]
+        == "Input should be 'collection', 'experiment', 'experiment-set' or 'score-set'"
     )
