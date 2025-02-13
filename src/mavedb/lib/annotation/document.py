@@ -30,7 +30,7 @@ def experiment_to_document(experiment: Experiment) -> Document:
         id=experiment.urn,
         label="MaveDB experiment",
         title=experiment.title,
-        urls=[experiment_as_iri(experiment)],
+        urls=[experiment_as_iri(experiment).root],
     )
 
 
@@ -51,7 +51,7 @@ def score_set_to_document(score_set: ScoreSet) -> Document:
         id=score_set.urn,
         label="MaveDB score set",
         title=score_set.title,
-        urls=[score_set_as_iri(score_set)],
+        urls=[score_set_as_iri(score_set).root],
     )
 
 
@@ -62,7 +62,7 @@ def variant_as_iri(variant: Variant) -> IRI:
     """
     # TODO: We should decide if this should instead link to the variant measurement page.
     # TODO(#372): nullable URN.
-    return f"https://mavedb.org/score-sets/{variant.score_set.urn}?variant={urllib.parse.quote_plus(variant.urn)}"  # type: ignore
+    return IRI(f"https://mavedb.org/score-sets/{variant.score_set.urn}?variant={urllib.parse.quote_plus(variant.urn)}")  # type: ignore
 
 
 def variant_to_document(variant: Variant) -> Document:
@@ -73,5 +73,5 @@ def variant_to_document(variant: Variant) -> Document:
     return Document(
         id=variant.urn,
         label="MaveDB variant",
-        urls=[variant_as_iri(variant)],
+        urls=[variant_as_iri(variant).root],
     )
