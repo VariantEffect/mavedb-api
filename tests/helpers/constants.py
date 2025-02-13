@@ -761,7 +761,7 @@ TEST_SCORE_CALIBRATION = {
         },
     ],
     "evidence_strengths": [8, 4, 2, 1, -1, -2, -4, -8],
-    "thresholds": [8, 4, 2, 1, -1, -2, -4, -8],
+    "thresholds": [8, 4, 2, 0.1, -0.1, -2, -4, -8],
     "positive_likelihood_ratios": [1000, 100, 10, 1, 0.1, 0.01, 0.001, 0.0001],
     "prior_probability_pathogenicity": 0.20,
 }
@@ -776,7 +776,7 @@ TEST_SAVED_SCORE_CALIBRATION = {
         },
     ],
     "evidenceStrengths": [8, 4, 2, 1, -1, -2, -4, -8],
-    "thresholds": [8, 4, 2, 1, -1, -2, -4, -8],
+    "thresholds": [8, 4, 2, 0.1, -0.1, -2, -4, -8],
     "positiveLikelihoodRatios": [1000, 100, 10, 1, 0.1, 0.01, 0.001, 0.0001],
     "priorProbabilityPathogenicity": 0.20,
 }
