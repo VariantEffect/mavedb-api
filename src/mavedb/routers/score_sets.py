@@ -3,7 +3,6 @@ from datetime import date
 from typing import Any, List, Optional
 
 import pandas as pd
-import pydantic
 from arq import ArqRedis
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
@@ -23,7 +22,7 @@ from mavedb.lib.authorization import (
     RoleRequirer,
 )
 from mavedb.lib.contributors import find_or_create_contributor
-from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError, ValidationError
+from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError
 from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
     find_or_create_doi_identifier,
@@ -502,10 +501,7 @@ async def create_score_set(
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise pydantic.ValidationError(
-            [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
-            model=score_set.ScoreSetCreate,
-        )
+        raise HTTPException(status_code=422, detail=str(e))
 
     doi_identifiers = [
         await find_or_create_doi_identifier(db, identifier.identifier)
@@ -739,7 +735,7 @@ async def update_score_set_calibration_data(
 
     assert_permission(user_data, item, Action.UPDATE)
 
-    item.score_calibrations = {k: v.dict() for k, v in calibration_update.items()}
+    item.score_calibrations = calibration_update
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -832,10 +828,7 @@ async def update_score_set(
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise pydantic.ValidationError(
-            [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
-            model=score_set.ScoreSetUpdate,
-        )
+        raise HTTPException(status_code=422, detail=str(e))
 
     # Score set has not been published and attributes affecting scores may still be edited.
     if item.private:

@@ -11,6 +11,7 @@ from sqlalchemy.exc import NoResultFound
 
 from mavedb.lib.score_sets import columns_for_dataset, create_variants, create_variants_data, csv_data_to_df
 from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_pair
+from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
@@ -310,6 +311,10 @@ def add_thresholds_to_score_set(client, score_set_urn, thresholds):
 
 async def awaitable_exception():
     return Exception()
+
+
+def callable_nonexistent_orcid_user_exception():
+    raise NonexistentOrcidUserError()
 
 
 def update_expected_response_for_created_resources(expected_response, created_experiment, created_score_set):

@@ -8,6 +8,7 @@ import pytest
 import requests
 import requests_mock
 
+from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
@@ -83,6 +84,22 @@ def test_create_experiment_with_contributor(client, setup_router_db):
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
+
+
+def test_cannot_create_experiment_with_nonexistent_contributor(client, setup_router_db):
+    experiment = deepcopy(TEST_MINIMAL_EXPERIMENT)
+    experiment.update({"contributors": [{"orcid_id": TEST_ORCID_ID}]})
+
+    with patch(
+        "mavedb.lib.orcid.fetch_orcid_user",
+        side_effect=NonexistentOrcidUserError(f"No ORCID user was found for ORCID ID {TEST_ORCID_ID}."),
+    ):
+        response = client.post("/api/v1/experiments/", json=experiment)
+
+    assert response.status_code == 422
+    response_data = response.json()
+
+    assert "No ORCID user was found for ORCID ID 1111-1111-1111-1111." in response_data["detail"]
 
 
 def test_create_experiment_with_keywords(session, client, setup_router_db):
@@ -584,6 +601,50 @@ def test_can_edit_private_experiment(client, setup_router_db, test_field, test_v
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=Experiment.model_json_schema())
     assert (test_field, response_data[test_field]) == (test_field, test_value)
+
+
+def test_can_add_contributor_to_own_private_experiment(client, setup_router_db):
+    experiment = create_experiment(client)
+    experiment_post_payload = experiment.copy()
+    experiment_post_payload.update({"contributors": [{"orcid_id": TEST_ORCID_ID}]})
+
+    with patch(
+        "mavedb.lib.orcid.fetch_orcid_user",
+        lambda orcid_id: OrcidUser(orcid_id=orcid_id, given_name="ORCID", family_name="User"),
+    ):
+        response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
+
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=Experiment.model_json_schema())
+    assert ("contributors", response_data["contributors"]) == (
+        "contributors",
+        [
+            {
+                "recordType": "Contributor",
+                "orcidId": TEST_ORCID_ID,
+                "givenName": "ORCID",
+                "familyName": "User",
+            }
+        ],
+    )
+
+
+def test_cannot_add_nonexistent_contributor_to_experiment(client, setup_router_db):
+    experiment = create_experiment(client)
+    experiment_post_payload = experiment.copy()
+    experiment_post_payload.update({"contributors": [{"orcid_id": TEST_ORCID_ID}]})
+
+    with patch(
+        "mavedb.lib.orcid.fetch_orcid_user",
+        side_effect=NonexistentOrcidUserError(f"No ORCID user was found for ORCID ID {TEST_ORCID_ID}."),
+    ):
+        response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
+
+    assert response.status_code == 422
+    response_data = response.json()
+
+    assert "No ORCID user was found for ORCID ID 1111-1111-1111-1111." in response_data["detail"]
 
 
 @pytest.mark.parametrize(
