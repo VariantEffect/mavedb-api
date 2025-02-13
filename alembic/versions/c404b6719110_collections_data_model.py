@@ -1,7 +1,7 @@
 """Collections data model
 
 Revision ID: c404b6719110
-Revises: 2b6f40ea2fb6
+Revises: aa73d39b3705
 Create Date: 2024-10-15 12:57:29.682271
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "c404b6719110"
-down_revision = "2b6f40ea2fb6"
+down_revision = "aa73d39b3705"
 branch_labels = None
 depends_on = None
 
