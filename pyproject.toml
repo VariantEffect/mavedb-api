@@ -93,6 +93,7 @@ server = ["alembic", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptogra
 plugins = [
     "sqlalchemy.ext.mypy.plugin",
     "numpy.typing.mypy_plugin",
+    "pydantic.mypy",
 ]
 mypy_path = "mypy_stubs"
 
