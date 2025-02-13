@@ -25,7 +25,7 @@ CLINICAL_GUIDELINES_URL = "https://pubmed.ncbi.nlm.nih.gov/29785012/"
 
 
 def test_publication_as_iri(mock_publication):
-    assert publication_as_iri(mock_publication) == mock_publication.url
+    assert publication_as_iri(mock_publication).root == mock_publication.url
 
 
 def test_publication_as_iri_no_url(mock_publication):
@@ -74,7 +74,7 @@ def test_nonexistent_primary_publication_identifiers_to_method(mock_publication)
 
 
 def test_mavedb_api_releases_as_iri():
-    assert mavedb_api_releases_as_iri() == MAVEDB_API_RELEASES_URL
+    assert mavedb_api_releases_as_iri().root == MAVEDB_API_RELEASES_URL
 
 
 def test_mavedb_api_as_method():
@@ -85,7 +85,7 @@ def test_mavedb_api_as_method():
 
 
 def test_mavedb_vrs_releases_as_iri():
-    assert mavedb_vrs_releases_as_iri() == MAVEDB_MAPPER_RELEASES_URL
+    assert mavedb_vrs_releases_as_iri().root == MAVEDB_MAPPER_RELEASES_URL
 
 
 def test_mavedb_vrs_as_method():
@@ -96,7 +96,7 @@ def test_mavedb_vrs_as_method():
 
 
 def test_pillar_project_calibrations_as_iri():
-    assert pillar_project_calibrations_as_iri() == MAVEDB_CALIBRATION_URL
+    assert pillar_project_calibrations_as_iri().root == MAVEDB_CALIBRATION_URL
 
 
 def test_pillar_project_calibration_method():
@@ -107,7 +107,7 @@ def test_pillar_project_calibration_method():
 
 
 def test_variant_interpretation_functional_guideline_as_iri():
-    assert variant_interpretation_functional_guideline_as_iri() == FUNCITONAL_GUIDELINES_URL
+    assert variant_interpretation_functional_guideline_as_iri().root == FUNCITONAL_GUIDELINES_URL
 
 
 def test_variant_interpretation_functional_guideline_method():
@@ -118,7 +118,7 @@ def test_variant_interpretation_functional_guideline_method():
 
 
 def test_variant_interpretation_clinical_guideline_as_iri():
-    assert variant_interpretation_clinical_guideline_as_iri() == CLINICAL_GUIDELINES_URL
+    assert variant_interpretation_clinical_guideline_as_iri().root == CLINICAL_GUIDELINES_URL
 
 
 def test_variant_interpretation_clinical_guideline_method():
