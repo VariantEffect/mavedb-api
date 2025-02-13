@@ -48,7 +48,7 @@ def test_mapped_variant_to_functional_classification_statement(mock_mapped_varia
     assert isinstance(result, AssayVariantEffectFunctionalClassificationStatement)
     assert result.classification == classification
     assert result.subjectVariant == MolecularVariation(**TEST_VALID_POST_MAPPED_VRS_ALLELE)
-    assert experiment_as_iri(mock_mapped_variant.variant.score_set.experiment) == result.objectAssay.root
+    assert experiment_as_iri(mock_mapped_variant.variant.score_set.experiment) == result.objectAssay
     assert len(result.reportedIn) > 0
     assert variant_to_document(mock_mapped_variant.variant) in result.reportedIn
     assert score_set_to_document(mock_mapped_variant.variant.score_set) in result.reportedIn
@@ -90,7 +90,7 @@ def test_mapped_variant_to_clinical_classification_statement(mock_mapped_variant
     assert isinstance(result, AssayVariantEffectClinicalClassificationStatement)
     assert result.classification == classification
     assert result.subjectVariant == MolecularVariation(**TEST_VALID_POST_MAPPED_VRS_ALLELE)
-    assert experiment_as_iri(mock_mapped_variant.variant.score_set.experiment) == result.objectAssay.root
+    assert experiment_as_iri(mock_mapped_variant.variant.score_set.experiment) == result.objectAssay
     assert len(result.reportedIn) > 0
     assert variant_to_document(mock_mapped_variant.variant) in result.reportedIn
     assert score_set_to_document(mock_mapped_variant.variant.score_set) in result.reportedIn
@@ -136,15 +136,13 @@ def test_annotation_for_variant(mock_mapped_variant):
     ):
         result = annotation_for_variant(mock_mapped_variant)
         assert isinstance(result, dict)
-        assert result[mock_mapped_variant.variant.urn]["AssayVariantEffectMeasurementStudyResult"].score == 1.0
+        assert result[mock_mapped_variant.variant.urn].AssayVariantEffectMeasurementStudyResult.score == 1.0
         assert (
-            result[mock_mapped_variant.variant.urn][
-                "AssayVariantEffectFunctionalClassificationStatement"
-            ].classification
+            result[mock_mapped_variant.variant.urn].AssayVariantEffectFunctionalClassificationStatement.classification
             == functional_classification
         )
         assert (
-            result[mock_mapped_variant.variant.urn]["AssayVariantEffectClinicalClassificationStatement"].classification
+            result[mock_mapped_variant.variant.urn].AssayVariantEffectClinicalClassificationStatement.classification
             == clinical_classification
         )
 
@@ -162,6 +160,6 @@ def test_annotation_for_variant_with_no_classifications(mock_mapped_variant):
     ):
         result = annotation_for_variant(mock_mapped_variant)
         assert isinstance(result, dict)
-        assert result[mock_mapped_variant.variant.urn]["AssayVariantEffectMeasurementStudyResult"].score == 1.0
-        assert result[mock_mapped_variant.variant.urn]["AssayVariantEffectFunctionalClassificationStatement"] is None
-        assert result[mock_mapped_variant.variant.urn]["AssayVariantEffectClinicalClassificationStatement"] is None
+        assert result[mock_mapped_variant.variant.urn].AssayVariantEffectMeasurementStudyResult.score == 1.0
+        assert result[mock_mapped_variant.variant.urn].AssayVariantEffectFunctionalClassificationStatement is None
+        assert result[mock_mapped_variant.variant.urn].AssayVariantEffectClinicalClassificationStatement is None
