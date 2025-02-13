@@ -785,7 +785,8 @@ async def update_score_set_calibration_data(
 
     assert_permission(user_data, item, Action.UPDATE)
 
-    item.score_calibrations = calibration_update
+    # Convert underlying validated pydantic model objects to their dictionary representation.
+    item.score_calibrations = {k: v.dict() for k, v in calibration_update.items()}  # type: ignore
     db.add(item)
     db.commit()
     db.refresh(item)
