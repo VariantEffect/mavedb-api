@@ -1,6 +1,6 @@
 from datetime import date
-from typing import Any, Optional, Sequence
-from typing_extensions import Self
+from typing import Any, Optional, Sequence, Literal
+from typing_extensions import TypedDict, Self
 
 from pydantic import model_validator
 
@@ -16,6 +16,19 @@ from mavedb.view_models.target_sequence import (
     TargetSequence,
     TargetSequenceCreate,
 )
+
+
+class ReferenceSequence(TypedDict):
+    sequence_type: str
+    sequence_id: str
+
+
+class PreMappedReferenceSequence(ReferenceSequence):
+    pass
+
+
+class PostMappedReferenceSequence(ReferenceSequence):
+    sequence_accessions: list[str]
 
 
 class TargetGeneBase(BaseModel):
@@ -60,7 +73,8 @@ class SavedTargetGene(TargetGeneBase):
     target_sequence: Optional[SavedTargetSequence] = None
     target_accession: Optional[SavedTargetAccession] = None
     external_identifiers: Sequence[external_gene_identifier_offset.SavedExternalGeneIdentifierOffset]
-
+    pre_mapped_metadata: Optional[dict[Literal["protein", "genomic"], PreMappedReferenceSequence]] = None
+    post_mapped_metadata: Optional[dict[Literal["protein", "genomic"], PostMappedReferenceSequence]] = None
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
