@@ -38,6 +38,7 @@ from mavedb.lib.score_sets import (
     variants_to_csv_rows,
 )
 from mavedb.lib.score_sets import (
+    fetch_superseding_score_set_in_search_result,
     search_score_sets as _search_score_sets,
     refresh_variant_urns,
 )
@@ -127,7 +128,8 @@ def search_score_sets(
     """
     Search score sets.
     """
-    return _search_score_sets(db, user_data, search)
+    score_sets = _search_score_sets(db, None, search)
+    return fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
 
 
 @router.post(
@@ -143,8 +145,8 @@ def search_my_score_sets(
     """
     Search score sets created by the current user..
     """
-    search.me = True
-    return _search_score_sets(db, user_data, search)
+    score_sets = _search_score_sets(db, user_data.user, search)
+    return fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
 
 
 @router.get(

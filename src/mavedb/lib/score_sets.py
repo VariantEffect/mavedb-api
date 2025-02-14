@@ -44,6 +44,7 @@ from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
+from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.view_models.search import ScoreSetsSearch
 
@@ -66,29 +67,19 @@ class HGVSColumns:
         return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
-def search_score_sets(db: Session, owner_or_contributor: Optional["UserData"], search: ScoreSetsSearch) -> list[ScoreSet]:
-    # Prevent circular import
-    from mavedb.lib.permissions import Action
+def search_score_sets(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
     save_to_logging_context({"score_set_search_criteria": search.dict()})
 
     query = db.query(ScoreSet)  # \
     # .filter(ScoreSet.private.is_(False))
 
-    if owner_or_contributor is not None and search.me is not None:
-        if search.me:
-            query = query.filter(
-                or_(
-                    ScoreSet.created_by_id == owner_or_contributor.user.id,
-                    ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.user.username),
-                )
+    if owner_or_contributor is not None:
+        query = query.filter(
+            or_(
+                ScoreSet.created_by_id == owner_or_contributor.id,
+                ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.username),
             )
-        else:
-            query = query.filter(
-                and_(
-                    ScoreSet.created_by_id != owner_or_contributor.user.id,
-                    ~ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.user.username),
-                )
-            )
+        )
 
     if search.published is not None:
         if search.published:
@@ -264,45 +255,48 @@ def search_score_sets(db: Session, owner_or_contributor: Optional["UserData"], s
         .order_by(Experiment.title)
         .all()
     )
-    print(score_sets)
-    # Remove superseded score set
     if not score_sets:
-        print("if no score set")
-        final_score_sets: list[ScoreSet] = []
-    else:
-        if search.published:
-            filtered_score_sets_tail = [
-                find_publish_or_private_superseded_score_set_tail(
-                    score_set,
-                    Action.READ,
-                    owner_or_contributor,
-                    search.published
-                ) for score_set in score_sets
-            ]
-        else:
-            print("filtered_tail")
-            filtered_score_sets_tail = [
-                find_superseded_score_set_tail(
-                    score_set,
-                    Action.READ,
-                    owner_or_contributor
-                ) for score_set in score_sets
-            ]
-        print(len(filtered_score_sets_tail))
-        # Remove None item.
-        filtered_score_sets = [score_set for score_set in filtered_score_sets_tail if score_set is not None]
-        print(len(filtered_score_sets))
-        if filtered_score_sets:
-            final_score_sets = sorted(set(filtered_score_sets), key=attrgetter("urn"))
-            for f in filtered_score_sets:
-                print(f.urn)
-        else:
-            final_score_sets = []
+        score_sets = []
 
-    save_to_logging_context({"matching_resources": len(final_score_sets)})
-    logger.debug(msg=f"Score set search yielded {len(final_score_sets)} matching resources.", extra=logging_context())
-    print(len(final_score_sets))
-    return final_score_sets  # filter_visible_score_sets(score_sets)
+    save_to_logging_context({"matching_resources": len(score_sets)})
+    logger.debug(msg=f"Score set search yielded {len(score_sets)} matching resources.", extra=logging_context())
+
+    return score_sets  # filter_visible_score_sets(score_sets)
+
+
+def fetch_superseding_score_set_in_search_result(
+    score_sets: list[ScoreSet],
+    requesting_user: Optional["UserData"],
+    search: ScoreSetsSearch) -> list[ScoreSet]:
+    """
+    Remove superseded score set from search results.
+    Check whether all of the score set are correct versions.
+    """
+    from mavedb.lib.permissions import Action
+    if search.published:
+        filtered_score_sets_tail = [
+            find_publish_or_private_superseded_score_set_tail(
+                score_set,
+                Action.READ,
+                requesting_user,
+                search.published
+            ) for score_set in score_sets
+        ]
+    else:
+        filtered_score_sets_tail = [
+            find_superseded_score_set_tail(
+                score_set,
+                Action.READ,
+                requesting_user
+            ) for score_set in score_sets
+        ]
+    # Remove None item.
+    filtered_score_sets = [score_set for score_set in filtered_score_sets_tail if score_set is not None]
+    if filtered_score_sets:
+        final_score_sets = sorted(set(filtered_score_sets), key=attrgetter("urn"))
+    else:
+        final_score_sets = []
+    return final_score_sets
 
 
 def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list[ScoreSet]:
