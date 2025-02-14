@@ -34,6 +34,8 @@ from tests.helpers.constants import (
     SAVED_EXTRA_CONTRIBUTOR,
     SAVED_PUBMED_PUBLICATION,
     SAVED_SHORT_EXTRA_LICENSE,
+    TEST_SCORE_CALIBRATION,
+    TEST_SAVED_SCORE_CALIBRATION,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util import (
@@ -1071,6 +1073,7 @@ def test_publish_single_score_set_meta_analysis(session, data_provider, client, 
     )
 
     meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set["urn"]), re.Match)
     assert meta_score_set["urn"] == "urn:mavedb:00000001-0-1"
 
 
@@ -1101,6 +1104,7 @@ def test_multiple_score_set_meta_analysis_single_experiment(
     assert score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
 
     meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set["urn"]), re.Match)
     assert meta_score_set["urn"] == "urn:mavedb:00000001-0-1"
 
 
@@ -1132,6 +1136,7 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets(
     assert score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
 
     meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set["urn"]), re.Match)
     assert meta_score_set["urn"] == "urn:mavedb:00000003-0-1"
 
 
@@ -1165,6 +1170,7 @@ def test_multiple_score_set_meta_analysis_multiple_experiments(
     assert score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
 
     meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set["urn"]), re.Match)
     assert meta_score_set["urn"] == "urn:mavedb:00000001-0-1"
 
 
@@ -1254,7 +1260,125 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_different_sco
     assert meta_score_set_2["urn"] == "urn:mavedb:00000003-0-2"
     meta_score_set_3 = (client.post(f"/api/v1/score-sets/{meta_score_set_3['urn']}/publish")).json()
     assert meta_score_set_3["urn"] == "urn:mavedb:00000003-0-3"
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set_1["urn"]), re.Match)
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set_2["urn"]), re.Match)
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set_3["urn"]), re.Match)
 
+
+def test_cannot_add_score_set_to_meta_analysis_experiment(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    score_set_1 = (client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish")).json()
+    meta_score_set_1 = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        None,
+        data_files / "scores.csv",
+        update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [score_set_1["urn"]]},
+    )
+
+    meta_score_set_1 = (client.post(f"/api/v1/score-sets/{meta_score_set_1['urn']}/publish")).json()
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set_1["urn"]), re.Match)
+    score_set_2 = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_2["experimentUrn"] = meta_score_set_1['experiment']['urn']
+    jsonschema.validate(instance=score_set_2, schema=ScoreSetCreate.schema())
+
+    response = client.post("/api/v1/score-sets/", json=score_set_2)
+    response_data = response.json()
+    assert response.status_code == 403
+    assert "Score sets may not be added to a meta-analysis experiment." in response_data["detail"]
+
+
+def test_create_single_score_set_meta_analysis_to_others_score_set(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    score_set = (client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")).json()
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+    meta_score_set = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        None,
+        data_files / "scores.csv",
+        update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [score_set["urn"]]},
+    )
+
+    score_set_refresh = (client.get(f"/api/v1/score-sets/{score_set['urn']}")).json()
+    assert meta_score_set["metaAnalyzesScoreSetUrns"] == [score_set["urn"]]
+    assert score_set_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(meta_score_set["urn"]), re.Match)
+
+
+def test_multiple_score_set_meta_analysis_single_experiment_with_different_creator(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv", update={"title": "Score Set 1"}
+    )
+    score_set_2 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv", update={"title": "Score Set 2"}
+    )
+
+    score_set_1 = (client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish")).json()
+    score_set_2 = (client.post(f"/api/v1/score-sets/{score_set_2['urn']}/publish")).json()
+
+    change_ownership(session, score_set_2["urn"], ScoreSetDbModel)
+    meta_score_set = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        None,
+        data_files / "scores.csv",
+        update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [score_set_1["urn"], score_set_2["urn"]]},
+    )
+    score_set_1_refresh = (client.get(f"/api/v1/score-sets/{score_set_1['urn']}")).json()
+    assert meta_score_set["metaAnalyzesScoreSetUrns"] == sorted([score_set_1["urn"], score_set_2["urn"]])
+    assert score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
+
+    meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
+    assert meta_score_set["urn"] == "urn:mavedb:00000001-0-1"
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set["urn"]), re.Match)
+
+
+def test_multiple_score_set_meta_analysis_multiple_experiment_sets_with_different_creator(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment_1 = create_experiment(client, {"title": "Experiment 1"})
+    experiment_2 = create_experiment(client, {"title": "Experiment 2"})
+    score_set_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment_1["urn"], data_files / "scores.csv", update={"title": "Score Set 1"}
+    )
+    score_set_2 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment_2["urn"], data_files / "scores.csv", update={"title": "Score Set 2"}
+    )
+
+    score_set_1 = (client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish")).json()
+    score_set_2 = (client.post(f"/api/v1/score-sets/{score_set_2['urn']}/publish")).json()
+
+    change_ownership(session, score_set_2["urn"], ScoreSetDbModel)
+    meta_score_set = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        None,
+        data_files / "scores.csv",
+        update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [score_set_1["urn"], score_set_2["urn"]]},
+    )
+    score_set_1_refresh = (client.get(f"/api/v1/score-sets/{score_set_1['urn']}")).json()
+    assert meta_score_set["metaAnalyzesScoreSetUrns"] == sorted([score_set_1["urn"], score_set_2["urn"]])
+    assert score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
+
+    meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
+    assert meta_score_set["urn"] == "urn:mavedb:00000003-0-1"
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set["urn"]), re.Match)
 
 ########################################################################################################################
 # Score set search
@@ -1784,6 +1908,7 @@ def test_can_modify_metadata_for_score_set_with_inactive_license(session, client
     response_data = response.json()
     assert ("title", response_data["title"]) == ("title", "Update title")
 
+
 ########################################################################################################################
 # Supersede score set
 ########################################################################################################################
@@ -1894,3 +2019,118 @@ def test_show_correct_score_set_version_with_superseded_score_set_to_its_owner(s
     score_set = score_set_response.json()
     assert score_set_response.status_code == 200
     assert score_set["urn"] == superseding_score_set["urn"]
+    
+
+def test_anonymous_user_cannot_add_score_calibrations_to_score_set(client, setup_router_db, anonymous_app_overrides):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    calibration_payload = deepcopy(TEST_SCORE_CALIBRATION)
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/calibration/data", json={"test_calibrations": calibration_payload}
+        )
+        response_data = response.json()
+
+    assert response.status_code == 401
+    assert "score_calibrations" not in response_data
+
+
+def test_user_cannot_add_score_calibrations_to_own_score_set(client, setup_router_db, anonymous_app_overrides):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    calibration_payload = deepcopy(TEST_SCORE_CALIBRATION)
+
+    response = client.post(
+        f"/api/v1/score-sets/{score_set['urn']}/calibration/data", json={"test_calibrations": calibration_payload}
+    )
+    response_data = response.json()
+
+    assert response.status_code == 401
+    assert "score_calibrations" not in response_data
+
+
+def test_admin_can_add_score_calibrations_to_score_set(client, setup_router_db, admin_app_overrides):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    calibration_payload = deepcopy(TEST_SCORE_CALIBRATION)
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/calibration/data", json={"test_calibrations": calibration_payload}
+        )
+        response_data = response.json()
+
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
+    )
+    expected_response["scoreCalibrations"] = {"test_calibrations": deepcopy(TEST_SAVED_SCORE_CALIBRATION)}
+
+    assert response.status_code == 200
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+
+
+def test_score_set_not_found_for_non_existent_score_set_when_adding_score_calibrations(
+    client, setup_router_db, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    calibration_payload = deepcopy(TEST_SCORE_CALIBRATION)
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']+'xxx'}/calibration/data",
+            json={"test_calibrations": calibration_payload},
+        )
+        response_data = response.json()
+
+    assert response.status_code == 404
+    assert "score_calibrations" not in response_data
+
+
+########################################################################################################################
+# Score set download files
+########################################################################################################################
+
+# Test file doesn't have hgvs_splice so its values are all NA.
+def test_download_scores_file(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    publish_score_set = publish_score_set_response.json()
+    print(publish_score_set)
+
+    download_scores_csv_response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_na_columns=true")
+    assert download_scores_csv_response.status_code == 200
+    download_scores_csv = download_scores_csv_response.text
+    csv_header = download_scores_csv.split("\n")[0]
+    columns = csv_header.split(",")
+    assert "hgvs_nt" in columns
+    assert "hgvs_pro" in columns
+    assert "hgvs_splice" not in columns
+
+
+def test_download_counts_file(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"],
+        scores_csv_path=data_files / "scores.csv",
+        counts_csv_path = data_files / "counts.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    publish_score_set = publish_score_set_response.json()
+
+    download_counts_csv_response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/counts?drop_na_columns=true")
+    assert download_counts_csv_response.status_code == 200
+    download_counts_csv = download_counts_csv_response.text
+    csv_header = download_counts_csv.split("\n")[0]
+    columns = csv_header.split(",")
+    assert "hgvs_nt" in columns
+    assert "hgvs_pro" in columns
+    assert "hgvs_splice" not in columns

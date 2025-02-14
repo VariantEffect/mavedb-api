@@ -9,13 +9,18 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy import or_
-from sqlalchemy.exc import MultipleResultsFound
+from sqlalchemy import or_, select
+from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.authentication import UserData
-from mavedb.lib.authorization import get_current_user, require_current_user, require_current_user_with_email
+from mavedb.lib.authorization import (
+    get_current_user,
+    require_current_user,
+    require_current_user_with_email,
+    RoleRequirer,
+)
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError, ValidationError
 from mavedb.lib.identifiers import (
@@ -50,6 +55,7 @@ from mavedb.lib.urns import (
 )
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
@@ -58,7 +64,7 @@ from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
-from mavedb.view_models import mapped_variant, score_set
+from mavedb.view_models import mapped_variant, score_set, calibration
 from mavedb.view_models.search import ScoreSetsSearch
 
 logger = logging.getLogger(__name__)
@@ -185,6 +191,7 @@ def get_score_set_scores_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Number of variants to return"),
+    drop_na_columns: Optional[bool] = None,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
@@ -219,7 +226,7 @@ def get_score_set_scores_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_scores_as_csv(db, score_set, start, limit)
+    csv_str = get_score_set_scores_as_csv(db, score_set, start, limit, drop_na_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
@@ -239,6 +246,7 @@ async def get_score_set_counts_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Number of variants to return"),
+    drop_na_columns: Optional[bool] = None,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
@@ -273,7 +281,7 @@ async def get_score_set_counts_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_counts_as_csv(db, score_set, start, limit)
+    csv_str = get_score_set_counts_as_csv(db, score_set, start, limit, drop_na_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
@@ -347,8 +355,10 @@ async def create_score_set(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
         # Not allow add score set in meta-analysis experiments.
         if any(s.meta_analyzes_score_sets for s in experiment.score_sets):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                                detail="Score sets may not be added to a meta-analysis experiment.")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Score sets may not be added to a meta-analysis experiment.",
+            )
 
         save_to_logging_context({"experiment": experiment.urn})
         assert_permission(user_data, experiment, Action.ADD_SCORE_SET)
@@ -665,6 +675,43 @@ async def upload_score_set_variant_data(
     db.add(item)
     db.commit()
     db.refresh(item)
+    return item
+
+
+@router.post(
+    "/score-sets/{urn}/calibration/data",
+    response_model=score_set.ScoreSet,
+    responses={422: {}},
+    response_model_exclude_none=True,
+)
+async def update_score_set_calibration_data(
+    *,
+    urn: str,
+    calibration_update: dict[str, calibration.Calibration],
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(RoleRequirer([UserRole.admin])),
+):
+    """
+    Update thresholds / score calibrations for a score set.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "score_thresholds"})
+
+    try:
+        item = db.scalars(select(ScoreSet).where(ScoreSet.urn == urn)).one()
+    except NoResultFound:
+        logger.info(
+            msg="Failed to add score thresholds; The requested score set does not exist.", extra=logging_context()
+        )
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
+    assert_permission(user_data, item, Action.UPDATE)
+
+    item.score_calibrations = {k: v.dict() for k, v in calibration_update.items()}
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    save_to_logging_context({"updated_resource": item.urn})
     return item
 
 

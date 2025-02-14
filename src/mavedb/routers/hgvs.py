@@ -11,7 +11,7 @@ from mavedb.deps import hgvs_data_provider
 
 router = APIRouter(
     prefix="/api/v1/hgvs",
-    tags=["hgvs"],
+    tags=["transcripts"],
     responses={404: {"description": "Not found"}},
 )
 
@@ -85,7 +85,7 @@ def gene_info(gene: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)) ->
     return gene_info
 
 
-@router.get("/transcripts/gene/{gene}", status_code=200, response_model=list[str])
+@router.get("/gene/{gene}", status_code=200, response_model=list[str])
 def list_transcripts_for_gene(gene: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> list[str]:
     """
     List transcripts associated with a particular gene
@@ -98,7 +98,7 @@ def list_transcripts_for_gene(gene: str, hdp: RESTDataProvider = Depends(hgvs_da
     return list(transcripts)
 
 
-@router.get("/transcripts/{transcript}", status_code=200, response_model=dict[str, Any])
+@router.get("/{transcript}", status_code=200, response_model=dict[str, Any])
 def transcript_info(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> dict[str, Any]:
     """
     List transcript information for a particular transcript
@@ -111,7 +111,7 @@ def transcript_info(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_p
     return transcript_info
 
 
-@router.get("/transcripts/protein/{transcript}", status_code=200, response_model=str)
+@router.get("/protein/{transcript}", status_code=200, response_model=str)
 def convert_to_protein(transcript: str, hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> str:
     """
     Convert a provided transcript from it's nucleotide accession identifier to its protein accession identifier
