@@ -27,6 +27,7 @@ from tests.helpers.constants import (
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_ORCID_ID,
     TEST_PUBMED_IDENTIFIER,
+    TEST_PUBMED_URL_IDENTIFIER,
     TEST_USER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
@@ -731,7 +732,35 @@ def test_create_experiment_with_new_primary_pubmed_publication(client, setup_rou
             "publicationYear",
         ]
     )
-    # TODO: add separate tests for generating the publication url and referenceHtml
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_URL_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_create_experiment_with_new_primary_pubmed_url_publication(client, setup_router_db, mock_publication_fetch):
+    mocked_publication = mock_publication_fetch
+    response_data = create_experiment(client, {"primaryPublicationIdentifiers": [mocked_publication]})
+
+    assert len(response_data["primaryPublicationIdentifiers"]) == 1
+    assert sorted(response_data["primaryPublicationIdentifiers"][0]) == sorted(
+        [
+            "abstract",
+            "id",
+            "authors",
+            "dbName",
+            "doi",
+            "identifier",
+            "title",
+            "url",
+            "recordType",
+            "referenceHtml",
+            "publicationJournal",
+            "publicationYear",
+        ]
+    )
+    assert response_data["primaryPublicationIdentifiers"][0]["identifier"] == '37162834'
 
 
 @pytest.mark.parametrize(
@@ -972,6 +1001,58 @@ def test_search_my_experiments(session, client, setup_router_db):
     response = client.post("/api/v1/me/experiments/search", json=search_payload)
     assert response.status_code == 200
     assert response.json()[0]["title"] == experiment["title"]
+
+
+def test_search_meta_analysis_experiment(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    score_set = (client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")).json()
+    meta_score_set = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        None,
+        data_files / "scores.csv",
+        update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [score_set["urn"]]},
+    )
+
+    meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
+    score_set_refresh = (client.get(f"/api/v1/score-sets/{score_set['urn']}")).json()
+    search_payload = {"metaAnalysis": True}
+    response = client.post("/api/v1/me/experiments/search", json=search_payload)
+    assert response.status_code == 200
+    response_data = response.json()
+    assert any(item["urn"] == meta_score_set["experiment"]["urn"] for item in response_data)
+    assert all(item["urn"] != score_set_refresh["experiment"]["urn"] for item in response_data)
+
+
+def test_search_exclude_meta_analysis_experiment(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    score_set = (client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")).json()
+    meta_score_set = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        None,
+        data_files / "scores.csv",
+        update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [score_set["urn"]]},
+    )
+
+    meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
+    score_set_refresh = (client.get(f"/api/v1/score-sets/{score_set['urn']}")).json()
+    search_payload = {"metaAnalysis": False}
+    response = client.post("/api/v1/me/experiments/search", json=search_payload)
+    assert response.status_code == 200
+    response_data = response.json()
+    assert any(item["urn"] == score_set_refresh["experiment"]["urn"] for item in response_data)
+    assert all(item["urn"] != meta_score_set["experiment"]["urn"] for item in response_data)
 
 
 def test_search_score_sets_for_experiments(session, client, setup_router_db, data_files, data_provider):

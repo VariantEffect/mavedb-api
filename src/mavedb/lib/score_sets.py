@@ -22,6 +22,7 @@ from mavedb.lib.mave.constants import (
 )
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.lib.validation.constants.general import null_values_list
+from mavedb.lib.validation.utilities import is_null as validate_is_null
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
@@ -402,6 +403,7 @@ def get_score_set_counts_as_csv(
     score_set: ScoreSet,
     start: Optional[int] = None,
     limit: Optional[int] = None,
+    drop_na_columns: Optional[bool] = None,
 ) -> str:
     assert type(score_set.dataset_columns) is dict
     count_columns = [str(x) for x in list(score_set.dataset_columns.get("count_columns", []))]
@@ -420,6 +422,9 @@ def get_score_set_counts_as_csv(
     variants = db.scalars(variants_query).all()
 
     rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column)
+    if drop_na_columns:
+        rows_data, columns = drop_na_columns_from_csv_file_rows(rows_data, columns)
+
     stream = io.StringIO()
     writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
     writer.writeheader()
@@ -432,6 +437,7 @@ def get_score_set_scores_as_csv(
     score_set: ScoreSet,
     start: Optional[int] = None,
     limit: Optional[int] = None,
+    drop_na_columns: Optional[bool] = None,
 ) -> str:
     assert type(score_set.dataset_columns) is dict
     score_columns = [str(x) for x in list(score_set.dataset_columns.get("score_columns", []))]
@@ -450,11 +456,36 @@ def get_score_set_scores_as_csv(
     variants = db.scalars(variants_query).all()
 
     rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column)
+    if drop_na_columns:
+        rows_data, columns = drop_na_columns_from_csv_file_rows(rows_data, columns)
+
     stream = io.StringIO()
     writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
     writer.writeheader()
     writer.writerows(rows_data)
     return stream.getvalue()
+
+
+def drop_na_columns_from_csv_file_rows(
+    rows_data: Iterable[dict[str, Any]],
+    columns: list[str]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Process rows_data for downloadable CSV by removing empty columns."""
+    # Convert map to list.
+    rows_data = list(rows_data)
+    columns_to_check = ["hgvs_nt", "hgvs_splice", "hgvs_pro"]
+    columns_to_remove = []
+
+    # Check if all values in a column are None or "NA"
+    for col in columns_to_check:
+        if all(validate_is_null(row[col]) for row in rows_data):
+            columns_to_remove.append(col)
+            for row in rows_data:
+                row.pop(col, None)  # Remove column from each row
+
+    # Remove these columns from the header list
+    columns = [col for col in columns if col not in columns_to_remove]
+    return rows_data, columns
 
 
 null_values_re = re.compile(r"\s+|none|nan|na|undefined|n/a|null|nil", flags=re.IGNORECASE)
