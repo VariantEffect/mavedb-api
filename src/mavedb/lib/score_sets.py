@@ -8,7 +8,7 @@ from typing import Any, BinaryIO, Iterable, Optional, TYPE_CHECKING, Sequence
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
-from sqlalchemy import and_, Integer, cast, func, or_, select
+from sqlalchemy import Integer, cast, func, or_, select
 from sqlalchemy.orm import Session, aliased, contains_eager, joinedload, selectinload
 
 from mavedb.lib.exceptions import ValidationError
