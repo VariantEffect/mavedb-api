@@ -26,6 +26,7 @@ from tests.helpers.constants import (
     TEST_MINIMAL_EXPERIMENT_RESPONSE,
     TEST_ORCID_ID,
     TEST_PUBMED_IDENTIFIER,
+    TEST_PUBMED_URL_IDENTIFIER,
     TEST_USER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
@@ -730,7 +731,35 @@ def test_create_experiment_with_new_primary_pubmed_publication(client, setup_rou
             "publicationYear",
         ]
     )
-    # TODO: add separate tests for generating the publication url and referenceHtml
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_URL_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_create_experiment_with_new_primary_pubmed_url_publication(client, setup_router_db, mock_publication_fetch):
+    mocked_publication = mock_publication_fetch
+    response_data = create_experiment(client, {"primaryPublicationIdentifiers": [mocked_publication]})
+
+    assert len(response_data["primaryPublicationIdentifiers"]) == 1
+    assert sorted(response_data["primaryPublicationIdentifiers"][0]) == sorted(
+        [
+            "abstract",
+            "id",
+            "authors",
+            "dbName",
+            "doi",
+            "identifier",
+            "title",
+            "url",
+            "recordType",
+            "referenceHtml",
+            "publicationJournal",
+            "publicationYear",
+        ]
+    )
+    assert response_data["primaryPublicationIdentifiers"][0]["identifier"] == '37162834'
 
 
 @pytest.mark.parametrize(
