@@ -1,7 +1,7 @@
 __all__ = [
     "access_key",
     "collection",
-    "clinvar_variant",
+    "clinical_control",
     "controlled_keyword",
     "doi_identifier",
     "ensembl_identifier",

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from mavedb.models.variant import Variant
 from mavedb.models.mapped_variant import MappedVariant
-from mavedb.models.clinvar_variant import ClinvarVariant
+from mavedb.models.clinical_control import ClinicalControl
 from mavedb.scripts.environment import with_database_session
 
 logger = logging.getLogger(__name__)
@@ -91,8 +91,10 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[s
 
         variant_data = tsv_data[clinvar_allele_id]
         clinvar_variant = db.scalars(
-            select(ClinvarVariant).where(
-                ClinvarVariant.allele_id == clinvar_allele_id, ClinvarVariant.clinvar_db_version == version
+            select(ClinicalControl).where(
+                ClinicalControl.db_identifier == clinvar_allele_id,
+                ClinicalControl.db_version == version,
+                ClinicalControl.db_name == "ClinVar",
             )
         ).one_or_none()
         if clinvar_variant:
@@ -100,12 +102,13 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[s
             clinvar_variant.clinical_significance = variant_data.get("ClinicalSignificance")
             clinvar_variant.clinical_review_status = variant_data.get("ReviewStatus")
         else:
-            clinvar_variant = ClinvarVariant(
-                allele_id=clinvar_allele_id,
+            clinvar_variant = ClinicalControl(
+                db_identifier=clinvar_allele_id,
                 gene_symbol=variant_data.get("GeneSymbol"),
                 clinical_significance=variant_data.get("ClinicalSignificance"),
                 clinical_review_status=variant_data.get("ReviewStatus"),
-                clinvar_db_version=version,
+                db_version=version,
+                db_name="ClinVar",
             )
 
         db.add(clinvar_variant)
@@ -114,7 +117,7 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[s
             select(MappedVariant).join(Variant).where(Variant.clingen_allele_id == clingen_id)
         ).all()
         for variant in variants_with_clingen_allele_id:
-            variant.clinvar_variant_id = clinvar_variant.id
+            variant.clinvar_variants.append(clinvar_variant)
             db.add(variant)
 
         db.commit()
