@@ -23,7 +23,7 @@ from mavedb.lib.mave.constants import (
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.utilities import is_null as validate_is_null
-from mavedb.models.clinvar_variant import ClinvarVariant
+from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
@@ -451,16 +451,13 @@ def get_score_set_scores_as_csv(
     type_column = "score_data"
 
     # HACK: This is a poorly tested and very temporary solution to surface clinical significance and
-    # clinical review status within the CSV export in a way our front end can handle and display.
-    # current_mapped_variants_subquery = db.query(MappedVariant).filter(MappedVariant.current.is_(True)).subquery()
-    current_mapped_variants_subquery = db.query(MappedVariant).filter(MappedVariant.vrs_version == '1.3').subquery()
+    # clinical review status within the CSV export in a way our front end can handle and display. It's
+    # also quite slow.
     variants_query = (
-        select(Variant, ClinvarVariant.clinical_significance, ClinvarVariant.clinical_review_status)
-        .join(
-            current_mapped_variants_subquery, Variant.id == current_mapped_variants_subquery.c.variant_id, isouter=True
-        )
-        .join(ClinvarVariant, current_mapped_variants_subquery.c.clinvar_variant_id == ClinvarVariant.id, isouter=True)
-        .where(Variant.score_set_id == score_set.id)
+        select(Variant, ClinicalControl.clinical_significance, ClinicalControl.clinical_review_status)
+        .join(MappedVariant, ClinicalControl.mapped_variants, isouter=True)
+        .where(Variant.score_set_id == score_set.id, MappedVariant.vrs_version == "1.3")
+        # .where(Variant.score_set_id == score_set.id,MappedVariant.current.is_(True))
         .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
     )
     if start:
