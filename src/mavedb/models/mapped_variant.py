@@ -6,9 +6,10 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
+from mavedb.models.clinical_control_mapped_variant import mapped_variants_clinical_controls_association_table
 
 if TYPE_CHECKING:
-    from .clinvar_variant import ClinvarVariant
+    from .clinical_control import ClinicalControl
     from .variant import Variant
 
 
@@ -29,5 +30,8 @@ class MappedVariant(Base):
     variant_id = Column(Integer, ForeignKey("variants.id"), index=True, nullable=False)
     variant: Mapped["Variant"] = relationship("Variant", back_populates="mapped_variants")
 
-    clinvar_variant_id = Column(Integer, ForeignKey("clinvar_variants.id"), nullable=True, index=True)
-    clinvar_variant: Mapped["ClinvarVariant"] = relationship("ClinvarVariant", back_populates="mapped_variants")
+    clinical_controls: Mapped[list["ClinicalControl"]] = relationship(
+        "ClinicalControl",
+        secondary=mapped_variants_clinical_controls_association_table,
+        back_populates="mapped_variants",
+    )
