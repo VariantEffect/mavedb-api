@@ -38,7 +38,6 @@ class SavedVariant(VariantBase):
 
     id: int
     record_type: str = None  # type: ignore
-    clingen_allele_id: Optional[str]
 
     _record_type_factory = record_type_validator()(set_record_type)
 
@@ -74,6 +73,7 @@ class VariantWithMappedVariant(SavedVariantWithMappedVariant):
 
 class VariantWithScoreSet(SavedVariant):
     """Variant view model with mapped variants and score set"""
+
     score_set: "ScoreSet"
     mapped_variants: list[MappedVariant]
 
