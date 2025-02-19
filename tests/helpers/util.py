@@ -1,4 +1,5 @@
 from copy import deepcopy
+from datetime import date
 from unittest.mock import patch
 
 import cdot.hgvs.dataproviders
@@ -9,19 +10,26 @@ from sqlalchemy.exc import NoResultFound
 
 from mavedb.lib.score_sets import columns_for_dataset, create_variants, create_variants_data, csv_data_to_df
 from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_pair
+from mavedb.models.clinical_control import ClinicalControl as ClinicalControlDbModel
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.license import License
 from mavedb.models.user import User
+from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
+from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
+    TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE,
+    TEST_VALID_PRE_MAPPED_VRS_ALLELE,
+    TEST_VALID_POST_MAPPED_VRS_ALLELE,
     EXTRA_USER,
     TEST_CDOT_TRANSCRIPT,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_SEQ_SCORESET,
+    TEST_VALID_PRE_MAPPED_VRS_HAPLOTYPE,
 )
 
 
@@ -170,6 +178,31 @@ def mock_worker_variant_insertion(client, db, data_provider, score_set, scores_c
     return client.get(f"/api/v1/score-sets/{score_set['urn']}").json()
 
 
+def mock_worker_vrs_mapping(client, db, score_set, alleles=True):
+    # The mapping job is tested elsewhere, so insert mapped variants manually.
+    variants = db.scalars(
+        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
+    ).all()
+
+    # It's un-important what the contents of each mapped VRS object are, so use the same constant for each variant.
+    for variant in variants:
+        mapped_variant = MappedVariantDbModel(
+            pre_mapped=TEST_VALID_PRE_MAPPED_VRS_ALLELE if alleles else TEST_VALID_PRE_MAPPED_VRS_HAPLOTYPE,
+            post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE if alleles else TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE,
+            variant=variant,
+            vrs_version="2.0",
+            modification_date=date.today(),
+            mapped_date=date.today(),
+            mapping_api_version="pytest.0.0",
+            current=True,
+        )
+        db.add(mapped_variant)
+
+    db.commit()
+
+    return client.get(f"/api/v1/score-sets/{score_set['urn']}").json()
+
+
 def create_seq_score_set_with_variants(
     client, db, data_provider, experiment_urn, scores_csv_path, update=None, counts_csv_path=None
 ):
@@ -245,3 +278,48 @@ def update_expected_response_for_created_resources(expected_response, created_ex
     )
 
     return expected_response
+
+
+def create_seq_score_set_with_mapped_variants(
+    client, db, data_provider, experiment_urn, scores_csv_path, update=None, counts_csv_path=None
+):
+    score_set = create_seq_score_set_with_variants(
+        client, db, data_provider, experiment_urn, scores_csv_path, update, counts_csv_path
+    )
+    score_set = mock_worker_vrs_mapping(client, db, score_set)
+
+    jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
+    return score_set
+
+
+def create_acc_score_set_with_mapped_variants(
+    client, db, data_provider, experiment_urn, scores_csv_path, update=None, counts_csv_path=None
+):
+    score_set = create_acc_score_set_with_variants(
+        client, db, data_provider, experiment_urn, scores_csv_path, update, counts_csv_path
+    )
+    score_set = mock_worker_vrs_mapping(client, db, score_set)
+
+    jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
+    return score_set
+
+
+def link_clinical_controls_to_mapped_variants(db, score_set):
+    mapped_variants = db.scalars(
+        select(MappedVariantDbModel)
+        .join(VariantDbModel)
+        .join(ScoreSetDbModel)
+        .where(ScoreSetDbModel.urn == score_set["urn"])
+    ).all()
+
+    # The first mapped variant gets the clinvar control, the second gets the generic control.
+    mapped_variants[0].clinical_controls.append(
+        db.scalar(select(ClinicalControlDbModel).where(ClinicalControlDbModel.id == 1))
+    )
+    mapped_variants[1].clinical_controls.append(
+        db.scalar(select(ClinicalControlDbModel).where(ClinicalControlDbModel.id == 2))
+    )
+
+    db.add(mapped_variants[0])
+    db.add(mapped_variants[1])
+    db.commit()
