@@ -32,6 +32,7 @@ class MappedVariantUpdate(MappedVariantBase):
 class SavedMappedVariant(MappedVariantBase):
     id: int
     clinvar_variant: Sequence[SavedClinicalControl]
+    clingen_allele_id: Optional[str]
 
     record_type: str = None  # type: ignore
     _record_type_factory = record_type_validator()(set_record_type)
@@ -42,7 +43,7 @@ class SavedMappedVariant(MappedVariantBase):
 
 # Properties to return to non-admin clients
 class MappedVariant(SavedMappedVariant):
-    clinvar_variant: Optional[ClinicalControl]
+    clinvar_variant: Sequence[ClinicalControl]
 
 
 # ruff: noqa: E402
