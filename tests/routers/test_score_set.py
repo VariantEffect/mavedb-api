@@ -36,6 +36,8 @@ from tests.helpers.constants import (
     SAVED_SHORT_EXTRA_LICENSE,
     TEST_SCORE_CALIBRATION,
     TEST_SAVED_SCORE_CALIBRATION,
+    TEST_SAVED_CLINVAR_CONTROL,
+    TEST_SAVED_GENERIC_CLINICAL_CONTROL,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util import (
@@ -46,6 +48,8 @@ from tests.helpers.util import (
     create_seq_score_set,
     create_seq_score_set_with_variants,
     update_expected_response_for_created_resources,
+    create_seq_score_set_with_mapped_variants,
+    link_clinical_controls_to_mapped_variants,
 )
 
 
@@ -1284,7 +1288,7 @@ def test_cannot_add_score_set_to_meta_analysis_experiment(session, data_provider
     meta_score_set_1 = (client.post(f"/api/v1/score-sets/{meta_score_set_1['urn']}/publish")).json()
     assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set_1["urn"]), re.Match)
     score_set_2 = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
-    score_set_2["experimentUrn"] = meta_score_set_1['experiment']['urn']
+    score_set_2["experimentUrn"] = meta_score_set_1["experiment"]["urn"]
     jsonschema.validate(instance=score_set_2, schema=ScoreSetCreate.schema())
 
     response = client.post("/api/v1/score-sets/", json=score_set_2)
@@ -1293,7 +1297,9 @@ def test_cannot_add_score_set_to_meta_analysis_experiment(session, data_provider
     assert "Score sets may not be added to a meta-analysis experiment." in response_data["detail"]
 
 
-def test_create_single_score_set_meta_analysis_to_others_score_set(session, data_provider, client, setup_router_db, data_files):
+def test_create_single_score_set_meta_analysis_to_others_score_set(
+    session, data_provider, client, setup_router_db, data_files
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -1379,6 +1385,7 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_with_differen
     meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
     assert meta_score_set["urn"] == "urn:mavedb:00000003-0-1"
     assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(meta_score_set["urn"]), re.Match)
+
 
 ########################################################################################################################
 # Score set search
@@ -2019,7 +2026,7 @@ def test_show_correct_score_set_version_with_superseded_score_set_to_its_owner(s
     score_set = score_set_response.json()
     assert score_set_response.status_code == 200
     assert score_set["urn"] == superseding_score_set["urn"]
-    
+
 
 def test_anonymous_user_cannot_add_score_calibrations_to_score_set(client, setup_router_db, anonymous_app_overrides):
     experiment = create_experiment(client)
@@ -2134,3 +2141,89 @@ def test_download_counts_file(session, data_provider, client, setup_router_db, d
     assert "hgvs_nt" in columns
     assert "hgvs_pro" in columns
     assert "hgvs_splice" not in columns
+
+########################################################################################################################
+# Fetching clinical controls for a score set
+########################################################################################################################
+
+
+def test_can_fetch_current_clinical_controls_for_score_set(client, setup_router_db, session, data_provider, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinical_controls_to_mapped_variants(session, score_set)
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls")
+    assert response.status_code == 200
+
+    response_data = response.json()
+    assert len(response_data) == 2
+    for control in response_data:
+        mapped_variants = control.pop("mappedVariants")
+        assert len(mapped_variants) == 1
+        assert all(
+            control[k] in (TEST_SAVED_CLINVAR_CONTROL[k], TEST_SAVED_GENERIC_CLINICAL_CONTROL[k])
+            for k in TEST_SAVED_CLINVAR_CONTROL.keys()
+            if k != "mappedVariants"
+        )
+
+
+@pytest.mark.parametrize("clinical_control", [TEST_SAVED_CLINVAR_CONTROL, TEST_SAVED_GENERIC_CLINICAL_CONTROL])
+@pytest.mark.parametrize(
+    "parameters", [[("db", "dbName")], [("version", "dbVersion")], [("db", "dbName"), ("version", "dbVersion")]]
+)
+def test_can_fetch_current_clinical_controls_for_score_set_with_parameters(
+    client, setup_router_db, session, data_provider, data_files, clinical_control, parameters
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinical_controls_to_mapped_variants(session, score_set)
+
+    query_string = "?"
+    for param, accessor in parameters:
+        query_string += f"&{param}={clinical_control[accessor]}"
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls{query_string}")
+    assert response.status_code == 200
+
+    response_data = response.json()
+    assert len(response_data)
+    for param, accessor in parameters:
+        assert all(control[accessor] == clinical_control[accessor] for control in response_data)
+
+
+def test_cannot_fetch_clinical_controls_for_nonexistent_score_set(
+    client, setup_router_db, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinical_controls_to_mapped_variants(session, score_set)
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/clinical-controls")
+
+    assert response.status_code == 404
+    response_data = response.json()
+    assert f"score set with URN '{score_set['urn']+'xxx'}' not found" in response_data["detail"]
+
+
+def test_cannot_fetch_clinical_controls_for_score_set_when_none_exist(
+    client, setup_router_db, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls")
+
+    assert response.status_code == 404
+    response_data = response.json()
+    assert (
+        f"No clinical control variants matching the provided filters associated with score set URN {score_set['urn']} were found"
+        in response_data["detail"]
+    )
