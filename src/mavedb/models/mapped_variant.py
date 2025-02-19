@@ -30,6 +30,8 @@ class MappedVariant(Base):
     variant_id = Column(Integer, ForeignKey("variants.id"), index=True, nullable=False)
     variant: Mapped["Variant"] = relationship("Variant", back_populates="mapped_variants")
 
+    clingen_allele_id = Column(String, index=True, nullable=True)
+
     clinical_controls: Mapped[list["ClinicalControl"]] = relationship(
         "ClinicalControl",
         secondary=mapped_variants_clinical_controls_association_table,

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from fastapi.exceptions import HTTPException
 from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.permissions import Action, assert_permission, has_permission
+from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import Session, joinedload
 
@@ -11,8 +12,13 @@ from mavedb import deps
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
-from mavedb.view_models.variant import ClingenAlleleIdVariantLookupsRequest, VariantWithScoreSet, VariantWithShortScoreSet
+from mavedb.view_models.variant import (
+    ClingenAlleleIdVariantLookupsRequest,
+    VariantWithScoreSet,
+    VariantWithShortScoreSet,
+)
 
 router = APIRouter(
     prefix="/api/v1", tags=["access keys"], responses={404: {"description": "Not found"}}, route_class=LoggedRoute
@@ -28,18 +34,18 @@ def lookup_variants(
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(get_current_user),
 ):
-    variants = (
-        db.query(Variant)
-        .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment), joinedload(Variant.mapped_variants))
-        .filter(Variant.clingen_allele_id.in_(request.clingen_allele_ids))
-        .all()
-    )
-    variants[:] = [
-        variant for variant in variants if has_permission(user_data, variant.score_set, Action.READ).permitted
-    ]
+    variants = db.execute(
+        select(Variant, MappedVariant.clingen_allele_id)
+        .join(MappedVariant)
+        .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
+        .where(MappedVariant.clingen_allele_id.in_(request.clingen_allele_ids))
+    ).all()
+
     variants_by_allele_id: dict[str, list[Variant]] = {allele_id: [] for allele_id in request.clingen_allele_ids}
-    for variant in variants:
-        variants_by_allele_id[variant.clingen_allele_id].append(variant)
+
+    for variant, allele_id in variants:
+        if has_permission(user_data, variant.score_set, Action.READ).permitted:
+            variants_by_allele_id[allele_id].append(variant)
 
     return [variants_by_allele_id[allele_id] for allele_id in request.clingen_allele_ids]
 

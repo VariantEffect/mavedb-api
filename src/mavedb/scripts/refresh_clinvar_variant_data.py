@@ -13,7 +13,6 @@ from datetime import date
 from sqlalchemy import select, distinct, func
 from sqlalchemy.orm import Session
 
-from mavedb.models.variant import Variant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.scripts.environment import with_database_session
@@ -69,9 +68,9 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[s
     version = f"{month}_{year}" if month and year else f"{date.today().month}_{date.today().year}"
     logger.info(f"Fetched TSV variant data for ClinVar for {version}.")
 
-    total_variants_with_clingen_ids = db.scalar(func.count(distinct(Variant.clingen_allele_id)))
+    total_variants_with_clingen_ids = db.scalar(func.count(distinct(MappedVariant.clingen_allele_id)))
     clingen_ids = db.scalars(
-        select(distinct(Variant.clingen_allele_id)).where(Variant.clingen_allele_id.is_not(None))
+        select(distinct(MappedVariant.clingen_allele_id)).where(MappedVariant.clingen_allele_id.is_not(None))
     ).all()
 
     logger.info(f"Fetching ClinGen data for {total_variants_with_clingen_ids} variants.")
@@ -114,11 +113,11 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[s
         db.add(clinvar_variant)
 
         variants_with_clingen_allele_id = db.scalars(
-            select(MappedVariant).join(Variant).where(Variant.clingen_allele_id == clingen_id)
+            select(MappedVariant).where(MappedVariant.clingen_allele_id == clingen_id)
         ).all()
-        for variant in variants_with_clingen_allele_id:
-            variant.clinvar_variants.append(clinvar_variant)
-            db.add(variant)
+        for mapped_variant in variants_with_clingen_allele_id:
+            mapped_variant.clinical_controls.append(clinvar_variant)
+            db.add(mapped_variant)
 
         db.commit()
         logger.debug(
