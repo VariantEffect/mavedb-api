@@ -9,7 +9,7 @@ from mavedb.view_models.base.base import BaseModel
 
 
 class ClinicalControlBase(BaseModel):
-    db_identifier: int
+    db_identifier: str
     gene_symbol: str
     clinical_significance: str
     clinical_review_status: str
@@ -30,7 +30,6 @@ class SavedClinicalControl(ClinicalControlBase):
     id: int
     modification_date: date
     creation_date: date
-    mapped_variants: Sequence[SavedMappedVariant]
 
     record_type: str = None  # type: ignore
     _record_type_factory = record_type_validator()(set_record_type)
@@ -39,8 +38,16 @@ class SavedClinicalControl(ClinicalControlBase):
         orm_mode = True
 
 
+class SavedClinicalControlWithMappedVariants(SavedClinicalControl):
+    mapped_variants: Sequence[SavedMappedVariant]
+
+
 # Properties to return to non-admin clients
 class ClinicalControl(SavedClinicalControl):
+    pass
+
+
+class ClinicalControlWithMappedVariants(SavedClinicalControlWithMappedVariants):
     mapped_variants: Sequence[MappedVariant]
 
 
@@ -48,5 +55,5 @@ class ClinicalControl(SavedClinicalControl):
 from mavedb.view_models.mapped_variant import MappedVariant, SavedMappedVariant, MappedVariantCreate
 
 ClinicalControlCreate.update_forward_refs()
-SavedClinicalControl.update_forward_refs()
-ClinicalControl.update_forward_refs()
+SavedClinicalControlWithMappedVariants.update_forward_refs()
+ClinicalControlWithMappedVariants.update_forward_refs()

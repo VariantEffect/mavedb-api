@@ -5,6 +5,7 @@ from unittest.mock import patch
 import cdot.hgvs.dataproviders
 import pytest
 
+from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.user_role import UserRole
@@ -15,6 +16,8 @@ from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
 from tests.helpers.constants import (
     ADMIN_USER,
+    TEST_CLINVAR_CONTROL,
+    TEST_GENERIC_CLINICAL_CONTROL,
     EXTRA_USER,
     EXTRA_CONTRIBUTOR,
     TEST_CDOT_TRANSCRIPT,
@@ -50,6 +53,8 @@ def setup_router_db(session):
     db.add(License(**TEST_INACTIVE_LICENSE))
     db.add(License(**EXTRA_LICENSE))
     db.add(Contributor(**EXTRA_CONTRIBUTOR))
+    db.add(ClinicalControl(**TEST_CLINVAR_CONTROL))
+    db.add(ClinicalControl(**TEST_GENERIC_CLINICAL_CONTROL))
     db.bulk_save_objects([ControlledKeyword(**keyword_obj) for keyword_obj in TEST_DB_KEYWORDS])
     db.commit()
 

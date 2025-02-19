@@ -11,6 +11,15 @@ TEST_MEDRXIV_IDENTIFIER = "2021.06.22.21259265"
 TEST_CROSSREF_IDENTIFIER = "10.1371/2021.06.22.21259265"
 TEST_ORCID_ID = "1111-1111-1111-1111"
 
+TEST_GA4GH_IDENTIFIER = "ga4gh:SQ.test"
+# ^[0-9A-Za-z_\-]{32}$
+TEST_GA4GH_DIGEST = "ga4ghtest_ga4ghtest_ga4ghtest_dg"
+# ^SQ.[0-9A-Za-z_\-]{32}$
+TEST_REFGET_ACCESSION = "SQ.ga4ghtest_ga4ghtest_ga4ghtest_rg"
+TEST_SEQUENCE_LOCATION_ACCESSION = "ga4gh:SL.test"
+
+TEST_REFSEQ_IDENTIFIER = "NM_003345"
+
 VALID_ACCESSION = "NM_001637.3"
 VALID_GENE = "BRCA1"
 
@@ -34,6 +43,56 @@ SAVED_DOI_IDENTIFIER = {
     "identifier": TEST_CROSSREF_IDENTIFIER,
     "url": f"https://doi.org/{TEST_CROSSREF_IDENTIFIER}",
     "id": 1,
+}
+
+TEST_VALID_PRE_MAPPED_VRS_ALLELE = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "V"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 2,
+        "type": "SequenceLocation",
+        "start": 1,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "W"}],
+}
+
+TEST_VALID_POST_MAPPED_VRS_ALLELE = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "F"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 6,
+        "type": "SequenceLocation",
+        "start": 5,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "label": TEST_REFSEQ_IDENTIFIER,
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "D"}],
+    "expressions": [{"value": f"{TEST_REFSEQ_IDENTIFIER}:p.Asp5Phe", "syntax": "hgvs.p"}],
+}
+
+TEST_VALID_PRE_MAPPED_VRS_HAPLOTYPE = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_PRE_MAPPED_VRS_ALLELE, TEST_VALID_PRE_MAPPED_VRS_ALLELE],
+}
+
+TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE, TEST_VALID_POST_MAPPED_VRS_ALLELE],
 }
 
 TEST_USER = {
@@ -763,4 +822,56 @@ TEST_COLLECTION_RESPONSE = {
     ],
     "editors": [],
     "viewers": [],
+}
+
+TEST_CLINVAR_CONTROL = {
+    "db_identifier": "183058",
+    "gene_symbol": "PTEN",
+    "clinical_significance": "Likely benign",
+    "clinical_review_status": "criteria provided, multiple submitters, no conflicts",
+    "db_name": "ClinVar",
+    "db_version": "11_2024",
+}
+
+
+TEST_SAVED_CLINVAR_CONTROL = {
+    "recordType": "ClinicalControlWithMappedVariants",
+    "dbIdentifier": "183058",
+    "geneSymbol": "PTEN",
+    "clinicalSignificance": "Likely benign",
+    "clinicalReviewStatus": "criteria provided, multiple submitters, no conflicts",
+    "dbName": "ClinVar",
+    "dbVersion": "11_2024",
+    "mappedVariants": [],
+}
+
+
+TEST_GENERIC_CLINICAL_CONTROL = {
+    "db_identifier": "ABC123",
+    "gene_symbol": "BRCA1",
+    "clinical_significance": "benign",
+    "clinical_review_status": "lots of convincing evidence",
+    "db_name": "GenDB",
+    "db_version": "2024",
+}
+
+
+TEST_SAVED_GENERIC_CLINICAL_CONTROL = {
+    "recordType": "ClinicalControlWithMappedVariants",
+    "dbIdentifier": "ABC123",
+    "geneSymbol": "BRCA1",
+    "clinicalSignificance": "benign",
+    "clinicalReviewStatus": "lots of convincing evidence",
+    "dbName": "GenDB",
+    "dbVersion": "2024",
+    "mappedVariants": [],
+}
+
+TEST_MINIMAL_MAPPED_VARIANT = {
+    "variant_id": 1,
+    "modification_date": date.today(),
+    "vrs_version": "2.0",
+    "mapped_date": date.today(),
+    "mapping_api_version": "pytest.0.0",
+    "current": True,
 }

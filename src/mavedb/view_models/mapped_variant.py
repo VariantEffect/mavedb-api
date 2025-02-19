@@ -31,7 +31,6 @@ class MappedVariantUpdate(MappedVariantBase):
 # Properties shared by models stored in DB
 class SavedMappedVariant(MappedVariantBase):
     id: int
-    clinvar_variant: Sequence[SavedClinicalControl]
     clingen_allele_id: Optional[str]
 
     record_type: str = None  # type: ignore
@@ -41,14 +40,22 @@ class SavedMappedVariant(MappedVariantBase):
         orm_mode = True
 
 
+class SavedMappedVariantWithControls(SavedMappedVariant):
+    clinical_controls: Sequence[SavedClinicalControl]
+
+
 # Properties to return to non-admin clients
 class MappedVariant(SavedMappedVariant):
-    clinvar_variant: Sequence[ClinicalControl]
+    pass
+
+
+class MappedVariantWithControls(SavedMappedVariantWithControls):
+    clinical_controls: Sequence[ClinicalControl]
 
 
 # ruff: noqa: E402
-from mavedb.view_models.clinical_control import ClinicalControlBase, SavedClinicalControl, ClinicalControl
+from mavedb.view_models.clinical_control import ClinicalControlBase, ClinicalControl, SavedClinicalControl
 
 MappedVariantCreate.update_forward_refs()
-SavedMappedVariant.update_forward_refs()
-MappedVariant.update_forward_refs()
+SavedMappedVariantWithControls.update_forward_refs()
+MappedVariantWithControls.update_forward_refs()
