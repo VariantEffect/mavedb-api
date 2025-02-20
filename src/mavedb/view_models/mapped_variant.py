@@ -11,7 +11,7 @@ from mavedb.view_models.base.base import BaseModel
 class MappedVariantBase(BaseModel):
     pre_mapped: Optional[Any]
     post_mapped: Optional[Any]
-    variant_id: int
+    variant_urn: str
     vrs_version: Optional[str]
     error_message: Optional[str]
     modification_date: date
@@ -19,12 +19,17 @@ class MappedVariantBase(BaseModel):
     mapping_api_version: str
     current: bool
 
-
-class MappedVariantCreate(MappedVariantBase):
-    clinical_controles: Sequence[ClinicalControlBase]
+    @classmethod
+    def from_orm(cls, obj: Any):
+        obj.variant_urn = obj.variant.urn
+        return super().from_orm(obj)
 
 
 class MappedVariantUpdate(MappedVariantBase):
+    clinical_controls: Sequence[ClinicalControlBase]
+
+
+class MappedVariantCreate(MappedVariantUpdate):
     pass
 
 
