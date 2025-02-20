@@ -17,11 +17,11 @@ class ClinicalControlBase(BaseModel):
     db_name: str
 
 
-class ClinicalControlCreate(ClinicalControlBase):
+class ClinicalControlUpdate(ClinicalControlBase):
     mapped_variants: Optional[list[MappedVariantCreate]] = None
 
 
-class ClinicalControlUpdate(ClinicalControlBase):
+class ClinicalControlCreate(ClinicalControlUpdate):
     pass
 
 

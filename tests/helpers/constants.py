@@ -866,12 +866,3 @@ TEST_SAVED_GENERIC_CLINICAL_CONTROL = {
     "dbVersion": "2024",
     "mappedVariants": [],
 }
-
-TEST_MINIMAL_MAPPED_VARIANT = {
-    "variant_id": 1,
-    "modification_date": date.today(),
-    "vrs_version": "2.0",
-    "mapped_date": date.today(),
-    "mapping_api_version": "pytest.0.0",
-    "current": True,
-}
