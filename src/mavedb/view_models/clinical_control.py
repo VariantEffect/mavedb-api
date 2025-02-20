@@ -51,6 +51,11 @@ class ClinicalControlWithMappedVariants(SavedClinicalControlWithMappedVariants):
     mapped_variants: Sequence[MappedVariant]
 
 
+class ClinicalControlOptions(BaseModel):
+    # {"db_name": ["db_version", "db_version", ...]}
+    control_options: dict[str, list[str]]
+
+
 # ruff: noqa: E402
 from mavedb.view_models.mapped_variant import MappedVariant, SavedMappedVariant, MappedVariantCreate
 
