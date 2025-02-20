@@ -38,8 +38,7 @@ from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_sets import (
     csv_data_to_df,
     find_meta_analyses_for_experiment_sets,
-    get_score_set_counts_as_csv,
-    get_score_set_scores_as_csv,
+    get_score_set_variants_as_csv,
     variants_to_csv_rows,
 )
 from mavedb.lib.score_sets import (
@@ -258,7 +257,7 @@ def get_score_set_scores_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_scores_as_csv(db, score_set, start, limit, drop_na_columns)
+    csv_str = get_score_set_variants_as_csv(db, score_set, "scores", start, limit, drop_na_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
@@ -313,7 +312,7 @@ async def get_score_set_counts_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_counts_as_csv(db, score_set, start, limit, drop_na_columns)
+    csv_str = get_score_set_variants_as_csv(db, score_set, "counts", start, limit, drop_na_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
@@ -1197,6 +1196,11 @@ async def get_clinical_controls_for_score_set(
 
     clinical_controls_for_item: Sequence[ClinicalControl] = _db.scalars(clinical_controls_query).all()
 
+    for control_variant in clinical_controls_for_item:
+        control_variant.mapped_variants = [
+            mv for mv in control_variant.mapped_variants if mv.current and mv.variant.score_set_id == item.id
+        ]
+
     if not clinical_controls_for_item:
         logger.info(
             msg="No clinical control variants matching the provided filters are associated with the requested score set.",
@@ -1206,11 +1210,6 @@ async def get_clinical_controls_for_score_set(
             status_code=404,
             detail=f"No clinical control variants matching the provided filters associated with score set URN {urn} were found",
         )
-
-    for control_variant in clinical_controls_for_item:
-        control_variant.mapped_variants = [
-            mv for mv in control_variant.mapped_variants if mv.current and mv.variant.score_set_id == item.id
-        ]
 
     save_to_logging_context({"resource_count": len(clinical_controls_for_item)})
 

@@ -3,12 +3,12 @@ import io
 import logging
 import re
 from operator import attrgetter
-from typing import Any, BinaryIO, Iterable, Optional, TYPE_CHECKING, Sequence
+from typing import Any, BinaryIO, Iterable, Optional, TYPE_CHECKING, Sequence, Literal
 
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
-from sqlalchemy import Integer, cast, func, null, or_, select
+from sqlalchemy import Integer, cast, func, or_, select
 from sqlalchemy.orm import Session, aliased, contains_eager, joinedload, selectinload
 
 from mavedb.lib.exceptions import ValidationError
@@ -23,7 +23,6 @@ from mavedb.lib.mave.constants import (
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.utilities import is_null as validate_is_null
-from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
@@ -40,7 +39,6 @@ from mavedb.models.score_set import ScoreSet
 from mavedb.models.score_set_publication_identifier import (
     ScoreSetPublicationIdentifierAssociation,
 )
-from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
@@ -268,30 +266,22 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
 
 
 def fetch_superseding_score_set_in_search_result(
-    score_sets: list[ScoreSet],
-    requesting_user: Optional["UserData"],
-    search: ScoreSetsSearch) -> list[ScoreSet]:
+    score_sets: list[ScoreSet], requesting_user: Optional["UserData"], search: ScoreSetsSearch
+) -> list[ScoreSet]:
     """
     Remove superseded score set from search results.
     Check whether all of the score set are correct versions.
     """
     from mavedb.lib.permissions import Action
+
     if search.published:
         filtered_score_sets_tail = [
-            find_publish_or_private_superseded_score_set_tail(
-                score_set,
-                Action.READ,
-                requesting_user,
-                search.published
-            ) for score_set in score_sets
+            find_publish_or_private_superseded_score_set_tail(score_set, Action.READ, requesting_user, search.published)
+            for score_set in score_sets
         ]
     else:
         filtered_score_sets_tail = [
-            find_superseded_score_set_tail(
-                score_set,
-                Action.READ,
-                requesting_user
-            ) for score_set in score_sets
+            find_superseded_score_set_tail(score_set, Action.READ, requesting_user) for score_set in score_sets
         ]
     # Remove None item.
     filtered_score_sets = [score_set for score_set in filtered_score_sets_tail if score_set is not None]
@@ -347,10 +337,10 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
 
 
 def find_superseded_score_set_tail(
-        score_set: ScoreSet,
-        action: Optional["Action"] = None,
-        user_data: Optional["UserData"] = None) -> Optional[ScoreSet]:
+    score_set: ScoreSet, action: Optional["Action"] = None, user_data: Optional["UserData"] = None
+) -> Optional[ScoreSet]:
     from mavedb.lib.permissions import has_permission
+
     while score_set.superseding_score_set is not None:
         next_score_set_in_chain = score_set.superseding_score_set
 
@@ -376,47 +366,52 @@ def find_superseded_score_set_tail(
 
 
 def find_publish_or_private_superseded_score_set_tail(
-        score_set: ScoreSet,
-        action: Optional["Action"] = None,
-        user_data: Optional["UserData"] = None,
-        publish: bool = True) -> Optional[ScoreSet]:
+    score_set: ScoreSet, action: Optional["Action"] = None, user_data: Optional["UserData"] = None, publish: bool = True
+) -> Optional[ScoreSet]:
     from mavedb.lib.permissions import has_permission
+
     if publish:
         while score_set.superseding_score_set is not None:
             next_score_set_in_chain = score_set.superseding_score_set
             # Find the final published one.
-            if action is not None and has_permission(user_data, score_set, action).permitted \
-                    and next_score_set_in_chain.published_date is None:
+            if (
+                action is not None
+                and has_permission(user_data, score_set, action).permitted
+                and next_score_set_in_chain.published_date is None
+            ):
                 return score_set
             score_set = next_score_set_in_chain
     else:
         # Unpublished score set should not be superseded.
         # It should not have superseding score set, but possible have superseded score set.
-        if action is not None and score_set.published_date is None \
-                and has_permission(user_data, score_set, action).permitted:
+        if (
+            action is not None
+            and score_set.published_date is None
+            and has_permission(user_data, score_set, action).permitted
+        ):
             return score_set
         else:
             return None
     return score_set
 
 
-def get_score_set_counts_as_csv(
+def get_score_set_variants_as_csv(
     db: Session,
     score_set: ScoreSet,
+    data_type: Literal["scores", "counts"],
     start: Optional[int] = None,
     limit: Optional[int] = None,
     drop_na_columns: Optional[bool] = None,
 ) -> str:
     assert type(score_set.dataset_columns) is dict
-    count_columns = [str(x) for x in list(score_set.dataset_columns.get("count_columns", []))]
-    # HACK
-    columns = (
-        ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + count_columns + ["mavedb_clnsig", "mavedb_clnrevstat"]
-    )
-    type_column = "count_data"
+    dataset_cols = "score_columns" if data_type == "scores" else "count_columns"
+    type_column = "score_data" if data_type == "scores" else "count_data"
+
+    count_columns = [str(x) for x in list(score_set.dataset_columns.get(dataset_cols, []))]
+    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + count_columns
 
     variants_query = (
-        select(Variant, null(), null())
+        select(Variant)
         .where(Variant.score_set_id == score_set.id)
         .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
     )
@@ -424,49 +419,12 @@ def get_score_set_counts_as_csv(
         variants_query = variants_query.offset(start)
     if limit:
         variants_query = variants_query.limit(limit)
-    variants = db.execute(variants_query).all()
-
-    # HACK: Hideous hack for expediency...
-    rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column)  # type: ignore
-    stream = io.StringIO()
-    writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
-    writer.writeheader()
-    writer.writerows(rows_data)
-    return stream.getvalue()
-
-
-def get_score_set_scores_as_csv(
-    db: Session,
-    score_set: ScoreSet,
-    start: Optional[int] = None,
-    limit: Optional[int] = None,
-    drop_na_columns: Optional[bool] = None,
-) -> str:
-    assert type(score_set.dataset_columns) is dict
-    score_columns = [str(x) for x in list(score_set.dataset_columns.get("score_columns", []))]
-    # HACK
-    columns = (
-        ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_columns + ["mavedb_clnsig", "mavedb_clnrevstat"]
-    )
-    type_column = "score_data"
-
-    # HACK: This is a poorly tested and very temporary solution to surface clinical significance and
-    # clinical review status within the CSV export in a way our front end can handle and display. It's
-    # also quite slow.
-    variants_query = (
-        select(Variant, ClinicalControl.clinical_significance, ClinicalControl.clinical_review_status)
-        .join(MappedVariant, ClinicalControl.mapped_variants, isouter=True)
-        .where(Variant.score_set_id == score_set.id, MappedVariant.vrs_version == "1.3")
-        # .where(Variant.score_set_id == score_set.id,MappedVariant.current.is_(True))
-        .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
-    )
-    if start:
-        variants_query = variants_query.offset(start)
-    if limit:
-        variants_query = variants_query.limit(limit)
-    variants = db.execute(variants_query).all()
+    variants = db.scalars(variants_query).all()
 
     rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column)  # type: ignore
+    if drop_na_columns:
+        rows_data, columns = drop_na_columns_from_csv_file_rows(rows_data, columns)
+
     stream = io.StringIO()
     writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
     writer.writeheader()
@@ -475,8 +433,7 @@ def get_score_set_scores_as_csv(
 
 
 def drop_na_columns_from_csv_file_rows(
-    rows_data: Iterable[dict[str, Any]],
-    columns: list[str]
+    rows_data: Iterable[dict[str, Any]], columns: list[str]
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Process rows_data for downloadable CSV by removing empty columns."""
     # Convert map to list.
@@ -505,9 +462,7 @@ def is_null(value):
     return null_values_re.fullmatch(value) or not value
 
 
-def variant_to_csv_row(
-    variant: tuple[Variant, str, str], columns: list[str], dtype: str, na_rep="NA"
-) -> dict[str, Any]:
+def variant_to_csv_row(variant: Variant, columns: list[str], dtype: str, na_rep="NA") -> dict[str, Any]:
     """
     Format a variant into a containing the keys specified in `columns`.
 
@@ -529,29 +484,25 @@ def variant_to_csv_row(
     row = {}
     for column_key in columns:
         if column_key == "hgvs_nt":
-            value = str(variant[0].hgvs_nt)
+            value = str(variant.hgvs_nt)
         elif column_key == "hgvs_pro":
-            value = str(variant[0].hgvs_pro)
+            value = str(variant.hgvs_pro)
         elif column_key == "hgvs_splice":
-            value = str(variant[0].hgvs_splice)
+            value = str(variant.hgvs_splice)
         elif column_key == "accession":
-            value = str(variant[0].urn)
+            value = str(variant.urn)
         else:
-            parent = variant[0].data.get(dtype) if variant[0].data else None
+            parent = variant.data.get(dtype) if variant.data else None
             value = str(parent.get(column_key)) if parent else na_rep
         if is_null(value):
             value = na_rep
         row[column_key] = value
 
-    # HACK: Overwrite any potential values of ClinVar fields present in the data
-    # object with db results from the tuple directly.
-    row["mavedb_clnsig"] = variant[1]
-    row["mavedb_clnrevstat"] = variant[2]
     return row
 
 
 def variants_to_csv_rows(
-    variants: Sequence[tuple[Variant, str, str]], columns: list[str], dtype: str, na_rep="NA"
+    variants: Sequence[Variant], columns: list[str], dtype: str, na_rep="NA"
 ) -> Iterable[dict[str, Any]]:
     """
     Format each variant into a dictionary row containing the keys specified in `columns`.
