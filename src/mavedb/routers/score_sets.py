@@ -1,6 +1,6 @@
 import logging
 from datetime import date
-from typing import Any, List, Optional, Sequence
+from typing import Any, List, Literal, Optional, Sequence
 
 import pandas as pd
 import pydantic
@@ -1195,13 +1195,16 @@ async def get_clinical_controls_for_score_set(
         clinical_controls_query = clinical_controls_query.where(ClinicalControl.db_version == db_version)
 
     clinical_controls_for_item: Sequence[ClinicalControl] = _db.scalars(clinical_controls_query).all()
-
+    clinical_controls_with_mapped_variant = []
     for control_variant in clinical_controls_for_item:
         control_variant.mapped_variants = [
             mv for mv in control_variant.mapped_variants if mv.current and mv.variant.score_set_id == item.id
         ]
 
-    if not clinical_controls_for_item:
+        if control_variant.mapped_variants:
+            clinical_controls_with_mapped_variant.append(control_variant)
+
+    if not clinical_controls_with_mapped_variant:
         logger.info(
             msg="No clinical control variants matching the provided filters are associated with the requested score set.",
             extra=logging_context(),
@@ -1214,3 +1217,59 @@ async def get_clinical_controls_for_score_set(
     save_to_logging_context({"resource_count": len(clinical_controls_for_item)})
 
     return clinical_controls_for_item
+
+
+@router.get(
+    "/score-sets/{urn}/clinical-controls/options",
+    status_code=200,
+    response_model=clinical_control.ClinicalControlOptions,
+    response_model_exclude_none=True,
+)
+async def get_clinical_controls_options_for_score_set(
+    *,
+    urn: str,
+    # We'd prefer to reserve `db` as a query parameter.
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(get_current_user),
+) -> dict[Literal["control_options"], dict[str, list[str]]]:
+    """
+    Fetch clinical control options for a given score set.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "clinical_control_options"})
+
+    item: Optional[ScoreSet] = db.scalars(select(ScoreSet).where(ScoreSet.urn == urn)).one_or_none()
+    if not item:
+        logger.info(
+            msg="Failed to fetch clinical control options for score set; The requested score set does not exist.",
+            extra=logging_context(),
+        )
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
+    assert_permission(user_data, item, Action.READ)
+
+    clinical_controls_query = (
+        select(ClinicalControl.db_name, ClinicalControl.db_version)
+        .join(MappedVariant, ClinicalControl.mapped_variants)
+        .join(Variant)
+        .where(Variant.score_set_id == item.id)
+    )
+
+    clinical_controls_for_item = db.execute(clinical_controls_query).unique()
+
+    # NOTE: We return options even for pairwise groupings which may have no associated mapped variants
+    #       and 404 when ultimately requested together.
+    clinical_control_options: dict[str, list[str]] = {}
+    for db_name, db_version in clinical_controls_for_item:
+        clinical_control_options.setdefault(db_name, []).append(db_version)
+
+    if not clinical_control_options:
+        logger.info(
+            msg="Failed to fetch clinical control options for score set; No clinical control variants are associated with this score set.",
+            extra=logging_context(),
+        )
+        raise HTTPException(
+            status_code=404,
+            detail=f"no clinical control variants associated with score set URN {urn} were found",
+        )
+
+    return {"control_options": clinical_control_options}

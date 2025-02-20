@@ -7,10 +7,11 @@ import jsonschema
 import pytest
 from arq import ArqRedis
 from humps import camelize
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_EXPERIMENT_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
@@ -2420,8 +2421,9 @@ def test_download_counts_file(session, data_provider, client, setup_router_db, d
     assert "hgvs_pro" in columns
     assert "hgvs_splice" not in columns
 
+
 ########################################################################################################################
-# Fetching clinical controls for a score set
+# Fetching clinical controls and control options for a score set
 ########################################################################################################################
 
 
@@ -2503,5 +2505,70 @@ def test_cannot_fetch_clinical_controls_for_score_set_when_none_exist(
     response_data = response.json()
     assert (
         f"No clinical control variants matching the provided filters associated with score set URN {score_set['urn']} were found"
+        in response_data["detail"]
+    )
+
+
+def test_can_fetch_current_clinical_control_options_for_score_set(
+    client, setup_router_db, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinical_controls_to_mapped_variants(session, score_set)
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
+    assert response.status_code == 200
+
+    response_data = response.json()
+    assert TEST_SAVED_CLINVAR_CONTROL["dbName"] in response_data["controlOptions"]
+    assert TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbName"] in response_data["controlOptions"]
+    assert len(response_data["controlOptions"][TEST_SAVED_CLINVAR_CONTROL["dbName"]]) == 1
+    assert len(response_data["controlOptions"][TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbName"]]) == 1
+    assert (
+        TEST_SAVED_CLINVAR_CONTROL["dbVersion"] in response_data["controlOptions"][TEST_SAVED_CLINVAR_CONTROL["dbName"]]
+    )
+    assert (
+        TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbVersion"]
+        in response_data["controlOptions"][TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbName"]]
+    )
+
+
+def test_cannot_fetch_clinical_control_options_for_nonexistent_score_set(
+    client, setup_router_db, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinical_controls_to_mapped_variants(session, score_set)
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/clinical-controls/options")
+
+    assert response.status_code == 404
+    response_data = response.json()
+    assert f"score set with URN '{score_set['urn']+'xxx'}' not found" in response_data["detail"]
+
+
+def test_cannot_fetch_clinical_controls_options_for_score_set_when_none_exist(
+    client, setup_router_db, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    # removes all clinical controls from the db.
+    session.execute(delete(ClinicalControl))
+    session.commit()
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
+    print(response.json())
+
+    assert response.status_code == 404
+    response_data = response.json()
+    assert (
+        f"no clinical control variants associated with score set URN {score_set['urn']} were found"
         in response_data["detail"]
     )
