@@ -7,10 +7,11 @@ import jsonschema
 import pytest
 from arq import ArqRedis
 from humps import camelize
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_EXPERIMENT_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
@@ -1501,7 +1502,9 @@ def test_search_others_private_score_sets_urn_match(session, data_provider, clie
 
 
 # There is space in the end of test urn. The search result returned nothing before.
-def test_search_others_private_score_sets_urn_with_space_match(session, data_provider, client, setup_router_db, data_files):
+def test_search_others_private_score_sets_urn_with_space_match(
+    session, data_provider, client, setup_router_db, data_files
+):
     experiment_1 = create_experiment(client)
     score_set_1_1 = create_seq_score_set_with_variants(
         client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
@@ -1559,7 +1562,7 @@ def test_search_public_score_sets_urn_with_space_match(session, data_provider, c
         client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
     )
     score_set_response = client.post(f"/api/v1/score-sets/{score_set_1_1['urn']}/publish")
-    published_score_set =  score_set_response.json()
+    published_score_set = score_set_response.json()
     assert score_set_response.status_code == 200
     urn_with_space = published_score_set["urn"] + "   "
     search_payload = {"urn": urn_with_space}
@@ -1627,7 +1630,9 @@ def test_search_others_public_score_sets_urn_match(session, data_provider, clien
     assert response.json()[0]["urn"] == publish_score_set["urn"]
 
 
-def test_search_others_public_score_sets_urn_with_space_match(session, data_provider, client, setup_router_db, data_files):
+def test_search_others_public_score_sets_urn_with_space_match(
+    session, data_provider, client, setup_router_db, data_files
+):
     experiment_1 = create_experiment(client)
     score_set_1_1 = create_seq_score_set_with_variants(
         client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
@@ -1644,7 +1649,9 @@ def test_search_others_public_score_sets_urn_with_space_match(session, data_prov
     assert response.json()[0]["urn"] == published_score_set["urn"]
 
 
-def test_search_private_score_sets_not_showing_public_score_set(session, data_provider, client, setup_router_db, data_files):
+def test_search_private_score_sets_not_showing_public_score_set(
+    session, data_provider, client, setup_router_db, data_files
+):
     experiment_1 = create_experiment(client)
     score_set_1_1 = create_seq_score_set_with_variants(
         client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
@@ -1661,14 +1668,14 @@ def test_search_private_score_sets_not_showing_public_score_set(session, data_pr
     assert response.json()[0]["urn"] == score_set_1_2["urn"]
 
 
-def test_search_public_score_sets_not_showing_private_score_set(session, data_provider, client, setup_router_db, data_files):
+def test_search_public_score_sets_not_showing_private_score_set(
+    session, data_provider, client, setup_router_db, data_files
+):
     experiment_1 = create_experiment(client)
     score_set_1_1 = create_seq_score_set_with_variants(
         client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
     )
-    create_seq_score_set_with_variants(
-        client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
-    )
+    create_seq_score_set_with_variants(client, session, data_provider, experiment_1["urn"], data_files / "scores.csv")
     score_set_response = client.post(f"/api/v1/score-sets/{score_set_1_1['urn']}/publish")
     assert score_set_response.status_code == 200
     published_score_set = score_set_response.json()
@@ -1677,7 +1684,6 @@ def test_search_public_score_sets_not_showing_private_score_set(session, data_pr
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["urn"] == published_score_set["urn"]
-
 
 
 ########################################################################################################################
@@ -1920,6 +1926,7 @@ def test_can_modify_metadata_for_score_set_with_inactive_license(session, client
 # Supersede score set
 ########################################################################################################################
 
+
 def test_create_superseding_score_set(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -1933,6 +1940,7 @@ def test_create_superseding_score_set(session, data_provider, client, setup_rout
     score_set_post_payload["supersededScoreSetUrn"] = published_score_set["urn"]
     superseding_score_set_response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     assert superseding_score_set_response.status_code == 200
+
 
 def test_can_view_unpublished_superseding_score_set(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
@@ -1954,7 +1962,10 @@ def test_can_view_unpublished_superseding_score_set(session, data_provider, clie
     assert score_set["urn"] == superseding_score_set["supersededScoreSet"]["urn"]
     assert score_set["supersedingScoreSet"]["urn"] == superseding_score_set["urn"]
 
-def test_cannot_view_others_unpublished_superseding_score_set(session, data_provider, client, setup_router_db, data_files):
+
+def test_cannot_view_others_unpublished_superseding_score_set(
+    session, data_provider, client, setup_router_db, data_files
+):
     experiment = create_experiment(client)
     unpublished_score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -1975,6 +1986,7 @@ def test_cannot_view_others_unpublished_superseding_score_set(session, data_prov
     assert score_set["urn"] == superseding_score_set["supersededScoreSet"]["urn"]
     # Other users can't view the unpublished superseding score set.
     assert "supersedingScoreSet" not in score_set
+
 
 def test_can_view_others_published_superseding_score_set(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
@@ -2008,7 +2020,9 @@ def test_can_view_others_published_superseding_score_set(session, data_provider,
 
 
 # The superseding score set is unpublished so the newest version to its owner is the unpublished one.
-def test_show_correct_score_set_version_with_superseded_score_set_to_its_owner(session, data_provider, client, setup_router_db, data_files):
+def test_show_correct_score_set_version_with_superseded_score_set_to_its_owner(
+    session, data_provider, client, setup_router_db, data_files
+):
     experiment = create_experiment(client)
     unpublished_score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -2100,6 +2114,7 @@ def test_score_set_not_found_for_non_existent_score_set_when_adding_score_calibr
 # Score set download files
 ########################################################################################################################
 
+
 # Test file doesn't have hgvs_splice so its values are all NA.
 def test_download_scores_file(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
@@ -2112,7 +2127,9 @@ def test_download_scores_file(session, data_provider, client, setup_router_db, d
     publish_score_set = publish_score_set_response.json()
     print(publish_score_set)
 
-    download_scores_csv_response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_na_columns=true")
+    download_scores_csv_response = client.get(
+        f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_na_columns=true"
+    )
     assert download_scores_csv_response.status_code == 200
     download_scores_csv = download_scores_csv_response.text
     csv_header = download_scores_csv.split("\n")[0]
@@ -2125,15 +2142,20 @@ def test_download_scores_file(session, data_provider, client, setup_router_db, d
 def test_download_counts_file(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"],
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
         scores_csv_path=data_files / "scores.csv",
-        counts_csv_path = data_files / "counts.csv"
+        counts_csv_path=data_files / "counts.csv",
     )
     publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
     assert publish_score_set_response.status_code == 200
     publish_score_set = publish_score_set_response.json()
 
-    download_counts_csv_response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/counts?drop_na_columns=true")
+    download_counts_csv_response = client.get(
+        f"/api/v1/score-sets/{publish_score_set['urn']}/counts?drop_na_columns=true"
+    )
     assert download_counts_csv_response.status_code == 200
     download_counts_csv = download_counts_csv_response.text
     csv_header = download_counts_csv.split("\n")[0]
@@ -2142,8 +2164,9 @@ def test_download_counts_file(session, data_provider, client, setup_router_db, d
     assert "hgvs_pro" in columns
     assert "hgvs_splice" not in columns
 
+
 ########################################################################################################################
-# Fetching clinical controls for a score set
+# Fetching clinical controls and control options for a score set
 ########################################################################################################################
 
 
@@ -2225,5 +2248,70 @@ def test_cannot_fetch_clinical_controls_for_score_set_when_none_exist(
     response_data = response.json()
     assert (
         f"No clinical control variants matching the provided filters associated with score set URN {score_set['urn']} were found"
+        in response_data["detail"]
+    )
+
+
+def test_can_fetch_current_clinical_control_options_for_score_set(
+    client, setup_router_db, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinical_controls_to_mapped_variants(session, score_set)
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
+    assert response.status_code == 200
+
+    response_data = response.json()
+    assert TEST_SAVED_CLINVAR_CONTROL["dbName"] in response_data["controlOptions"]
+    assert TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbName"] in response_data["controlOptions"]
+    assert len(response_data["controlOptions"][TEST_SAVED_CLINVAR_CONTROL["dbName"]]) == 1
+    assert len(response_data["controlOptions"][TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbName"]]) == 1
+    assert (
+        TEST_SAVED_CLINVAR_CONTROL["dbVersion"] in response_data["controlOptions"][TEST_SAVED_CLINVAR_CONTROL["dbName"]]
+    )
+    assert (
+        TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbVersion"]
+        in response_data["controlOptions"][TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbName"]]
+    )
+
+
+def test_cannot_fetch_clinical_control_options_for_nonexistent_score_set(
+    client, setup_router_db, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinical_controls_to_mapped_variants(session, score_set)
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/clinical-controls/options")
+
+    assert response.status_code == 404
+    response_data = response.json()
+    assert f"score set with URN '{score_set['urn']+'xxx'}' not found" in response_data["detail"]
+
+
+def test_cannot_fetch_clinical_controls_options_for_score_set_when_none_exist(
+    client, setup_router_db, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    # removes all clinical controls from the db.
+    session.execute(delete(ClinicalControl))
+    session.commit()
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
+    print(response.json())
+
+    assert response.status_code == 404
+    response_data = response.json()
+    assert (
+        f"no clinical control variants associated with score set URN {score_set['urn']} were found"
         in response_data["detail"]
     )
