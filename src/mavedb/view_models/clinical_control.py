@@ -52,8 +52,8 @@ class ClinicalControlWithMappedVariants(SavedClinicalControlWithMappedVariants):
 
 
 class ClinicalControlOptions(BaseModel):
-    # {"db_name": ["db_version", "db_version", ...]}
-    control_options: dict[str, list[str]]
+    db_name: str
+    available_versions: list[str]
 
 
 # ruff: noqa: E402

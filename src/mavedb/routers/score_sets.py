@@ -1,6 +1,6 @@
 import logging
 from datetime import date
-from typing import Any, List, Literal, Optional, Sequence
+from typing import Any, List, Optional, Sequence, Union
 
 import pandas as pd
 import pydantic
@@ -1198,7 +1198,12 @@ async def get_clinical_controls_for_score_set(
     clinical_controls_with_mapped_variant = []
     for control_variant in clinical_controls_for_item:
         control_variant.mapped_variants = [
-            mv for mv in control_variant.mapped_variants if mv.current and mv.variant.score_set_id == item.id
+            # As of now, we only have linked clingen allele IDs for v1.3 VRS. Once v2.0 has been linked to clingen allele IDs,
+            # we can transition to the other filter.
+            mv
+            for mv in control_variant.mapped_variants
+            if mv.vrs_version == "1.3" and mv.variant.score_set_id == item.id
+            # mv for mv in control_variant.mapped_variants if mv.current and mv.variant.score_set_id == item.id
         ]
 
         if control_variant.mapped_variants:
@@ -1222,7 +1227,7 @@ async def get_clinical_controls_for_score_set(
 @router.get(
     "/score-sets/{urn}/clinical-controls/options",
     status_code=200,
-    response_model=clinical_control.ClinicalControlOptions,
+    response_model=list[clinical_control.ClinicalControlOptions],
     response_model_exclude_none=True,
 )
 async def get_clinical_controls_options_for_score_set(
@@ -1231,7 +1236,7 @@ async def get_clinical_controls_options_for_score_set(
     # We'd prefer to reserve `db` as a query parameter.
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(get_current_user),
-) -> dict[Literal["control_options"], dict[str, list[str]]]:
+) -> list[dict[str, Union[str, list[str]]]]:
     """
     Fetch clinical control options for a given score set.
     """
@@ -1272,4 +1277,7 @@ async def get_clinical_controls_options_for_score_set(
             detail=f"no clinical control variants associated with score set URN {urn} were found",
         )
 
-    return {"control_options": clinical_control_options}
+    return [
+        dict(zip(("db_name", "available_versions"), (db_name, db_versions)))
+        for db_name, db_versions in clinical_control_options.items()
+    ]
