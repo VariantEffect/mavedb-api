@@ -2522,17 +2522,18 @@ def test_can_fetch_current_clinical_control_options_for_score_set(
     assert response.status_code == 200
 
     response_data = response.json()
-    assert TEST_SAVED_CLINVAR_CONTROL["dbName"] in response_data["controlOptions"]
-    assert TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbName"] in response_data["controlOptions"]
-    assert len(response_data["controlOptions"][TEST_SAVED_CLINVAR_CONTROL["dbName"]]) == 1
-    assert len(response_data["controlOptions"][TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbName"]]) == 1
-    assert (
-        TEST_SAVED_CLINVAR_CONTROL["dbVersion"] in response_data["controlOptions"][TEST_SAVED_CLINVAR_CONTROL["dbName"]]
-    )
-    assert (
-        TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbVersion"]
-        in response_data["controlOptions"][TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbName"]]
-    )
+    assert len(response_data) == 2
+    for control_option in response_data:
+        assert len(control_option["availableVersions"]) == 1
+        assert control_option["dbName"] in (
+            TEST_SAVED_CLINVAR_CONTROL["dbName"],
+            TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbName"],
+        )
+        assert all(
+            control_version
+            in (TEST_SAVED_CLINVAR_CONTROL["dbVersion"], TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbVersion"])
+            for control_version in control_option["availableVersions"]
+        )
 
 
 def test_cannot_fetch_clinical_control_options_for_nonexistent_score_set(
@@ -2551,7 +2552,7 @@ def test_cannot_fetch_clinical_control_options_for_nonexistent_score_set(
     assert f"score set with URN '{score_set['urn']+'xxx'}' not found" in response_data["detail"]
 
 
-def test_cannot_fetch_clinical_controls_options_for_score_set_when_none_exist(
+def test_cannot_fetch_clinical_control_options_for_score_set_when_none_exist(
     client, setup_router_db, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
