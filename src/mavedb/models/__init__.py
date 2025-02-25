@@ -1,5 +1,6 @@
 __all__ = [
     "access_key",
+    "collection",
     "controlled_keyword",
     "doi_identifier",
     "ensembl_identifier",

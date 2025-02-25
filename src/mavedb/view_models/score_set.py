@@ -15,6 +15,7 @@ from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.view_models import PublicationIdentifiersGetter, record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models.calibration import Calibration
 from mavedb.view_models.contributor import Contributor, ContributorCreate
 from mavedb.view_models.doi_identifier import (
     DoiIdentifier,
@@ -39,6 +40,16 @@ from mavedb.view_models.variant import VariantInDbBase
 
 class ExternalLink(BaseModel):
     url: Optional[str]
+
+
+class OfficialCollection(BaseModel):
+    badge_name: str
+    name: str
+    urn: str
+
+    class Config:
+        orm_mode = True
+        arbitrary_types_allowed = True
 
 
 class ScoreRange(BaseModel):
@@ -387,6 +398,7 @@ class SavedScoreSet(ScoreSetBase):
     external_links: Dict[str, ExternalLink]
     contributors: list[Contributor]
     score_ranges: Optional[ScoreRanges]
+    score_calibrations: Optional[dict[str, Calibration]]
 
     _record_type_factory = record_type_validator()(set_record_type)
 
@@ -414,6 +426,7 @@ class ScoreSet(SavedScoreSet):
     doi_identifiers: Sequence[DoiIdentifier]
     primary_publication_identifiers: Sequence[PublicationIdentifier]
     secondary_publication_identifiers: Sequence[PublicationIdentifier]
+    official_collections: Sequence[OfficialCollection]
     created_by: Optional[User]
     modified_by: Optional[User]
     target_genes: Sequence[TargetGene]

@@ -31,7 +31,7 @@ from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_s
 
 sys.path.append(".")
 
-from tests.helpers.constants import ADMIN_USER, TEST_USER
+from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_USER
 
 # needs the pytest_postgresql plugin installed
 assert pytest_postgresql.factories
@@ -227,6 +227,39 @@ def anonymous_app_overrides(session, data_provider, arq_redis):
 
     def override_current_user():
         yield None
+
+    def override_hgvs_data_provider():
+        yield data_provider
+
+    anonymous_overrides = {
+        get_db: override_get_db,
+        get_worker: override_get_worker,
+        get_current_user: override_current_user,
+        require_current_user: require_current_user,
+        hgvs_data_provider: override_hgvs_data_provider,
+    }
+
+    yield anonymous_overrides
+
+
+@pytest.fixture()
+def extra_user_app_overrides(session, data_provider, arq_redis):
+    def override_get_db():
+        try:
+            yield session
+        finally:
+            session.close()
+
+    async def override_get_worker():
+        yield arq_redis
+
+    def override_current_user():
+        default_user = session.query(User).filter(User.username == EXTRA_USER["username"]).one_or_none()
+        yield UserData(default_user, default_user.roles)
+
+    def override_require_user():
+        default_user = session.query(User).filter(User.username == EXTRA_USER["username"]).one_or_none()
+        yield UserData(default_user, default_user.roles)
 
     def override_hgvs_data_provider():
         yield data_provider
