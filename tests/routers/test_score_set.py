@@ -1385,7 +1385,7 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_with_differen
 ########################################################################################################################
 
 
-def test_search_score_sets_no_match(session, data_provider, client, setup_router_db, data_files):
+def test_search_private_score_sets_no_match(session, data_provider, client, setup_router_db, data_files):
     experiment_1 = create_experiment(client, {"title": "Experiment 1"})
     create_seq_score_set_with_variants(
         client,
@@ -1397,12 +1397,12 @@ def test_search_score_sets_no_match(session, data_provider, client, setup_router
     )
 
     search_payload = {"text": "fnord"}
-    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
     assert len(response.json()) == 0
 
 
-def test_search_score_sets_match(session, data_provider, client, setup_router_db, data_files):
+def test_search_private_score_sets_match(session, data_provider, client, setup_router_db, data_files):
     experiment_1 = create_experiment(client, {"title": "Experiment 1"})
     score_set_1_1 = create_seq_score_set_with_variants(
         client,
@@ -1414,37 +1414,263 @@ def test_search_score_sets_match(session, data_provider, client, setup_router_db
     )
 
     search_payload = {"text": "fnord"}
-    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["title"] == score_set_1_1["title"]
 
 
-def test_search_score_sets_urn_match(session, data_provider, client, setup_router_db, data_files):
+def test_search_private_score_sets_urn_match(session, data_provider, client, setup_router_db, data_files):
     experiment_1 = create_experiment(client)
     score_set_1_1 = create_seq_score_set_with_variants(
         client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
     )
 
     search_payload = {"urn": score_set_1_1["urn"]}
-    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["urn"] == score_set_1_1["urn"]
 
 
 # There is space in the end of test urn. The search result returned nothing before.
-def test_search_score_sets_urn_with_space_match(session, data_provider, client, setup_router_db, data_files):
+def test_search_private_score_sets_urn_with_space_match(session, data_provider, client, setup_router_db, data_files):
     experiment_1 = create_experiment(client)
     score_set_1_1 = create_seq_score_set_with_variants(
         client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
     )
     urn_with_space = score_set_1_1["urn"] + "   "
     search_payload = {"urn": urn_with_space}
-    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["urn"] == score_set_1_1["urn"]
+
+
+def test_search_others_private_score_sets_no_match(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client, {"title": "Experiment 1"})
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        experiment_1["urn"],
+        data_files / "scores.csv",
+        update={"title": "Test Score Set"},
+    )
+    change_ownership(session, score_set_1_1["urn"], ScoreSetDbModel)
+    search_payload = {"text": "fnord"}
+    response = client.post("/api/v1/me/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 0
+
+
+def test_search_others_private_score_sets_match(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client, {"title": "Experiment 1"})
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        experiment_1["urn"],
+        data_files / "scores.csv",
+        update={"title": "Test Fnord Score Set"},
+    )
+    change_ownership(session, score_set_1_1["urn"], ScoreSetDbModel)
+    search_payload = {"text": "fnord"}
+    response = client.post("/api/v1/me/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 0
+
+
+def test_search_others_private_score_sets_urn_match(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client)
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
+    )
+    change_ownership(session, score_set_1_1["urn"], ScoreSetDbModel)
+    search_payload = {"urn": score_set_1_1["urn"]}
+    response = client.post("/api/v1/me/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 0
+
+
+# There is space in the end of test urn. The search result returned nothing before.
+def test_search_others_private_score_sets_urn_with_space_match(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client)
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
+    )
+    change_ownership(session, score_set_1_1["urn"], ScoreSetDbModel)
+    urn_with_space = score_set_1_1["urn"] + "   "
+    search_payload = {"urn": urn_with_space}
+    response = client.post("/api/v1/me/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 0
+
+
+def test_search_public_score_sets_no_match(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client, {"title": "Experiment 1"})
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        experiment_1["urn"],
+        data_files / "scores.csv",
+        update={"title": "Test Score Set"},
+    )
+    score_set_response = client.post(f"/api/v1/score-sets/{score_set_1_1['urn']}/publish")
+    assert score_set_response.status_code == 200
+
+    search_payload = {"text": "fnord"}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 0
+
+
+def test_search_public_score_sets_match(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client, {"title": "Experiment 1"})
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        experiment_1["urn"],
+        data_files / "scores.csv",
+        update={"title": "Test Fnord Score Set"},
+    )
+
+    score_set_response = client.post(f"/api/v1/score-sets/{score_set_1_1['urn']}/publish")
+    assert score_set_response.status_code == 200
+    search_payload = {"text": "fnord"}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["title"] == score_set_1_1["title"]
+
+
+def test_search_public_score_sets_urn_with_space_match(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client)
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
+    )
+    score_set_response = client.post(f"/api/v1/score-sets/{score_set_1_1['urn']}/publish")
+    published_score_set =  score_set_response.json()
+    assert score_set_response.status_code == 200
+    urn_with_space = published_score_set["urn"] + "   "
+    search_payload = {"urn": urn_with_space}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["urn"] == published_score_set["urn"]
+
+
+def test_search_others_public_score_sets_no_match(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client, {"title": "Experiment 1"})
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        experiment_1["urn"],
+        data_files / "scores.csv",
+        update={"title": "Test Score Set"},
+    )
+    score_set_response = client.post(f"/api/v1/score-sets/{score_set_1_1['urn']}/publish")
+    publish_score_set = score_set_response.json()
+    assert score_set_response.status_code == 200
+    change_ownership(session, publish_score_set["urn"], ScoreSetDbModel)
+    search_payload = {"text": "fnord"}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 0
+
+
+def test_search_others_public_score_sets_match(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client, {"title": "Experiment 1"})
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        experiment_1["urn"],
+        data_files / "scores.csv",
+        update={"title": "Test Fnord Score Set"},
+    )
+    score_set_response = client.post(f"/api/v1/score-sets/{score_set_1_1['urn']}/publish")
+    publish_score_set = score_set_response.json()
+    assert score_set_response.status_code == 200
+    change_ownership(session, publish_score_set["urn"], ScoreSetDbModel)
+    assert session.query(ScoreSetDbModel).filter_by(urn=publish_score_set["urn"]).one()
+    search_payload = {"text": "fnord"}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["title"] == publish_score_set["title"]
+
+
+def test_search_others_public_score_sets_urn_match(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client)
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
+    )
+    score_set_response = client.post(f"/api/v1/score-sets/{score_set_1_1['urn']}/publish")
+    publish_score_set = score_set_response.json()
+    assert score_set_response.status_code == 200
+    change_ownership(session, publish_score_set["urn"], ScoreSetDbModel)
+    search_payload = {"urn": score_set_1_1["urn"]}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["urn"] == publish_score_set["urn"]
+
+
+def test_search_others_public_score_sets_urn_with_space_match(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client)
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
+    )
+    score_set_response = client.post(f"/api/v1/score-sets/{score_set_1_1['urn']}/publish")
+    assert score_set_response.status_code == 200
+    published_score_set = score_set_response.json()
+    change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
+    urn_with_space = published_score_set["urn"] + "   "
+    search_payload = {"urn": urn_with_space}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["urn"] == published_score_set["urn"]
+
+
+def test_search_private_score_sets_not_showing_public_score_set(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client)
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
+    )
+    score_set_1_2 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
+    )
+    score_set_response = client.post(f"/api/v1/score-sets/{score_set_1_1['urn']}/publish")
+    assert score_set_response.status_code == 200
+    search_payload = {"published": False}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["urn"] == score_set_1_2["urn"]
+
+
+def test_search_public_score_sets_not_showing_private_score_set(session, data_provider, client, setup_router_db, data_files):
+    experiment_1 = create_experiment(client)
+    score_set_1_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
+    )
+    create_seq_score_set_with_variants(
+        client, session, data_provider, experiment_1["urn"], data_files / "scores.csv"
+    )
+    score_set_response = client.post(f"/api/v1/score-sets/{score_set_1_1['urn']}/publish")
+    assert score_set_response.status_code == 200
+    published_score_set = score_set_response.json()
+    search_payload = {"published": True}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["urn"] == published_score_set["urn"]
+
 
 
 ########################################################################################################################
@@ -1683,6 +1909,118 @@ def test_can_modify_metadata_for_score_set_with_inactive_license(session, client
     assert ("title", response_data["title"]) == ("title", "Update title")
 
 
+########################################################################################################################
+# Supersede score set
+########################################################################################################################
+
+def test_create_superseding_score_set(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    published_score_set = publish_score_set_response.json()
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
+    score_set_post_payload["supersededScoreSetUrn"] = published_score_set["urn"]
+    superseding_score_set_response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert superseding_score_set_response.status_code == 200
+
+def test_can_view_unpublished_superseding_score_set(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    unpublished_score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    published_score_set = publish_score_set_response.json()
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
+    score_set_post_payload["supersededScoreSetUrn"] = published_score_set["urn"]
+    superseding_score_set_response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert superseding_score_set_response.status_code == 200
+    superseding_score_set = superseding_score_set_response.json()
+    score_set_response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}")
+    score_set = score_set_response.json()
+    assert score_set_response.status_code == 200
+    assert score_set["urn"] == superseding_score_set["supersededScoreSet"]["urn"]
+    assert score_set["supersedingScoreSet"]["urn"] == superseding_score_set["urn"]
+
+def test_cannot_view_others_unpublished_superseding_score_set(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    unpublished_score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    published_score_set = publish_score_set_response.json()
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
+    score_set_post_payload["supersededScoreSetUrn"] = published_score_set["urn"]
+    superseding_score_set_response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert superseding_score_set_response.status_code == 200
+    superseding_score_set = superseding_score_set_response.json()
+    change_ownership(session, superseding_score_set["urn"], ScoreSetDbModel)
+    score_set_response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}")
+    score_set = score_set_response.json()
+    assert score_set_response.status_code == 200
+    assert score_set["urn"] == superseding_score_set["supersededScoreSet"]["urn"]
+    # Other users can't view the unpublished superseding score set.
+    assert "supersedingScoreSet" not in score_set
+
+def test_can_view_others_published_superseding_score_set(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    unpublished_score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    published_score_set = publish_score_set_response.json()
+
+    superseding_score_set = create_seq_score_set_with_variants(
+        client,
+        session,
+        data_provider,
+        published_score_set["experiment"]["urn"],
+        data_files / "scores.csv",
+        update={"supersededScoreSetUrn": published_score_set["urn"]},
+    )
+    published_superseding_score_set_response = client.post(f"/api/v1/score-sets/{superseding_score_set['urn']}/publish")
+    assert published_superseding_score_set_response.status_code == 200
+    published_superseding_score_set = published_superseding_score_set_response.json()
+
+    change_ownership(session, published_superseding_score_set["urn"], ScoreSetDbModel)
+
+    score_set_response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}")
+    assert score_set_response.status_code == 200
+    score_set = score_set_response.json()
+    assert score_set["urn"] == published_superseding_score_set["supersededScoreSet"]["urn"]
+    # Other users can view published superseding score set.
+    assert score_set["supersedingScoreSet"]["urn"] == published_superseding_score_set["urn"]
+
+
+# The superseding score set is unpublished so the newest version to its owner is the unpublished one.
+def test_show_correct_score_set_version_with_superseded_score_set_to_its_owner(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    unpublished_score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    published_score_set = publish_score_set_response.json()
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
+    score_set_post_payload["supersededScoreSetUrn"] = published_score_set["urn"]
+    superseding_score_set_response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert superseding_score_set_response.status_code == 200
+    superseding_score_set = superseding_score_set_response.json()
+    score_set_response = client.get(f"/api/v1/score-sets/{superseding_score_set['urn']}")
+    score_set = score_set_response.json()
+    assert score_set_response.status_code == 200
+    assert score_set["urn"] == superseding_score_set["urn"]
+    
+
 def test_anonymous_user_cannot_add_score_calibrations_to_score_set(client, setup_router_db, anonymous_app_overrides):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -1749,3 +2087,50 @@ def test_score_set_not_found_for_non_existent_score_set_when_adding_score_calibr
 
     assert response.status_code == 404
     assert "score_calibrations" not in response_data
+
+
+########################################################################################################################
+# Score set download files
+########################################################################################################################
+
+# Test file doesn't have hgvs_splice so its values are all NA.
+def test_download_scores_file(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    publish_score_set = publish_score_set_response.json()
+    print(publish_score_set)
+
+    download_scores_csv_response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_na_columns=true")
+    assert download_scores_csv_response.status_code == 200
+    download_scores_csv = download_scores_csv_response.text
+    csv_header = download_scores_csv.split("\n")[0]
+    columns = csv_header.split(",")
+    assert "hgvs_nt" in columns
+    assert "hgvs_pro" in columns
+    assert "hgvs_splice" not in columns
+
+
+def test_download_counts_file(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"],
+        scores_csv_path=data_files / "scores.csv",
+        counts_csv_path = data_files / "counts.csv"
+    )
+    publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    assert publish_score_set_response.status_code == 200
+    publish_score_set = publish_score_set_response.json()
+
+    download_counts_csv_response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/counts?drop_na_columns=true")
+    assert download_counts_csv_response.status_code == 200
+    download_counts_csv = download_counts_csv_response.text
+    csv_header = download_counts_csv.split("\n")[0]
+    columns = csv_header.split(",")
+    assert "hgvs_nt" in columns
+    assert "hgvs_pro" in columns
+    assert "hgvs_splice" not in columns

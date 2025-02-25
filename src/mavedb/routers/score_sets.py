@@ -34,7 +34,7 @@ from mavedb.lib.logging.context import (
     logging_context,
     save_to_logging_context,
 )
-from mavedb.lib.permissions import Action, assert_permission
+from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_sets import (
     csv_data_to_df,
     find_meta_analyses_for_experiment_sets,
@@ -43,6 +43,7 @@ from mavedb.lib.score_sets import (
     variants_to_csv_rows,
 )
 from mavedb.lib.score_sets import (
+    fetch_superseding_score_set_in_search_result,
     search_score_sets as _search_score_sets,
     refresh_variant_urns,
 )
@@ -109,6 +110,10 @@ async def fetch_score_set_by_urn(
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user, item, Action.READ)
+
+    if item.superseding_score_set and not has_permission(user, item.superseding_score_set, Action.READ).permitted:
+        item.superseding_score_set = None
+
     return item
 
 
@@ -121,11 +126,16 @@ router = APIRouter(
 
 
 @router.post("/score-sets/search", status_code=200, response_model=list[score_set.ShortScoreSet])
-def search_score_sets(search: ScoreSetsSearch, db: Session = Depends(deps.get_db)) -> Any:  # = Body(..., embed=True),
+def search_score_sets(
+    search: ScoreSetsSearch,
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+) -> Any:  # = Body(..., embed=True),
     """
     Search score sets.
     """
-    return _search_score_sets(db, None, search)
+    score_sets = _search_score_sets(db, None, search)
+    return fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
 
 
 @router.post(
@@ -141,7 +151,8 @@ def search_my_score_sets(
     """
     Search score sets created by the current user..
     """
-    return _search_score_sets(db, user_data.user, search)
+    score_sets = _search_score_sets(db, user_data.user, search)
+    return fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
 
 
 @router.get(
@@ -180,6 +191,7 @@ def get_score_set_scores_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Number of variants to return"),
+    drop_na_columns: Optional[bool] = None,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
@@ -214,7 +226,7 @@ def get_score_set_scores_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_scores_as_csv(db, score_set, start, limit)
+    csv_str = get_score_set_scores_as_csv(db, score_set, start, limit, drop_na_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
@@ -234,6 +246,7 @@ async def get_score_set_counts_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Number of variants to return"),
+    drop_na_columns: Optional[bool] = None,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
@@ -268,7 +281,7 @@ async def get_score_set_counts_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_counts_as_csv(db, score_set, start, limit)
+    csv_str = get_score_set_counts_as_csv(db, score_set, start, limit, drop_na_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
@@ -299,10 +312,10 @@ def get_score_set_mapped_variants(
 
     mapped_variants = (
         db.query(MappedVariant)
-        .filter(ScoreSet.urn == urn)
-        .filter(ScoreSet.id == Variant.score_set_id)
-        .filter(Variant.id == MappedVariant.variant_id)
-        .all()
+            .filter(ScoreSet.urn == urn)
+            .filter(ScoreSet.id == Variant.score_set_id)
+            .filter(Variant.id == MappedVariant.variant_id)
+            .all()
     )
 
     if not mapped_variants:
@@ -469,9 +482,10 @@ async def create_score_set(
         for identifier in item_create.primary_publication_identifiers or []
     ]
     publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_create.secondary_publication_identifiers or []
-    ] + primary_publication_identifiers
+                                  await find_or_create_publication_identifier(db, identifier.identifier,
+                                                                              identifier.db_name)
+                                  for identifier in item_create.secondary_publication_identifiers or []
+                              ] + primary_publication_identifiers
 
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
