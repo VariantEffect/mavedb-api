@@ -10,6 +10,7 @@ from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, has_permission
+from mavedb.models.collection import Collection
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
@@ -25,12 +26,17 @@ logger = logging.getLogger(__name__)
 
 
 class ModelName(str, Enum):
+    collection = "collection"
     experiment = "experiment"
     experiment_set = "experiment-set"
     score_set = "score-set"
 
 
-@router.get("/user-is-permitted/{model_name}/{urn}/{action}", status_code=200, response_model=bool)
+@router.get(
+    "/user-is-permitted/{model_name}/{urn}/{action}",
+    status_code=200,
+    response_model=bool,
+)
 async def check_permission(
     *,
     model_name: ModelName,
@@ -44,7 +50,7 @@ async def check_permission(
     """
     save_to_logging_context({"requested_resource": urn})
 
-    item: Optional[Union[ExperimentSet, Experiment, ScoreSet]] = None
+    item: Optional[Union[Collection, ExperimentSet, Experiment, ScoreSet]] = None
 
     if model_name == ModelName.experiment_set:
         item = db.query(ExperimentSet).filter(ExperimentSet.urn == urn).one_or_none()
@@ -52,6 +58,8 @@ async def check_permission(
         item = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
     elif model_name == ModelName.score_set:
         item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
+    elif model_name == ModelName.collection:
+        item = db.query(Collection).filter(Collection.urn == urn).one_or_none()
 
     if item:
         permission = has_permission(user_data, item, action).permitted

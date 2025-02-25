@@ -8,7 +8,9 @@ from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.experiment import Experiment
-from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
+from mavedb.models.experiment_controlled_keyword import (
+    ExperimentControlledKeywordAssociation,
+)
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
@@ -117,6 +119,9 @@ def search_experiments(
         items = []
 
     save_to_logging_context({"matching_resources": len(items)})
-    logger.debug(msg="Experiment search yielded {len(items)} matching resources.", extra=logging_context())
+    logger.debug(
+        msg="Experiment search yielded {len(items)} matching resources.",
+        extra=logging_context(),
+    )
 
     return items

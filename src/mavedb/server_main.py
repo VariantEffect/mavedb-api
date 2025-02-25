@@ -12,10 +12,18 @@ from sqlalchemy.orm import configure_mappers
 from starlette import status
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from starlette_context.plugins import CorrelationIdPlugin, RequestIdPlugin, UserAgentPlugin
+from starlette_context.plugins import (
+    CorrelationIdPlugin,
+    RequestIdPlugin,
+    UserAgentPlugin,
+)
 
 from mavedb import __version__
-from mavedb.lib.exceptions import AmbiguousIdentifierError, MixedTargetError, NonexistentIdentifierError
+from mavedb.lib.exceptions import (
+    AmbiguousIdentifierError,
+    MixedTargetError,
+    NonexistentIdentifierError,
+)
 from mavedb.lib.logging.canonical import log_request
 from mavedb.lib.logging.context import (
     PopulatedRawContextMiddleware,
@@ -29,6 +37,7 @@ from mavedb.models import *  # noqa: F403
 from mavedb.routers import (
     access_keys,
     api_information,
+    collections,
     controlled_keywords,
     doi_identifiers,
     experiment_sets,
@@ -72,6 +81,7 @@ app.add_middleware(
 )
 app.include_router(access_keys.router)
 app.include_router(api_information.router)
+app.include_router(collections.router)
 app.include_router(controlled_keywords.router)
 app.include_router(doi_identifiers.router)
 app.include_router(experiment_sets.router)
@@ -146,7 +156,11 @@ async def mixed_target_exception_handler(request: Request, exc: MixedTargetError
 def customize_validation_error(error):
     # surface custom validation loc context
     if error.get("ctx", {}).get("custom_loc"):
-        error = {"loc": error["ctx"]["custom_loc"], "msg": error["msg"], "type": error["type"]}
+        error = {
+            "loc": error["ctx"]["custom_loc"],
+            "msg": error["msg"],
+            "type": error["type"],
+        }
 
     if error["type"] == "type_error.none.not_allowed":
         return {"loc": error["loc"], "msg": "Required", "type": error["type"]}

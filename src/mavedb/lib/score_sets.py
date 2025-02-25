@@ -2,7 +2,8 @@ import csv
 import io
 import logging
 import re
-from typing import Any, BinaryIO, Iterable, Optional, Sequence
+from operator import attrgetter
+from typing import Any, BinaryIO, Iterable, Optional, TYPE_CHECKING, Sequence
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,7 @@ from mavedb.lib.mave.constants import (
 )
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.lib.validation.constants.general import null_values_list
+from mavedb.lib.validation.utilities import is_null as validate_is_null
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
@@ -47,6 +49,10 @@ from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.view_models.search import ScoreSetsSearch
 
+if TYPE_CHECKING:
+    from mavedb.lib.authentication import UserData
+    from mavedb.lib.permissions import Action
+
 VariantData = dict[str, Optional[dict[str, dict]]]
 
 logger = logging.getLogger(__name__)
@@ -67,9 +73,6 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
 
     query = db.query(ScoreSet)  # \
     # .filter(ScoreSet.private.is_(False))
-
-    #  filter out the score sets that are replaced by other score sets
-    query = query.filter(~ScoreSet.superseding_score_set.has())
 
     if owner_or_contributor is not None:
         query = query.filter(
@@ -262,6 +265,41 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
     return score_sets  # filter_visible_score_sets(score_sets)
 
 
+def fetch_superseding_score_set_in_search_result(
+    score_sets: list[ScoreSet],
+    requesting_user: Optional["UserData"],
+    search: ScoreSetsSearch) -> list[ScoreSet]:
+    """
+    Remove superseded score set from search results.
+    Check whether all of the score set are correct versions.
+    """
+    from mavedb.lib.permissions import Action
+    if search.published:
+        filtered_score_sets_tail = [
+            find_publish_or_private_superseded_score_set_tail(
+                score_set,
+                Action.READ,
+                requesting_user,
+                search.published
+            ) for score_set in score_sets
+        ]
+    else:
+        filtered_score_sets_tail = [
+            find_superseded_score_set_tail(
+                score_set,
+                Action.READ,
+                requesting_user
+            ) for score_set in score_sets
+        ]
+    # Remove None item.
+    filtered_score_sets = [score_set for score_set in filtered_score_sets_tail if score_set is not None]
+    if filtered_score_sets:
+        final_score_sets = sorted(set(filtered_score_sets), key=attrgetter("urn"))
+    else:
+        final_score_sets = []
+    return final_score_sets
+
+
 def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list[ScoreSet]:
     """
     Find all score sets that are meta-analyses for score sets from a specified collection of experiment sets.
@@ -306,11 +344,66 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
     )
 
 
+def find_superseded_score_set_tail(
+        score_set: ScoreSet,
+        action: Optional["Action"] = None,
+        user_data: Optional["UserData"] = None) -> Optional[ScoreSet]:
+    from mavedb.lib.permissions import has_permission
+    while score_set.superseding_score_set is not None:
+        next_score_set_in_chain = score_set.superseding_score_set
+
+        # If we were given a permission to check and the next score set in the chain does not have that permission,
+        # pretend like we have reached the end of the chain. Otherwise, continue to the next score set.
+        if action is not None and not has_permission(user_data, next_score_set_in_chain, action).permitted:
+            return score_set
+
+        score_set = next_score_set_in_chain
+
+    # Handle unpublished superseding score set case.
+    # The score set has a published superseded score set but has not superseding score set.
+    if action is not None and not has_permission(user_data, score_set, action).permitted:
+        while score_set.superseded_score_set is not None:
+            next_score_set_in_chain = score_set.superseded_score_set
+            if has_permission(user_data, next_score_set_in_chain, action).permitted:
+                return next_score_set_in_chain
+            else:
+                score_set = next_score_set_in_chain
+        return None
+
+    return score_set
+
+
+def find_publish_or_private_superseded_score_set_tail(
+        score_set: ScoreSet,
+        action: Optional["Action"] = None,
+        user_data: Optional["UserData"] = None,
+        publish: bool = True) -> Optional[ScoreSet]:
+    from mavedb.lib.permissions import has_permission
+    if publish:
+        while score_set.superseding_score_set is not None:
+            next_score_set_in_chain = score_set.superseding_score_set
+            # Find the final published one.
+            if action is not None and has_permission(user_data, score_set, action).permitted \
+                    and next_score_set_in_chain.published_date is None:
+                return score_set
+            score_set = next_score_set_in_chain
+    else:
+        # Unpublished score set should not be superseded.
+        # It should not have superseding score set, but possible have superseded score set.
+        if action is not None and score_set.published_date is None \
+                and has_permission(user_data, score_set, action).permitted:
+            return score_set
+        else:
+            return None
+    return score_set
+
+
 def get_score_set_counts_as_csv(
     db: Session,
     score_set: ScoreSet,
     start: Optional[int] = None,
     limit: Optional[int] = None,
+    drop_na_columns: Optional[bool] = None,
 ) -> str:
     assert type(score_set.dataset_columns) is dict
     count_columns = [str(x) for x in list(score_set.dataset_columns.get("count_columns", []))]
@@ -329,6 +422,9 @@ def get_score_set_counts_as_csv(
     variants = db.scalars(variants_query).all()
 
     rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column)
+    if drop_na_columns:
+        rows_data, columns = drop_na_columns_from_csv_file_rows(rows_data, columns)
+
     stream = io.StringIO()
     writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
     writer.writeheader()
@@ -341,6 +437,7 @@ def get_score_set_scores_as_csv(
     score_set: ScoreSet,
     start: Optional[int] = None,
     limit: Optional[int] = None,
+    drop_na_columns: Optional[bool] = None,
 ) -> str:
     assert type(score_set.dataset_columns) is dict
     score_columns = [str(x) for x in list(score_set.dataset_columns.get("score_columns", []))]
@@ -359,11 +456,36 @@ def get_score_set_scores_as_csv(
     variants = db.scalars(variants_query).all()
 
     rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column)
+    if drop_na_columns:
+        rows_data, columns = drop_na_columns_from_csv_file_rows(rows_data, columns)
+
     stream = io.StringIO()
     writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
     writer.writeheader()
     writer.writerows(rows_data)
     return stream.getvalue()
+
+
+def drop_na_columns_from_csv_file_rows(
+    rows_data: Iterable[dict[str, Any]],
+    columns: list[str]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Process rows_data for downloadable CSV by removing empty columns."""
+    # Convert map to list.
+    rows_data = list(rows_data)
+    columns_to_check = ["hgvs_nt", "hgvs_splice", "hgvs_pro"]
+    columns_to_remove = []
+
+    # Check if all values in a column are None or "NA"
+    for col in columns_to_check:
+        if all(validate_is_null(row[col]) for row in rows_data):
+            columns_to_remove.append(col)
+            for row in rows_data:
+                row.pop(col, None)  # Remove column from each row
+
+    # Remove these columns from the header list
+    columns = [col for col in columns if col not in columns_to_remove]
+    return rows_data, columns
 
 
 null_values_re = re.compile(r"\s+|none|nan|na|undefined|n/a|null|nil", flags=re.IGNORECASE)

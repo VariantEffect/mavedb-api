@@ -5,6 +5,8 @@ from typing import Optional
 from mavedb.db.base import Base
 from mavedb.lib.authentication import UserData
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.models.collection import Collection
+from mavedb.models.enums.contribution_role import ContributionRole
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
@@ -15,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class Action(Enum):
+    LOOKUP = "lookup"
     READ = "read"
     UPDATE = "update"
     DELETE = "delete"
@@ -23,6 +26,7 @@ class Action(Enum):
     SET_SCORES = "set_scores"
     ADD_ROLE = "add_role"
     PUBLISH = "publish"
+    ADD_BADGE = "add_badge"
 
 
 class PermissionResponse:
@@ -33,9 +37,15 @@ class PermissionResponse:
 
         save_to_logging_context({"permission_message": self.message, "access_permitted": self.permitted})
         if self.permitted:
-            logger.debug(msg="Access to the requested resource is permitted.", extra=logging_context())
+            logger.debug(
+                msg="Access to the requested resource is permitted.",
+                extra=logging_context(),
+            )
         else:
-            logger.debug(msg="Access to the requested resource is not permitted.", extra=logging_context())
+            logger.debug(
+                msg="Access to the requested resource is not permitted.",
+                extra=logging_context(),
+            )
 
 
 class PermissionException(Exception):
@@ -59,6 +69,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
     user_is_owner = False
     user_is_self = False
     user_may_edit = False
+    user_may_view_private = False
     active_roles = user_data.active_roles if user_data else []
 
     if isinstance(item, ExperimentSet) or isinstance(item, Experiment) or isinstance(item, ScoreSet):
@@ -69,6 +80,27 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
         user_may_edit = user_is_owner or (
             user_data is not None and user_data.user.username in [c.orcid_id for c in item.contributors]
         )
+
+        save_to_logging_context({"resource_is_published": published})
+
+    if isinstance(item, Collection):
+        assert item.private is not None
+        private = item.private
+        published = item.private is False
+        user_is_owner = item.created_by_id == user_data.user.id if user_data is not None else False
+        admin_user_ids = set()
+        editor_user_ids = set()
+        viewer_user_ids = set()
+        for user_association in item.user_associations:
+            if user_association.contribution_role == ContributionRole.admin:
+                admin_user_ids.add(user_association.user_id)
+            elif user_association.contribution_role == ContributionRole.editor:
+                editor_user_ids.add(user_association.user_id)
+            elif user_association.contribution_role == ContributionRole.viewer:
+                viewer_user_ids.add(user_association.user_id)
+        user_is_admin = user_is_owner or (user_data is not None and user_data.user.id in admin_user_ids)
+        user_may_edit = user_is_admin or (user_data is not None and user_data.user.id in editor_user_ids)
+        user_may_view_private = user_may_edit or (user_data is not None and (user_data.user.id in viewer_user_ids))
 
         save_to_logging_context({"resource_is_published": published})
 
@@ -254,7 +286,109 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
         else:
             raise NotImplementedError(f"has_permission(User, ScoreSet, {action}, Role)")
 
+    elif isinstance(item, Collection):
+        if action == Action.READ:
+            if user_may_view_private or not private:
+                return PermissionResponse(True)
+            # Roles which may perform this operation.
+            elif roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            elif private:
+                # Do not acknowledge the existence of a private entity.
+                return PermissionResponse(False, 404, f"collection with URN '{item.urn}' not found")
+            elif user_data is None or user_data.user is None:
+                return PermissionResponse(False, 401, f"insufficient permissions for URN '{item.urn}'")
+            else:
+                return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
+        elif action == Action.UPDATE:
+            if user_may_edit:
+                return PermissionResponse(True)
+            # Roles which may perform this operation.
+            elif roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            elif private and not user_may_view_private:
+                # Do not acknowledge the existence of a private entity.
+                return PermissionResponse(False, 404, f"score set with URN '{item.urn}' not found")
+            elif user_data is None or user_data.user is None:
+                return PermissionResponse(False, 401, f"insufficient permissions for URN '{item.urn}'")
+            else:
+                return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
+        elif action == Action.DELETE:
+            # A collection may be deleted even if it has been published, as long as it is not an official collection.
+            if user_is_owner:
+                return PermissionResponse(
+                    not item.badge_name,
+                    403,
+                    f"insufficient permissions for URN '{item.urn}'",
+                )
+            # MaveDB admins may delete official collections.
+            elif roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            elif private and not user_may_view_private:
+                # Do not acknowledge the existence of a private entity.
+                return PermissionResponse(False, 404, f"collection with URN '{item.urn}' not found")
+            else:
+                return PermissionResponse(False)
+        elif action == Action.PUBLISH:
+            if user_is_admin:
+                return PermissionResponse(True)
+            elif roles_permitted(active_roles, []):
+                return PermissionResponse(True)
+            elif private and not user_may_view_private:
+                # Do not acknowledge the existence of a private entity.
+                return PermissionResponse(False, 404, f"score set with URN '{item.urn}' not found")
+            else:
+                return PermissionResponse(False)
+        elif action == Action.ADD_SCORE_SET:
+            # Whether the collection is private or public, only permitted users can add a score set to a collection.
+            if user_may_edit or roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            elif private and not user_may_view_private:
+                return PermissionResponse(False, 404, f"collection with URN '{item.urn}' not found")
+            else:
+                return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
+        elif action == Action.ADD_EXPERIMENT:
+            # Only permitted users can add an experiment to an existing collection.
+            return PermissionResponse(
+                user_may_edit or roles_permitted(active_roles, [UserRole.admin]),
+                404 if private and not user_may_view_private else 403,
+                (
+                    f"collection with URN '{item.urn}' not found"
+                    if private and not user_may_view_private
+                    else f"insufficient permissions for URN '{item.urn}'"
+                ),
+            )
+        elif action == Action.ADD_ROLE:
+            # Both collection admins and MaveDB admins can add a user to a collection role
+            if user_is_admin or roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            else:
+                return PermissionResponse(False, 403, "Insufficient permissions to add user role.")
+        # only MaveDB admins may add a badge name to a collection, which makes the collection considered "official"
+        elif action == Action.ADD_BADGE:
+            # Roles which may perform this operation.
+            if roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            elif private:
+                # Do not acknowledge the existence of a private entity.
+                return PermissionResponse(False, 404, f"collection with URN '{item.urn}' not found")
+            elif user_data is None or user_data.user is None:
+                return PermissionResponse(False, 401, f"insufficient permissions for URN '{item.urn}'")
+            else:
+                return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
+        else:
+            raise NotImplementedError(f"has_permission(User, ScoreSet, {action}, Role)")
+
     elif isinstance(item, User):
+        if action == Action.LOOKUP:
+            # any existing user can look up any mavedb user by Orcid ID
+            # lookup differs from read because lookup means getting the first name, last name, and orcid ID of the user,
+            # while read means getting an admin view of the user's details
+            if user_data is not None and user_data.user is not None:
+                return PermissionResponse(True)
+            else:
+                # TODO is this inappropriately acknowledging the existence of the user?
+                return PermissionResponse(False, 401, "Insufficient permissions for user lookup.")
         if action == Action.READ:
             if user_is_self:
                 return PermissionResponse(True)

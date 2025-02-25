@@ -23,7 +23,8 @@ from mavedb.lib.identifiers import (
 from mavedb.lib.keywords import search_keyword
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.lib.permissions import Action, assert_permission, has_permission
+from mavedb.lib.permissions import Action, assert_permission
+from mavedb.lib.score_sets import find_superseded_score_set_tail
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import validate_keyword_list
 from mavedb.models.contributor import Contributor
@@ -166,20 +167,25 @@ def get_experiment_score_sets(
         .filter(~ScoreSet.superseding_score_set.has())
         .all()
     )
-    score_set_result[:] = [
-        score_set for score_set in score_set_result if has_permission(user_data, score_set, Action.READ).permitted
-    ]
 
-    if not score_set_result:
+    filter_superseded_score_set_tails = [
+        find_superseded_score_set_tail(
+            score_set,
+            Action.READ,
+            user_data
+        ) for score_set in score_set_result
+    ]
+    filtered_score_sets = [score_set for score_set in filter_superseded_score_set_tails if score_set is not None]
+    if not filtered_score_sets:
         save_to_logging_context({"associated_resources": []})
         logger.info(msg="No score sets are associated with the requested experiment.", extra=logging_context())
 
         raise HTTPException(status_code=404, detail="no associated score sets")
     else:
-        score_set_result.sort(key=attrgetter("urn"))
+        filtered_score_sets.sort(key=attrgetter("urn"))
         save_to_logging_context({"associated_resources": [item.urn for item in score_set_result]})
 
-    return score_set_result
+    return filtered_score_sets
 
 
 @router.post(
