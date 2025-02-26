@@ -2,7 +2,7 @@
 # python-base
 # Set up shared environment variables
 ################################
-FROM python:3.9 as python-base
+FROM python:3.9 AS python-base
 
     # Poetry
     # https://python-poetry.org/docs/configuration/#using-environment-variables
@@ -69,7 +69,7 @@ RUN samtools faidx GCF_000001405.39_GRCh38.p13_genomic.fna.gz
 # builder
 # Builds application dependencies and creates venv
 ################################
-FROM python-base as builder
+FROM python-base AS builder
 
 WORKDIR /code
 
@@ -90,7 +90,7 @@ COPY src/mavedb/server_main.py /code/main.py
 # worker
 # Worker image
 ################################
-FROM builder as worker
+FROM builder AS worker
 COPY --from=downloader /data /data
 
 # copy pre-built poetry + venv
@@ -103,7 +103,7 @@ CMD ["arq", "mavedb.worker.WorkerSettings"]
 # application
 # Application image
 ################################
-FROM builder as application
+FROM builder AS application
 COPY --from=downloader /data /data
 
 # copy pre-built poetry + venv
