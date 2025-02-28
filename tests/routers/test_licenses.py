@@ -1,4 +1,10 @@
+# ruff: noqa: E402
+
 import pytest
+
+arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
 
 from tests.helpers.constants import TEST_LICENSE
 from tests.helpers.dependency_overrider import DependencyOverrider
