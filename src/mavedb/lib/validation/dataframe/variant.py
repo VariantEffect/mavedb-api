@@ -258,7 +258,7 @@ def validate_observed_sequence_types(targets: dict[str, TargetSequence]) -> list
     if not targets:
         raise ValueError("No targets were provided; cannot validate observed sequence types with none observed.")
 
-    observed_sequence_types = [target.sequence_type for target in targets.values()]
+    observed_sequence_types = [target.sequence_type for target in targets.values() if target.sequence_type is not None]
     invalid_sequence_types = set(observed_sequence_types) - set(valid_sequence_types)
     if invalid_sequence_types:
         raise ValueError(
