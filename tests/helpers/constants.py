@@ -417,16 +417,16 @@ TEST_SEQ_SCORESET = {
         {
             "name": "TEST1",
             "category": "protein_coding",
-            "external_identifiers": [],
             "target_sequence": {
                 "sequence_type": "dna",
                 "sequence": "ACGTTT",
-                "reference": {
-                    "id": 1,
-                    "short_name": "Name",
-                    "organism_name": "Organism",
-                    "creation_date": date.today().isoformat(),
-                    "modification_date": date.today().isoformat(),
+                "taxonomy": {
+                    "tax_id": TEST_TAXONOMY["tax_id"],
+                    "organism_name": TEST_TAXONOMY["organism_name"],
+                    "common_name": TEST_TAXONOMY["common_name"],
+                    "rank": TEST_TAXONOMY["rank"],
+                    "id": TEST_TAXONOMY["id"],
+                    "url": TEST_TAXONOMY["url"],
                 },
             },
         }
@@ -554,7 +554,6 @@ TEST_ACC_SCORESET = {
         {
             "name": "TEST2",
             "category": "protein_coding",
-            "external_identifiers": [],
             "target_accession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
         }
     ],

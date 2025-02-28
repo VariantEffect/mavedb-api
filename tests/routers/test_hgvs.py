@@ -1,8 +1,14 @@
+# ruff: noqa: E402
+
 from unittest.mock import patch
 
-import cdot.hgvs.dataproviders
+import pytest
 import requests_mock
-from hgvs.exceptions import HGVSDataNotAvailableError
+
+arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
+hgvs = pytest.importorskip("hgvs")
 
 from tests.helpers.constants import TEST_CDOT_TRANSCRIPT, VALID_ACCESSION, VALID_GENE
 
@@ -29,7 +35,7 @@ def test_hgvs_fetch_valid(client, setup_router_db):
 
 def test_hgvs_fetch_invalid(client, setup_router_db):
     with patch.object(
-        cdot.hgvs.dataproviders.ChainedSeqFetcher, "fetch_seq", side_effect=HGVSDataNotAvailableError()
+        cdot.hgvs.dataproviders.ChainedSeqFetcher, "fetch_seq", side_effect=hgvs.exceptions.HGVSDataNotAvailableError()
     ) as p:
         response = client.get(f"/api/v1/hgvs/fetch/{SMALL_ACCESSION}")
         p.assert_called_once()
