@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from unittest.mock import patch
 
-from mavedb.lib.score_sets import create_variants, create_variants_data, csv_data_to_df
+from mavedb.lib.score_sets import create_variants, columns_for_dataset, create_variants_data, csv_data_to_df
 from mavedb.lib.validation.dataframe.dataframe import validate_and_standardize_dataframe_pair
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.mapping_state import MappingState
@@ -73,6 +73,10 @@ def mock_worker_variant_insertion(
     assert num_variants == 3
 
     item.processing_state = ProcessingState.success
+    item.dataset_columns = {
+        "score_columns": columns_for_dataset(scores),
+        "count_columns": columns_for_dataset(counts),
+    }
 
     db.add(item)
     db.commit()
