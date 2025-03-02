@@ -668,7 +668,12 @@ TEST_MINIMAL_ACC_SCORESET = {
             "name": "TEST2",
             "category": "protein_coding",
             "externalIdentifiers": [],
-            "targetAccession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
+            "targetAccession": {
+                "accession": VALID_ACCESSION,
+                "assembly": "GRCh37",
+                "gene": VALID_GENE,
+                "isBaseEditor": False,
+            },
         }
     ],
 }
@@ -682,7 +687,31 @@ TEST_ACC_SCORESET = {
         {
             "name": "TEST2",
             "category": "protein_coding",
-            "target_accession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
+            "target_accession": {
+                "accession": VALID_ACCESSION,
+                "assembly": "GRCh37",
+                "gene": VALID_GENE,
+                "isBaseEditor": False,
+            },
+        }
+    ],
+}
+
+TEST_BASE_EDITOR_SCORESET = {
+    "title": "Test Score Set Acc Title",
+    "short_description": "Test accession score set",
+    "abstract_text": "Abstract",
+    "method_text": "Methods",
+    "target_genes": [
+        {
+            "name": "TEST2",
+            "category": "protein_coding",
+            "target_accession": {
+                "accession": VALID_ACCESSION,
+                "assembly": "GRCh37",
+                "gene": VALID_GENE,
+                "isBaseEditor": False,
+            },
         }
     ],
 }
@@ -724,6 +753,7 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
                 "accession": VALID_ACCESSION,
                 "assembly": "GRCh37",
                 "gene": VALID_GENE,
+                "isBaseEditor": False,
             },
         }
     ],
