@@ -6,6 +6,7 @@ from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
     hgvs_pro_column,
     hgvs_splice_column,
+    guide_sequence_column,
     required_score_column,
 )
 from tests.helpers.constants import TEST_CDOT_TRANSCRIPT
@@ -32,6 +33,7 @@ class DfTestCase(TestCase):
                 hgvs_nt_column: ["g.1A>G", "g.1A>T"],
                 hgvs_splice_column: ["c.1A>G", "c.1A>T"],
                 hgvs_pro_column: ["p.Met1Val", "p.Met1Leu"],
+                guide_sequence_column: ["AG", "AG"],
                 required_score_column: [1.0, 2.0],
                 "extra": [12.0, 3.0],
                 "count1": [3.0, 5.0],

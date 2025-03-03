@@ -8,6 +8,7 @@ from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
     hgvs_pro_column,
     hgvs_splice_column,
+    guide_sequence_column,
     required_score_column,
 )
 from mavedb.lib.validation.exceptions import ValidationError
@@ -16,6 +17,7 @@ from mavedb.lib.validation.dataframe.column import validate_data_column
 from mavedb.lib.validation.dataframe.variant import (
     validate_hgvs_transgenic_column,
     validate_hgvs_genomic_column,
+    validate_guide_sequence_column,
     validate_hgvs_prefix_combinations,
 )
 
@@ -23,7 +25,7 @@ if TYPE_CHECKING:
     from cdot.hgvs.dataproviders import RESTDataProvider
 
 
-STANDARD_COLUMNS = (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column)
+STANDARD_COLUMNS = (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, guide_sequence_column, required_score_column)
 
 
 def validate_and_standardize_dataframe_pair(
@@ -95,25 +97,30 @@ def validate_dataframe(
     ValidationError
         If one of the validators called raises an exception
     """
+    # basic target meta data
+    score_set_is_accession_based = all(target.target_accession for target in targets)
+    score_set_is_sequence_based = all(target.target_sequence for target in targets)
+    score_set_is_base_editor = score_set_is_accession_based and all(
+        target.target_accession.is_base_editor for target in targets
+    )
+
     # basic checks
-    validate_column_names(df, kind)
+    validate_column_names(df, kind, score_set_is_base_editor)
     validate_no_null_rows(df)
 
     column_mapping = {c.lower(): c for c in df.columns}
-    index_column = choose_dataframe_index_column(df)
+    index_column = choose_dataframe_index_column(df, score_set_is_base_editor)
 
     prefixes: dict[str, Optional[str]] = dict()
     for c in column_mapping:
+        is_index = column_mapping[c] == index_column
+
         if c in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
-            is_index = column_mapping[c] == index_column
             prefixes[c] = None
 
             # Ignore validation for null non-index hgvs columns
             if df[column_mapping[c]].isna().all() and not is_index:
                 continue
-
-            score_set_is_accession_based = all(target.target_accession for target in targets)
-            score_set_is_sequence_based = all(target.target_sequence for target in targets)
 
             # This is typesafe, despite Pylance's claims otherwise
             if score_set_is_accession_based and not score_set_is_sequence_based:
@@ -139,6 +146,9 @@ def validate_dataframe(
                 )  # Just take the first prefix, we validate consistency elsewhere
             else:
                 prefixes[c] = df[column_mapping[c]].dropna()[0][0]
+
+        elif c is guide_sequence_column:
+            validate_guide_sequence_column(df[column_mapping[c]], is_index=is_index)
 
         else:
             force_numeric = (c == required_score_column) or (kind == "counts")
@@ -213,7 +223,7 @@ def sort_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df[new_columns]
 
 
-def validate_column_names(df: pd.DataFrame, kind: str) -> None:
+def validate_column_names(df: pd.DataFrame, kind: str, is_base_editor: bool) -> None:
     """Validate the column names in a dataframe.
 
     This function validates the column names in the given dataframe.
@@ -256,18 +266,27 @@ def validate_column_names(df: pd.DataFrame, kind: str) -> None:
         raise ValueError("kind only accepts scores and counts")
 
     if hgvs_splice_column in columns:
-        if hgvs_nt_column not in columns or hgvs_pro_column not in columns:
-            raise ValidationError(
-                f"dataframes with '{hgvs_splice_column}' must also define '{hgvs_nt_column}' and '{hgvs_pro_column}'"
-            )
+        msg = "dataframes with '{0}' must also define a '{1}' column"
+        if hgvs_nt_column not in columns:
+            raise ValidationError(msg.format(hgvs_splice_column, hgvs_nt_column))
+        elif hgvs_pro_column not in columns:
+            raise ValidationError(msg.format(hgvs_splice_column, hgvs_pro_column))
 
     if len(columns) != len(set(columns)):
         raise ValidationError("duplicate column names are not allowed (this check is case insensitive)")
 
+    if is_base_editor:
+        msg = "dataframes for base editor data must also define the '{0}' column"
+        if guide_sequence_column not in columns:
+            raise ValidationError(msg.format(guide_sequence_column))
+
+        elif hgvs_nt_column not in columns:
+            raise ValidationError(msg.format(hgvs_nt_column))
+
     if set(columns).isdisjoint({hgvs_nt_column, hgvs_splice_column, hgvs_pro_column}):
         raise ValidationError("dataframe does not define any variant columns")
 
-    if set(columns).issubset({hgvs_nt_column, hgvs_splice_column, hgvs_pro_column}):
+    if set(columns).issubset({hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, guide_sequence_column}):
         raise ValidationError("dataframe does not define any data columns")
 
 
@@ -288,7 +307,7 @@ def validate_no_null_rows(df: pd.DataFrame) -> None:
         raise ValidationError(f"found {len(df[df.isnull().all(axis=1)])} null rows in the data frame")
 
 
-def choose_dataframe_index_column(df: pd.DataFrame) -> str:
+def choose_dataframe_index_column(df: pd.DataFrame, is_base_editor: bool) -> str:
     """
     Identify the HGVS variant column that should be used as the index column in this dataframe.
 
@@ -309,7 +328,9 @@ def choose_dataframe_index_column(df: pd.DataFrame) -> str:
     """
     column_mapping = {c.lower(): c for c in df.columns if not df[c].isna().all()}
 
-    if hgvs_nt_column in column_mapping:
+    if is_base_editor:
+        return column_mapping[guide_sequence_column]
+    elif hgvs_nt_column in column_mapping:
         return column_mapping[hgvs_nt_column]
     elif hgvs_pro_column in column_mapping:
         return column_mapping[hgvs_pro_column]
