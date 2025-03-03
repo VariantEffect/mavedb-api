@@ -158,7 +158,7 @@ def validate_dataframe(
         hgvs_nt=prefixes[hgvs_nt_column],
         hgvs_splice=prefixes[hgvs_splice_column],
         hgvs_pro=prefixes[hgvs_pro_column],
-        transgenic=all(target.target_sequence for target in targets),
+        transgenic=score_set_is_sequence_based,
     )
 
 
