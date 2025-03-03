@@ -146,7 +146,7 @@ def upgrade():
         """INSERT INTO controlled_keywords (key, value, vocabulary, special, description, creation_date, modification_date) VALUES ('Delivery method', 'Adeno-associated virus transduction', NULL, False, 'How the variant library was delivered to the model system for phenotype evaluation.', NOW(), NOW())"""
     )
     op.execute(
-        """INSERT INTO controlled_keywords (key, value, vocabulary, special, description, creation_date, modification_date) VALUES ('Delivery method', 'Tentivirus transduction', NULL, False, 'How the variant library was delivered to the model system for phenotype evaluation.', NOW(), NOW())"""
+        """INSERT INTO controlled_keywords (key, value, vocabulary, special, description, creation_date, modification_date) VALUES ('Delivery method', 'Lentivirus transduction', NULL, False, 'How the variant library was delivered to the model system for phenotype evaluation.', NOW(), NOW())"""
     )
     op.execute(
         """INSERT INTO controlled_keywords (key, value, vocabulary, special, description, creation_date, modification_date) VALUES ('Delivery method', 'Chemical or heat shock transformation', NULL, False, 'How the variant library was delivered to the model system for phenotype evaluation.', NOW(), NOW())"""
