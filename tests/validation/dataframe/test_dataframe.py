@@ -494,14 +494,50 @@ class TestValidateVariantColumnsMatch(DfTestCase):
     def test_ignore_order(self):
         validate_variant_columns_match(self.dataframe, self.dataframe.iloc[::-1])
 
-    def test_missing_column(self):
+    def test_missing_column_nt(self):
         with self.assertRaises(ValidationError):
             validate_variant_columns_match(self.dataframe, self.dataframe.drop(hgvs_nt_column, axis=1))
         with self.assertRaises(ValidationError):
             validate_variant_columns_match(self.dataframe.drop(hgvs_nt_column, axis=1), self.dataframe)
 
-    def test_missing_variant(self):
+    def test_missing_column_pro(self):
+        with self.assertRaises(ValidationError):
+            validate_variant_columns_match(self.dataframe, self.dataframe.drop(hgvs_pro_column, axis=1))
+        with self.assertRaises(ValidationError):
+            validate_variant_columns_match(self.dataframe.drop(hgvs_pro_column, axis=1), self.dataframe)
+
+    def test_missing_column_splice(self):
+        with self.assertRaises(ValidationError):
+            validate_variant_columns_match(self.dataframe, self.dataframe.drop(hgvs_splice_column, axis=1))
+        with self.assertRaises(ValidationError):
+            validate_variant_columns_match(self.dataframe.drop(hgvs_splice_column, axis=1), self.dataframe)
+
+    def test_missing_column_guide(self):
+        with self.assertRaises(ValidationError):
+            validate_variant_columns_match(self.dataframe, self.dataframe.drop(guide_sequence_column, axis=1))
+        with self.assertRaises(ValidationError):
+            validate_variant_columns_match(self.dataframe.drop(guide_sequence_column, axis=1), self.dataframe)
+
+    def test_missing_variant_nt(self):
+        df2 = self.dataframe.copy()
+        df2.loc[0, hgvs_nt_column] = None
+        with self.assertRaises(ValidationError):
+            validate_variant_columns_match(self.dataframe, df2)
+
+    def test_missing_variant_pro(self):
         df2 = self.dataframe.copy()
         df2.loc[0, hgvs_pro_column] = None
+        with self.assertRaises(ValidationError):
+            validate_variant_columns_match(self.dataframe, df2)
+
+    def test_missing_variant_splice(self):
+        df2 = self.dataframe.copy()
+        df2.loc[0, hgvs_splice_column] = None
+        with self.assertRaises(ValidationError):
+            validate_variant_columns_match(self.dataframe, df2)
+
+    def test_missing_guide(self):
+        df2 = self.dataframe.copy()
+        df2.loc[0, guide_sequence_column] = None
         with self.assertRaises(ValidationError):
             validate_variant_columns_match(self.dataframe, df2)
