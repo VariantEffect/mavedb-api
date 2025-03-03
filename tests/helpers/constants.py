@@ -691,7 +691,7 @@ TEST_ACC_SCORESET = {
                 "accession": VALID_ACCESSION,
                 "assembly": "GRCh37",
                 "gene": VALID_GENE,
-                "isBaseEditor": False,
+                "is_base_editor": False,
             },
         }
     ],
