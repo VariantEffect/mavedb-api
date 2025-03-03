@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from cdot.hgvs.dataproviders import RESTDataProvider
 
 
-STANDARD_COLUMNS = (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, guide_sequence_column, required_score_column)
+STANDARD_COLUMNS = (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column, guide_sequence_column)
 
 
 def validate_and_standardize_dataframe_pair(
