@@ -3,6 +3,7 @@ import warnings
 from typing import Hashable, Optional, TYPE_CHECKING
 
 import pandas as pd
+from fqfa.validator import dna_bases_validator
 from mavehgvs.exceptions import MaveHgvsParseError
 from mavehgvs.variant import Variant
 
@@ -233,6 +234,12 @@ def parse_transgenic_variant(
                     return False, f"target sequence mismatch for '{variant}' at row {idx} for sequence {name}"
 
     return True, None
+
+
+def validate_guide_sequence_column(column: pd.Series, is_index: bool) -> None:
+    validate_variant_column(column, is_index)
+    if column.apply(lambda x: dna_bases_validator(x) is None if x is not None else False).any():
+        raise ValidationError("Invalid guide sequence provided: all guide sequences must be valid DNA sequences.")
 
 
 def validate_observed_sequence_types(targets: dict[str, TargetSequence]) -> list[str]:

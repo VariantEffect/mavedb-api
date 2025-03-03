@@ -3,7 +3,7 @@ import pytest
 from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
 from mavedb.view_models.score_set import ScoreSetCreate, ScoreSetModify
 from mavedb.view_models.target_gene import TargetGeneCreate
-from tests.helpers.constants import TEST_MINIMAL_SEQ_SCORESET
+from tests.helpers.constants import TEST_MINIMAL_ACC_SCORESET, TEST_MINIMAL_SEQ_SCORESET
 
 
 def test_cannot_create_score_set_without_a_target():
@@ -460,24 +460,9 @@ def test_cannot_create_score_set_with_normal_range_and_no_wild_type_score():
     }
 
     with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(**jsonable_encoder(score_set_test))
-
-    assert "A normal range has been provided, but no wild type score has been provided." in str(exc_info.value)
-
-
-def test_cannot_create_score_set_without_default_ranges():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": -0.5,
-        "ranges": [
-            {"label": "range_1", "classification": "other", "range": (-1, 0)},
-        ],
-    }
-
-    with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**score_set_test)
 
-    assert "unexpected value; permitted: 'normal', 'abnormal', 'not_specified'" in str(exc_info.value)
+    assert "A normal range has been provided, but no wild type score has been provided." in str(exc_info.value)
 
 
 @pytest.mark.parametrize("classification", ["normal", "abnormal", "not_specified"])
@@ -491,4 +476,24 @@ def test_can_create_score_set_with_any_range_classification(classification):
         ],
     }
 
-    ScoreSetModify(**jsonable_encoder(score_set_test))
+    ScoreSetModify(**score_set_test)
+    assert "Unexpected classification value(s): other. Permitted values: ['normal', 'abnormal']" in str(exc_info.value)
+
+
+def test_cannot_create_score_set_with_inconsistent_base_editor_flags():
+    score_set_test = TEST_MINIMAL_ACC_SCORESET.copy()
+
+    target_gene_one = TargetGeneCreate(**score_set_test["targetGenes"][0])
+    target_gene_two = TargetGeneCreate(**score_set_test["targetGenes"][0])
+
+    target_gene_one.target_accession.is_base_editor = True
+    target_gene_two.target_accession.is_base_editor = False
+
+    score_set_test.pop("targetGenes")
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetModify(
+            **score_set_test,
+            target_genes=[target_gene_one, target_gene_two],
+        )
+
+    assert "All target accessions must be of the same base editor type." in str(exc_info.value)
