@@ -9,6 +9,7 @@ from mavedb.lib.validation.constants.general import (
     hgvs_splice_column,
 )
 from mavedb.lib.validation.dataframe.variant import (
+    validate_guide_sequence_column,
     validate_hgvs_transgenic_column,
     validate_hgvs_genomic_column,
     parse_genomic_variant,
@@ -808,6 +809,63 @@ class TestParseTransgenicVariant(unittest.TestCase):
                 )
                 assert not valid
                 assert "target sequence mismatch" in error
+
+
+class TestValidateGuideSequenceColumn(DfTestCase):
+    def setUp(self):
+        super().setUp()
+
+        self.valid_guide_sequences = [
+            pd.Series(["ATG", "TGA"], name="guide_sequence"),
+            pd.Series(["ATGC", "TGAC"], name="guide_sequence"),
+            pd.Series(["ATGCG", "TGACG"], name="guide_sequence"),
+        ]
+
+        self.invalid_guide_sequences = [
+            pd.Series(["ATG", "XYZ"], name="guide_sequence"),  # invalid DNA sequence
+            pd.Series(["123", "123"], name="guide_sequence"),  # contains numeric
+        ]
+
+        self.invalid_index_guide_sequences = [
+            pd.Series(["ATG", None], name="guide_sequence"),  # contains None value
+            pd.Series(["ATG", "ATG"], name="guide_sequence"),  # identical sequences
+        ]
+
+        self.accession_test_case = AccessionTestCase()
+
+    def test_valid_guide_sequences(self):
+        for column in self.valid_guide_sequences + self.invalid_index_guide_sequences:
+            with self.subTest(column=column):
+                validate_guide_sequence_column(
+                    column,
+                    is_index=False,
+                )
+
+    def test_invalid_guide_sequences(self):
+        for column in self.invalid_guide_sequences:
+            with self.subTest(column=column):
+                with self.assertRaises(ValidationError):
+                    validate_guide_sequence_column(
+                        column,
+                        is_index=False,
+                    )
+
+    def test_valid_guide_sequences_index(self):
+        for column in self.valid_guide_sequences:
+            with self.subTest(column=column):
+                validate_guide_sequence_column(
+                    column,
+                    is_index=True,
+                )
+
+    def test_invalid_guide_sequences_index(self):
+        for column in self.invalid_guide_sequences + self.invalid_index_guide_sequences:
+            with self.subTest(column=column):
+                with self.assertRaises(ValidationError):
+                    validate_guide_sequence_column(
+                        column,
+                        is_index=True,
+                    )
 
 
 class TestValidateObservedSequenceTypes(unittest.TestCase):

@@ -4,7 +4,7 @@ from mavedb.lib.validation.constants.score_set import default_ranges
 from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
 from mavedb.view_models.score_set import ScoreSetCreate, ScoreSetModify
 from mavedb.view_models.target_gene import TargetGeneCreate
-from tests.helpers.constants import TEST_MINIMAL_SEQ_SCORESET
+from tests.helpers.constants import TEST_MINIMAL_ACC_SCORESET, TEST_MINIMAL_SEQ_SCORESET
 
 
 def test_cannot_create_score_set_without_a_target():
@@ -464,3 +464,22 @@ def test_cannot_create_score_set_without_default_ranges():
         ScoreSetModify(**score_set_test)
 
     assert "Unexpected classification value(s): other. Permitted values: ['normal', 'abnormal']" in str(exc_info.value)
+
+
+def test_cannot_create_score_set_with_inconsistent_base_editor_flags():
+    score_set_test = TEST_MINIMAL_ACC_SCORESET.copy()
+
+    target_gene_one = TargetGeneCreate(**score_set_test["targetGenes"][0])
+    target_gene_two = TargetGeneCreate(**score_set_test["targetGenes"][0])
+
+    target_gene_one.target_accession.is_base_editor = True
+    target_gene_two.target_accession.is_base_editor = False
+
+    score_set_test.pop("targetGenes")
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetModify(
+            **score_set_test,
+            target_genes=[target_gene_one, target_gene_two],
+        )
+
+    assert "All target accessions must be of the same base editor type." in str(exc_info.value)
