@@ -147,7 +147,7 @@ def validate_dataframe(
             else:
                 prefixes[c] = df[column_mapping[c]].dropna()[0][0]
 
-        elif c is guide_sequence_column:
+        elif c == guide_sequence_column:
             validate_guide_sequence_column(df[column_mapping[c]], is_index=is_index)
 
         else:
@@ -377,7 +377,7 @@ def validate_variant_columns_match(df1: pd.DataFrame, df2: pd.DataFrame):
         If both dataframes do not define the same variants within each column
     """
     for c in df1.columns:
-        if c.lower() in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
+        if c.lower() in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, guide_sequence_column):
             if c not in df2:
                 raise ValidationError("both score and count dataframes must define matching HGVS columns")
             elif df1[c].isnull().all() and df2[c].isnull().all():
@@ -387,6 +387,6 @@ def validate_variant_columns_match(df1: pd.DataFrame, df2: pd.DataFrame):
                     f"both score and count dataframes must define matching variants, discrepancy found in '{c}'"
                 )
     for c in df2.columns:
-        if c.lower() in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column):
+        if c.lower() in (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, guide_sequence_column):
             if c not in df1:
                 raise ValidationError("both score and count dataframes must define matching HGVS columns")
