@@ -82,7 +82,9 @@ def validate_variant_formatting(column: pd.Series, prefixes: list[str], targets:
         if not all(str(v).split(":")[1][:2] in prefixes for v in variants):
             raise ValidationError(f"variant column '{column.name}' has invalid variant prefixes")
         if not all(str(v).split(":")[0] in targets for v in variants):
-            raise ValidationError(f"variant column '{column.name}' has invalid accession identifiers")
+            raise ValidationError(
+                f"variant column '{column.name}' has invalid accession identifiers; some accession identifiers present in the score file were not added as targets"
+            )
 
     else:
         if len(set(v[:2] for v in variants)) > 1:
