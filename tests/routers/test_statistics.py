@@ -367,3 +367,64 @@ def test_record_statistics_invalid_record_and_field(client):
     assert response.json()["detail"][0]["ctx"]["enum_values"] == RECORD_MODELS
     assert response.json()["detail"][1]["loc"] == ["path", "field"]
     assert response.json()["detail"][1]["ctx"]["enum_values"] == RECORD_SHARED_FIELDS
+
+
+# Test record counts statistics
+@pytest.mark.parametrize("model_value", RECORD_MODELS)
+def test_record_counts_no_published_data(client, model_value, setup_router_db):
+    """Test record counts endpoint for published experiments and score sets."""
+    response = client.get(f"/api/v1/statistics/record/{model_value}/published/count")
+    assert response.status_code == 200
+    assert "all" in response.json()
+    assert response.json()["all"] == 0
+
+
+@pytest.mark.parametrize("model_value", RECORD_MODELS)
+def test_record_counts(client, model_value, setup_router_db, setup_seq_scoreset):
+    """Test record counts endpoint for published experiments and score sets."""
+    response = client.get(f"/api/v1/statistics/record/{model_value}/published/count")
+    assert response.status_code == 200
+    assert "all" in response.json()
+    assert response.json()["all"] == 1
+
+
+@pytest.mark.parametrize("model_value", RECORD_MODELS)
+@pytest.mark.parametrize("group_value", ["month", "year"])
+def test_record_counts_grouped_no_published_data(client, model_value, group_value, setup_router_db):
+    """Test record counts endpoint grouped by month and year for published experiments and score sets."""
+    response = client.get(f"/api/v1/statistics/record/{model_value}/published/count?group={group_value}")
+    assert response.status_code == 200
+    assert isinstance(response.json(), dict)
+    for key, value in response.json().items():
+        assert isinstance(key, str)
+        assert isinstance(value, int)
+
+
+@pytest.mark.parametrize("model_value", RECORD_MODELS)
+@pytest.mark.parametrize("group_value", ["month", "year"])
+def test_record_counts_grouped(
+    session, client, model_value, group_value, setup_router_db, setup_seq_scoreset, setup_acc_scoreset
+):
+    """Test record counts endpoint grouped by month and year for published experiments and score sets."""
+    response = client.get(f"/api/v1/statistics/record/{model_value}/published/count?group={group_value}")
+    assert response.status_code == 200
+    assert isinstance(response.json(), dict)
+    for key, value in response.json().items():
+        assert isinstance(key, str)
+        assert value == 2
+
+
+def test_record_counts_invalid_model(client):
+    """Test record counts endpoint with an invalid model."""
+    response = client.get("/api/v1/statistics/record/invalid-model/published/count")
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["path", "model"]
+    assert response.json()["detail"][0]["ctx"]["enum_values"] == RECORD_MODELS
+
+
+def test_record_counts_invalid_group(client):
+    """Test record counts endpoint with an invalid group."""
+    response = client.get("/api/v1/statistics/record/experiment/published/count?group=invalid-group")
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["query", "group"]
+    assert response.json()["detail"][0]["ctx"]["enum_values"] == ["month", "year"]

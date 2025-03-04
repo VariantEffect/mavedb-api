@@ -1,5 +1,7 @@
+import itertools
+from collections import OrderedDict
 from enum import Enum
-from typing import Union
+from typing import Union, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import Table, func, select
@@ -75,6 +77,11 @@ class RecordFields(str, Enum):
     doiIdentifiers = "doi-identifiers"
     rawReadIdentifiers = "raw-read-identifiers"
     createdBy = "created-by"
+
+
+class GroupBy(str, Enum):
+    month = "month"
+    year = "year"
 
 
 def _target_from_field_and_model(
@@ -344,3 +351,32 @@ def record_object_statistics(
     count_data = _record_from_field_and_model(db, model, field)
 
     return {field_val: count for field_val, count in count_data if field_val is not None}
+
+
+@router.get("/record/{model}/published/count", status_code=200, response_model=dict[str, int])
+def record_counts(model: RecordNames, group: Optional[GroupBy] = None, db: Session = Depends(get_db)) -> dict[str, int]:
+    """
+    Returns a dictionary of counts for the number of records in each table.
+    """
+    models: dict[RecordNames, Union[type[Experiment], type[ScoreSet]]] = {
+        RecordNames.experiment: Experiment,
+        RecordNames.scoreSet: ScoreSet,
+    }
+
+    queried_model = models[model]
+
+    # Protects against Nonetype publication dates with where clause and ignore mypy typing errors in dictcomps.
+    objs = db.scalars(
+        select(queried_model.published_date)
+        .where(queried_model.published_date.isnot(None))
+        .order_by(queried_model.published_date)
+    ).all()
+
+    if group == GroupBy.month:
+        grouped = {k: len(list(g)) for k, g in itertools.groupby(objs, lambda t: t.strftime("%Y-%m"))}  # type: ignore
+    elif group == GroupBy.year:
+        grouped = {k: len(list(g)) for k, g in itertools.groupby(objs, lambda t: t.strftime("%Y"))}  # type: ignore
+    else:
+        grouped = {"all": len(objs)}
+
+    return OrderedDict(sorted(grouped.items()))
