@@ -2105,8 +2105,8 @@ def test_upload_a_non_utf8_file(session, client, setup_router_db, data_files):
         )
     assert response.status_code == 400
     response_data = response.json()
-    assert f"Error decoding file: 'utf-8' codec can't decode byte 0xdd in position 10: invalid continuation byte. " \
-           f"Ensure the file has correct values." in response_data["detail"]
+    assert "Error decoding file: 'utf-8' codec can't decode byte 0xdd in position 10: invalid continuation byte. " \
+           "Ensure the file has correct values." in response_data["detail"]
 
 
 ########################################################################################################################
