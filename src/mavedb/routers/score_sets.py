@@ -312,10 +312,10 @@ def get_score_set_mapped_variants(
 
     mapped_variants = (
         db.query(MappedVariant)
-            .filter(ScoreSet.urn == urn)
-            .filter(ScoreSet.id == Variant.score_set_id)
-            .filter(Variant.id == MappedVariant.variant_id)
-            .all()
+        .filter(ScoreSet.urn == urn)
+        .filter(ScoreSet.id == Variant.score_set_id)
+        .filter(Variant.id == MappedVariant.variant_id)
+        .all()
     )
 
     if not mapped_variants:
@@ -482,10 +482,9 @@ async def create_score_set(
         for identifier in item_create.primary_publication_identifiers or []
     ]
     publication_identifiers = [
-                                  await find_or_create_publication_identifier(db, identifier.identifier,
-                                                                              identifier.db_name)
-                                  for identifier in item_create.secondary_publication_identifiers or []
-                              ] + primary_publication_identifiers
+        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+        for identifier in item_create.secondary_publication_identifiers or []
+    ] + primary_publication_identifiers
 
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
@@ -1149,10 +1148,14 @@ async def get_clinical_controls_for_score_set(
         control_variant.mapped_variants = [
             # As of now, we only have linked clingen allele IDs for v1.3 VRS. Once v2.0 has been linked to clingen allele IDs,
             # we can transition to the other filter.
+            # Staging filter
+            # mv
+            # for mv in control_variant.mapped_variants
+            # if mv.vrs_version == "1.3" and mv.variant.score_set_id == item.id
+            # Production filter
             mv
             for mv in control_variant.mapped_variants
-            if mv.vrs_version == "1.3" and mv.variant.score_set_id == item.id
-            # mv for mv in control_variant.mapped_variants if mv.current and mv.variant.score_set_id == item.id
+            if mv.current and mv.variant.score_set_id == item.id
         ]
 
         if control_variant.mapped_variants:
