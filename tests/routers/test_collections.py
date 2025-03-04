@@ -1,12 +1,19 @@
+# ruff: noqa: E402
+
 import re
 from copy import deepcopy
 
 import jsonschema
 import pytest
 
+arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
+
 from mavedb.lib.validation.urn_re import MAVEDB_COLLECTION_URN_RE
 from mavedb.models.enums.contribution_role import ContributionRole
 from mavedb.view_models.collection import Collection
+
 from tests.helpers.constants import (
     EXTRA_USER,
     TEST_USER,
@@ -14,12 +21,10 @@ from tests.helpers.constants import (
     TEST_COLLECTION_RESPONSE,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
-from tests.helpers.util import (
-    create_collection,
-    create_experiment,
-    create_seq_score_set_with_variants,
-    publish_score_set,
-)
+from tests.helpers.util.collection import create_collection
+from tests.helpers.util.experiment import create_experiment
+from tests.helpers.util.score_set import create_seq_score_set, publish_score_set
+from tests.helpers.util.variant import mock_worker_variant_insertion
 
 
 def test_create_private_collection(client, setup_router_db):
@@ -224,8 +229,9 @@ def test_admin_can_add_experiment_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
     score_set = publish_score_set(client, unpublished_score_set["urn"])
 
@@ -278,8 +284,9 @@ def test_editor_can_add_experiment_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
     score_set = publish_score_set(client, unpublished_score_set["urn"])
 
@@ -326,8 +333,9 @@ def test_viewer_cannot_add_experiment_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
     score_set = publish_score_set(client, unpublished_score_set["urn"])
 
@@ -349,8 +357,9 @@ def test_unauthorized_user_cannot_add_experiment_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
     score_set = publish_score_set(client, unpublished_score_set["urn"])
 
@@ -370,8 +379,9 @@ def test_anonymous_cannot_add_experiment_to_collection(
     session, client, data_provider, data_files, setup_router_db, anonymous_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
     score_set = publish_score_set(client, unpublished_score_set["urn"])
 
@@ -391,8 +401,9 @@ def test_admin_can_add_score_set_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
     score_set = publish_score_set(client, unpublished_score_set["urn"])
 
@@ -444,8 +455,9 @@ def test_editor_can_add_score_set_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
     score_set = publish_score_set(client, unpublished_score_set["urn"])
 
@@ -491,8 +503,9 @@ def test_viewer_cannot_add_score_set_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
     score_set = publish_score_set(client, unpublished_score_set["urn"])
 
@@ -513,8 +526,9 @@ def test_unauthorized_user_cannot_add_score_set_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
     score_set = publish_score_set(client, unpublished_score_set["urn"])
 
@@ -533,8 +547,9 @@ def test_anonymous_cannot_add_score_set_to_collection(
     session, client, data_provider, data_files, setup_router_db, anonymous_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
     score_set = publish_score_set(client, unpublished_score_set["urn"])
 

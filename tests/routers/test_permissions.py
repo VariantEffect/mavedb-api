@@ -1,14 +1,21 @@
+# ruff: noqa: E402
+
+import pytest
+
+arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
+
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+
 from tests.helpers.constants import TEST_USER
-from tests.helpers.util import (
-    add_contributor,
-    change_ownership,
-    create_experiment,
-    create_seq_score_set,
-    create_seq_score_set_with_variants,
-)
+from tests.helpers.util.experiment import create_experiment
+from tests.helpers.util.contributor import add_contributor
+from tests.helpers.util.user import change_ownership
+from tests.helpers.util.score_set import create_seq_score_set
+from tests.helpers.util.variant import mock_worker_variant_insertion
 
 
 # Test check_authorization function
@@ -170,10 +177,11 @@ def test_get_true_permission_from_others_public_experiment_add_score_set_check(
     session, data_provider, client, setup_router_db, data_files
 ):
     experiment = create_experiment(client)
-    score_set_1 = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
-    pub_score_set = client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish").json()
+    pub_score_set = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish").json()
     pub_experiment_urn = pub_score_set["experiment"]["urn"]
     change_ownership(session, pub_experiment_urn, ExperimentDbModel)
     response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{pub_experiment_urn}/add_score_set")
