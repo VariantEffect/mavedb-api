@@ -61,7 +61,7 @@ def with_database_session(command=None, *, pass_action: bool = False):
     The *command* callable must be a :py:class:`click.Command` instance.
 
     The decorated *command* is called with a ``db`` keyword argument to provide
-    a :class:`~id3c.db.session.DatabaseSession` object.  The call happens
+    a :class:`~sqlalchemy.Session` object.  The call happens
     within an exception handler that commits or rollsback the database
     transaction, possibly interactively.  Three new options are added to the
     *command* (``--dry-run``, ``--prompt``, and ``--commit``) to control this
