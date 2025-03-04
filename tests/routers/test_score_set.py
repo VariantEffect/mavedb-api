@@ -2090,6 +2090,26 @@ def test_score_set_not_found_for_non_existent_score_set_when_adding_score_calibr
 
 
 ########################################################################################################################
+# Score set upload files
+########################################################################################################################
+
+# Not sure why scores_non_utf8_encoded.csv file has a wrong encoding problem, but it's good for this test.
+def test_upload_a_non_utf8_file(session, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores_non_utf8_encoded.csv"
+    with open(scores_csv_path, "rb") as scores_file:
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+    assert response.status_code == 400
+    response_data = response.json()
+    assert f"Error decoding file: 'utf-8' codec can't decode byte 0xdd in position 10: invalid continuation byte. " \
+           f"Ensure the file has correct values." in response_data["detail"]
+
+
+########################################################################################################################
 # Score set download files
 ########################################################################################################################
 

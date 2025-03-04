@@ -648,10 +648,15 @@ async def upload_score_set_variant_data(
     assert_permission(user_data, item, Action.UPDATE)
     assert_permission(user_data, item, Action.SET_SCORES)
 
-    scores_df = csv_data_to_df(scores_file.file)
-    counts_df = None
-    if counts_file and counts_file.filename:
-        counts_df = csv_data_to_df(counts_file.file)
+    try:
+        scores_df = csv_data_to_df(scores_file.file)
+        counts_df = None
+        if counts_file and counts_file.filename:
+            counts_df = csv_data_to_df(counts_file.file)
+    # Handle non-utf8 file problem.
+    except UnicodeDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values.")
+
 
     if scores_file:
         # Although this is also updated within the variant creation job, update it here
