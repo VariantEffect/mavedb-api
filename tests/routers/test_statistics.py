@@ -53,11 +53,14 @@ def assert_statistic(desired_field_value, response):
     ), f"Target accession statistic {desired_field_value} should appear on one (and only one) test score set."
 
 
-# Test base case empty database responses for each statistic endpoint.
+####################################################################################################
+# Test empty database statistics
+####################################################################################################
 
 
-def test_empty_database_statistics(client):
-    stats_endpoints = (
+@pytest.mark.parametrize(
+    "stats_endpoint",
+    (
         "target/accession/accession",
         "target/accession/assembly",
         "target/accession/gene",
@@ -77,14 +80,19 @@ def test_empty_database_statistics(client):
         "record/score-set/doi-identifiers",
         "record/score-set/raw-read-identifiers",
         "record/score-set/created-by",
-    )
-    for endpoint in stats_endpoints:
-        response = client.get(f"/api/v1/statistics/{endpoint}")
-        assert response.status_code == 200, f"Non-200 status code for endpoint {endpoint}."
-        assert response.json() == {}, f"Non-empty response for endpoint {endpoint}."
+    ),
+)
+def test_empty_database_statistics(client, stats_endpoint):
+    response = client.get(f"/api/v1/statistics/{stats_endpoint}")
+    assert response.status_code == 200, f"Non-200 status code for endpoint {stats_endpoint}."
+    assert response.json() == {}, f"Non-empty response for endpoint {stats_endpoint}."
 
 
+####################################################################################################
 # Test target accession statistics
+####################################################################################################
+
+
 @pytest.mark.parametrize(
     "field_value",
     TARGET_ACCESSION_FIELDS,
@@ -100,19 +108,20 @@ def test_target_accession_statistics(client, field_value, setup_acc_scoreset):
 def test_target_accession_invalid_field(client):
     """Test target accession statistic response for an invalid target accession field."""
     response = client.get("/api/v1/statistics/target/accession/invalid-field")
-    assert response.status_code == 422
-    assert response.json()["detail"][0]["loc"] == ["path", "field"]
-    assert response.json()["detail"][0]["ctx"]["enum_values"] == TARGET_ACCESSION_FIELDS
+    assert response.status_code == 404
 
 
 def test_target_accession_empty_field(client):
     """Test target accession statistic response for an empty field."""
     response = client.get("/api/v1/statistics/target/accession/")
     assert response.status_code == 404
-    assert response.json()["detail"] == "Not Found"
 
 
+####################################################################################################
 # Test target sequence statistics
+####################################################################################################
+
+
 @pytest.mark.parametrize(
     "field_value",
     TARGET_SEQUENCE_FIELDS,
@@ -128,19 +137,18 @@ def test_target_sequence_statistics(client, field_value, setup_seq_scoreset):
 def test_target_sequence_invalid_field(client):
     """Test target sequence statistic response for an invalid field."""
     response = client.get("/api/v1/statistics/target/sequence/invalid-field")
-    assert response.status_code == 422
-    assert response.json()["detail"][0]["loc"] == ["path", "field"]
-    assert response.json()["detail"][0]["ctx"]["enum_values"] == TARGET_SEQUENCE_FIELDS
+    assert response.status_code == 404
 
 
 def test_target_sequence_empty_field(client):
     """Test target sequence statistic response for an empty field."""
     response = client.get("/api/v1/statistics/target/sequence/")
     assert response.status_code == 404
-    assert response.json()["detail"] == "Not Found"
 
 
-# Test target gene statistics.
+####################################################################################################
+# Test target gene statistics
+####################################################################################################
 
 
 # Desired values live in different spots for fields on target genes because of the differing target sequence
@@ -213,19 +221,20 @@ def test_target_gene_identifier_statistiscs(
 def test_target_gene_invalid_field(client):
     """Test target gene statistic response for an invalid field."""
     response = client.get("/api/v1/statistics/target/gene/invalid-field")
-    assert response.status_code == 422
-    assert response.json()["detail"][0]["loc"] == ["path", "field"]
-    assert response.json()["detail"][0]["ctx"]["enum_values"] == TARGET_GENE_FIELDS + TARGET_GENE_IDENTIFIER_FIELDS
+    assert response.status_code == 404
 
 
 def test_target_gene_empty_field(client):
     """Test target gene statistic response for an empty field."""
     response = client.get("/api/v1/statistics/target/gene/")
     assert response.status_code == 404
-    assert response.json()["detail"] == "Not Found"
 
 
-# Test Experiment and Score Set statistics
+####################################################################################################
+# Test record statistics
+####################################################################################################
+
+
 @pytest.mark.parametrize("model_value", RECORD_MODELS)
 @pytest.mark.parametrize(
     "mock_publication_fetch",
@@ -340,13 +349,20 @@ def test_record_raw_read_identifier_statistics(
         assert response.json() == {}
 
 
+@pytest.mark.parametrize("field_value", RECORD_SHARED_FIELDS)
+def test_record_statistics_invalid_record(client, field_value):
+    """Test record model statistic response for a record we don't provide statisticss on."""
+    response = client.get(f"/api/v1/statistics/record/invalid-record/{field_value}")
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["path", "record"]
+    assert response.json()["detail"][0]["ctx"]["enum_values"] == RECORD_MODELS
+
+
 @pytest.mark.parametrize("model_value", RECORD_MODELS)
 def test_record_statistics_invalid_field(client, model_value):
-    """Test record model statistic response for an invalid field."""
+    """Test record model statistic response for a field we don't provide statisticss on."""
     response = client.get(f"/api/v1/statistics/record/{model_value}/invalid-field")
-    assert response.status_code == 422
-    assert response.json()["detail"][0]["loc"] == ["path", "field"]
-    assert response.json()["detail"][0]["ctx"]["enum_values"] == RECORD_SHARED_FIELDS
+    assert response.status_code == 404
 
 
 @pytest.mark.parametrize("model_value", RECORD_MODELS)
@@ -360,16 +376,9 @@ def test_record_statistics_empty_field(client, model_value):
 def test_record_statistics_invalid_record_and_field(client):
     """Test record model statistic response for an invalid model and field."""
     response = client.get("/api/v1/statistics/record/invalid-model/invalid-field")
-
-    # The order of this list should be reliable.
-    assert response.status_code == 422
-    assert response.json()["detail"][0]["loc"] == ["path", "model"]
-    assert response.json()["detail"][0]["ctx"]["enum_values"] == RECORD_MODELS
-    assert response.json()["detail"][1]["loc"] == ["path", "field"]
-    assert response.json()["detail"][1]["ctx"]["enum_values"] == RECORD_SHARED_FIELDS
+    assert response.status_code == 404
 
 
-# Test record counts statistics
 @pytest.mark.parametrize("model_value", RECORD_MODELS)
 def test_record_counts_no_published_data(client, model_value, setup_router_db):
     """Test record counts endpoint for published experiments and score sets."""
