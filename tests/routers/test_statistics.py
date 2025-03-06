@@ -12,6 +12,7 @@ from tests.helpers.constants import (
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_PUBMED_IDENTIFIER,
+    VALID_GENE,
 )
 from tests.helpers.util import (
     create_acc_score_set_with_variants,
@@ -236,6 +237,20 @@ def test_target_gene_empty_field(client):
     """Test target gene statistic response for an empty field."""
     response = client.get("/api/v1/statistics/target/gene/")
     assert response.status_code == 404
+
+
+####################################################################################################
+# Test mapped target gene statistics
+####################################################################################################
+
+
+def test_mapped_target_gene_counts(client, setup_router_db, setup_seq_scoreset):
+    """Test mapped target gene counts endpoint for published score sets."""
+    response = client.get("/api/v1/statistics/target/mapped/gene")
+    assert response.status_code == 200
+    assert isinstance(response.json(), dict)
+    assert len(response.json().keys()) == 1
+    assert response.json()[VALID_GENE] == 1
 
 
 ####################################################################################################
@@ -473,7 +488,7 @@ def test_mapped_variant_counts_groups(client, group_value, setup_router_db, setu
 
     for key, value in response.json().items():
         assert isinstance(key, str)
-        assert isinstance(value, int)
+        assert value == 3
 
 
 @pytest.mark.parametrize("group_value", ["month", "year", None])
@@ -499,7 +514,7 @@ def test_mapped_variant_counts_current(client, current_value, setup_router_db, s
 
     for key, value in response.json().items():
         assert isinstance(key, str)
-        assert isinstance(value, int)
+        assert value == 3
 
 
 @pytest.mark.parametrize("current_value", [True, False])

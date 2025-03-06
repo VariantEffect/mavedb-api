@@ -448,7 +448,6 @@ def target_genes_uniprot_identifier_counts(db: Session = Depends(get_db)) -> dic
     return _count_for_identifier_in_query(db, query)
 
 
-# TODO: Test coverage for this route.
 @router.get("/target/mapped/gene")
 def mapped_target_gene_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
