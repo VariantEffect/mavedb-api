@@ -11,9 +11,13 @@ from mavedb.lib.score_sets import columns_for_dataset, create_variants, create_v
 from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_pair
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.models.enums.mapping_state import MappingState
+from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.license import License
+from mavedb.models.target_gene import TargetGene
 from mavedb.models.user import User
+from mavedb.models.variant import Variant
 from mavedb.view_models.collection import Collection
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
@@ -23,7 +27,10 @@ from tests.helpers.constants import (
     TEST_COLLECTION,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_EXPERIMENT,
+    TEST_MINIMAL_PRE_MAPPED_METADATA,
+    TEST_MINIMAL_POST_MAPPED_METADATA,
     TEST_MINIMAL_SEQ_SCORESET,
+    TEST_MINIMAL_MAPPED_VARIANT,
 )
 
 
@@ -183,6 +190,25 @@ def mock_worker_variant_insertion(client, db, data_provider, score_set, scores_c
     db.commit()
 
     return client.get(f"/api/v1/score-sets/{score_set['urn']}").json()
+
+
+def create_mapped_variants_for_score_set(db, score_set_urn):
+    score_set = db.scalar(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn))
+    targets = db.scalars(select(TargetGene).where(TargetGene.score_set_id == score_set.id))
+    variants = db.scalars(select(Variant).where(Variant.score_set_id == score_set.id)).all()
+
+    for variant in variants:
+        mv = MappedVariant(**TEST_MINIMAL_MAPPED_VARIANT, variant_id=variant.id)
+        db.add(mv)
+
+    for target in targets:
+        target.pre_mapped_metadata = TEST_MINIMAL_PRE_MAPPED_METADATA
+        target.post_mapped_metadata = TEST_MINIMAL_POST_MAPPED_METADATA
+        db.add(target)
+
+    score_set.mapping_state = MappingState.complete
+    db.commit()
+    return
 
 
 def create_seq_score_set_with_variants(
