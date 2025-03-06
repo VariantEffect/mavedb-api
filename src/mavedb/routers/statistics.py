@@ -1,5 +1,5 @@
 import itertools
-from collections import OrderedDict
+from collections import OrderedDict, Counter
 from enum import Enum
 from typing import Any, Union, Optional
 
@@ -19,6 +19,7 @@ from mavedb.models.experiment import (
 )
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
+from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.raw_read_identifier import RawReadIdentifier
 from mavedb.models.refseq_identifier import RefseqIdentifier
@@ -36,6 +37,7 @@ from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.user import User
+from mavedb.models.variant import Variant
 
 router = APIRouter(
     prefix="/api/v1/statistics",
@@ -271,7 +273,7 @@ def record_counts(model: RecordNames, group: Optional[GroupBy] = None, db: Sessi
     elif group == GroupBy.year:
         grouped = {k: len(list(g)) for k, g in itertools.groupby(objs, lambda t: t.strftime("%Y"))}  # type: ignore
     else:
-        grouped = {"all": len(objs)}
+        grouped = {"count": len(objs)}
 
     return OrderedDict(sorted(grouped.items()))
 
@@ -444,3 +446,83 @@ def target_genes_uniprot_identifier_counts(db: Session = Depends(get_db)) -> dic
     ).group_by(UniprotIdentifier.identifier)
 
     return _count_for_identifier_in_query(db, query)
+
+
+# TODO: Test coverage for this route.
+@router.get("/target/mapped/gene")
+def mapped_target_gene_counts(db: Session = Depends(get_db)) -> dict[str, int]:
+    """
+    Returns a dictionary of counts for the distinct values of the `gene` property within the `post_mapped_metadata`
+    field (member of the `target_gene` table). Don't include any NULL field values. Don't include any targets from
+    unpublished score sets.
+    """
+    query = _join_model_and_filter_unpublished(
+        select(TargetGene.post_mapped_metadata),
+        ScoreSet,
+    ).where(TargetGene.post_mapped_metadata.isnot(None))
+
+    mapping_metadata = db.scalars(query).all()
+    gene_counts = Counter(
+        gene
+        for metadata in mapping_metadata
+        for key in ("genomic", "protein")
+        if key in metadata
+        for gene in metadata[key].get("sequence_genes", [])
+    )
+
+    # The gene will always be a string
+    return dict(gene_counts)  # type: ignore
+
+
+########################################################################################
+# Variant (and mapped variant) statistics
+########################################################################################
+
+
+@router.get("/variant/count", status_code=200, response_model=dict[str, int])
+def variant_counts(group: Optional[GroupBy] = None, db: Session = Depends(get_db)) -> dict[str, int]:
+    """
+    Returns a dictionary of counts for the number of published and distinct variants in the database.
+    Optionally, group the counts by the day on which the score set (and by extension, the variant) was published.
+    """
+    query = _join_model_and_filter_unpublished(select(ScoreSet.published_date, func.count(Variant.id)), ScoreSet)
+
+    variants = db.execute(query.group_by(ScoreSet.published_date).order_by(ScoreSet.published_date)).all()
+    if group == GroupBy.month:
+        grouped = {k: sum(c for _, c in g) for k, g in itertools.groupby(variants, lambda t: t[0].strftime("%Y-%m"))}
+    elif group == GroupBy.year:
+        grouped = {k: sum(c for _, c in g) for k, g in itertools.groupby(variants, lambda t: t[0].strftime("%Y"))}
+    else:
+        grouped = {"count": sum(count for _, count in variants)}
+
+    return OrderedDict(sorted(grouped.items()))
+
+
+@router.get("/mapped-variant/count", status_code=200, response_model=dict[str, int])
+def mapped_variant_counts(
+    group: Optional[GroupBy] = None, onlyCurrent: bool = True, db: Session = Depends(get_db)
+) -> dict[str, int]:
+    """
+    Returns a dictionary of counts for the number of published and distinct variants in the database.
+    Optionally, group the counts by the day on which the score set (and by extension, the variant) was published.
+    Optionally, return the count of all mapped variants, not just the current/most up to date ones.
+    """
+    query = _join_model_and_filter_unpublished(
+        select(ScoreSet.published_date, func.count(MappedVariant.id)).join(
+            Variant, Variant.id == MappedVariant.variant_id
+        ),
+        ScoreSet,
+    )
+
+    if onlyCurrent:
+        query = query.where(MappedVariant.current.is_(True))
+
+    variants = db.execute(query.group_by(ScoreSet.published_date).order_by(ScoreSet.published_date)).all()
+    if group == GroupBy.month:
+        grouped = {k: sum(c for _, c in g) for k, g in itertools.groupby(variants, lambda t: t[0].strftime("%Y-%m"))}
+    elif group == GroupBy.year:
+        grouped = {k: sum(c for _, c in g) for k, g in itertools.groupby(variants, lambda t: t[0].strftime("%Y"))}
+    else:
+        grouped = {"count": sum(count for _, count in variants)}
+
+    return OrderedDict(sorted(grouped.items()))

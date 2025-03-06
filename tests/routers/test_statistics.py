@@ -53,6 +53,14 @@ def assert_statistic(desired_field_value, response):
     ), f"Target accession statistic {desired_field_value} should appear on one (and only one) test score set."
 
 
+def add_query_param(url, query_name, query_value):
+    """Add a group value to the URL if one is provided."""
+    if query_name and query_value:
+        return f"{url}?{query_name}={query_value}"
+
+    return url
+
+
 ####################################################################################################
 # Test empty database statistics
 ####################################################################################################
@@ -380,42 +388,29 @@ def test_record_statistics_invalid_record_and_field(client):
 
 
 @pytest.mark.parametrize("model_value", RECORD_MODELS)
-def test_record_counts_no_published_data(client, model_value, setup_router_db):
-    """Test record counts endpoint for published experiments and score sets."""
-    response = client.get(f"/api/v1/statistics/record/{model_value}/published/count")
-    assert response.status_code == 200
-    assert "all" in response.json()
-    assert response.json()["all"] == 0
-
-
-@pytest.mark.parametrize("model_value", RECORD_MODELS)
-def test_record_counts(client, model_value, setup_router_db, setup_seq_scoreset):
-    """Test record counts endpoint for published experiments and score sets."""
-    response = client.get(f"/api/v1/statistics/record/{model_value}/published/count")
-    assert response.status_code == 200
-    assert "all" in response.json()
-    assert response.json()["all"] == 1
-
-
-@pytest.mark.parametrize("model_value", RECORD_MODELS)
-@pytest.mark.parametrize("group_value", ["month", "year"])
-def test_record_counts_grouped_no_published_data(client, model_value, group_value, setup_router_db):
+@pytest.mark.parametrize("group_value", ["month", "year", None])
+def test_record_counts_no_published_data(client, model_value, group_value, setup_router_db):
     """Test record counts endpoint grouped by month and year for published experiments and score sets."""
-    response = client.get(f"/api/v1/statistics/record/{model_value}/published/count?group={group_value}")
+    response = client.get(
+        add_query_param(f"/api/v1/statistics/record/{model_value}/published/count", "group", group_value)
+    )
+
     assert response.status_code == 200
     assert isinstance(response.json(), dict)
     for key, value in response.json().items():
         assert isinstance(key, str)
-        assert isinstance(value, int)
+        assert value == 0
 
 
 @pytest.mark.parametrize("model_value", RECORD_MODELS)
-@pytest.mark.parametrize("group_value", ["month", "year"])
+@pytest.mark.parametrize("group_value", ["month", "year", None])
 def test_record_counts_grouped(
     session, client, model_value, group_value, setup_router_db, setup_seq_scoreset, setup_acc_scoreset
 ):
     """Test record counts endpoint grouped by month and year for published experiments and score sets."""
-    response = client.get(f"/api/v1/statistics/record/{model_value}/published/count?group={group_value}")
+    response = client.get(
+        add_query_param(f"/api/v1/statistics/record/{model_value}/published/count", "group", group_value)
+    )
     assert response.status_code == 200
     assert isinstance(response.json(), dict)
     for key, value in response.json().items():
@@ -437,3 +432,84 @@ def test_record_counts_invalid_group(client):
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["query", "group"]
     assert response.json()["detail"][0]["ctx"]["enum_values"] == ["month", "year"]
+
+
+####################################################################################################
+# Test variant statistics
+####################################################################################################
+
+
+@pytest.mark.parametrize("group_value", ["month", "year", None])
+def test_variant_counts(client, group_value, setup_router_db, setup_seq_scoreset):
+    """Test variant counts endpoint for published variants."""
+    response = client.get(add_query_param("/api/v1/statistics/variant/count", "group", group_value))
+    assert response.status_code == 200
+    assert isinstance(response.json(), dict)
+
+    for key, value in response.json().items():
+        assert isinstance(key, str)
+        assert value == 3
+
+
+@pytest.mark.parametrize("group_value", ["month", "year", None])
+def test_variant_counts_no_published_data(client, group_value, setup_router_db):
+    """Test variant counts endpoint with no published variants."""
+    response = client.get(add_query_param("/api/v1/statistics/variant/count", "group", group_value))
+    assert response.status_code == 200
+    assert isinstance(response.json(), dict)
+
+    for key, value in response.json().items():
+        assert isinstance(key, str)
+        assert value == 0
+
+
+@pytest.mark.parametrize("group_value", ["month", "year", None])
+def test_mapped_variant_counts_groups(client, group_value, setup_router_db, setup_seq_scoreset):
+    """Test variant counts endpoint for published variants."""
+    url_with_group = add_query_param("/api/v1/statistics/mapped-variant/count", "group", group_value)
+    response = client.get(url_with_group)
+    assert response.status_code == 200
+    assert isinstance(response.json(), dict)
+
+    for key, value in response.json().items():
+        assert isinstance(key, str)
+        assert isinstance(value, int)
+
+
+@pytest.mark.parametrize("group_value", ["month", "year", None])
+def test_mapped_variant_counts_groups_no_published_data(client, group_value, setup_router_db):
+    """Test variant counts endpoint with no published variants."""
+    url_with_group = add_query_param("/api/v1/statistics/mapped-variant/count", "group", group_value)
+    response = client.get(url_with_group)
+    assert response.status_code == 200
+    assert isinstance(response.json(), dict)
+
+    for key, value in response.json().items():
+        assert isinstance(key, str)
+        assert value == 0
+
+
+@pytest.mark.parametrize("current_value", [True, False])
+def test_mapped_variant_counts_current(client, current_value, setup_router_db, setup_seq_scoreset):
+    """Test variant counts endpoint for published variants."""
+    url_with_current = add_query_param("/api/v1/statistics/mapped-variant/count", "current", current_value)
+    response = client.get(url_with_current)
+    assert response.status_code == 200
+    assert isinstance(response.json(), dict)
+
+    for key, value in response.json().items():
+        assert isinstance(key, str)
+        assert isinstance(value, int)
+
+
+@pytest.mark.parametrize("current_value", [True, False])
+def test_mapped_variant_counts_current_no_published_data(client, current_value, setup_router_db):
+    """Test variant counts endpoint with no published variants."""
+    url_with_current = add_query_param("/api/v1/statistics/mapped-variant/count", "current", current_value)
+    response = client.get(url_with_current)
+    assert response.status_code == 200
+    assert isinstance(response.json(), dict)
+
+    for key, value in response.json().items():
+        assert isinstance(key, str)
+        assert value == 0
