@@ -8,7 +8,7 @@ env:
 jobs:
   run-tests-3_9-core-dependencies:
     runs-on: ubuntu-20.04
-    name: Pytest on Python 3.9 / Ubuntu 20.04
+    name: Pytest on Core Dependencies-- Python 3.9 / Ubuntu 20.04
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
@@ -22,7 +22,7 @@ jobs:
 
   run-tests-3_9:
     runs-on: ubuntu-20.04
-    name: Pytest on Python 3.9 / Ubuntu 20.04
+    name: Pytest on Optional Dependencies-- Python 3.9 / Ubuntu 20.04
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
@@ -36,7 +36,7 @@ jobs:
 
   run-tests-3_10-core-dependencies:
     runs-on: ubuntu-latest
-    name: Pytest on Python 3.10
+    name: Pytest on Core Dependencies-- Python 3.10
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
@@ -50,7 +50,7 @@ jobs:
 
   run-tests-3_10:
     runs-on: ubuntu-latest
-    name: Pytest on Python 3.10
+    name: Pytest on Optional Dependencies-- Python 3.10
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
@@ -64,7 +64,7 @@ jobs:
 
   run-tests-3_11-core-dependencies:
     runs-on: ubuntu-latest
-    name: Pytest on Python 3.11
+    name: Pytest on Core Dependencies-- Python 3.11
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
@@ -78,7 +78,7 @@ jobs:
 
   run-tests-3_11:
     runs-on: ubuntu-latest
-    name: Pytest on Python 3.11
+    name: Pytest on Optional Dependencies-- Python 3.11
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
@@ -92,7 +92,7 @@ jobs:
 
   run-mypy-3_10:
     runs-on: ubuntu-latest
-    name: MyPy checks on Python 3.10
+    name: MyPy on Full Codebase-- Python 3.10
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
@@ -106,7 +106,7 @@ jobs:
 
   run-ruff-lint:
     runs-on: ubuntu-latest
-    name: Ruff linting on Python 3.10
+    name: Ruff on Full Codebase-- Python 3.10
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
