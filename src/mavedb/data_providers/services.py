@@ -3,7 +3,7 @@ from datetime import date
 from typing import Optional, TypedDict
 
 import requests
-from cdot.hgvs.dataproviders import ChainedSeqFetcher, FastaSeqFetcher, RESTDataProvider
+from cdot.hgvs.dataproviders import SeqFetcher, ChainedSeqFetcher, FastaSeqFetcher, RESTDataProvider
 
 GENOMIC_FASTA_FILES = [
     "/data/GCF_000001405.39_GRCh38.p13_genomic.fna.gz",
@@ -14,7 +14,7 @@ DCD_MAP_URL = os.environ.get("DCD_MAPPING_URL", "http://dcd-mapping:8000")
 
 
 def seqfetcher() -> ChainedSeqFetcher:
-    return ChainedSeqFetcher(*[FastaSeqFetcher(file) for file in GENOMIC_FASTA_FILES])
+    return ChainedSeqFetcher(SeqFetcher(), *[FastaSeqFetcher(file) for file in GENOMIC_FASTA_FILES])
 
 
 def cdot_rest() -> RESTDataProvider:
