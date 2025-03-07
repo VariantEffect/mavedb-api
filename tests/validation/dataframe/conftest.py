@@ -9,19 +9,22 @@ from mavedb.lib.validation.constants.general import (
     guide_sequence_column,
     required_score_column,
 )
-from tests.helpers.constants import TEST_CDOT_TRANSCRIPT
+from tests.helpers.constants import TEST_NT_CDOT_TRANSCRIPT, TEST_PRO_CDOT_TRANSCRIPT
 
 
 @pytest.fixture
 def mocked_data_provider_class_attr(request):
     """
-    Sets the `human_data_provider` attribute on the class from the requesting
-    test context to the `data_provider` fixture. This allows fixture use across
-    the `unittest.TestCase` class.
+    Sets the `mocked_nt_human_data_provider` and `mocked_pro_human_data_provider`
+    attributes on the class from the requesting test context to the `data_provider`
+    fixture. This allows fixture use across the `unittest.TestCase` class.
     """
-    data_provider = mock.Mock()
-    data_provider._get_transcript.return_value = TEST_CDOT_TRANSCRIPT
-    request.cls.mocked_human_data_provider = data_provider
+    nt_data_provider = mock.Mock()
+    nt_data_provider._get_transcript.return_value = TEST_NT_CDOT_TRANSCRIPT
+    pro_data_provider = mock.Mock()
+    pro_data_provider._get_transcript.return_value = TEST_PRO_CDOT_TRANSCRIPT
+    request.cls.mocked_nt_human_data_provider = nt_data_provider
+    request.cls.mocked_pro_human_data_provider = pro_data_provider
 
 
 # Special DF Test Case that contains dummy data for tests below

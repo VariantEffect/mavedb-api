@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 
-from tests.helpers.constants import TEST_MINIMAL_ACC_SCORESET, TEST_MINIMAL_SEQ_SCORESET, TEST_CDOT_TRANSCRIPT
+from tests.helpers.constants import TEST_MINIMAL_ACC_SCORESET, TEST_MINIMAL_SEQ_SCORESET, TEST_NT_CDOT_TRANSCRIPT
 from fastapi.testclient import TestClient
 
 
@@ -39,7 +39,9 @@ def create_acc_score_set(
 
     jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
 
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+    with patch.object(
+        cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
+    ):
         response = client.post("/api/v1/score-sets/", json=score_set_payload)
 
     assert response.status_code == 200, "Could not create accession based score set"
