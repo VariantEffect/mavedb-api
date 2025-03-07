@@ -10,24 +10,24 @@ cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 hgvs = pytest.importorskip("hgvs")
 
-from tests.helpers.constants import TEST_CDOT_TRANSCRIPT, VALID_ACCESSION, VALID_GENE
+from tests.helpers.constants import TEST_NT_CDOT_TRANSCRIPT, VALID_NT_ACCESSION, VALID_GENE
 
 VALID_MAJOR_ASSEMBLY = "GRCh38"
 VALID_MINOR_ASSEMBLY = "GRCh38.p3"
 INVALID_ASSEMBLY = "undefined"
-INVALID_ACCESSION = "NC_999999.99"
+INVALID_NT_ACCESSION = "NC_999999.99"
 SMALL_ACCESSION = "NM_002977.4"
 INVALID_GENE = "fnord"
 VALID_TRANSCRIPT = "NM_001408458.1"
 INVALID_TRANSCRIPT = "NX_99999.1"
-VALID_VARIANT = VALID_ACCESSION + ":c.1G>A"
-INVALID_VARIANT = VALID_ACCESSION + ":c.1delA"
+VALID_VARIANT = VALID_NT_ACCESSION + ":c.1G>A"
+INVALID_VARIANT = VALID_NT_ACCESSION + ":c.1delA"
 HAS_PROTEIN_ACCESSION = "NM_000014.4"
 PROTEIN_ACCESSION = "NP_000005.2"
 
 
 def test_hgvs_fetch_valid(client, setup_router_db):
-    response = client.get(f"/api/v1/hgvs/fetch/{VALID_ACCESSION}")
+    response = client.get(f"/api/v1/hgvs/fetch/{VALID_NT_ACCESSION}")
 
     assert response.status_code == 200
     assert response.text == '"GATTACAGATTACAGATTACAGATTACAGATTACAGATTACAGATTACA"'
@@ -43,14 +43,18 @@ def test_hgvs_fetch_invalid(client, setup_router_db):
 
 
 def test_hgvs_validate_valid(client, setup_router_db):
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+    with patch.object(
+        cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
+    ):
         payload = {"variant": VALID_VARIANT}
         response = client.post("/api/v1/hgvs/validate", json=payload)
         assert response.status_code == 200
 
 
 def test_hgvs_validate_invalid(client, setup_router_db):
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+    with patch.object(
+        cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
+    ):
         payload = {"variant": INVALID_VARIANT}
         response = client.post("/api/v1/hgvs/validate", json=payload)
 
@@ -144,7 +148,9 @@ def test_hgvs_gene_transcript_invalid(client, setup_router_db):
 
 
 def test_hgvs_transcript_valid(client, setup_router_db):
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+    with patch.object(
+        cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
+    ):
         response = client.get(f"/api/v1/hgvs/{VALID_TRANSCRIPT}")
 
     assert response.status_code == 200
@@ -189,9 +195,9 @@ def test_hgvs_transcript_protein_no_protein(client, setup_router_db):
 
 def test_hgvs_transcript_protein_invalid(client, setup_router_db):
     with requests_mock.mock() as m:
-        m.get(f"https://cdot.cc/transcript/{INVALID_ACCESSION}", status_code=404)
+        m.get(f"https://cdot.cc/transcript/{INVALID_NT_ACCESSION}", status_code=404)
 
-        response = client.get(f"/api/v1/hgvs/protein/{INVALID_ACCESSION}")
+        response = client.get(f"/api/v1/hgvs/protein/{INVALID_NT_ACCESSION}")
 
         assert m.called
         assert response.status_code == 404

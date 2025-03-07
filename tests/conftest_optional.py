@@ -138,19 +138,23 @@ def data_provider():
     To provide the transcript for the FASTA file without a network request, use:
 
     ```
-    from helpers.utils.constants import TEST_CDOT_TRANSCRIPT
+    from helpers.utils.constants import TEST_NT_CDOT_TRANSCRIPT, TEST_PRO_CDOT_TRANSCRIPT
     from unittest.mock import patch
     import cdot.hgvs.dataproviders
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT):
+        ...
+    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_PRO_CDOT_TRANSCRIPT):
         ...
     ```
     """
     this_file_dir = os.path.dirname(abspath(getsourcefile(lambda: 0)))
-    test_fasta_file = os.path.join(this_file_dir, "helpers/data/refseq.NM_001637.3.fasta")
+    test_nt_fasta_file = os.path.join(this_file_dir, "helpers/data/refseq.NM_001637.3.fasta")
+    test_pro_fasta_file = os.path.join(this_file_dir, "helpers/data/refseq.NP_001637.4.fasta")
 
     data_provider = cdot.hgvs.dataproviders.RESTDataProvider(
         seqfetcher=cdot.hgvs.dataproviders.ChainedSeqFetcher(
-            cdot.hgvs.dataproviders.FastaSeqFetcher(test_fasta_file),
+            cdot.hgvs.dataproviders.FastaSeqFetcher(test_nt_fasta_file),
+            cdot.hgvs.dataproviders.FastaSeqFetcher(test_pro_fasta_file),
             # Include normal seqfetcher to fall back on mocked requests (or expose test shortcomings via socket connection attempts).
             cdot.hgvs.dataproviders.SeqFetcher(),
         )
