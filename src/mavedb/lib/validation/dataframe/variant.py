@@ -76,7 +76,7 @@ def validate_hgvs_transgenic_column(column: pd.Series, is_index: bool, targets: 
     target_seqs = construct_target_sequence_mappings(column, targets)
 
     parsed_variants = [
-        parse_transgenic_variant(idx, variant, target_seqs, len(targets) > 1) for idx, variant in column.items()
+        validate_transgenic_variant(idx, variant, target_seqs, len(targets) > 1) for idx, variant in column.items()
     ]
 
     # format and raise an error message that contains all invalid variants
@@ -168,10 +168,10 @@ def validate_hgvs_genomic_column(
         hp, vr = None, None
 
     if hp is not None and vr is not None:
-        parsed_variants = [parse_genomic_variant(idx, variant, hp, vr) for idx, variant in column.items()]
+        parsed_variants = [validate_genomic_variant(idx, variant, hp, vr) for idx, variant in column.items()]
     else:
         parsed_variants = [
-            parse_transgenic_variant(
+            validate_transgenic_variant(
                 idx,
                 variant,
                 {target: None for target in target_accession_identifiers},
@@ -190,9 +190,46 @@ def validate_hgvs_genomic_column(
     return
 
 
-def parse_genomic_variant(
+def validate_genomic_variant(
     idx: Hashable, variant_string: str, parser: "Parser", validator: "Validator"
 ) -> tuple[bool, Optional[str]]:
+    def _validate_allelic_variation(variant: str) -> bool:
+        """
+        The HGVS package is currently unable to parse allelic variation, and this doesn't seem like a planned
+        feature (see: https://github.com/biocommons/hgvs/issues/538). As a workaround and because MaveHGVS,
+        does support this sort of multivariant we can:
+        - Validate that the multi-variant allele is valid HGVS.
+        - Validate each sub-variant in an allele is valid with respect to the transcript.
+
+        Parameters
+        ----------
+        variant : str
+            The multi-variant allele to validate.
+
+        Returns
+        -------
+        bool
+            True if the allele is valid.
+
+        Raises
+        ------
+        MaveHgvsParseError
+            If the variant is not a valid HGVS string (for reasons of syntax).
+        hgvs.exceptions.HGVSError
+            If the variant is not a valid HGVS string (for reasons of transcript/variant inconsistency).
+        """
+        transcript, multi_variant = variant.split(":")
+
+        # Validate that the multi-variant allele is valid HGVS.
+        Variant(multi_variant)
+        prefix, variants = multi_variant[0:2], multi_variant[2:]
+
+        # Validate each sub-variant in an allele is valid with respect to the transcript.
+        for subvariant in variants.strip("[]").split(";"):
+            validator.validate(parser.parse(f"{transcript}:{prefix}{subvariant}"), strict=False)
+
+        return True
+
     # Not pretty, but if we make it here we're guaranteed to have hgvs installed as a package, and we
     # should make use of the built in exception they provide for variant validation.
     import hgvs.exceptions
@@ -202,14 +239,19 @@ def parse_genomic_variant(
 
     for variant in variant_string.split(" "):
         try:
-            validator.validate(parser.parse(variant), strict=False)
+            if "[" in variant:
+                _validate_allelic_variation(variant)
+            else:
+                validator.validate(parser.parse(variant), strict=False)
+        except MaveHgvsParseError:
+            return False, f"Failed to parse variant string '{variant}' at row {idx}."
         except hgvs.exceptions.HGVSError as e:
-            return False, f"Failed to parse row {idx} with HGVS exception: {e}"
+            return False, f"Failed to parse row {idx} with HGVS exception: {e}."
 
     return True, None
 
 
-def parse_transgenic_variant(
+def validate_transgenic_variant(
     idx: Hashable, variant_string: str, target_sequences: dict[str, Optional[str]], is_fully_qualified: bool
 ) -> tuple[bool, Optional[str]]:
     if not variant_string:
