@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy import or_, select
+from sqlalchemy import null, or_, select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.orm import Session
 
@@ -312,10 +312,10 @@ def get_score_set_mapped_variants(
 
     mapped_variants = (
         db.query(MappedVariant)
-            .filter(ScoreSet.urn == urn)
-            .filter(ScoreSet.id == Variant.score_set_id)
-            .filter(Variant.id == MappedVariant.variant_id)
-            .all()
+        .filter(ScoreSet.urn == urn)
+        .filter(ScoreSet.id == Variant.score_set_id)
+        .filter(Variant.id == MappedVariant.variant_id)
+        .all()
     )
 
     if not mapped_variants:
@@ -482,10 +482,9 @@ async def create_score_set(
         for identifier in item_create.primary_publication_identifiers or []
     ]
     publication_identifiers = [
-                                  await find_or_create_publication_identifier(db, identifier.identifier,
-                                                                              identifier.db_name)
-                                  for identifier in item_create.secondary_publication_identifiers or []
-                              ] + primary_publication_identifiers
+        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+        for identifier in item_create.secondary_publication_identifiers or []
+    ] + primary_publication_identifiers
 
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
@@ -595,6 +594,7 @@ async def create_score_set(
                 "secondary_publication_identifiers",
                 "superseded_score_set_urn",
                 "target_genes",
+                "score_ranges",
             },
         ),
         experiment=experiment,
@@ -608,6 +608,7 @@ async def create_score_set(
         processing_state=ProcessingState.incomplete,
         created_by=user_data.user,
         modified_by=user_data.user,
+        score_ranges=item_create.score_ranges.dict() if item_create.score_ranges else null(),
     )  # type: ignore
 
     db.add(item)
@@ -809,7 +810,7 @@ async def update_score_set(
         if item_update.score_ranges:
             item.score_ranges = item_update.score_ranges.dict()
         else:
-            item.score_ranges = None
+            item.score_ranges = null()
 
         # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the score set's
         # target_gene to None, because we have set cascade='all,delete-orphan' on ScoreSet.target_gene. (Since the
