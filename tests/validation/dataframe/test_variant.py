@@ -12,14 +12,19 @@ from mavedb.lib.validation.dataframe.variant import (
     validate_guide_sequence_column,
     validate_hgvs_transgenic_column,
     validate_hgvs_genomic_column,
-    parse_genomic_variant,
-    parse_transgenic_variant,
+    validate_genomic_variant,
+    validate_transgenic_variant,
     validate_observed_sequence_types,
     validate_hgvs_prefix_combinations,
 )
 from mavedb.lib.validation.exceptions import ValidationError
 
-from tests.helpers.constants import VALID_ACCESSION, TEST_CDOT_TRANSCRIPT
+from tests.helpers.constants import (
+    VALID_NT_ACCESSION,
+    VALID_PRO_ACCESSION,
+    TEST_NT_CDOT_TRANSCRIPT,
+    TEST_PRO_CDOT_TRANSCRIPT,
+)
 from tests.validation.dataframe.conftest import DfTestCase
 
 
@@ -348,45 +353,60 @@ class TestValidateTransgenicColumn(DfTestCase):
 
 # Spoof the accession type
 class AccessionTestCase:
-    def __init__(self):
-        self.accession = VALID_ACCESSION
+    def __init__(self, accession):
+        self.accession = accession
 
 
 class GenomicColumnValidationTestCase(DfTestCase):
     def setUp(self):
         super().setUp()
 
-        self.accession_test_case = AccessionTestCase()
+        self.accession_test_case = [AccessionTestCase(VALID_NT_ACCESSION), AccessionTestCase(VALID_PRO_ACCESSION)]
 
-        self.valid_hgvs_column = pd.Series(
-            [f"{VALID_ACCESSION}:c.1G>A", f"{VALID_ACCESSION}:c.2A>T"], name=hgvs_nt_column
+        self.valid_hgvs_nt_column = pd.Series(
+            [f"{VALID_NT_ACCESSION}:c.1G>A", f"{VALID_NT_ACCESSION}:c.2A>T", f"{VALID_NT_ACCESSION}:c.[1G>A;2A>T]"],
+            name=hgvs_nt_column,
         )
-        self.missing_data = pd.Series([f"{VALID_ACCESSION}:c.3T>G", None], name=hgvs_nt_column)
-        self.duplicate_data = pd.Series([f"{VALID_ACCESSION}:c.4A>G", f"{VALID_ACCESSION}:c.4A>G"], name=hgvs_nt_column)
+
+        self.valid_hgvs_pro_column = pd.Series(
+            [
+                f"{VALID_PRO_ACCESSION}:p.Asp1Tyr",
+                f"{VALID_PRO_ACCESSION}:p.Tyr2Asp",
+                f"{VALID_PRO_ACCESSION}:p.[Asp1Tyr;Tyr2Asp]",
+            ],
+            name=hgvs_pro_column,
+        )
+
+        self.missing_data = pd.Series([f"{VALID_NT_ACCESSION}:c.3T>G", None], name=hgvs_nt_column)
+        self.duplicate_data = pd.Series(
+            [f"{VALID_NT_ACCESSION}:c.4A>G", f"{VALID_NT_ACCESSION}:c.4A>G"], name=hgvs_nt_column
+        )
 
         self.invalid_hgvs_columns_by_name = [
-            pd.Series([f"{VALID_ACCESSION}:g.1A>G", f"{VALID_ACCESSION}:g.1A>T"], name=hgvs_splice_column),
-            pd.Series([f"{VALID_ACCESSION}:g.1A>G", f"{VALID_ACCESSION}:g.1A>T"], name=hgvs_pro_column),
-            pd.Series([f"{VALID_ACCESSION}:c.1A>G", f"{VALID_ACCESSION}:c.1A>T"], name=hgvs_pro_column),
-            pd.Series([f"{VALID_ACCESSION}:n.1A>G", f"{VALID_ACCESSION}:n.1A>T"], name=hgvs_pro_column),
-            pd.Series([f"{VALID_ACCESSION}:p.Met1Val", f"{VALID_ACCESSION}:p.Met1Leu"], name=hgvs_nt_column),
+            pd.Series([f"{VALID_NT_ACCESSION}:g.1A>G", f"{VALID_NT_ACCESSION}:g.1A>T"], name=hgvs_splice_column),
+            pd.Series([f"{VALID_NT_ACCESSION}:g.1A>G", f"{VALID_NT_ACCESSION}:g.1A>T"], name=hgvs_pro_column),
+            pd.Series([f"{VALID_NT_ACCESSION}:c.1A>G", f"{VALID_NT_ACCESSION}:c.1A>T"], name=hgvs_pro_column),
+            pd.Series([f"{VALID_NT_ACCESSION}:n.1A>G", f"{VALID_NT_ACCESSION}:n.1A>T"], name=hgvs_pro_column),
+            pd.Series([f"{VALID_NT_ACCESSION}:p.Met1Val", f"{VALID_NT_ACCESSION}:p.Met1Leu"], name=hgvs_nt_column),
         ]
 
         self.invalid_hgvs_columns_by_contents = [
             pd.Series(
-                [f"{VALID_ACCESSION}:r.1a>g", f"{VALID_ACCESSION}:r.1a>u"], name=hgvs_splice_column
+                [f"{VALID_NT_ACCESSION}:r.1a>g", f"{VALID_NT_ACCESSION}:r.1a>u"], name=hgvs_splice_column
             ),  # rna not allowed
             pd.Series(
-                [f"{VALID_ACCESSION}:r.1a>g", f"{VALID_ACCESSION}:r.1a>u"], name=hgvs_nt_column
+                [f"{VALID_NT_ACCESSION}:r.1a>g", f"{VALID_NT_ACCESSION}:r.1a>u"], name=hgvs_nt_column
             ),  # rna not allowed
-            pd.Series([f"{VALID_ACCESSION}:c.1A>G", "_wt"], name=hgvs_nt_column),  # old special variant
-            pd.Series([f"{VALID_ACCESSION}:p.Met1Leu", "_sy"], name=hgvs_pro_column),  # old special variant
-            pd.Series([f"{VALID_ACCESSION}:n.1A>G", f"{VALID_ACCESSION}:c.1A>T"], name=hgvs_nt_column),  # mixed prefix
+            pd.Series([f"{VALID_NT_ACCESSION}:c.1A>G", "_wt"], name=hgvs_nt_column),  # old special variant
+            pd.Series([f"{VALID_NT_ACCESSION}:p.Met1Leu", "_sy"], name=hgvs_pro_column),  # old special variant
             pd.Series(
-                [f"{VALID_ACCESSION}:c.1A>G", f"{VALID_ACCESSION}:p.Met1Leu"], name=hgvs_pro_column
+                [f"{VALID_NT_ACCESSION}:n.1A>G", f"{VALID_NT_ACCESSION}:c.1A>T"], name=hgvs_nt_column
+            ),  # mixed prefix
+            pd.Series(
+                [f"{VALID_NT_ACCESSION}:c.1A>G", f"{VALID_NT_ACCESSION}:p.Met1Leu"], name=hgvs_pro_column
             ),  # mixed types/prefix
             pd.Series(["c.1A>G", "p.Met1Leu"], name=hgvs_pro_column),  # variants should be fully qualified
-            pd.Series([f"{VALID_ACCESSION}:c.1A>G", 2.5], name=hgvs_nt_column),  # contains numeric
+            pd.Series([f"{VALID_NT_ACCESSION}:c.1A>G", 2.5], name=hgvs_nt_column),  # contains numeric
             pd.Series([1.0, 2.5], name=hgvs_nt_column),  # contains numeric
             pd.Series([1.0, 2.5], name=hgvs_splice_column),  # contains numeric
             pd.Series([1.0, 2.5], name=hgvs_pro_column),  # contains numeric
@@ -394,7 +414,7 @@ class GenomicColumnValidationTestCase(DfTestCase):
 
         self.invalid_hgvs_columns_by_contents_under_strict_validation = [
             pd.Series(
-                [f"{VALID_ACCESSION}:c.1A>G", f"{VALID_ACCESSION}:c.5A>T"], name=hgvs_nt_column
+                [f"{VALID_NT_ACCESSION}:c.1A>G", f"{VALID_NT_ACCESSION}:c.5A>T"], name=hgvs_nt_column
             ),  # out of bounds for target
         ]
 
@@ -408,8 +428,8 @@ class TestValidateHgvsGenomicColumn(GenomicColumnValidationTestCase):
             validate_hgvs_genomic_column(
                 self.missing_data,
                 is_index=True,
-                targets=[self.accession_test_case],
-                hdp=self.mocked_human_data_provider,
+                targets=self.accession_test_case,
+                hdp=self.mocked_nt_human_data_provider,
             )  # type: ignore
 
     # Identical behavior for installed/uninstalled HGVS
@@ -420,8 +440,8 @@ class TestValidateHgvsGenomicColumn(GenomicColumnValidationTestCase):
             validate_hgvs_genomic_column(
                 self.duplicate_data,
                 is_index=True,
-                targets=[self.accession_test_case],
-                hdp=self.mocked_human_data_provider,
+                targets=self.accession_test_case,
+                hdp=self.mocked_nt_human_data_provider,
             )  # type: ignore
 
 
@@ -441,45 +461,65 @@ def patched_data_provider_class_attr(request, data_provider):
 class TestValidateHgvsGenomicColumnHgvsInstalled(GenomicColumnValidationTestCase):
     def test_valid_variant(self):
         with patch.object(
-            cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
+            cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
         ):
             validate_hgvs_genomic_column(
-                self.valid_hgvs_column,
+                self.valid_hgvs_nt_column,
                 is_index=False,
-                targets=[self.accession_test_case],
+                targets=self.accession_test_case,
+                hdp=self.patched_human_data_provider,
+            )  # type: ignore
+
+        with patch.object(
+            cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_PRO_CDOT_TRANSCRIPT
+        ):
+            validate_hgvs_genomic_column(
+                self.valid_hgvs_pro_column,
+                is_index=False,
+                targets=self.accession_test_case,
                 hdp=self.patched_human_data_provider,
             )  # type: ignore
 
     def test_valid_variant_valid_missing(self):
         with patch.object(
-            cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
+            cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
         ):
             validate_hgvs_genomic_column(
                 self.missing_data,
                 is_index=False,
-                targets=[self.accession_test_case],
+                targets=self.accession_test_case,
                 hdp=self.patched_human_data_provider,
             )  # type: ignore
 
     def test_valid_variant_valid_duplicate(self):
         with patch.object(
-            cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
+            cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
         ):
             validate_hgvs_genomic_column(
                 self.missing_data,
                 is_index=False,
-                targets=[self.accession_test_case],
+                targets=self.accession_test_case,
                 hdp=self.patched_human_data_provider,
             )  # type: ignore
 
     def test_valid_variant_index(self):
         with patch.object(
-            cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
+            cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
         ):
             validate_hgvs_genomic_column(
-                self.valid_hgvs_column,
+                self.valid_hgvs_nt_column,
                 is_index=True,
-                targets=[self.accession_test_case],
+                targets=self.accession_test_case,
+                hdp=self.patched_human_data_provider,
+            )  # type: ignore
+
+        with patch.object(
+            cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_PRO_CDOT_TRANSCRIPT
+        ):
+            validate_hgvs_genomic_column(
+                self.valid_hgvs_pro_column,
+                is_index=True,
+                targets=self.accession_test_case,
                 hdp=self.patched_human_data_provider,
             )  # type: ignore
 
@@ -491,13 +531,13 @@ class TestValidateHgvsGenomicColumnHgvsInstalled(GenomicColumnValidationTestCase
                 self.subTest(column=column),
                 self.assertRaises(ValidationError),
                 patch.object(
-                    cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
+                    cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
                 ),
             ):
                 validate_hgvs_genomic_column(
                     column,
                     is_index=False,
-                    targets=[self.accession_test_case],
+                    targets=self.accession_test_case,
                     hdp=self.patched_human_data_provider,  # type: ignore
                 )
         for column in (
@@ -507,13 +547,13 @@ class TestValidateHgvsGenomicColumnHgvsInstalled(GenomicColumnValidationTestCase
                 self.subTest(column=column),
                 self.assertRaises(ValidationError),
                 patch.object(
-                    cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
+                    cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
                 ),
             ):
                 validate_hgvs_genomic_column(
                     column,
                     is_index=True,
-                    targets=[self.accession_test_case],
+                    targets=self.accession_test_case,
                     hdp=self.patched_human_data_provider,  # type: ignore
                 )
 
@@ -523,13 +563,13 @@ class TestValidateHgvsGenomicColumnHgvsInstalled(GenomicColumnValidationTestCase
                 self.subTest(column=column),
                 self.assertRaises(ValidationError),
                 patch.object(
-                    cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
+                    cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
                 ),
             ):
                 validate_hgvs_genomic_column(
                     column,
                     is_index=False,
-                    targets=[self.accession_test_case],
+                    targets=self.accession_test_case,
                     hdp=self.patched_human_data_provider,  # type: ignore
                 )
         for column in self.invalid_hgvs_columns_by_name:
@@ -537,13 +577,13 @@ class TestValidateHgvsGenomicColumnHgvsInstalled(GenomicColumnValidationTestCase
                 self.subTest(column=column),
                 self.assertRaises(ValidationError),
                 patch.object(
-                    cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
+                    cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
                 ),
             ):
                 validate_hgvs_genomic_column(
                     column,
                     is_index=True,
-                    targets=[self.accession_test_case],
+                    targets=self.accession_test_case,
                     hdp=self.patched_human_data_provider,  # type: ignore
                 )
 
@@ -555,54 +595,70 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
     def test_valid_variant_strict_validation(self):
         with self.assertRaises(ModuleNotFoundError):
             validate_hgvs_genomic_column(
-                self.valid_hgvs_column,
+                self.valid_hgvs_nt_column,
                 is_index=False,
-                targets=[self.accession_test_case],
-                hdp=self.mocked_human_data_provider,
+                targets=self.accession_test_case,
+                hdp=self.mocked_nt_human_data_provider,
+            )  # type: ignore
+
+        with self.assertRaises(ModuleNotFoundError):
+            validate_hgvs_genomic_column(
+                self.valid_hgvs_nt_column,
+                is_index=True,
+                targets=self.accession_test_case,
+                hdp=self.mocked_pro_human_data_provider,
             )  # type: ignore
 
     def test_valid_variant_limited_validation(self):
-        validate_hgvs_genomic_column(
-            self.valid_hgvs_column, is_index=False, targets=[self.accession_test_case], hdp=None
-        )  # type: ignore
+        for column in [self.valid_hgvs_nt_column, self.valid_hgvs_pro_column]:
+            with self.subTest(column=column):
+                validate_hgvs_genomic_column(column, is_index=False, targets=self.accession_test_case, hdp=None)
 
     def test_valid_variant_valid_missing_strict_validation(self):
         with self.assertRaises(ModuleNotFoundError):
             validate_hgvs_genomic_column(
                 self.missing_data,
                 is_index=False,
-                targets=[self.accession_test_case],
-                hdp=self.mocked_human_data_provider,
+                targets=self.accession_test_case,
+                hdp=self.mocked_nt_human_data_provider,
             )  # type: ignore
 
     def test_valid_variant_valid_missing_limited_validation(self):
-        validate_hgvs_genomic_column(self.missing_data, is_index=False, targets=[self.accession_test_case], hdp=None)  # type: ignore
+        validate_hgvs_genomic_column(self.missing_data, is_index=False, targets=self.accession_test_case, hdp=None)  # type: ignore
 
     def test_valid_variant_valid_duplicate_strict_validation(self):
         with self.assertRaises(ModuleNotFoundError):
             validate_hgvs_genomic_column(
                 self.missing_data,
                 is_index=False,
-                targets=[self.accession_test_case],
-                hdp=self.mocked_human_data_provider,
+                targets=self.accession_test_case,
+                hdp=self.mocked_nt_human_data_provider,
             )  # type: ignore
 
     def test_valid_variant_valid_duplicate_limited_validation(self):
-        validate_hgvs_genomic_column(self.missing_data, is_index=False, targets=[self.accession_test_case], hdp=None)  # type: ignore
+        validate_hgvs_genomic_column(self.missing_data, is_index=False, targets=self.accession_test_case, hdp=None)  # type: ignore
 
     def test_valid_variant_index_strict_validation(self):
         with self.assertRaises(ModuleNotFoundError):
             validate_hgvs_genomic_column(
-                self.valid_hgvs_column,
+                self.valid_hgvs_nt_column,
                 is_index=True,
-                targets=[self.accession_test_case],
-                hdp=self.mocked_human_data_provider,
+                targets=self.accession_test_case,
+                hdp=self.mocked_nt_human_data_provider,
+            )  # type: ignore
+
+        with self.assertRaises(ModuleNotFoundError):
+            validate_hgvs_genomic_column(
+                self.valid_hgvs_pro_column,
+                is_index=True,
+                targets=self.accession_test_case,
+                hdp=self.mocked_pro_human_data_provider,
             )  # type: ignore
 
     def test_valid_variant_index_limited_validation(self):
-        validate_hgvs_genomic_column(
-            self.valid_hgvs_column, is_index=True, targets=[self.accession_test_case], hdp=None
-        )  # type: ignore
+        for column in [self.valid_hgvs_nt_column, self.valid_hgvs_pro_column]:
+            with self.subTest(column=column):
+                validate_hgvs_genomic_column(column, is_index=True, targets=self.accession_test_case, hdp=None)
 
     def test_invalid_column_values_strict_validation(self):
         for column in (
@@ -612,8 +668,8 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
                 validate_hgvs_genomic_column(
                     column,
                     is_index=False,
-                    targets=[self.accession_test_case],
-                    hdp=self.mocked_human_data_provider,  # type: ignore
+                    targets=self.accession_test_case,
+                    hdp=self.mocked_nt_human_data_provider,  # type: ignore
                 )
         for column in (
             self.invalid_hgvs_columns_by_contents + self.invalid_hgvs_columns_by_contents_under_strict_validation
@@ -622,8 +678,8 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
                 validate_hgvs_genomic_column(
                     column,
                     is_index=True,
-                    targets=[self.accession_test_case],
-                    hdp=self.mocked_human_data_provider,  # type: ignore
+                    targets=self.accession_test_case,
+                    hdp=self.mocked_nt_human_data_provider,  # type: ignore
                 )
 
     def test_invalid_column_values_limited_validation(self):
@@ -632,7 +688,7 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
                 validate_hgvs_genomic_column(
                     column,
                     is_index=False,
-                    targets=[self.accession_test_case],
+                    targets=self.accession_test_case,
                     hdp=None,  # type: ignore
                 )
         for column in self.invalid_hgvs_columns_by_contents:
@@ -640,7 +696,7 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
                 validate_hgvs_genomic_column(
                     column,
                     is_index=True,
-                    targets=[self.accession_test_case],
+                    targets=self.accession_test_case,
                     hdp=None,  # type: ignore
                 )
         for column in self.invalid_hgvs_columns_by_contents_under_strict_validation:
@@ -648,7 +704,7 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
                 validate_hgvs_genomic_column(
                     column,
                     is_index=True,
-                    targets=[self.accession_test_case],
+                    targets=self.accession_test_case,
                     hdp=None,  # type: ignore
                 )
 
@@ -658,16 +714,16 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
                 validate_hgvs_genomic_column(
                     column,
                     is_index=False,
-                    targets=[self.accession_test_case],
-                    hdp=self.mocked_human_data_provider,  # type: ignore
+                    targets=self.accession_test_case,
+                    hdp=self.mocked_nt_human_data_provider,  # type: ignore
                 )
         for column in self.invalid_hgvs_columns_by_name:
             with self.subTest(column=column), self.assertRaises(ValidationError):
                 validate_hgvs_genomic_column(
                     column,
                     is_index=True,
-                    targets=[self.accession_test_case],
-                    hdp=self.mocked_human_data_provider,  # type: ignore
+                    targets=self.accession_test_case,
+                    hdp=self.mocked_nt_human_data_provider,  # type: ignore
                 )
 
     def test_valid_column_values_wrong_column_name_limited_validation(self):
@@ -676,7 +732,7 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
                 validate_hgvs_genomic_column(
                     column,
                     is_index=False,
-                    targets=[self.accession_test_case],
+                    targets=self.accession_test_case,
                     hdp=None,  # type: ignore
                 )
         for column in self.invalid_hgvs_columns_by_name:
@@ -684,12 +740,12 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
                 validate_hgvs_genomic_column(
                     column,
                     is_index=True,
-                    targets=[self.accession_test_case],
+                    targets=self.accession_test_case,
                     hdp=None,  # type: ignore
                 )
 
 
-class TestParseGenomicVariant(unittest.TestCase):
+class TestValidateGenomicVariant(unittest.TestCase):
     def setUp(self):
         super().setUp()
 
@@ -699,94 +755,121 @@ class TestParseGenomicVariant(unittest.TestCase):
         self.validator.validate.return_value = True
 
         self.falsy_variant_strings = [None, ""]
-        self.valid_hgvs_column = pd.Series(
-            [f"{VALID_ACCESSION}:c.1G>A", f"{VALID_ACCESSION}:c.2A>T"], name=hgvs_nt_column
+        self.valid_hgvs_nt_column = pd.Series(
+            [f"{VALID_NT_ACCESSION}:c.1G>A", f"{VALID_NT_ACCESSION}:c.2A>T", f"{VALID_NT_ACCESSION}:c.[2A>T;1G>A]"],
+            name=hgvs_nt_column,
         )
-        self.invalid_hgvs_column = pd.Series(
-            [f"{VALID_ACCESSION}:c.1laksdfG>A", f"{VALID_ACCESSION}:c.2kadlfjA>T"], name=hgvs_nt_column
+        self.invalid_hgvs_nt_column = pd.Series(
+            [
+                f"{VALID_NT_ACCESSION}:c.1laksdfG>A",
+                f"{VALID_NT_ACCESSION}:c.2kadlfjA>T",
+                f"{VALID_NT_ACCESSION}:[c.2A>T;c.1G>A]",
+            ],
+            name=hgvs_nt_column,
+        )
+        self.valid_hgvs_pro_column = pd.Series(
+            [
+                f"{VALID_PRO_ACCESSION}:p.Asp1Tyr",
+                f"{VALID_PRO_ACCESSION}:p.Tyr2Asp",
+                f"{VALID_PRO_ACCESSION}:p.[Asp1Tyr;Tyr2Asp]",
+            ],
+            name=hgvs_pro_column,
+        )
+        self.invalid_hgvs_pro_column = pd.Series(
+            [
+                f"{VALID_PRO_ACCESSION}:p.1laksdfG>A",
+                f"{VALID_PRO_ACCESSION}:p.2kadlfjA>T",
+                f"{VALID_PRO_ACCESSION}:[p.Asp1Tyr;p.Tyr2Asp]",
+            ],
+            name=hgvs_pro_column,
         )
 
 
 @unittest.skipUnless(HGVS_INSTALLED, "HGVS module not installed")
-class TestParseGenomicVariantHgvsInstalled(TestParseGenomicVariant):
-    def test_parse_genomic_variant_nonetype_variant_string(self):
-        for variant_string in self.falsy_variant_strings:
+class TestValidateGenomicVariantHgvsInstalled(TestValidateGenomicVariant):
+    def test_validate_genomic_variant_nonetype_variant_string(self):
+        for idx, variant_string in enumerate(self.falsy_variant_strings):
             with self.subTest(variant_string=variant_string):
-                valid, error = parse_genomic_variant(0, None, self.parser, self.validator)
+                valid, error = validate_genomic_variant(idx, None, self.parser, self.validator)
                 assert valid
                 assert error is None
 
-    def test_parse_valid_hgvs_variant(self):
-        for variant_string in self.valid_hgvs_column:
+    def test_validate_valid_hgvs_variant(self):
+        for idx, variant_string in enumerate([self.valid_hgvs_nt_column, self.valid_hgvs_pro_column]):
             with self.subTest(variant_string=variant_string):
-                valid, error = parse_genomic_variant(0, self.valid_hgvs_column[0], self.parser, self.validator)
+                valid, error = validate_genomic_variant(idx, variant_string[0], self.parser, self.validator)
                 assert valid
                 assert error is None
 
-    def test_parse_invalid_hgvs_variant(self):
+    def test_validate_invalid_hgvs_variant(self):
         from hgvs.exceptions import HGVSError
 
         self.validator.validate.side_effect = HGVSError("Invalid variant")
 
-        for variant_string in self.invalid_hgvs_column:
+        for idx, variant_string in enumerate((self.invalid_hgvs_nt_column, self.invalid_hgvs_pro_column)):
             with self.subTest(variant_string=variant_string):
-                valid, error = parse_genomic_variant(0, self.valid_hgvs_column[0], self.parser, self.validator)
+                valid, error = validate_genomic_variant(idx, variant_string[0], self.parser, self.validator)
                 assert not valid
-                assert "Failed to parse row 0 with HGVS exception:" in error
+                assert f"Failed to parse row {idx} with HGVS exception:" in error
 
 
 @unittest.skipIf(HGVS_INSTALLED, "HGVS module installed")
-class TestParseGenomicVariantHgvsNotInstalled(TestParseGenomicVariant):
-    def test_parse_genomic_variant_nonetype_variant_string(self):
-        for variant_string in self.falsy_variant_strings:
+class TestValidateGenomicVariantHgvsNotInstalled(TestValidateGenomicVariant):
+    def test_validate_genomic_variant_nonetype_variant_string(self):
+        for idx, variant_string in enumerate(self.falsy_variant_strings):
             with self.subTest(variant_string=variant_string), self.assertRaises(ModuleNotFoundError):
-                parse_genomic_variant(0, None, self.parser, self.validator)
+                validate_genomic_variant(idx, None, self.parser, self.validator)
 
-    def test_parse_valid_hgvs_variant(self):
-        for variant_string in self.valid_hgvs_column:
+    def test_validate_valid_hgvs_variant(self):
+        for idx, variant_string in enumerate(
+            [column for column in [self.valid_hgvs_nt_column + self.valid_hgvs_pro_column]]
+        ):
             with self.subTest(variant_string=variant_string), self.assertRaises(ModuleNotFoundError):
-                parse_genomic_variant(0, self.valid_hgvs_column[0], self.parser, self.validator)
+                validate_genomic_variant(idx, variant_string, self.parser, self.validator)
 
-    def test_parse_invalid_hgvs_variant(self):
-        for variant_string in self.invalid_hgvs_column:
+    def test_validate_invalid_hgvs_variant(self):
+        for idx, variant_string in enumerate(
+            [column for column in [self.invalid_hgvs_nt_column + self.invalid_hgvs_pro_column]]
+        ):
             with self.subTest(variant_string=variant_string), self.assertRaises(ModuleNotFoundError):
-                parse_genomic_variant(0, self.valid_hgvs_column[0], self.parser, self.validator)
+                validate_genomic_variant(idx, variant_string, self.parser, self.validator)
 
 
-class TestParseTransgenicVariant(unittest.TestCase):
+class TestValidateTransgenicVariant(unittest.TestCase):
     def setUp(self):
         super().setUp()
 
-        self.target_sequences = {f"{VALID_ACCESSION}": "ATGC"}
+        self.target_sequences = {f"{VALID_NT_ACCESSION}": "ATGC"}
 
         self.falsy_variant_strings = [None, ""]
         self.valid_fully_qualified_transgenic_column = pd.Series(
-            [f"{VALID_ACCESSION}:c.1A>G", f"{VALID_ACCESSION}:c.2T>G {VALID_ACCESSION}:c.2T>G"], name=hgvs_nt_column
+            [f"{VALID_NT_ACCESSION}:c.1A>G", f"{VALID_NT_ACCESSION}:c.2T>G {VALID_NT_ACCESSION}:c.2T>G"],
+            name=hgvs_nt_column,
         )
         self.valid_basic_transgenic_column = pd.Series(["c.1A>G", "c.2T>G c.2T>G"], name=hgvs_nt_column)
         self.invalid_transgenic_column = pd.Series(["123A>X", "NM_001:123A>Y"], name=hgvs_nt_column)
         self.mismatched_transgenic_column = pd.Series(["c.1T>G", "c.2A>G"], name=hgvs_nt_column)
 
-    def test_parse_transgenic_variant_nonetype_variant_string(self):
+    def test_validate_transgenic_variant_nonetype_variant_string(self):
         for variant_string in self.falsy_variant_strings:
             with self.subTest(variant_string=variant_string):
-                valid, error = parse_transgenic_variant(0, None, self.target_sequences, is_fully_qualified=False)
+                valid, error = validate_transgenic_variant(0, None, self.target_sequences, is_fully_qualified=False)
                 assert valid
                 assert error is None
 
-    def test_parse_valid_fully_qualified_transgenic_variant(self):
+    def test_validate_valid_fully_qualified_transgenic_variant(self):
         for variant_string in self.valid_fully_qualified_transgenic_column:
             with self.subTest(variant_string=variant_string):
-                valid, error = parse_transgenic_variant(
+                valid, error = validate_transgenic_variant(
                     0, variant_string, self.target_sequences, is_fully_qualified=True
                 )
                 assert valid
                 assert error is None
 
-    def test_parse_valid_basic_transgenic_variant(self):
+    def test_validate_valid_basic_transgenic_variant(self):
         for variant_string in self.valid_basic_transgenic_column:
             with self.subTest(variant_string=variant_string):
-                valid, error = parse_transgenic_variant(
+                valid, error = validate_transgenic_variant(
                     0, variant_string, self.target_sequences, is_fully_qualified=False
                 )
                 assert valid
@@ -795,7 +878,7 @@ class TestParseTransgenicVariant(unittest.TestCase):
     def test_parse_invalid_transgenic_variant(self):
         for variant_string in self.invalid_transgenic_column:
             with self.subTest(variant_string=variant_string):
-                valid, error = parse_transgenic_variant(
+                valid, error = validate_transgenic_variant(
                     0, variant_string, self.target_sequences, is_fully_qualified=False
                 )
                 assert not valid
@@ -804,7 +887,7 @@ class TestParseTransgenicVariant(unittest.TestCase):
     def test_parse_mismatched_transgenic_variant(self):
         for variant_string in self.mismatched_transgenic_column:
             with self.subTest(variant_string=variant_string):
-                valid, error = parse_transgenic_variant(
+                valid, error = validate_transgenic_variant(
                     0, variant_string, self.target_sequences, is_fully_qualified=False
                 )
                 assert not valid
@@ -831,7 +914,7 @@ class TestValidateGuideSequenceColumn(DfTestCase):
             pd.Series(["ATG", "ATG"], name="guide_sequence"),  # identical sequences
         ]
 
-        self.accession_test_case = AccessionTestCase()
+        self.accession_test_case = [AccessionTestCase(VALID_PRO_ACCESSION), AccessionTestCase(VALID_NT_ACCESSION)]
 
     def test_valid_guide_sequences(self):
         for column in self.valid_guide_sequences + self.invalid_index_guide_sequences:

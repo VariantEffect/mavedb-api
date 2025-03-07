@@ -40,19 +40,19 @@ from mavedb.worker.jobs import (
 
 
 from tests.helpers.constants import (
-    TEST_CDOT_TRANSCRIPT,
     TEST_CLINGEN_SUBMISSION_RESPONSE,
     TEST_CLINGEN_SUBMISSION_BAD_RESQUEST_RESPONSE,
     TEST_CLINGEN_SUBMISSION_UNAUTHORIZED_RESPONSE,
     TEST_CLINGEN_LDH_LINKING_RESPONSE,
+    TEST_NT_CDOT_TRANSCRIPT,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_VARIANT_MAPPING_SCAFFOLD,
-    VALID_ACCESSION,
+    VALID_NT_ACCESSION,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS1_X,
-    TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
+    TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
 )
 from tests.helpers.util.exceptions import awaitable_exception
@@ -105,7 +105,7 @@ async def setup_records_files_and_variants(session, async_client, data_files, in
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider,
         "_get_transcript",
-        return_value=TEST_CDOT_TRANSCRIPT,
+        return_value=TEST_NT_CDOT_TRANSCRIPT,
     ):
         result = await create_variants_for_score_set(worker_ctx, uuid4().hex, score_set.id, 1, scores, counts)
 
@@ -187,7 +187,7 @@ async def setup_mapping_output(async_client, session, score_set, empty=False):
             {
                 "exception": "encountered 1 invalid variant strings.",
                 "detail": [
-                    "Failed to parse row 0 with HGVS exception: NM_001637.3:c.1T>A: Variant reference (T) does not agree with reference sequence (G)"
+                    "Failed to parse row 0 with HGVS exception: NM_001637.3:c.1T>A: Variant reference (T) does not agree with reference sequence (G)."
                 ],
             },
         ),
@@ -208,13 +208,13 @@ async def test_create_variants_for_score_set_with_validation_error(
     if input_score_set == TEST_MINIMAL_SEQ_SCORESET:
         scores.loc[:, HGVS_NT_COLUMN].iloc[0] = "c.1T>A"
     else:
-        scores.loc[:, HGVS_NT_COLUMN].iloc[0] = f"{VALID_ACCESSION}:c.1T>A"
+        scores.loc[:, HGVS_NT_COLUMN].iloc[0] = f"{VALID_NT_ACCESSION}:c.1T>A"
 
     with (
         patch.object(
             cdot.hgvs.dataproviders.RESTDataProvider,
             "_get_transcript",
-            return_value=TEST_CDOT_TRANSCRIPT,
+            return_value=TEST_NT_CDOT_TRANSCRIPT,
         ) as hdp,
     ):
         result = await create_variants_for_score_set(
@@ -321,7 +321,7 @@ async def test_create_variants_for_score_set_with_existing_variants(
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider,
         "_get_transcript",
-        return_value=TEST_CDOT_TRANSCRIPT,
+        return_value=TEST_NT_CDOT_TRANSCRIPT,
     ) as hdp:
         result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
@@ -344,7 +344,7 @@ async def test_create_variants_for_score_set_with_existing_variants(
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider,
         "_get_transcript",
-        return_value=TEST_CDOT_TRANSCRIPT,
+        return_value=TEST_NT_CDOT_TRANSCRIPT,
     ) as hdp:
         result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
@@ -402,7 +402,7 @@ async def test_create_variants_for_score_set_with_existing_exceptions(
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider,
         "_get_transcript",
-        return_value=TEST_CDOT_TRANSCRIPT,
+        return_value=TEST_NT_CDOT_TRANSCRIPT,
     ) as hdp:
         result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
@@ -441,7 +441,7 @@ async def test_create_variants_for_score_set(
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider,
         "_get_transcript",
-        return_value=TEST_CDOT_TRANSCRIPT,
+        return_value=TEST_NT_CDOT_TRANSCRIPT,
     ) as hdp:
         result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
@@ -491,7 +491,7 @@ async def test_create_variants_for_score_set_enqueues_manager_and_successful_map
         patch.object(
             cdot.hgvs.dataproviders.RESTDataProvider,
             "_get_transcript",
-            return_value=TEST_CDOT_TRANSCRIPT,
+            return_value=TEST_NT_CDOT_TRANSCRIPT,
         ) as hdp,
         patch.object(
             _UnixSelectorEventLoop,

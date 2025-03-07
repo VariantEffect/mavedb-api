@@ -12,7 +12,7 @@ from mavedb.models.published_variant import PublishedVariantsMV
 
 from tests.helpers.constants import (
     TEST_BIORXIV_IDENTIFIER,
-    TEST_CDOT_TRANSCRIPT,
+    TEST_NT_CDOT_TRANSCRIPT,
     TEST_KEYWORDS,
     TEST_MEDRXIV_IDENTIFIER,
     TEST_MINIMAL_ACC_SCORESET,
@@ -44,7 +44,9 @@ EXTERNAL_IDENTIFIERS = {
 @pytest.fixture
 def setup_acc_scoreset(setup_router_db, session, data_provider, client, data_files):
     experiment = create_experiment(client)
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+    with patch.object(
+        cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
+    ):
         score_set = create_acc_score_set(client, experiment["urn"])
         score_set = mock_worker_variant_insertion(
             client, session, data_provider, score_set, data_files / "scores_acc.csv"
@@ -242,7 +244,7 @@ def test_target_gene_identifier_statistiscs(
     experiment = create_experiment(client)
     if "targetAccession" in target:
         with patch.object(
-            cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
+            cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
         ):
             unpublished_score_set = create_acc_score_set(client, experiment["urn"])
             unpublished_score_set = mock_worker_variant_insertion(

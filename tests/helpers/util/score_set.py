@@ -14,9 +14,9 @@ from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 
 from tests.helpers.constants import (
-    TEST_CDOT_TRANSCRIPT,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET,
+    TEST_NT_CDOT_TRANSCRIPT,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_POST_MAPPED_VRS_CIS_PHASED_BLOCK,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
@@ -55,7 +55,9 @@ def create_acc_score_set(
 
     jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
 
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
+    with patch.object(
+        cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
+    ):
         response = client.post("/api/v1/score-sets/", json=score_set_payload)
 
     assert response.status_code == 200, "Could not create accession based score set"
