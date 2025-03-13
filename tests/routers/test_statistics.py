@@ -73,7 +73,6 @@ def setup_seq_scoreset(setup_router_db, session, data_provider, client, data_fil
     # Note that we have not created indexes for this view when it is generated via metadata. This differs
     # from the database created via alembic, which does create indexes.
     PublishedVariantsMV.refresh(session, False)
-    session.commit()
 
 
 def assert_statistic(desired_field_value, response):
