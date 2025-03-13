@@ -827,7 +827,7 @@ TEST_MINIMAL_POST_MAPPED_METADATA = {
     "genomic": {
         "sequence_id": "ga4gh:SQ.em9khDCUYXrVWBfWr9r8fjBUrTjj1aig",
         "sequence_type": "dna",
-        "sequence_accessions": [VALID_ACCESSION],
+        "sequence_accessions": [VALID_NT_ACCESSION],
         "sequence_genes": [VALID_GENE],
     }
 }
