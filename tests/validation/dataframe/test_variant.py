@@ -756,7 +756,7 @@ class TestValidateGenomicVariant(unittest.TestCase):
 
         self.falsy_variant_strings = [None, ""]
         self.valid_hgvs_nt_column = pd.Series(
-            [f"{VALID_NT_ACCESSION}:c.1G>A", f"{VALID_NT_ACCESSION}:c.2A>T", f"{VALID_NT_ACCESSION}:c.[2A>T;1G>A]"],
+            [f"{VALID_NT_ACCESSION}:c.1G>A", f"{VALID_NT_ACCESSION}:c.1G>A", f"{VALID_NT_ACCESSION}:c.[1G>A;2A>T]"],
             name=hgvs_nt_column,
         )
         self.invalid_hgvs_nt_column = pd.Series(
@@ -795,22 +795,18 @@ class TestValidateGenomicVariantHgvsInstalled(TestValidateGenomicVariant):
                 assert error is None
 
     def test_validate_valid_hgvs_variant(self):
-        for idx, variant_string in enumerate([self.valid_hgvs_nt_column, self.valid_hgvs_pro_column]):
+        for idx, variant_string in enumerate(pd.concat([self.valid_hgvs_nt_column, self.valid_hgvs_pro_column])):
             with self.subTest(variant_string=variant_string):
-                valid, error = validate_genomic_variant(idx, variant_string[0], self.parser, self.validator)
+                valid, error = validate_genomic_variant(idx, variant_string, self.parser, self.validator)
                 assert valid
                 assert error is None
 
     def test_validate_invalid_hgvs_variant(self):
-        from hgvs.exceptions import HGVSError
-
-        self.validator.validate.side_effect = HGVSError("Invalid variant")
-
-        for idx, variant_string in enumerate((self.invalid_hgvs_nt_column, self.invalid_hgvs_pro_column)):
+        for idx, variant_string in enumerate(pd.concat([self.invalid_hgvs_nt_column, self.invalid_hgvs_pro_column])):
             with self.subTest(variant_string=variant_string):
-                valid, error = validate_genomic_variant(idx, variant_string[0], self.parser, self.validator)
+                valid, error = validate_genomic_variant(idx, variant_string, self.parser, self.validator)
                 assert not valid
-                assert f"Failed to parse row {idx} with HGVS exception:" in error
+                assert f"Failed to parse variant string '{variant_string}' at row {idx}" in error
 
 
 @unittest.skipIf(HGVS_INSTALLED, "HGVS module installed")
