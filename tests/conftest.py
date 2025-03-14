@@ -1,5 +1,5 @@
 import os
-import logging
+import logging  # noqa: F401
 import sys
 from concurrent import futures
 from inspect import getsourcefile
@@ -44,7 +44,7 @@ email_validator.SPECIAL_USE_DOMAIN_NAMES.remove("test")
 @pytest.fixture()
 def session(postgresql):
     # Un-comment this line to log all database queries:
-    logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
+    # logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
 
     connection = (
         f"postgresql+psycopg2://{postgresql.info.user}:"
