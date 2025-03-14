@@ -277,6 +277,38 @@ def record_counts(model: RecordNames, group: Optional[GroupBy] = None, db: Sessi
     return OrderedDict(sorted(grouped.items()))
 
 
+@router.get("/record/score-set/variant/count", status_code=200, response_model=dict[str, int])
+def record_variant_counts(db: Session = Depends(get_db)) -> dict[str, int]:
+    """
+    Returns a dictionary of counts for the number of published and distinct variants in the database contained
+    within a given record.
+    """
+    variants = db.execute(
+        select(PublishedVariantsMV.score_set_urn, func.count(PublishedVariantsMV.variant_id))
+        .group_by(PublishedVariantsMV.score_set_urn)
+        .order_by(PublishedVariantsMV.score_set_urn)
+    ).all()
+
+    grouped = {urn: sum(c for _, c in g) for urn, g in itertools.groupby(variants, lambda t: t[0])}
+    return OrderedDict(sorted(filter(lambda item: item[1] > 0, grouped.items())))
+
+
+@router.get("/record/score-set/mapped-variant/count", status_code=200, response_model=dict[str, int])
+def record_mapped_variant_counts(db: Session = Depends(get_db)) -> dict[str, int]:
+    """
+    Returns a dictionary of counts for the number of published and distinct mapped variants in the database contained
+    within a given record.
+    """
+    variants = db.execute(
+        select(PublishedVariantsMV.score_set_urn, func.count(PublishedVariantsMV.mapped_variant_id))
+        .group_by(PublishedVariantsMV.score_set_urn)
+        .order_by(PublishedVariantsMV.score_set_urn)
+    ).all()
+
+    grouped = {urn: sum(c for _, c in g) for urn, g in itertools.groupby(variants, lambda t: t[0])}
+    return OrderedDict(sorted(filter(lambda item: item[1] > 0, grouped.items())))
+
+
 ########################################################################################
 # Target statistics
 ########################################################################################
