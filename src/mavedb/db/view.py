@@ -10,7 +10,6 @@ from sqlalchemy.schema import DDLElement, MetaData
 from sqlalchemy.orm import Session
 
 from mavedb.db.base import Base
-from mavedb.db.session import SessionLocal
 
 # See: https://github.com/sqlalchemy/sqlalchemy/wiki/Views, https://github.com/jeffwidman/sqlalchemy-postgresql-materialized-views?tab=readme-ov-file
 
@@ -32,9 +31,9 @@ class MaterializedView(Base):
     __abstract__ = True
 
     @classmethod
-    def refresh(cls, concurrently=True):
+    def refresh(cls, connection, concurrently=True):
         """Refresh this materialized view."""
-        refresh_mat_view(cls.__table__.fullname, concurrently)
+        refresh_mat_view(connection, cls.__table__.fullname, concurrently)
 
 
 @compiler.compiles(CreateView)
@@ -81,7 +80,12 @@ def view(name: str, selectable: sa.Select, metadata: MetaData = Base.metadata, m
         )
     ```
 
-    When registered in this manner, SQLAlchemy will create and destroy the view along with other tables.
+    When registered in this manner, SQLAlchemy will create and destroy the view along with other tables. You can
+    then query this view as if it were an ORM object.
+
+    ```
+    results = db.query(select(MyView.col1).where(MyView.col2)).all()
+    ```
     """
     t = sa.table(
         name,
@@ -89,6 +93,7 @@ def view(name: str, selectable: sa.Select, metadata: MetaData = Base.metadata, m
     )
     t.primary_key.update(c for c in t.c if c.primary_key)  # type: ignore
 
+    # TODO: Figure out indices.
     if materialized:
         sa.event.listen(
             metadata,
@@ -116,32 +121,23 @@ def view(name: str, selectable: sa.Select, metadata: MetaData = Base.metadata, m
     return t
 
 
-# TODO: untested.
-def refresh_mat_view(name, concurrently=True):
+def refresh_mat_view(session, name, concurrently=True):
     """
     Refreshes a single materialized view, given by `name`.
     """
-    db = SessionLocal()
-    try:
-        # since session.execute() bypasses autoflush, must manually flush in order
-        # to include newly-created/modified objects in the refresh
-        db.flush()
-        _con = "CONCURRENTLY " if concurrently else ""
-        db.execute("REFRESH MATERIALIZED VIEW " + _con + name)
-    finally:
-        db.close()
+    # since session.execute() bypasses autoflush, must manually flush in order
+    # to include newly-created/modified objects in the refresh
+    session.flush()
+    _con = "CONCURRENTLY " if concurrently else ""
+    session.execute(sa.text("REFRESH MATERIALIZED VIEW " + _con + name))
 
 
 # TODO: untested.
-def refresh_all_mat_views(concurrently=True):
+def refresh_all_mat_views(session, concurrently=True):
     """
     Refreshes all materialized views. Views are refreshed in non-deterministic order,
     so view definitions can't depend on each other.
     """
-    db = SessionLocal()
-    try:
-        mat_views = db.inspect(db.engine).get_view_names()
-        for v in mat_views:
-            refresh_mat_view(v, concurrently)
-    finally:
-        db.close()
+    mat_views = session.inspect(session.engine).get_view_names()
+    for v in mat_views:
+        refresh_mat_view(session, v, concurrently)
