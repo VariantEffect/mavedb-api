@@ -138,6 +138,37 @@ def search_score_sets(
     return fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
 
 
+@router.get("/score-sets/mapped-genes", status_code=200, response_model=dict[str, list[str]])
+def score_set_mapped_gene_mapping(
+    db: Session = Depends(deps.get_db), user_data: UserData = Depends(get_current_user)
+) -> Any:
+    """
+    Get a mapping of score set URNs to mapped gene symbols.
+    """
+    save_to_logging_context({"requested_resource": "mapped-genes"})
+
+    score_sets_with_mapping_metadata = db.execute(
+        select(ScoreSet, TargetGene.post_mapped_metadata)
+        .join(ScoreSet)
+        .where(TargetGene.post_mapped_metadata.is_not(None))
+    ).all()
+
+    mapped_genes: dict[str, list[str]] = {}
+    for score_set_item, post_mapped_metadata in score_sets_with_mapping_metadata:
+        if not has_permission(user_data, score_set_item, Action.READ).permitted:
+            continue
+
+        sequence_genes = [
+            *post_mapped_metadata.get("genomic", {}).get("sequence_genes", []),
+            *post_mapped_metadata.get("protein", {}).get("sequence_genes", []),
+        ]
+
+        if sequence_genes:
+            mapped_genes.setdefault(score_set_item.urn, []).extend(sequence_genes)
+
+    return mapped_genes
+
+
 @router.post(
     "/me/score-sets/search",
     status_code=200,
