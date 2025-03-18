@@ -50,7 +50,7 @@ def _drop_view(element: DropView, compiler, **kw):
     return "DROP %s %s" % ("MATERIALIZED VIEW" if element.materialized else "VIEW", element.name)
 
 
-def view_exists(ddl: CreateView, target, connection: Session, materialized: bool, **kw):
+def view_exists(ddl: CreateView, target, connection: sa.Connection, materialized: bool, **kw):
     inspector = sa.inspect(connection)
     if inspector is None:
         return False
@@ -59,7 +59,7 @@ def view_exists(ddl: CreateView, target, connection: Session, materialized: bool
     return ddl.name in view_names
 
 
-def view_doesnt_exist(ddl: CreateView, target, connection: Session, materialized: bool, **kw):
+def view_doesnt_exist(ddl: CreateView, target, connection: sa.Connection, materialized: bool, **kw):
     return not view_exists(ddl, target, connection, materialized, **kw)
 
 
@@ -121,7 +121,7 @@ def view(name: str, selectable: sa.Select, metadata: MetaData = Base.metadata, m
     return t
 
 
-def refresh_mat_view(session, name, concurrently=True):
+def refresh_mat_view(session: Session, name: str, concurrently=True):
     """
     Refreshes a single materialized view, given by `name`.
     """
@@ -132,12 +132,15 @@ def refresh_mat_view(session, name, concurrently=True):
     session.execute(sa.text("REFRESH MATERIALIZED VIEW " + _con + name))
 
 
-# TODO: untested.
-def refresh_all_mat_views(session, concurrently=True):
+def refresh_all_mat_views(session: Session, concurrently=True):
     """
     Refreshes all materialized views. Views are refreshed in non-deterministic order,
     so view definitions can't depend on each other.
     """
-    mat_views = session.inspect(session.engine).get_view_names()
-    for v in mat_views:
-        refresh_mat_view(session, v, concurrently)
+    inspector = sa.inspect(session.connection())
+
+    if not inspector:
+        return
+
+    for mv in inspector.get_materialized_view_names():
+        refresh_mat_view(session, mv, concurrently)

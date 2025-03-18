@@ -658,7 +658,6 @@ async def upload_score_set_variant_data(
     except UnicodeDecodeError as e:
         raise HTTPException(status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values.")
 
-
     if scores_file:
         # Although this is also updated within the variant creation job, update it here
         # as well so that we can display the proper UI components (queue invocation delay
@@ -1016,11 +1015,12 @@ async def delete_score_set(
     response_model=score_set.ScoreSet,
     response_model_exclude_none=True,
 )
-def publish_score_set(
+async def publish_score_set(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
+    worker: ArqRedis = Depends(deps.get_worker),
 ) -> Any:
     """
     Publish a score set.
@@ -1096,5 +1096,19 @@ def publish_score_set(
     db.add(item)
     db.commit()
     db.refresh(item)
+
+    # await the insertion of this job into the worker queue, not the job itself.
+    job = await worker.enqueue_job(
+        "refresh_published_variants_view",
+        correlation_id_for_context(),
+        user_data.user.id,
+    )
+    if job is not None:
+        save_to_logging_context({"worker_job_id": job.job_id})
+        logger.info(msg="Enqueud published variant materialized view refresh job.", extra=logging_context())
+    else:
+        logger.warning(
+            msg="Failed to enqueue published variant materialized view refresh job.", extra=logging_context()
+        )
 
     return item
