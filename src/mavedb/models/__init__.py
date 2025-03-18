@@ -12,6 +12,7 @@ __all__ = [
     "license",
     "mapped_variant",
     "publication_identifier",
+    "published_variant",
     "raw_read_identifier",
     "refseq_identifier",
     "refseq_offset",

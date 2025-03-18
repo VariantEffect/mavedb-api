@@ -240,8 +240,10 @@ def create_acc_score_set_with_variants(
 
 
 def publish_score_set(client, score_set_urn):
-    response = client.post(f"/api/v1/score-sets/{score_set_urn}/publish")
-    assert response.status_code == 200, f"Could not publish score set {score_set_urn}"
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        response = client.post(f"/api/v1/score-sets/{score_set_urn}/publish")
+        assert response.status_code == 200, f"Could not publish score set {score_set_urn}"
+        worker_queue.assert_called_once()
 
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
