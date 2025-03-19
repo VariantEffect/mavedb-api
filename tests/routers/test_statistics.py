@@ -1,12 +1,18 @@
-from unittest.mock import patch
+# ruff: noqa: E402
 
-import cdot.hgvs.dataproviders
 import pytest
 from humps import camelize
+from unittest.mock import patch
+
+arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
+
+from mavedb.models.published_variant import PublishedVariantsMV
 
 from tests.helpers.constants import (
     TEST_BIORXIV_IDENTIFIER,
-    TEST_CDOT_TRANSCRIPT,
+    TEST_NT_CDOT_TRANSCRIPT,
     TEST_KEYWORDS,
     TEST_MEDRXIV_IDENTIFIER,
     TEST_MINIMAL_ACC_SCORESET,
@@ -14,12 +20,9 @@ from tests.helpers.constants import (
     TEST_PUBMED_IDENTIFIER,
     VALID_GENE,
 )
-from tests.helpers.util import (
-    create_acc_score_set_with_variants,
-    create_experiment,
-    create_seq_score_set_with_variants,
-    publish_score_set,
-)
+from tests.helpers.util.score_set import publish_score_set, create_acc_score_set, create_seq_score_set
+from tests.helpers.util.experiment import create_experiment
+from tests.helpers.util.variant import mock_worker_variant_insertion, create_mapped_variants_for_score_set
 
 TARGET_ACCESSION_FIELDS = ["accession", "assembly", "gene"]
 TARGET_SEQUENCE_FIELDS = ["sequence", "sequence-type"]
@@ -34,6 +37,42 @@ EXTERNAL_IDENTIFIERS = {
     "refseq-identifier": {"offset": 0, "identifier": {"dbName": "RefSeq", "identifier": "NM_003345"}},
     "uniprot-identifier": {"offset": 0, "identifier": {"dbName": "UniProt", "identifier": "Q9Y617"}},
 }
+
+
+# Fixtures for setting up score sets on which to calculate statistics.
+# Adds an experiment and score set to the database, then publishes the score set.
+@pytest.fixture
+def setup_acc_scoreset(setup_router_db, session, data_provider, client, data_files):
+    experiment = create_experiment(client)
+    with patch.object(
+        cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
+    ):
+        score_set = create_acc_score_set(client, experiment["urn"])
+        score_set = mock_worker_variant_insertion(
+            client, session, data_provider, score_set, data_files / "scores_acc.csv"
+        )
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+
+@pytest.fixture
+def setup_seq_scoreset(setup_router_db, session, data_provider, client, data_files):
+    experiment = create_experiment(client)
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
+    )
+    create_mapped_variants_for_score_set(session, unpublished_score_set["urn"])
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
+
+    # Note that we have not created indexes for this view when it is generated via metadata. This differs
+    # from the database created via alembic, which does create indexes.
+    PublishedVariantsMV.refresh(session, False)
 
 
 def assert_statistic(desired_field_value, response):
@@ -204,23 +243,22 @@ def test_target_gene_identifier_statistiscs(
     experiment = create_experiment(client)
     if "targetAccession" in target:
         with patch.object(
-            cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT
+            cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
         ):
-            score_set = create_acc_score_set_with_variants(
-                client,
-                session,
-                data_provider,
-                experiment["urn"],
-                data_files / "scores_acc.csv",
-                {"targetGenes": [target]},
+            unpublished_score_set = create_acc_score_set(client, experiment["urn"])
+            unpublished_score_set = mock_worker_variant_insertion(
+                client, session, data_provider, unpublished_score_set, data_files / "scores_acc.csv"
             )
 
     elif "targetSequence" in target:
-        score_set = create_seq_score_set_with_variants(
-            client, session, data_provider, experiment["urn"], data_files / "scores.csv", {"targetGenes": [target]}
+        unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+        unpublished_score_set = mock_worker_variant_insertion(
+            client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
         )
 
-    publish_score_set(client, score_set["urn"])
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
 
     response = client.get(f"/api/v1/statistics/target/gene/{field_value}")
     desired_field_value = EXTERNAL_IDENTIFIERS[field_value]["identifier"]["identifier"]
@@ -278,11 +316,14 @@ def test_record_publication_identifier_statistics(
     # updates. Folding these more complex setup steps into a fixture is more trouble than it's worth.
     record_update = {"primaryPublicationIdentifiers": [mocked_publication]}
     experiment = create_experiment(client, record_update)
-    score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv", record_update
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"], record_update)
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    publish_score_set(client, score_set["urn"])
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
 
     response = client.get(f"/api/v1/statistics/record/{model_value}/publication-identifiers")
 
@@ -308,11 +349,14 @@ def test_record_keyword_statistics(session, data_provider, client, setup_router_
     # Create experiment and score set resources. The fixtures are more useful for the simple cases that don't need scoreset / experiment
     # updates. Folding these more complex setup steps into a fixture is more trouble than it's worth.
     experiment = create_experiment(client, record_update)
-    score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"], record_update)
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    publish_score_set(client, score_set["urn"])
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
 
     response = client.get("/api/v1/statistics/record/experiment/keywords")
     desired_field_values = ["SaCas9", "Endogenous locus library method", "Base editor", "Other"]
@@ -330,11 +374,14 @@ def test_record_doi_identifier_statistics(session, data_provider, client, setup_
     # Create experiment and score set resources. The fixtures are more useful for the simple cases that don't need scoreset / experiment
     # updates. Folding these more complex setup steps into a fixture is more trouble than it's worth.
     experiment = create_experiment(client, record_update)
-    score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv", record_update
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"], record_update)
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    publish_score_set(client, score_set["urn"])
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
 
     response = client.get(f"/api/v1/statistics/record/{model_value}/doi-identifiers")
     desired_field_value = record_update["doiIdentifiers"][0]["identifier"]
@@ -353,11 +400,14 @@ def test_record_raw_read_identifier_statistics(
     # Create experiment and score set resources. The fixtures are more useful for the simple cases that don't need scoreset / experiment
     # updates. Folding these more complex setup steps into a fixture is more trouble than it's worth.
     experiment = create_experiment(client, record_update)
-    score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv", record_update
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"], record_update)
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    publish_score_set(client, score_set["urn"])
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
 
     response = client.get(f"/api/v1/statistics/record/{model_value}/raw-read-identifiers")
     desired_field_value = record_update["rawReadIdentifiers"][0]["identifier"]

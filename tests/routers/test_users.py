@@ -1,10 +1,16 @@
-from unittest import mock
+# ruff: noqa: E402
 
 import pytest
+from unittest import mock
+
+arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import require_current_user
 from mavedb.models.enums.user_role import UserRole
+
 from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_USER, camelize
 from tests.helpers.dependency_overrider import DependencyOverrider
 
