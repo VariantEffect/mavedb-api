@@ -1,5 +1,7 @@
 from copy import deepcopy
+from datetime import date
 from unittest.mock import patch
+from typing import Any
 
 import cdot.hgvs.dataproviders
 import jsonschema
@@ -9,11 +11,14 @@ from sqlalchemy.exc import NoResultFound
 
 from mavedb.lib.score_sets import columns_for_dataset, create_variants, create_variants_data, csv_data_to_df
 from mavedb.lib.validation.dataframe import validate_and_standardize_dataframe_pair
+from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
+from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.models.license import License
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.user import User
@@ -22,6 +27,9 @@ from mavedb.view_models.collection import Collection
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
+    TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE,
+    TEST_VALID_PRE_MAPPED_VRS_ALLELE,
+    TEST_VALID_POST_MAPPED_VRS_ALLELE,
     EXTRA_USER,
     TEST_CDOT_TRANSCRIPT,
     TEST_COLLECTION,
@@ -31,6 +39,7 @@ from tests.helpers.constants import (
     TEST_MINIMAL_POST_MAPPED_METADATA,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_MINIMAL_MAPPED_VARIANT,
+    TEST_VALID_PRE_MAPPED_VRS_HAPLOTYPE,
 )
 
 
@@ -90,13 +99,13 @@ def create_experiment(client, update=None):
     experiment_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     if update is not None:
         experiment_payload.update(update)
-    jsonschema.validate(instance=experiment_payload, schema=ExperimentCreate.schema())
+    jsonschema.validate(instance=experiment_payload, schema=ExperimentCreate.model_json_schema())
 
     response = client.post("/api/v1/experiments/", json=experiment_payload)
     assert response.status_code == 200, "Could not create experiment."
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    jsonschema.validate(instance=response_data, schema=Experiment.model_json_schema())
     return response_data
 
 
@@ -106,7 +115,7 @@ def create_seq_score_set(client, experiment_urn, update=None):
         score_set_payload["experimentUrn"] = experiment_urn
     if update is not None:
         score_set_payload.update(update)
-    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.model_json_schema())
 
     response = client.post("/api/v1/score-sets/", json=score_set_payload)
     assert (
@@ -114,7 +123,7 @@ def create_seq_score_set(client, experiment_urn, update=None):
     ), f"Could not create sequence based score set (no variants) within experiment {experiment_urn}"
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     return response_data
 
 
@@ -124,7 +133,7 @@ def create_acc_score_set(client, experiment_urn, update=None):
         score_set_payload["experimentUrn"] = experiment_urn
     if update is not None:
         score_set_payload.update(update)
-    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.model_json_schema())
 
     with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
         response = client.post("/api/v1/score-sets/", json=score_set_payload)
@@ -134,7 +143,7 @@ def create_acc_score_set(client, experiment_urn, update=None):
     ), f"Could not create accession based score set (no variants) within experiment {experiment_urn}"
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     return response_data
 
 
@@ -178,7 +187,7 @@ def mock_worker_variant_insertion(client, db, data_provider, score_set, scores_c
     scores, counts = validate_and_standardize_dataframe_pair(score_df, counts_df, item.target_genes, data_provider)
     variants = create_variants_data(scores, counts, None)
     num_variants = create_variants(db, item, variants)
-    assert num_variants == 3
+    assert num_variants == len(variants)
 
     item.processing_state = ProcessingState.success
     item.dataset_columns = {
@@ -210,18 +219,37 @@ def create_mapped_variants_for_score_set(db, score_set_urn):
     db.commit()
     return
 
+def mock_worker_vrs_mapping(client, db, score_set, alleles=True):
+    # The mapping job is tested elsewhere, so insert mapped variants manually.
+    variants = db.scalars(
+        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
+    ).all()
+
+    # It's un-important what the contents of each mapped VRS object are, so use the same constant for each variant.
+    for variant in variants:
+        mapped_variant = MappedVariantDbModel(
+            pre_mapped=TEST_VALID_PRE_MAPPED_VRS_ALLELE if alleles else TEST_VALID_PRE_MAPPED_VRS_HAPLOTYPE,
+            post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE if alleles else TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE,
+            variant=variant,
+            vrs_version="2.0",
+            modification_date=date.today(),
+            mapped_date=date.today(),
+            mapping_api_version="pytest.0.0",
+            current=True,
+        )
+        db.add(mapped_variant)
+
+    db.commit()
+
+    return client.get(f"/api/v1/score-sets/{score_set['urn']}").json()
+
 
 def create_seq_score_set_with_variants(
     client, db, data_provider, experiment_urn, scores_csv_path, update=None, counts_csv_path=None
 ):
     score_set = create_seq_score_set(client, experiment_urn, update)
     score_set = mock_worker_variant_insertion(client, db, data_provider, score_set, scores_csv_path, counts_csv_path)
-
-    assert (
-        score_set["numVariants"] == 3
-    ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
-
-    jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
 
 
@@ -230,12 +258,31 @@ def create_acc_score_set_with_variants(
 ):
     score_set = create_acc_score_set(client, experiment_urn, update)
     score_set = mock_worker_variant_insertion(client, db, data_provider, score_set, scores_csv_path, counts_csv_path)
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
+    return score_set
 
-    assert (
-        score_set["numVariants"] == 3
-    ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
 
-    jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
+def create_seq_score_set_with_mapped_variants(
+    client, db, data_provider, experiment_urn, scores_csv_path, update=None, counts_csv_path=None
+):
+    score_set = create_seq_score_set_with_variants(
+        client, db, data_provider, experiment_urn, scores_csv_path, update, counts_csv_path
+    )
+    score_set = mock_worker_vrs_mapping(client, db, score_set)
+
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
+    return score_set
+
+
+def create_acc_score_set_with_mapped_variants(
+    client, db, data_provider, experiment_urn, scores_csv_path, update=None, counts_csv_path=None
+):
+    score_set = create_acc_score_set_with_variants(
+        client, db, data_provider, experiment_urn, scores_csv_path, update, counts_csv_path
+    )
+    score_set = mock_worker_vrs_mapping(client, db, score_set)
+
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
 
 
@@ -246,7 +293,7 @@ def publish_score_set(client, score_set_urn):
         worker_queue.assert_called_once()
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     return response_data
 
 
@@ -273,8 +320,28 @@ def mark_user_inactive(session, username):
     return user
 
 
+def add_thresholds_to_score_set(client, score_set_urn, thresholds):
+    """
+    Add calibration thresholds to a score set via the dedicated endpoint. Once this
+    feature is complete and users can add thresholds directly via the object, we can
+    likely retire this helper, but for now NOTE: Must be invoked from within an admin context.
+    """
+    calibration_payload = {"pillar_project": deepcopy(thresholds)}
+    response = client.post(f"/api/v1/score-sets/{score_set_urn}/calibration/data", json=calibration_payload)
+    assert response.status_code == 200, f"Could not add calibration thresholds to score set {score_set_urn}"
+
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
+
+    return response_data
+
+
 async def awaitable_exception():
     return Exception()
+
+
+def callable_nonexistent_orcid_user_exception():
+    raise NonexistentOrcidUserError()
 
 
 def update_expected_response_for_created_resources(expected_response, created_experiment, created_score_set):
@@ -288,3 +355,22 @@ def update_expected_response_for_created_resources(expected_response, created_ex
     )
 
     return expected_response
+
+
+def dummy_attributed_object_from_dict(properties: dict[str, Any], recursive=False):
+    class Object(object):
+        pass
+
+    attr_obj = Object()
+    for k, v in properties.items():
+        if recursive and k in recursive:
+            if isinstance(v, dict):
+                attr_obj.__setattr__(k, dummy_attributed_object_from_dict(v, v.keys()))
+            elif isinstance(v, list):
+                attr_obj.__setattr__(k, [dummy_attributed_object_from_dict(d, d.keys()) for d in v])
+            else:
+                attr_obj.__setattr__(k, v)
+        else:
+            attr_obj.__setattr__(k, v)
+
+    return attr_obj
