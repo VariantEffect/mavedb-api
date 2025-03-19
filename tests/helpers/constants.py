@@ -637,6 +637,20 @@ TEST_CDOT_TRANSCRIPT = {
 }
 
 
+TEST_MINIMAL_PRE_MAPPED_METADATA = {
+    "genomic": {"sequence_id": "ga4gh:SQ.em9khDCUYXrVWBfWr9r8fjBUrTjj1aig", "sequence_type": "dna"}
+}
+
+
+TEST_MINIMAL_POST_MAPPED_METADATA = {
+    "genomic": {
+        "sequence_id": "ga4gh:SQ.em9khDCUYXrVWBfWr9r8fjBUrTjj1aig",
+        "sequence_type": "dna",
+        "sequence_accessions": [VALID_ACCESSION],
+        "sequence_genes": [VALID_GENE],
+    }
+}
+
 TEST_VARIANT_MAPPING_SCAFFOLD = {
     "metadata": {},
     "computed_genomic_reference_sequence": {
@@ -653,6 +667,17 @@ TEST_VARIANT_MAPPING_SCAFFOLD = {
     "vrs_version": "2.0",
     "dcd_mapping_version": "pytest.0.0",
     "mapped_date_utc": datetime.isoformat(datetime.now()),
+}
+
+
+TEST_MINIMAL_MAPPED_VARIANT = {
+    "pre_mapped": {},
+    "post_mapped": {},
+    "modification_date": datetime.isoformat(datetime.now()),
+    "mapped_date": datetime.isoformat(datetime.now()),
+    "current": True,
+    "vrs_version": "2.0",
+    "mapping_api_version": "pytest.0.0",
 }
 
 

@@ -8,6 +8,7 @@ from tests.helpers.util import (
     create_experiment,
     create_seq_score_set,
     create_seq_score_set_with_variants,
+    publish_score_set,
 )
 
 
@@ -173,8 +174,8 @@ def test_get_true_permission_from_others_public_experiment_add_score_set_check(
     score_set_1 = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    pub_score_set = client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish").json()
-    pub_experiment_urn = pub_score_set["experiment"]["urn"]
+    published_score_set = publish_score_set(client, score_set_1["urn"])
+    pub_experiment_urn = published_score_set["experiment"]["urn"]
     change_ownership(session, pub_experiment_urn, ExperimentDbModel)
     response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{pub_experiment_urn}/add_score_set")
 

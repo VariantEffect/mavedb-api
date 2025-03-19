@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy import or_, select
+from sqlalchemy import null, or_, select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.orm import Session
 
@@ -136,6 +136,37 @@ def search_score_sets(
     """
     score_sets = _search_score_sets(db, None, search)
     return fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
+
+
+@router.get("/score-sets/mapped-genes", status_code=200, response_model=dict[str, list[str]])
+def score_set_mapped_gene_mapping(
+    db: Session = Depends(deps.get_db), user_data: UserData = Depends(get_current_user)
+) -> Any:
+    """
+    Get a mapping of score set URNs to mapped gene symbols.
+    """
+    save_to_logging_context({"requested_resource": "mapped-genes"})
+
+    score_sets_with_mapping_metadata = db.execute(
+        select(ScoreSet, TargetGene.post_mapped_metadata)
+        .join(ScoreSet)
+        .where(TargetGene.post_mapped_metadata.is_not(None))
+    ).all()
+
+    mapped_genes: dict[str, list[str]] = {}
+    for score_set_item, post_mapped_metadata in score_sets_with_mapping_metadata:
+        if not has_permission(user_data, score_set_item, Action.READ).permitted:
+            continue
+
+        sequence_genes = [
+            *post_mapped_metadata.get("genomic", {}).get("sequence_genes", []),
+            *post_mapped_metadata.get("protein", {}).get("sequence_genes", []),
+        ]
+
+        if sequence_genes:
+            mapped_genes.setdefault(score_set_item.urn, []).extend(sequence_genes)
+
+    return mapped_genes
 
 
 @router.post(
@@ -312,10 +343,10 @@ def get_score_set_mapped_variants(
 
     mapped_variants = (
         db.query(MappedVariant)
-            .filter(ScoreSet.urn == urn)
-            .filter(ScoreSet.id == Variant.score_set_id)
-            .filter(Variant.id == MappedVariant.variant_id)
-            .all()
+        .filter(ScoreSet.urn == urn)
+        .filter(ScoreSet.id == Variant.score_set_id)
+        .filter(Variant.id == MappedVariant.variant_id)
+        .all()
     )
 
     if not mapped_variants:
@@ -482,10 +513,9 @@ async def create_score_set(
         for identifier in item_create.primary_publication_identifiers or []
     ]
     publication_identifiers = [
-                                  await find_or_create_publication_identifier(db, identifier.identifier,
-                                                                              identifier.db_name)
-                                  for identifier in item_create.secondary_publication_identifiers or []
-                              ] + primary_publication_identifiers
+        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+        for identifier in item_create.secondary_publication_identifiers or []
+    ] + primary_publication_identifiers
 
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
@@ -595,6 +625,7 @@ async def create_score_set(
                 "secondary_publication_identifiers",
                 "superseded_score_set_urn",
                 "target_genes",
+                "score_ranges",
             },
         ),
         experiment=experiment,
@@ -608,6 +639,7 @@ async def create_score_set(
         processing_state=ProcessingState.incomplete,
         created_by=user_data.user,
         modified_by=user_data.user,
+        score_ranges=item_create.score_ranges.dict() if item_create.score_ranges else null(),
     )  # type: ignore
 
     db.add(item)
@@ -648,10 +680,14 @@ async def upload_score_set_variant_data(
     assert_permission(user_data, item, Action.UPDATE)
     assert_permission(user_data, item, Action.SET_SCORES)
 
-    scores_df = csv_data_to_df(scores_file.file)
-    counts_df = None
-    if counts_file and counts_file.filename:
-        counts_df = csv_data_to_df(counts_file.file)
+    try:
+        scores_df = csv_data_to_df(scores_file.file)
+        counts_df = None
+        if counts_file and counts_file.filename:
+            counts_df = csv_data_to_df(counts_file.file)
+    # Handle non-utf8 file problem.
+    except UnicodeDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values.")
 
     if scores_file:
         # Although this is also updated within the variant creation job, update it here
@@ -809,7 +845,7 @@ async def update_score_set(
         if item_update.score_ranges:
             item.score_ranges = item_update.score_ranges.dict()
         else:
-            item.score_ranges = None
+            item.score_ranges = null()
 
         # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the score set's
         # target_gene to None, because we have set cascade='all,delete-orphan' on ScoreSet.target_gene. (Since the
@@ -1010,11 +1046,12 @@ async def delete_score_set(
     response_model=score_set.ScoreSet,
     response_model_exclude_none=True,
 )
-def publish_score_set(
+async def publish_score_set(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
+    worker: ArqRedis = Depends(deps.get_worker),
 ) -> Any:
     """
     Publish a score set.
@@ -1090,5 +1127,19 @@ def publish_score_set(
     db.add(item)
     db.commit()
     db.refresh(item)
+
+    # await the insertion of this job into the worker queue, not the job itself.
+    job = await worker.enqueue_job(
+        "refresh_published_variants_view",
+        correlation_id_for_context(),
+        user_data.user.id,
+    )
+    if job is not None:
+        save_to_logging_context({"worker_job_id": job.job_id})
+        logger.info(msg="Enqueud published variant materialized view refresh job.", extra=logging_context())
+    else:
+        logger.warning(
+            msg="Failed to enqueue published variant materialized view refresh job.", extra=logging_context()
+        )
 
     return item
