@@ -60,7 +60,7 @@ starlette-context = { version = "^0.3.6", optional = true }
 slack-sdk = { version = "~3.21.3", optional = true }
 uvicorn = { extras = ["standard"], version = "*", optional = true }
 watchtower = { version = "~3.2.0", optional = true }
-ga4gh-va-spec = "^0.1.1"
+ga4gh-va-spec = { version = "^0.1.1", optional = true }
 
 [tool.poetry.group.dev]
 optional = true
@@ -87,7 +87,7 @@ SQLAlchemy = { extras = ["mypy"], version = "~2.0.0" }
 
 
 [tool.poetry.extras]
-server = ["alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "psycopg2", "python-jose", "python-multipart", "requests", "starlette", "starlette-context", "slack-sdk", "uvicorn", "watchtower"]
+server = ["alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "ga4gh-va-spec", "orcid", "psycopg2", "python-jose", "python-multipart", "requests", "starlette", "starlette-context", "slack-sdk", "uvicorn", "watchtower"]
 
 
 [tool.mypy]

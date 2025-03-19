@@ -224,7 +224,7 @@ docs = ["mkdocs"]
 name = "bioutils"
 version = "0.6.1"
 description = "miscellaneous simple bioinformatics utilities and lookup tables"
-optional = false
+optional = true
 python-versions = ">=3.10"
 files = [
     {file = "bioutils-0.6.1-py3-none-any.whl", hash = "sha256:9928297331b9fc0a4fd4235afdef9a80a0916d8b5c2811ab781bded0dad4b9b6"},
@@ -720,7 +720,7 @@ beautifulsoup4 = "*"
 name = "canonicaljson"
 version = "2.0.0"
 description = "Canonical JSON"
-optional = false
+optional = true
 python-versions = ">=3.7"
 files = [
     {file = "canonicaljson-2.0.0-py3-none-any.whl", hash = "sha256:c38a315de3b5a0532f1ec1f9153cd3d716abfc565a558d00a4835428a34fca5b"},
@@ -1353,7 +1353,7 @@ dev = ["black", "flake8", "flake8-pyproject", "mypy", "pre-commit", "pytest"]
 name = "ga4gh-cat-vrs"
 version = "0.1.1"
 description = "GA4GH Categorical Variation Representation (Cat-VRS) reference implementation"
-optional = false
+optional = true
 python-versions = ">=3.10"
 files = [
     {file = "ga4gh.cat_vrs-0.1.1-py3-none-any.whl", hash = "sha256:c6c1ffba06c397728b668ee9d103714dd9c861bb75784f899ad20d0a62828fc1"},
@@ -1372,7 +1372,7 @@ tests = ["pytest", "pytest-cov"]
 name = "ga4gh-va-spec"
 version = "0.1.1"
 description = "GA4GH Variant Annotation (VA) reference implementation"
-optional = false
+optional = true
 python-versions = ">=3.10"
 files = [
     {file = "ga4gh.va_spec-0.1.1-py3-none-any.whl", hash = "sha256:8e574d7f43fe3befd2cfa0a2538d894dd47a49e3da585fbb620c07c3757bccf9"},
@@ -1392,7 +1392,7 @@ tests = ["pytest", "pytest-cov"]
 name = "ga4gh-vrs"
 version = "2.0.1"
 description = "GA4GH Variation Representation Specification (VRS) reference implementation"
-optional = false
+optional = true
 python-versions = ">=3.10"
 files = [
     {file = "ga4gh_vrs-2.0.1-py3-none-any.whl", hash = "sha256:0a0831157340645e1868d2cf98b57791880f7e2ba349d8c2d7471dd8a1fc0615"},
@@ -4361,9 +4361,9 @@ test = ["big-O", "importlib-resources", "jaraco.functools", "jaraco.itertools", 
 type = ["pytest-mypy"]
 
 [extras]
-server = ["alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "psycopg2", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "starlette-context", "uvicorn", "watchtower"]
+server = ["alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "ga4gh-va-spec", "hgvs", "orcid", "psycopg2", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "starlette-context", "uvicorn", "watchtower"]
 
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "871d64ef5c29dab272b0dd321708f139f50a796001b88b747ec3368079dda759"
+content-hash = "dbe63401474ab39cfc90813dbf242ce7c21f92d561f336e2c5edc8441c4c3e83"
