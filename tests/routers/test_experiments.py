@@ -37,6 +37,7 @@ from tests.helpers.util import (
     create_experiment,
     create_seq_score_set,
     create_seq_score_set_with_variants,
+    publish_score_set,
 )
 
 
@@ -566,7 +567,8 @@ def test_can_update_own_public_experiment_set(session, data_provider, client, se
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+
+    published_score_set = publish_score_set(client, score_set["urn"])
     response_data = create_experiment(
         client,
         {"experimentSetUrn": published_score_set["experiment"]["experimentSetUrn"], "title": "Second Experiment"},
@@ -580,7 +582,7 @@ def test_cannot_update_other_users_public_experiment_set(session, data_provider,
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    published_score_set = publish_score_set(client, score_set["urn"])
     published_experiment_set_urn = published_score_set["experiment"]["experimentSetUrn"]
     change_ownership(session, published_experiment_set_urn, ExperimentSetDbModel)
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
@@ -598,7 +600,7 @@ def test_anonymous_cannot_update_others_user_public_experiment_set(
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    published_score_set = publish_score_set(client, score_set["urn"])
     published_experiment_set_urn = published_score_set["experiment"]["experimentSetUrn"]
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload.update({"experimentSetUrn": published_experiment_set_urn, "title": "Second Experiment"})
@@ -618,7 +620,7 @@ def test_admin_can_update_other_users_public_experiment_set(
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    published_score_set = publish_score_set(client, score_set["urn"])
 
     with DependencyOverrider(admin_app_overrides):
         response_data = create_experiment(
@@ -824,7 +826,7 @@ def test_create_experiment_with_new_primary_pubmed_url_publication(client, setup
             "publicationYear",
         ]
     )
-    assert response_data["primaryPublicationIdentifiers"][0]["identifier"] == '37162834'
+    assert response_data["primaryPublicationIdentifiers"][0]["identifier"] == "37162834"
 
 
 @pytest.mark.parametrize(
@@ -1073,7 +1075,7 @@ def test_search_meta_analysis_experiment(session, data_provider, client, setup_r
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
 
-    score_set = (client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")).json()
+    score_set = publish_score_set(client, score_set["urn"])
     meta_score_set = create_seq_score_set_with_variants(
         client,
         session,
@@ -1083,7 +1085,7 @@ def test_search_meta_analysis_experiment(session, data_provider, client, setup_r
         update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [score_set["urn"]]},
     )
 
-    meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
+    meta_score_set = publish_score_set(client, meta_score_set["urn"])
     score_set_refresh = (client.get(f"/api/v1/score-sets/{score_set['urn']}")).json()
     search_payload = {"metaAnalysis": True}
     response = client.post("/api/v1/me/experiments/search", json=search_payload)
@@ -1099,7 +1101,7 @@ def test_search_exclude_meta_analysis_experiment(session, data_provider, client,
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
 
-    score_set = (client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")).json()
+    score_set = publish_score_set(client, score_set["urn"])
     meta_score_set = create_seq_score_set_with_variants(
         client,
         session,
@@ -1109,7 +1111,7 @@ def test_search_exclude_meta_analysis_experiment(session, data_provider, client,
         update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [score_set["urn"]]},
     )
 
-    meta_score_set = (client.post(f"/api/v1/score-sets/{meta_score_set['urn']}/publish")).json()
+    meta_score_set = publish_score_set(client, meta_score_set["urn"])
     score_set_refresh = (client.get(f"/api/v1/score-sets/{score_set['urn']}")).json()
     search_payload = {"metaAnalysis": False}
     response = client.post("/api/v1/me/experiments/search", json=search_payload)
@@ -1126,7 +1128,7 @@ def test_search_score_sets_for_experiments(session, client, setup_router_db, dat
     )
     # make the unpublished score set owned by some other user. This shouldn't appear in the results.
     score_set_unpub = create_seq_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
-    published_score_set = client.post(f"/api/v1/score-sets/{score_set_pub['urn']}/publish").json()
+    published_score_set = publish_score_set(client, score_set_pub["urn"])
     change_ownership(session, score_set_unpub["urn"], ScoreSetDbModel)
 
     # On score set publication, the experiment will get a new urn
@@ -1138,14 +1140,14 @@ def test_search_score_sets_for_experiments(session, client, setup_router_db, dat
 
 
 # Creator created a superseding score set but not published it yet.
-def test_owner_searches_score_sets_with_unpublished_superseding_score_sets_for_experiments(session, client, setup_router_db, data_files, data_provider):
+def test_owner_searches_score_sets_with_unpublished_superseding_score_sets_for_experiments(
+    session, client, setup_router_db, data_files, data_provider
+):
     experiment = create_experiment(client)
     unpublished_score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    publish_score_set_response = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish")
-    assert publish_score_set_response.status_code == 200
-    published_score_set = publish_score_set_response.json()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"])
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
     score_set_post_payload["supersededScoreSetUrn"] = published_score_set["urn"]
@@ -1161,14 +1163,14 @@ def test_owner_searches_score_sets_with_unpublished_superseding_score_sets_for_e
     assert response.json()[0]["urn"] == superseding_score_set["urn"]
 
 
-def test_non_owner_searches_score_sets_with_unpublished_superseding_score_sets_for_experiments(session, client, setup_router_db, data_files, data_provider):
+def test_non_owner_searches_score_sets_with_unpublished_superseding_score_sets_for_experiments(
+    session, client, setup_router_db, data_files, data_provider
+):
     experiment = create_experiment(client)
     unpublished_score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    publish_score_set_response = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish")
-    assert publish_score_set_response.status_code == 200
-    published_score_set = publish_score_set_response.json()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"])
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
     score_set_post_payload["supersededScoreSetUrn"] = published_score_set["urn"]
@@ -1185,14 +1187,14 @@ def test_non_owner_searches_score_sets_with_unpublished_superseding_score_sets_f
     assert response.json()[0]["urn"] == published_score_set["urn"]
 
 
-def test_owner_searches_published_superseding_score_sets_for_experiments(session, client, setup_router_db, data_files, data_provider):
+def test_owner_searches_published_superseding_score_sets_for_experiments(
+    session, client, setup_router_db, data_files, data_provider
+):
     experiment = create_experiment(client)
     unpublished_score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    publish_score_set_response = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish")
-    assert publish_score_set_response.status_code == 200
-    published_score_set = publish_score_set_response.json()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"])
 
     superseding_score_set = create_seq_score_set_with_variants(
         client,
@@ -1202,9 +1204,7 @@ def test_owner_searches_published_superseding_score_sets_for_experiments(session
         data_files / "scores.csv",
         update={"supersededScoreSetUrn": published_score_set["urn"]},
     )
-    published_superseding_score_set_response = client.post(f"/api/v1/score-sets/{superseding_score_set['urn']}/publish")
-    assert published_superseding_score_set_response.status_code == 200
-    published_superseding_score_set = published_superseding_score_set_response.json()
+    published_superseding_score_set = publish_score_set(client, superseding_score_set["urn"])
     # On score set publication, the experiment will get a new urn
     experiment_urn = published_score_set["experiment"]["urn"]
     response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
@@ -1213,14 +1213,14 @@ def test_owner_searches_published_superseding_score_sets_for_experiments(session
     assert response.json()[0]["urn"] == published_superseding_score_set["urn"]
 
 
-def test_non_owner_searches_published_superseding_score_sets_for_experiments(session, client, setup_router_db, data_files, data_provider):
+def test_non_owner_searches_published_superseding_score_sets_for_experiments(
+    session, client, setup_router_db, data_files, data_provider
+):
     experiment = create_experiment(client)
     unpublished_score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    publish_score_set_response = client.post(f"/api/v1/score-sets/{unpublished_score_set['urn']}/publish")
-    assert publish_score_set_response.status_code == 200
-    published_score_set = publish_score_set_response.json()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"])
 
     superseding_score_set = create_seq_score_set_with_variants(
         client,
@@ -1230,9 +1230,7 @@ def test_non_owner_searches_published_superseding_score_sets_for_experiments(ses
         data_files / "scores.csv",
         update={"supersededScoreSetUrn": published_score_set["urn"]},
     )
-    published_superseding_score_set_response = client.post(f"/api/v1/score-sets/{superseding_score_set['urn']}/publish")
-    assert published_superseding_score_set_response.status_code == 200
-    published_superseding_score_set = published_superseding_score_set_response.json()
+    published_superseding_score_set = publish_score_set(client, superseding_score_set["urn"])
     change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
     change_ownership(session, published_superseding_score_set["urn"], ScoreSetDbModel)
     # On score set publication, the experiment will get a new urn
@@ -1250,7 +1248,7 @@ def test_search_score_sets_for_contributor_experiments(session, client, setup_ro
     )
     # make the unpublished score set owned by some other user. This shouldn't appear in the results.
     score_set_unpub = create_seq_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
-    published_score_set = client.post(f"/api/v1/score-sets/{score_set_pub['urn']}/publish").json()
+    published_score_set = publish_score_set(client, score_set_pub["urn"])
     change_ownership(session, score_set_unpub["urn"], ScoreSetDbModel)
     add_contributor(
         session,
@@ -1278,7 +1276,7 @@ def test_search_score_sets_for_my_experiments(session, client, setup_router_db, 
     )
     # The unpublished score set is for the current user, so it should show up in results.
     score_set_unpub = create_seq_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
-    published_score_set = client.post(f"/api/v1/score-sets/{score_set_pub['urn']}/publish").json()
+    published_score_set = publish_score_set(client, score_set_pub["urn"])
 
     # On score set publication, the experiment will get a new urn
     experiment_urn = published_score_set["experiment"]["urn"]
@@ -1347,7 +1345,7 @@ def test_anonymous_cannot_delete_other_users_published_experiment(
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    publish_score_set(client, score_set["urn"])
 
     with DependencyOverrider(anonymous_app_overrides):
         del_response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
@@ -1369,9 +1367,8 @@ def test_cannot_delete_own_published_experiment(session, data_provider, client, 
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
-    response_data = response.json()
-    experiment_urn = response_data["experiment"]["urn"]
+    published_score_set = publish_score_set(client, score_set["urn"])
+    experiment_urn = published_score_set["experiment"]["urn"]
     del_response = client.delete(f"/api/v1/experiments/{experiment_urn}")
 
     assert del_response.status_code == 403
@@ -1403,14 +1400,15 @@ def test_admin_can_delete_other_users_private_experiment(session, client, setup_
     assert response.status_code == 200
 
 
-def test_contributor_can_delete_other_users_published_experiment(
+def test_contributor_cannot_delete_other_users_published_experiment(
     session, data_provider, client, setup_router_db, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    client.post(f"/api/v1/experiments/{score_set['urn']}/publish")
+    published_score_set = publish_score_set(client, score_set["urn"])
+    experiment = published_score_set["experiment"]
     change_ownership(session, experiment["urn"], ExperimentDbModel)
     add_contributor(
         session,
@@ -1422,7 +1420,7 @@ def test_contributor_can_delete_other_users_published_experiment(
     )
     del_response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
 
-    assert del_response.status_code == 200
+    assert del_response.status_code == 403
 
 
 def test_admin_can_delete_other_users_published_experiment(
@@ -1432,7 +1430,8 @@ def test_admin_can_delete_other_users_published_experiment(
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    client.post(f"/api/v1/experiments/{score_set['urn']}/publish")
+    published_score_set = publish_score_set(client, score_set["urn"])
+    experiment = published_score_set["experiment"]
     with DependencyOverrider(admin_app_overrides):
         del_response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
 
@@ -1452,7 +1451,7 @@ def test_can_add_experiment_to_own_public_experiment_set(session, data_provider,
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    published_score_set = publish_score_set(client, score_set["urn"])
     test_experiment = deepcopy(TEST_MINIMAL_EXPERIMENT)
     test_experiment.update({"experimentSetUrn": published_score_set["experiment"]["experimentSetUrn"]})
     response = client.post("/api/v1/experiments/", json=test_experiment)
@@ -1484,7 +1483,7 @@ def test_contributor_can_add_experiment_to_others_public_experiment_set(
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    published_score_set = publish_score_set(client, score_set["urn"])
     change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
     change_ownership(session, published_score_set["experiment"]["urn"], ExperimentDbModel)
     change_ownership(session, published_score_set["experiment"]["experimentSetUrn"], ExperimentSetDbModel)
@@ -1522,7 +1521,7 @@ def test_cannot_add_experiment_to_others_public_experiment_set(
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    published_score_set = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish").json()
+    published_score_set = publish_score_set(client, score_set["urn"])
     experiment_set_urn = published_score_set["experiment"]["experimentSetUrn"]
     change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
     change_ownership(session, published_score_set["experiment"]["urn"], ExperimentDbModel)

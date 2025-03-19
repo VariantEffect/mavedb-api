@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from mavedb.data_providers.services import vrs_mapper
+from mavedb.db.view import refresh_all_mat_views
 from mavedb.lib.exceptions import MappingEnqueueError, NonexistentMappingReferenceError, NonexistentMappingResultsError
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.score_sets import (
@@ -29,6 +30,7 @@ from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.published_variant import PublishedVariantsMV
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
@@ -50,7 +52,9 @@ async def mapping_in_execution(redis: ArqRedis, job_id: str):
         await redis.set(MAPPING_CURRENT_ID_NAME, "")
 
 
-def setup_job_state(ctx, invoker: int, resource: Optional[str], correlation_id: str):
+def setup_job_state(
+    ctx, invoker: Optional[int], resource: Optional[str], correlation_id: Optional[str]
+) -> dict[str, Any]:
     ctx["state"][ctx["job_id"]] = {
         "application": "mavedb-worker",
         "user": invoker,
@@ -653,3 +657,20 @@ async def variant_mapper_manager(ctx: dict, correlation_id: str, updater_id: int
         db.commit()
 
         return {"success": False, "enqueued_job": new_job_id}
+
+
+# TODO#405: Refresh materialized views within an executor.
+async def refresh_materialized_views(ctx: dict):
+    logging_context = setup_job_state(ctx, None, None, None)
+    logger.debug(msg="Began refresh materialized views.", extra=logging_context)
+    refresh_all_mat_views(ctx["db"])
+    logger.debug(msg="Done refreshing materialized views.", extra=logging_context)
+    return {"success": True}
+
+
+async def refresh_published_variants_view(ctx: dict, correlation_id: str):
+    logging_context = setup_job_state(ctx, None, None, correlation_id)
+    logger.debug(msg="Began refresh of published variants materialized view.", extra=logging_context)
+    PublishedVariantsMV.refresh(ctx["db"])
+    logger.debug(msg="Done refreshing of published variants materialized view.", extra=logging_context)
+    return {"success": True}

@@ -8,6 +8,7 @@ import pytest
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.user_role import UserRole
+from mavedb.models.published_variant import PublishedVariantsMV
 from mavedb.models.license import License
 from mavedb.models.role import Role
 from mavedb.models.taxonomy import Taxonomy
@@ -79,6 +80,10 @@ def setup_seq_scoreset(setup_router_db, session, data_provider, client, data_fil
     )
     create_mapped_variants_for_score_set(session, score_set["urn"])
     publish_score_set(client, score_set["urn"])
+
+    # Note that we have not created indexes for this view when it is generated via metadata. This differs
+    # from the database created via alembic, which does create indexes.
+    PublishedVariantsMV.refresh(session, False)
 
 
 @pytest.fixture

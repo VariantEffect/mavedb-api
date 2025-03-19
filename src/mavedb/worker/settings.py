@@ -3,20 +3,29 @@ from concurrent import futures
 from typing import Callable
 
 from arq.connections import RedisSettings
-from arq.cron import CronJob
+from arq.cron import CronJob, cron
 
 from mavedb.data_providers.services import cdot_rest
 from mavedb.db.session import SessionLocal
 from mavedb.lib.logging.canonical import log_job
-from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager
+from mavedb.worker.jobs import (
+    create_variants_for_score_set,
+    map_variants_for_score_set,
+    variant_mapper_manager,
+    refresh_materialized_views,
+    refresh_published_variants_view,
+)
 
 # ARQ requires at least one task on startup.
 BACKGROUND_FUNCTIONS: list[Callable] = [
     create_variants_for_score_set,
     variant_mapper_manager,
     map_variants_for_score_set,
+    refresh_published_variants_view,
 ]
-BACKGROUND_CRONJOBS: list[CronJob] = []
+BACKGROUND_CRONJOBS: list[CronJob] = [
+    cron(refresh_materialized_views, name="refresh_all_materialized_views", hour=3, minute=0)
+]
 
 REDIS_IP = os.getenv("REDIS_IP") or "localhost"
 REDIS_PORT = int(os.getenv("REDIS_PORT") or 6379)
