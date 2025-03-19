@@ -270,6 +270,70 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination4(client, s
     )
 
 
+def test_create_experiment_that_keyword_gene_ontology_has_valid_accession(client, setup_router_db):
+    valid_keyword = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Phenotypic Assay Mechanism",
+                    "value": "Value",
+                    "accession": "GO:1234567",
+                    "special": False,
+                    "description": "Description"},
+            },
+        ],
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **valid_keyword}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["keywords"][0]["keyword"]["key"] == "Phenotypic Assay Mechanism"
+    assert response_data["keywords"][0]["keyword"]["value"] == "Value"
+    assert response_data["keywords"][0]["keyword"]["accession"] == "GO:1234567"
+
+
+def test_create_experiment_that_keyword_gene_ontology_is_other_without_accession(client, setup_router_db):
+    valid_keyword = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Phenotypic Assay Mechanism",
+                    "value": "Other",
+                    "accession": None,
+                    "description": "Description"
+                },
+                "description": "Description",
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **valid_keyword}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["keywords"][0]["keyword"]["key"] == "Phenotypic Assay Mechanism"
+    assert response_data["keywords"][0]["keyword"]["value"] == "Other"
+
+
+def test_cannot_create_experiment_that_keyword_has_an_invalid_accession(client, setup_router_db):
+    invalid_keyword = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Phenotypic Assay Mechanism",
+                    "value": "Value",
+                    "accession": "invalid",
+                    "description": "Description"
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **invalid_keyword}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert response_data["detail"][0]["msg"] == "Invalid Gene Ontology accession."
+
+
 def test_cannot_create_experiment_that_keyword_value_is_other_without_description(client, setup_router_db):
     """
     Test src/mavedb/lib/validation/keywords.validate_description function

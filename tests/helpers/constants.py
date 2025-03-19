@@ -162,6 +162,8 @@ TEST_DB_KEYWORDS = [
         "description": "Description",
     },
     {"key": "Delivery method", "value": "Other", "special": False, "description": "Description"},
+    {"key": "Phenotypic Assay Mechanism", "value": "Other", "accession": None, "special": False, "description": "Description"},
+    {"key": "Phenotypic Assay Mechanism", "value": "Value", "accession": "GO:1234567", "special": False, "description": "Description"},
 ]
 
 TEST_KEYWORDS = [

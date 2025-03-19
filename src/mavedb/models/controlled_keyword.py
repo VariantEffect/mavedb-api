@@ -12,6 +12,7 @@ class ControlledKeyword(Base):
     key = Column(String, nullable=False)
     value = Column(String, nullable=False)
     vocabulary = Column(String, nullable=True)
+    accession = Column(String, nullable=True)
     special = Column(Boolean, nullable=True)
     description = Column(String, nullable=True)
     creation_date = Column(Date, nullable=False, default=date.today)
