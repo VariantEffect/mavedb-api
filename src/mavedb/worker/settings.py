@@ -23,8 +23,10 @@ BACKGROUND_FUNCTIONS: list[Callable] = [
     map_variants_for_score_set,
     refresh_published_variants_view,
 ]
+# In UTC time. Depending on daylight savings time, this will bounce around by an hour but should always be very early in the morning
+# for all of the USA.
 BACKGROUND_CRONJOBS: list[CronJob] = [
-    cron(refresh_materialized_views, name="refresh_all_materialized_views", hour=3, minute=0)
+    cron(refresh_materialized_views, name="refresh_all_materialized_views", hour=20, minute=0)
 ]
 
 REDIS_IP = os.getenv("REDIS_IP") or "localhost"
