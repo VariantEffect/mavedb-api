@@ -60,59 +60,82 @@ def populate_variant_translations(db: Session):
     logger.info(f"Found {len(clingen_allele_ids)} clingen allele IDs in the database.")
 
     for allele_id in clingen_allele_ids:
-        if allele_id.startswith("CA"):
-            # Get the canonical PA ID(s) from the ClinGen API
-            canonical_pa_ids = get_canonical_pa_ids(allele_id)
-            if not canonical_pa_ids:
-                logger.warning(
-                    f"No canonical PA IDs found for {allele_id}. This may be expected if the query is noncoding."
-                )
-                continue
-            for pa_id in canonical_pa_ids:
-                # TODO for each translation, check if already exists in db before inserting
-                # TODO would be nice to log the number of variant translations inserted. but only count the ones that were actually inserted (not previously existing)
-                db.add(
-                    VariantTranslation(
-                        aa_clingen_id=pa_id,
-                        nt_clingen_id=allele_id,
+        try:
+            if allele_id.startswith("CA"):
+                # Get the canonical PA ID(s) from the ClinGen API
+                canonical_pa_ids = get_canonical_pa_ids(allele_id)
+                if not canonical_pa_ids:
+                    logger.warning(
+                        f"No canonical PA IDs found for {allele_id}. This may be expected if the query is noncoding."
                     )
-                )
+                    continue
+                for pa_id in canonical_pa_ids:
+                    existing_variant_translation = db.scalars(
+                        select(VariantTranslation).where(
+                            VariantTranslation.aa_clingen_id == pa_id, VariantTranslation.nt_clingen_id == allele_id
+                        )
+                    ).one_or_none()
+                    if not existing_variant_translation:
+                        db.add(
+                            VariantTranslation(
+                                aa_clingen_id=pa_id,
+                                nt_clingen_id=allele_id,
+                            )
+                        )
+                        # commit after each addition in order to query the database for existing variant translations
+                        db.commit()
 
-                # For each canonical PA ID, get the matching registered transcript CA IDs
-                ca_ids = get_matching_registered_ca_ids(pa_id)
+                    # For each canonical PA ID, get the matching registered transcript CA IDs
+                    ca_ids = get_matching_registered_ca_ids(pa_id)
+                    if not ca_ids:
+                        logger.warning(
+                            f"No matching registered transcript CA IDs found for {pa_id}. This is unexpected."
+                        )
+                        continue
+                    for ca_id in ca_ids:
+                        existing_variant_translation = db.scalars(
+                            select(VariantTranslation).where(
+                                VariantTranslation.aa_clingen_id == pa_id, VariantTranslation.nt_clingen_id == ca_id
+                            )
+                        ).one_or_none()
+                        if not existing_variant_translation:
+                            db.add(
+                                VariantTranslation(
+                                    aa_clingen_id=pa_id,
+                                    nt_clingen_id=ca_id,
+                                )
+                            )
+                            db.commit()
+
+            elif allele_id.startswith("PA"):
+                # Get the matching registered transcript CA IDs from the ClinGen API
+                ca_ids = get_matching_registered_ca_ids(allele_id)
                 if not ca_ids:
-                    logger.warning(f"No matching registered transcript CA IDs found for {pa_id}. This is unexpected.")
+                    logger.warning(
+                        f"No matching registered transcript CA IDs found for {allele_id}. This is unexpected."
+                    )
                     continue
                 for ca_id in ca_ids:
-                    # TODO for each translation, check if already exists in db before inserting
-                    # TODO would be nice to log the number of variant translations inserted. but only count the ones that were actually inserted (not previously existing)
-                    db.add(
-                        VariantTranslation(
-                            aa_clingen_id=pa_id,
-                            nt_clingen_id=ca_id,
+                    existing_variant_translation = db.scalars(
+                        select(VariantTranslation).where(
+                            VariantTranslation.aa_clingen_id == allele_id, VariantTranslation.nt_clingen_id == ca_id
                         )
-                    )
-                db.commit()
+                    ).one_or_none()
+                    if not existing_variant_translation:
+                        db.add(
+                            VariantTranslation(
+                                aa_clingen_id=allele_id,
+                                nt_clingen_id=ca_id,
+                            )
+                        )
+                        db.commit()
 
-        elif allele_id.startswith("PA"):
-            # Get the matching registered transcript CA IDs from the ClinGen API
-            ca_ids = get_matching_registered_ca_ids(allele_id)
-            if not ca_ids:
-                logger.warning(f"No matching registered transcript CA IDs found for {allele_id}. This is unexpected.")
-                continue
-            for ca_id in ca_ids:
-                # TODO for each translation, check if already exists in db before inserting
-                # TODO would be nice to log the number of variant translations inserted. but only count the ones that were actually inserted (not previously existing)
-                db.add(
-                    VariantTranslation(
-                        aa_clingen_id=allele_id,
-                        nt_clingen_id=ca_id,
-                    )
-                )
-            db.commit()
+            else:
+                logger.warning(f"Invalid clingen allele ID format: {allele_id}")
 
-        else:
-            logger.warning(f"Invalid clingen allele ID format: {allele_id}")
+        except Exception as e:
+            logger.error(f"Error processing clingen allele ID {allele_id}: {e}")
+            db.rollback()
 
     logger.info("Done populating variant translations.")
 
