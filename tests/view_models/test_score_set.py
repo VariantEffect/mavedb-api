@@ -440,20 +440,35 @@ def test_cannot_create_score_set_with_wild_type_outside_normal_range():
     )
 
 
-@pytest.mark.parametrize("present_name", default_ranges)
-def test_cannot_create_score_set_without_default_range(present_name):
+def test_cannot_create_score_set_with_wild_type_score_and_no_normal_range():
+    wt_score = -0.5
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
-        "wt_score": -1.5,
+        "wt_score": wt_score,
         "ranges": [
-            {"label": "range_2", "classification": f"{present_name}", "range": (-3, -1)},
+            {"label": "range_1", "classification": "abnormal", "range": (-1, 0)},
         ],
     }
 
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test))
 
-    assert "Both `normal` and `abnormal` ranges must be provided." in str(exc_info.value)
+    assert "A wild type score has been provided, but no normal classification range exists." in str(exc_info.value)
+
+
+def test_cannot_create_score_set_with_normal_range_and_no_wild_type_score():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["score_ranges"] = {
+        "wt_score": None,
+        "ranges": [
+            {"label": "range_1", "classification": "normal", "range": (-1, 0)},
+        ],
+    }
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetModify(**jsonable_encoder(score_set_test))
+
+    assert "A normal range has been provided, but no wild type score has been provided." in str(exc_info.value)
 
 
 def test_cannot_create_score_set_without_default_ranges():
@@ -468,4 +483,21 @@ def test_cannot_create_score_set_without_default_ranges():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test))
 
-    assert "Unexpected classification value(s): other. Permitted values: ['normal', 'abnormal']" in str(exc_info.value)
+    assert (
+        "Unexpected classification value(s): other. Permitted values: ['normal', 'abnormal', 'not_specified']"
+        in str(exc_info.value)
+    )
+
+
+@pytest.mark.parametrize("classification", default_ranges)
+def test_can_create_score_set_with_any_range_classification(classification):
+    wt_score = -0.5 if classification == "normal" else None
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["score_ranges"] = {
+        "wt_score": wt_score,
+        "ranges": [
+            {"label": "range_1", "classification": classification, "range": (-1, 0)},
+        ],
+    }
+
+    ScoreSetModify(**jsonable_encoder(score_set_test))

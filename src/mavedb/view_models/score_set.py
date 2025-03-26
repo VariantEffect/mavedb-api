@@ -11,6 +11,7 @@ from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.constants.score_set import default_ranges
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import inf_or_float, is_null
+from mavedb.lib.utils import sanitize_string
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.view_models import PublicationIdentifiersGetter, record_type_validator, set_record_type
@@ -64,7 +65,7 @@ class ScoreRange(BaseModel):
 
     @validator("classification")
     def range_classification_value_is_accepted(cls, field_value: str):
-        classification = field_value.strip().lower()
+        classification = sanitize_string(field_value)
         if classification not in default_ranges:
             raise ValidationError(
                 f"Unexpected classification value(s): {classification}. Permitted values: {default_ranges}"
@@ -89,7 +90,7 @@ class ScoreRange(BaseModel):
 
 
 class ScoreRanges(BaseModel):
-    wt_score: float
+    wt_score: Optional[float]
     ranges: list[ScoreRange]  # type: ignore
 
 
@@ -209,17 +210,16 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     @validator("score_ranges")
-    def ranges_contain_normal_and_abnormal(cls, field_value: Optional[ScoreRanges]):
+    def score_range_normal_classification_exists_if_wild_type_score_provided(cls, field_value: Optional[ScoreRanges]):
         if field_value is None:
             return None
 
-        ranges = set([range_model.classification for range_model in field_value.ranges])
-        if not set(default_ranges).issubset(ranges):
-            raise ValidationError(
-                "Both `normal` and `abnormal` ranges must be provided.",
-                # Raise this error inside the first classification provided by the model.
-                custom_loc=["body", "scoreRanges", "ranges", 0, "classification"],
-            )
+        if field_value.wt_score is not None:
+            if not any([range_model.classification == "normal" for range_model in field_value.ranges]):
+                raise ValidationError(
+                    "A wild type score has been provided, but no normal classification range exists.",
+                    custom_loc=["body", "scoreRanges", "wtScore"],
+                )
 
         return field_value
 
@@ -264,6 +264,16 @@ class ScoreSetModify(ScoreSetBase):
         normal_ranges = [
             range_model.range for range_model in field_value.ranges if range_model.classification == "normal"
         ]
+
+        if normal_ranges and field_value.wt_score is None:
+            raise ValidationError(
+                "A normal range has been provided, but no wild type score has been provided.",
+                custom_loc=["body", "scoreRanges", "wtScore"],
+            )
+
+        if field_value.wt_score is None:
+            return field_value
+
         for range in normal_ranges:
             if field_value.wt_score >= inf_or_float(range[0], lower=True) and field_value.wt_score < inf_or_float(
                 range[1], lower=False

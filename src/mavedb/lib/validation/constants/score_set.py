@@ -1,1 +1,1 @@
-default_ranges = ["normal", "abnormal"]
+default_ranges = ["normal", "abnormal", "not_specified"]
