@@ -2,16 +2,14 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Collection, Dict, Optional, Sequence
+from typing import Any, Collection, Dict, Optional, Sequence, Literal
 
 from humps import camelize
 from pydantic import root_validator
 
 from mavedb.lib.validation import urn_re
-from mavedb.lib.validation.constants.score_set import default_ranges
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import inf_or_float, is_null
-from mavedb.lib.utils import sanitize_string
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.view_models import PublicationIdentifiersGetter, record_type_validator, set_record_type
@@ -56,22 +54,12 @@ class OfficialCollection(BaseModel):
 class ScoreRange(BaseModel):
     label: str
     description: Optional[str]
-    classification: str
+    classification: Literal["normal", "abnormal", "not_specified"]
     # Purposefully vague type hint because of some odd JSON Schema generation behavior.
     # Typing this as tuple[Union[float, None], Union[float, None]] will generate an invalid
     # jsonschema, and fail all tests that access the schema. This may be fixed in pydantic v2,
     # but it's unclear. Even just typing it as Tuple[Any, Any] will generate an invalid schema!
     range: list[Any]  # really: tuple[Union[float, None], Union[float, None]]
-
-    @validator("classification")
-    def range_classification_value_is_accepted(cls, field_value: str):
-        classification = sanitize_string(field_value)
-        if classification not in default_ranges:
-            raise ValidationError(
-                f"Unexpected classification value(s): {classification}. Permitted values: {default_ranges}"
-            )
-
-        return classification
 
     @validator("range")
     def ranges_are_not_backwards(cls, field_value: tuple[Any]):

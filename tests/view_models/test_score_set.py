@@ -1,7 +1,6 @@
 import pytest
 from fastapi.encoders import jsonable_encoder
 
-from mavedb.lib.validation.constants.score_set import default_ranges
 from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
 from mavedb.view_models.score_set import ScoreSetCreate, ScoreSetModify
 from mavedb.view_models.target_gene import TargetGeneCreate
@@ -483,13 +482,10 @@ def test_cannot_create_score_set_without_default_ranges():
     with pytest.raises(ValueError) as exc_info:
         ScoreSetModify(**jsonable_encoder(score_set_test))
 
-    assert (
-        "Unexpected classification value(s): other. Permitted values: ['normal', 'abnormal', 'not_specified']"
-        in str(exc_info.value)
-    )
+    assert "unexpected value; permitted: 'normal', 'abnormal', 'not_specified'" in str(exc_info.value)
 
 
-@pytest.mark.parametrize("classification", default_ranges)
+@pytest.mark.parametrize("classification", ["normal", "abnormal", "not_specified"])
 def test_can_create_score_set_with_any_range_classification(classification):
     wt_score = -0.5 if classification == "normal" else None
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
