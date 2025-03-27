@@ -1,5 +1,6 @@
 import os
 from concurrent import futures
+from datetime import timedelta
 from typing import Callable
 
 from arq.connections import RedisSettings
@@ -26,7 +27,13 @@ BACKGROUND_FUNCTIONS: list[Callable] = [
 # In UTC time. Depending on daylight savings time, this will bounce around by an hour but should always be very early in the morning
 # for all of the USA.
 BACKGROUND_CRONJOBS: list[CronJob] = [
-    cron(refresh_materialized_views, name="refresh_all_materialized_views", hour=20, minute=0)
+    cron(
+        refresh_materialized_views,
+        name="refresh_all_materialized_views",
+        hour=20,
+        minute=0,
+        keep_result=timedelta(minutes=2).total_seconds(),
+    )
 ]
 
 REDIS_IP = os.getenv("REDIS_IP") or "localhost"
