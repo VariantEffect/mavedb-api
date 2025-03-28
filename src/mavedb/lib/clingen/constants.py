@@ -9,3 +9,6 @@ LDH_SUBMISSION_TYPE = "cg-ldh-ld-submission"
 LDH_ENTITY_NAME = "MaveDbMapping"
 
 MAVEDB_BASE_GIT = "https://github.com/VariantEffect/mavedb-api"
+
+DEFAULT_LDH_SUBMISSION_BATCH_SIZE = 100
+LDH_SUBMISSION_URL = f"https://genboree.org/mq/brdg/pulsar/{CLIN_GEN_TENANT}/ldh/submissions/{LDH_ENTITY_NAME}"

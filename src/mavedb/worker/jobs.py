@@ -15,6 +15,9 @@ from sqlalchemy.orm import Session
 
 from mavedb.data_providers.services import vrs_mapper
 from mavedb.db.view import refresh_all_mat_views
+from mavedb.lib.clingen.constants import DEFAULT_LDH_SUBMISSION_BATCH_SIZE, LDH_SUBMISSION_URL
+from mavedb.lib.clingen.content_constructors import construct_ldh_submission
+from mavedb.lib.clingen.linked_data_hub import ClinGenLdhService
 from mavedb.lib.exceptions import MappingEnqueueError, NonexistentMappingReferenceError, NonexistentMappingResultsError
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.score_sets import (
@@ -43,13 +46,9 @@ BACKOFF_LIMIT = 5
 BACKOFF_IN_SECONDS = 15
 
 
-@asynccontextmanager
-async def mapping_in_execution(redis: ArqRedis, job_id: str):
-    await redis.set(MAPPING_CURRENT_ID_NAME, job_id)
-    try:
-        yield
-    finally:
-        await redis.set(MAPPING_CURRENT_ID_NAME, "")
+####################################################################################################
+#  Job utilities
+####################################################################################################
 
 
 def setup_job_state(
@@ -87,6 +86,11 @@ async def enqueue_job_with_backoff(
             new_job_id = new_job.job_id
 
     return (new_job_id, not limit_reached, backoff)
+
+
+####################################################################################################
+#  Creating variants
+####################################################################################################
 
 
 async def create_variants_for_score_set(
@@ -221,6 +225,20 @@ async def create_variants_for_score_set(
 
     ctx["state"][ctx["job_id"]] = logging_context.copy()
     return {"success": True}
+
+
+####################################################################################################
+#  Mapping variants
+####################################################################################################
+
+
+@asynccontextmanager
+async def mapping_in_execution(redis: ArqRedis, job_id: str):
+    await redis.set(MAPPING_CURRENT_ID_NAME, job_id)
+    try:
+        yield
+    finally:
+        await redis.set(MAPPING_CURRENT_ID_NAME, "")
 
 
 async def map_variants_for_score_set(
@@ -659,6 +677,11 @@ async def variant_mapper_manager(ctx: dict, correlation_id: str, updater_id: int
         return {"success": False, "enqueued_job": new_job_id}
 
 
+####################################################################################################
+#  Materialized Views
+####################################################################################################
+
+
 # TODO#405: Refresh materialized views within an executor.
 async def refresh_materialized_views(ctx: dict):
     logging_context = setup_job_state(ctx, None, None, None)
@@ -674,3 +697,111 @@ async def refresh_published_variants_view(ctx: dict, correlation_id: str):
     PublishedVariantsMV.refresh(ctx["db"])
     logger.debug(msg="Done refreshing of published variants materialized view.", extra=logging_context)
     return {"success": True}
+
+
+####################################################################################################
+#  ClinGen resource creation / linkage
+####################################################################################################
+
+
+async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score_set_id: int, publisher_id: int):
+    logging_context = {}
+    score_set = None
+    try:
+        db: Session = ctx["db"]
+        score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one()
+
+        logging_context = setup_job_state(ctx, publisher_id, score_set.urn, correlation_id)
+        logger.info(msg="Started LDH mapped resource submission", extra=logging_context)
+
+        submission_urn = score_set.urn
+        assert submission_urn, "A valid URN is needed to submit LDH objects for this score set."
+
+        logging_context["current_ldh_submission_resource"] = submission_urn
+        logger.debug(msg="Fetched score set metadata for ldh mapped resource submission.", extra=logging_context)
+
+    except Exception as e:
+        send_slack_message(e)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="LDH mapped resource submission encountered an unexpected error during setup. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False}
+
+    try:
+        ldh_service = ClinGenLdhService(url=LDH_SUBMISSION_URL)
+        ldh_service.authenticate()
+    except Exception as e:
+        send_slack_message(e)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="LDH mapped resource submission encountered an unexpected error while attempting to connect to the LDH. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False}
+
+    try:
+        variant_objects = db.scalars(
+            select(Variant, MappedVariant)
+            .join(MappedVariant)
+            .where(
+                Variant.score_set_id == score_set.id,
+                MappedVariant.current.is_(True),
+                MappedVariant.post_mapped.is_not(None),
+            )
+        ).all()
+
+        if not variant_objects:
+            logger.warning(
+                msg="No current mapped variants with post mapped metadata were found for this score set. Skipping LDH submission.",
+                extra=logging_context,
+            )
+            return {"success": True, "retried": False}
+
+        variant_content = [
+            (mapped_variant.post_mapped[""], variant, mapped_variant) for variant, mapped_variant in variant_objects
+        ]
+        submission_content = construct_ldh_submission(variant_content)
+
+    except Exception as e:
+        send_slack_message(e)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="LDH mapped resource submission encountered an unexpected error while attempting to construct submission objects. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False}
+
+    try:
+        blocking = functools.partial(
+            ldh_service.dispatch_submissions, submission_content, DEFAULT_LDH_SUBMISSION_BATCH_SIZE
+        )
+        loop = asyncio.get_running_loop()
+        submission_successes, submission_failures = await loop.run_in_executor(ctx["pool"], blocking)
+
+    except Exception as e:
+        send_slack_message(e)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="LDH mapped resource submission encountered an unexpected error while dispatching submissions. This job will not be retried.",
+            extra=logging_context,
+        )
+
+    try:
+        assert not submission_failures, f"{len(submission_failures)} submissions failed to be dispatched to the LDH."
+        logger.info(msg="Dispatched all variant mapping submissions to the LDH.", extra=logging_context)
+    except AssertionError as e:
+        send_slack_message(e)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="LDH mapped resource submission failed to submit all mapping resources. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False}
+
+    return {"success": True, "retried": False}
