@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Collection, Dict, Optional, Sequence
+from typing import Any, Collection, Dict, Optional, Sequence, Literal
 
 from humps import camelize
 from pydantic import root_validator
 
 from mavedb.lib.validation import urn_re
-from mavedb.lib.validation.constants.score_set import default_ranges
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import inf_or_float, is_null
 from mavedb.models.enums.mapping_state import MappingState
@@ -55,22 +54,12 @@ class OfficialCollection(BaseModel):
 class ScoreRange(BaseModel):
     label: str
     description: Optional[str]
-    classification: str
+    classification: Literal["normal", "abnormal", "not_specified"]
     # Purposefully vague type hint because of some odd JSON Schema generation behavior.
     # Typing this as tuple[Union[float, None], Union[float, None]] will generate an invalid
     # jsonschema, and fail all tests that access the schema. This may be fixed in pydantic v2,
     # but it's unclear. Even just typing it as Tuple[Any, Any] will generate an invalid schema!
     range: list[Any]  # really: tuple[Union[float, None], Union[float, None]]
-
-    @validator("classification")
-    def range_classification_value_is_accepted(cls, field_value: str):
-        classification = field_value.strip().lower()
-        if classification not in default_ranges:
-            raise ValidationError(
-                f"Unexpected classification value(s): {classification}. Permitted values: {default_ranges}"
-            )
-
-        return classification
 
     @validator("range")
     def ranges_are_not_backwards(cls, field_value: tuple[Any]):
@@ -89,7 +78,7 @@ class ScoreRange(BaseModel):
 
 
 class ScoreRanges(BaseModel):
-    wt_score: float
+    wt_score: Optional[float]
     ranges: list[ScoreRange]  # type: ignore
 
 
@@ -209,17 +198,16 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     @validator("score_ranges")
-    def ranges_contain_normal_and_abnormal(cls, field_value: Optional[ScoreRanges]):
+    def score_range_normal_classification_exists_if_wild_type_score_provided(cls, field_value: Optional[ScoreRanges]):
         if field_value is None:
             return None
 
-        ranges = set([range_model.classification for range_model in field_value.ranges])
-        if not set(default_ranges).issubset(ranges):
-            raise ValidationError(
-                "Both `normal` and `abnormal` ranges must be provided.",
-                # Raise this error inside the first classification provided by the model.
-                custom_loc=["body", "scoreRanges", "ranges", 0, "classification"],
-            )
+        if field_value.wt_score is not None:
+            if not any([range_model.classification == "normal" for range_model in field_value.ranges]):
+                raise ValidationError(
+                    "A wild type score has been provided, but no normal classification range exists.",
+                    custom_loc=["body", "scoreRanges", "wtScore"],
+                )
 
         return field_value
 
@@ -264,6 +252,16 @@ class ScoreSetModify(ScoreSetBase):
         normal_ranges = [
             range_model.range for range_model in field_value.ranges if range_model.classification == "normal"
         ]
+
+        if normal_ranges and field_value.wt_score is None:
+            raise ValidationError(
+                "A normal range has been provided, but no wild type score has been provided.",
+                custom_loc=["body", "scoreRanges", "wtScore"],
+            )
+
+        if field_value.wt_score is None:
+            return field_value
+
         for range in normal_ranges:
             if field_value.wt_score >= inf_or_float(range[0], lower=True) and field_value.wt_score < inf_or_float(
                 range[1], lower=False
