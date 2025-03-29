@@ -465,6 +465,21 @@ def test_cannot_create_score_set_with_normal_range_and_no_wild_type_score():
     assert "A normal range has been provided, but no wild type score has been provided." in str(exc_info.value)
 
 
+def test_cannot_create_score_set_without_default_ranges():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["score_ranges"] = {
+        "wt_score": -0.5,
+        "ranges": [
+            {"label": "range_1", "classification": "other", "range": (-1, 0)},
+        ],
+    }
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetModify(**score_set_test)
+
+    assert "unexpected value; permitted: 'normal', 'abnormal', 'not_specified'" in str(exc_info.value)
+
+
 @pytest.mark.parametrize("classification", ["normal", "abnormal", "not_specified"])
 def test_can_create_score_set_with_any_range_classification(classification):
     wt_score = -0.5 if classification == "normal" else None
@@ -477,7 +492,6 @@ def test_can_create_score_set_with_any_range_classification(classification):
     }
 
     ScoreSetModify(**score_set_test)
-    assert "Unexpected classification value(s): other. Permitted values: ['normal', 'abnormal']" in str(exc_info.value)
 
 
 def test_cannot_create_score_set_with_inconsistent_base_editor_flags():
