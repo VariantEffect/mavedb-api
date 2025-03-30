@@ -2,6 +2,7 @@ from unittest import TestCase
 
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import (
+    validate_accession,
     validate_description,
     validate_duplicates,
     validate_keyword,
@@ -38,6 +39,25 @@ class TestKeywordValidators(TestCase):
         description = None
         with self.assertRaises(ValidationError):
             validate_description(value, key, description)
+
+    def test_Gene_Ontology_valid_accession(self):
+        key = "Phenotypic Assay Mechanism"
+        value = "value"
+        accession = "GO:1234567"
+        validate_accession(key, value, accession)
+
+    def test_Gene_Ontology_invalid_accession(self):
+        key = "Phenotypic Assay Mechanism"
+        value = "value"
+        accession = "GO:123"
+        with self.assertRaises(ValidationError):
+            validate_accession(key, value, accession)
+
+    def test_Gene_Ontoloty_term_is_other(self):
+        key = "Phenotypic Assay Mechanism"
+        value = "Other"
+        accession = None
+        validate_accession(key, value, accession)
 
     def test_duplicate_keys(self):
         # Invalid keywords list.

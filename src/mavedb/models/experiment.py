@@ -163,6 +163,7 @@ class Experiment(Base):
                         "key": controlled_keyword.key,
                         "value": controlled_keyword.value,
                         "vocabulary": controlled_keyword.vocabulary,
+                        "accession": controlled_keyword.accession,
                         "special": controlled_keyword.special,
                         "description": controlled_keyword.description,
                     },

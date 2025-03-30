@@ -17,6 +17,7 @@ class KeywordBase(BaseModel):
     key: str
     value: Optional[str]
     vocabulary: Optional[str]
+    accession: Optional[str]
     special: Optional[bool]
     description: Optional[str]
 
@@ -24,6 +25,13 @@ class KeywordBase(BaseModel):
     def validate_key(cls, v):
         keywords.validate_keyword(v)
         return v
+
+    @validator("accession")
+    def validate_accession(cls, accession, values):
+        key = values.get("key")
+        value = values.get("value")
+        keywords.validate_accession(key, value, accession)
+        return accession
 
     # validator("value") blocks creating a new experiment without controlled keywords so comment it first.
     # @validator("value")
