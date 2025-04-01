@@ -3,50 +3,30 @@ from enum import Enum
 from pydantic import BaseModel, RootModel, StringConstraints as StringConstraints
 from typing import Annotated, Any, Literal
 
+from mypy_stubs.ga4gh.core.models import Coding
+
 class CoreImType(str, Enum):
-    AGENT: str
-    CONTRIBUTION: str
-    DOCUMENT: str
-    METHOD: str
-    DATA_SET: str
-    EVIDENCE_LINE: str
-    INFORMATION_ENTITY: str
-    STUDY_GROUP: str
-
-class Relation(str, Enum):
-    CLOSE_MATCH: str
-    EXACT_MATCH: str
-    BROAD_MATCH: str
-    NARROW_MATCH: str
-    RELATED_MATCH: str
-
-class AgentSubtype(str, Enum):
-    PERSON: str
-    ORGANIZATION: str
-    SOFTWARE: str
+    AGENT = str
+    CONTRIBUTION = str
+    DOCUMENT = str
+    METHOD = str
+    DATA_SET = str
+    EVIDENCE_LINE = str
+    INFORMATION_ENTITY = str
+    STUDY_GROUP = str
 
 class Direction(str, Enum):
-    SUPPORTS: str
-    NEUTRAL: str
-    DISPUTES: str
+    SUPPORTS = str
+    NEUTRAL = str
+    DISPUTES = str
 
 class Code(RootModel):
     root: Annotated[str, None]
 
-class IRI(RootModel):
+class iriReference(RootModel):
     def __hash__(self): ...
     def ga4gh_serialize(self): ...
     root: str
-
-class Coding(BaseModel):
-    label: str | None = None
-    system: str
-    systemVersion: str | None = None
-    code: Code
-
-class ConceptMapping(BaseModel):
-    coding: Coding
-    relation: Relation
 
 class Extension(BaseModel):
     name: str
@@ -61,13 +41,9 @@ class Entity(BaseModel, ABC):
     alternativeLabels: list[str] | None = None
     extensions: list[Extension] | None = None
 
-class DomainEntity(Entity, ABC):
-    mappings: list[ConceptMapping] | None = None
-
 class Agent(Entity):
     type: Literal["Agent"] = "Agent"
     name: str | None = None
-    subtype: AgentSubtype | None = None
 
 class ActivityBase(Entity, ABC):
     subtype: Coding | None = None
@@ -86,9 +62,9 @@ class Contribution(ActivityBase):
 
 class InformationEntityBase(Entity, ABC):
     type: Literal["InformationEntity"] = "InformationEntity"
-    specifiedBy: Method | IRI | None = None
+    specifiedBy: Method | iriReference | None = None
     contributions: list[Contribution] | None = None
-    reportedIn: list[Document | IRI] | None = None
+    reportedIn: list[Document | iriReference] | None = None
     dateAuthored: str | None = None
     recordMetadata: RecordMetadata | None = None
 
@@ -126,16 +102,16 @@ class EvidenceLine(InformationEntity):
     type: Literal["EvidenceLine"] = "EvidenceLine"  # type: ignore
     hasEvidenceItems: list[InformationEntity] | None = None
     directionOfEvidenceProvided: Direction | None = None
-    strengthOfEvidenceProvided: Coding | IRI | None = None
+    strengthOfEvidenceProvided: Coding | iriReference | None = None
     scoreOfEvidenceProvided: float | None = None
 
 class StatementBase(InformationEntity, ABC):
     predicate: str
     direction: Direction | None = None
-    strength: Coding | IRI | None = None
+    strength: Coding | iriReference | None = None
     score: float | None = None
     statementText: str | None = None
-    classification: Coding | IRI | None = None
+    classification: Coding | iriReference | None = None
     hasEvidenceLines: list[EvidenceLine] | None = None
 
 class Statement(StatementBase):
@@ -159,7 +135,7 @@ class StudyResultBase(InformationEntityBase, ABC):
     qualityMeasures: dict | None = None
 
 class StudyResult(InformationEntityBase, ABC):
-    focus: DomainEntity | Coding | IRI | None = None
+    focus: Coding | iriReference | None = None
     sourceDataSet: list[DataSet] | None = None
     componentResult: list[StudyResult] | None = None
     studyGroup: StudyGroup | None = None
