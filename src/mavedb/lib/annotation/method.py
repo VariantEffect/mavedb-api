@@ -1,7 +1,7 @@
 import logging
 from typing import Optional, Sequence, Union
 
-from ga4gh.core.entity_models import Method, IRI
+from ga4gh.va_spec.base.core import Method, iriReference as IRI
 
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
@@ -26,8 +26,8 @@ def publication_identifier_to_method(publication: PublicationIdentifier, subtype
     reporter = publication_as_iri(publication)
 
     return Method(
-        label=subtype,
-        reportedIn=[reporter] if reporter else None,
+        name=subtype,
+        reportedIn=reporter if reporter else None,
     )
 
 
@@ -73,7 +73,7 @@ def mavedb_api_as_method():
     Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
     object for the MaveDB API software distribution.
     """
-    return Method(label="Software version", reportedIn=[mavedb_api_releases_as_iri()])
+    return Method(name="Software version", reportedIn=mavedb_api_releases_as_iri())
 
 
 def mavedb_vrs_releases_as_iri() -> IRI:
@@ -89,7 +89,7 @@ def mavedb_vrs_as_method():
     Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
     object for the MaveDB VRS mapping software distribution.
     """
-    return Method(label="Software version", reportedIn=[mavedb_vrs_releases_as_iri()])
+    return Method(name="Software version", reportedIn=mavedb_vrs_releases_as_iri())
 
 
 def pillar_project_calibrations_as_iri() -> IRI:
@@ -105,7 +105,7 @@ def pillar_project_calibration_method():
     Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
     object for the pillar project calibration software distribution.
     """
-    return Method(label="Software version", reportedIn=[pillar_project_calibrations_as_iri()])
+    return Method(name="Software version", reportedIn=pillar_project_calibrations_as_iri())
 
 
 def variant_interpretation_functional_guideline_as_iri() -> IRI:
@@ -113,6 +113,7 @@ def variant_interpretation_functional_guideline_as_iri() -> IRI:
     Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for functional variant interpretation guidelines. Within
     the context of VA-Spec, this IRI can be used interchangeably with an equivalent method object for brevity.
     """
+    # TODO#418
     return IRI("https://pubmed.ncbi.nlm.nih.gov/29785012/")
 
 
@@ -121,8 +122,9 @@ def variant_interpretation_functional_guideline_method():
     Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
     object for the functional variant interpretation guideline.
     """
+    # TODO#418
     return Method(
-        label="Variant interpretation guideline", reportedIn=[variant_interpretation_functional_guideline_as_iri()]
+        name="Variant interpretation guideline", reportedIn=variant_interpretation_functional_guideline_as_iri()
     )
 
 
@@ -131,6 +133,7 @@ def variant_interpretation_clinical_guideline_as_iri() -> IRI:
     Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for clinical variant interpretation guidelines. Within
     the context of VA-Spec, this IRI can be used interchangeably with an equivalent method object for brevity.
     """
+    # TODO#418
     return IRI("https://pubmed.ncbi.nlm.nih.gov/29785012/")
 
 
@@ -139,6 +142,7 @@ def variant_interpretation_clinical_guideline_method():
     Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
     object for the clinical variant interpretation guideline.
     """
+    # TODO#418
     return Method(
-        label="Variant interpretation guideline", reportedIn=[variant_interpretation_clinical_guideline_as_iri()]
+        name="Variant interpretation guideline", reportedIn=variant_interpretation_clinical_guideline_as_iri()
     )

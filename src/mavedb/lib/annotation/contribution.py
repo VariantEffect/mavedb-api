@@ -2,7 +2,8 @@ import logging
 from datetime import datetime
 from typing import Union
 
-from ga4gh.core.entity_models import Contribution, Coding, Extension
+from ga4gh.core.models import Coding, Extension
+from ga4gh.va_spec.base.core import Contribution, MappableConcept
 
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.experiment import Experiment
@@ -16,7 +17,6 @@ from mavedb.lib.annotation.agent import (
     mavedb_user_agent,
     pillar_project_calibration_agent,
 )
-from mavedb.lib.annotation.method import mavedb_api_as_method, mavedb_vrs_as_method, pillar_project_calibration_method
 
 logger = logging.getLogger(__name__)
 
@@ -30,14 +30,19 @@ def mavedb_api_contribution() -> Contribution:
     object for an arbitary contribution from the MaveDB API/software distribution.
     """
     return Contribution(
-        contributor=[mavedb_api_agent()],
+        name="mavedb-api",
+        description="Contribution from the MaveDB API",
+        contributor=mavedb_api_agent(),
         date=datetime.today().strftime("%Y-%m-%d"),
-        specifiedBy=[mavedb_api_as_method()],
-        activityType=Coding(
-            label="application programming interface",
-            system="http://purl.obolibrary.org/obo/swo.owl",
-            systemVersion="2023-03-05",
-            code="SWO_9000054",
+        activityType=MappableConcept(
+            name="placeholder",
+            conceptType="placeholder",
+            primaryCoding=Coding(
+                name="application programming interface",
+                system="http://purl.obolibrary.org/obo/swo.owl",
+                systemVersion="2023-03-05",
+                code="SWO_9000054",
+            ),
         ),
     )
 
@@ -48,15 +53,20 @@ def mavedb_vrs_contribution(mapped_variant: MappedVariant) -> Contribution:
     object from the provided mapped variant.
     """
     return Contribution(
+        name="mavedb-vrs",
+        description="Contribution from the MaveDB VRS mapping software",
         # Guaranteed to be a str via DB constraints.
-        contributor=[mavedb_vrs_agent(mapped_variant.mapping_api_version)],  # type: ignore
+        contributor=mavedb_vrs_agent(mapped_variant.mapping_api_version),  # type: ignore
         date=datetime.strftime(mapped_variant.mapped_date, "%Y-%m-%d"),  # type: ignore
-        specifiedBy=[mavedb_vrs_as_method()],
-        activityType=Coding(
-            label="planned process",
-            system="http://purl.obolibrary.org/obo/swo.owl",
-            systemVersion="2023-03-05",
-            code="OBI_0000011",
+        activityType=MappableConcept(
+            name="placeholder",
+            conceptType="placeholder",
+            primaryCoding=Coding(
+                name="planned process",
+                system="http://purl.obolibrary.org/obo/swo.owl",
+                systemVersion="2023-03-05",
+                code="OBI_0000011",
+            ),
         ),
     )
 
@@ -67,13 +77,18 @@ def pillar_project_calibration_contribution() -> Contribution:
     object for a sofware agent which performs calibrations on an arbitrary data set.
     """
     return Contribution(
-        contributor=[pillar_project_calibration_agent()],
-        specifiedBy=[pillar_project_calibration_method()],
-        activityType=Coding(
-            label="planned process",
-            system="http://purl.obolibrary.org/obo/swo.owl",
-            systemVersion="2023-03-05",
-            code="OBI_0000011",
+        name="pillar-project-calibration",
+        description="Contribution from the pillar project calibration software",
+        contributor=pillar_project_calibration_agent(),
+        activityType=MappableConcept(
+            name="placeholder",
+            conceptType="placeholder",
+            primaryCoding=Coding(
+                name="planned process",
+                system="http://purl.obolibrary.org/obo/swo.owl",
+                systemVersion="2023-03-05",
+                code="OBI_0000011",
+            ),
         ),
     )
 
@@ -84,15 +99,20 @@ def mavedb_creator_contribution(created_resource: ResourceWithCreationModificati
     object from the provided createable resource (a resource with both a creation date and creator).
     """
     return Contribution(
-        contributor=[mavedb_user_agent(creator)],
+        name="mavedb-creator",
+        description="When this resource was first submitted, and by whom.",
+        contributor=mavedb_user_agent(creator),
         # Guaranteed to be a str via DB constraints.
         date=datetime.strftime(created_resource.creation_date, "%Y-%m-%d"),  # type: ignore
-        label="Resource First Submitted",
-        activityType=Coding(
-            label="submitter role",
-            system="http://purl.obolibrary.org/obo/cro.owl",
-            code="CRO_0000105",
-            systemVersion="v2019-08-16",
+        activityType=MappableConcept(
+            name="placeholder",
+            conceptType="placeholder",
+            primaryCoding=Coding(
+                name="submitter role",
+                system="http://purl.obolibrary.org/obo/cro.owl",
+                code="CRO_0000105",
+                systemVersion="v2019-08-16",
+            ),
         ),
         extensions=[Extension(name="resourceType", value=created_resource.__class__.__name__)],
     )
@@ -106,15 +126,20 @@ def mavedb_modifier_contribution(
     object from the provided modifiable resource (a resource with both a modification date and modifier).
     """
     return Contribution(
-        contributor=[mavedb_user_agent(modifier)],
+        name="mavedb-modifier",
+        description="When this resource was last modified, and by whom.",
+        contributor=mavedb_user_agent(modifier),
         # Guaranteed to be a str via DB constraints.
         date=datetime.strftime(modified_resource.modification_date, "%Y-%m-%d"),  # type: ignore
-        label="Resource Last Updated",
-        activityType=Coding(
-            label="modifier role",
-            system="http://purl.obolibrary.org/obo/cro.owl",
-            code="CRO_0000103",
-            systemVersion="v2019-08-16",
+        activityType=MappableConcept(
+            name="placeholder",
+            conceptType="placeholder",
+            primaryCoding=Coding(
+                name="modifier role",
+                system="http://purl.obolibrary.org/obo/cro.owl",
+                code="CRO_0000103",
+                systemVersion="v2019-08-16",
+            ),
         ),
         extensions=[Extension(name="resourceType", value=modified_resource.__class__.__name__)],
     )

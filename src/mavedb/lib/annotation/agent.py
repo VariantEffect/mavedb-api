@@ -1,6 +1,7 @@
 import logging
 
-from ga4gh.core.entity_models import Agent, Extension, AgentSubtype
+from ga4gh.core.models import Extension, MappableConcept
+from ga4gh.va_spec.base.core import Agent
 
 from mavedb import __version__
 from mavedb.models.user import User
@@ -19,8 +20,7 @@ def mavedb_api_agent():
     )
 
     return Agent(
-        subtype=AgentSubtype.SOFTWARE,
-        label="MaveDB API",
+        subtype=MappableConcept(name="Software"),  # TODO
         description=f"MaveDB API agent, version {__version__}",
         extensions=[version_at_time_of_generation],
     )
@@ -37,8 +37,7 @@ def mavedb_vrs_agent(version: str):
     )
 
     return Agent(
-        subtype=AgentSubtype.SOFTWARE,
-        label="MaveDB VRS mapper",
+        subtype=MappableConcept(name="Software"),  # TODO
         description=f"MaveDB VRS mapping agent, version {version_at_time_of_variant_generation.value}",
         extensions=[version_at_time_of_variant_generation],
     )
@@ -50,9 +49,9 @@ def mavedb_user_agent(user: User) -> Agent:
     object for the passed MaveDB user.
     """
     return Agent(
-        id=user.username,
-        subtype=AgentSubtype.PERSON,
-        label="MaveDB ORCid authenticated user",
+        name=user.username,
+        subtype=MappableConcept(name="Person"),  # TODO
+        description=f"MaveDB ORCid authenticated user {user.username}",
     )
 
 
@@ -63,7 +62,7 @@ def pillar_project_calibration_agent():
     object for the pillar project calibration software.
     """
     return Agent(
-        subtype=AgentSubtype.SOFTWARE,
-        label="Pillar project variant calibrator",
+        subtype=MappableConcept(name="Software"),
+        # XXX - version?
         description="Pillar project variant calibrator, see https://github.com/Dzeiberg/mave_calibration",
     )
