@@ -1,6 +1,6 @@
 from mavedb.view_models.mapped_variant import MappedVariantCreate, MappedVariant
 
-from tests.helpers.util import dummy_attributed_object_from_dict
+from tests.helpers.util.common import dummy_attributed_object_from_dict
 from tests.helpers.constants import TEST_MINIMAL_MAPPED_VARIANT
 
 

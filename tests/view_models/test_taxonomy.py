@@ -1,6 +1,6 @@
 from mavedb.view_models.taxonomy import TaxonomyCreate, Taxonomy
 
-from tests.helpers.util import dummy_attributed_object_from_dict
+from tests.helpers.util.common import dummy_attributed_object_from_dict
 from tests.helpers.constants import TEST_MINIMAL_TAXONOMY, TEST_POPULATED_TAXONOMY, TEST_SAVED_TAXONOMY
 
 

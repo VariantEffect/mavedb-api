@@ -611,7 +611,6 @@ TEST_SEQ_SCORESET = {
         {
             "name": "TEST1",
             "category": "protein_coding",
-            "external_identifiers": [],
             "target_sequence": {
                 "sequence_type": "dna",
                 "sequence": "ACGTTT",
@@ -1148,7 +1147,6 @@ SEQUENCE = (
 
 
 TEST_MINIMAL_MAPPED_VARIANT = {
-    "variant_id": 1,
     "modification_date": date.today(),
     "vrs_version": "2.0",
     "mapped_date": date.today(),

@@ -87,5 +87,5 @@ class ClingenAlleleIdVariantLookupsRequest(BaseModel):
 # ruff: noqa: E402
 from mavedb.view_models.score_set import ScoreSet, ShortScoreSet
 
-VariantWithScoreSet.update_forward_refs()
-VariantWithShortScoreSet.update_forward_refs()
+VariantWithScoreSet.model_rebuild()
+VariantWithShortScoreSet.model_rebuild()

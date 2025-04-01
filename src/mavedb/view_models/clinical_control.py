@@ -59,6 +59,6 @@ class ClinicalControlOptions(BaseModel):
 # ruff: noqa: E402
 from mavedb.view_models.mapped_variant import MappedVariant, SavedMappedVariant, MappedVariantCreate
 
-ClinicalControlCreate.update_forward_refs()
-SavedClinicalControlWithMappedVariants.update_forward_refs()
-ClinicalControlWithMappedVariants.update_forward_refs()
+ClinicalControlCreate.model_rebuild()
+SavedClinicalControlWithMappedVariants.model_rebuild()
+ClinicalControlWithMappedVariants.model_rebuild()

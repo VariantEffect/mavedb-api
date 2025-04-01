@@ -39,8 +39,6 @@ from mavedb.view_models.target_gene import (
     TargetGeneCreate,
 )
 from mavedb.view_models.user import SavedUser, User
-from mavedb.view_models.variant import SavedVariant
-
 
 UnboundedRange = tuple[Union[float, None], Union[float, None]]
 
@@ -192,7 +190,7 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     @field_validator("score_ranges")
-    def score_range_labels_must_be_unique(cls, field_value: Optional[ScoreRanges]):
+    def score_range_labels_must_be_unique(cls, field_value: Optional[ScoreRanges]) -> Optional[ScoreRanges]:
         if field_value is None:
             return None
 
@@ -211,7 +209,9 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     @field_validator("score_ranges")
-    def score_range_normal_classification_exists_if_wild_type_score_provided(cls, field_value: ScoreRanges):
+    def score_range_normal_classification_exists_if_wild_type_score_provided(
+        cls, field_value: Optional[ScoreRanges]
+    ) -> Optional[ScoreRanges]:
         if field_value is None:
             return None
 
@@ -222,8 +222,10 @@ class ScoreSetModify(ScoreSetBase):
                     custom_loc=["body", "scoreRanges", "wtScore"],
                 )
 
+        return field_value
+
     @field_validator("score_ranges")
-    def ranges_do_not_overlap(cls, field_value: ScoreRanges) -> ScoreRanges:
+    def ranges_do_not_overlap(cls, field_value: Optional[ScoreRanges]) -> Optional[ScoreRanges]:
         def test_overlap(tp1, tp2) -> bool:
             # Always check the tuple with the lowest lower bound. If we do not check
             # overlaps in this manner, checking the overlap of (0,1) and (1,2) will
@@ -242,6 +244,9 @@ class ScoreSetModify(ScoreSetBase):
 
             return False
 
+        if field_value is None:
+            return None
+
         for i, range_test in enumerate(field_value.ranges):
             for range_check in list(field_value.ranges)[i + 1 :]:
                 if test_overlap(range_test.range, range_check.range):
@@ -253,7 +258,10 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     @field_validator("score_ranges")
-    def wild_type_score_in_normal_range(cls, field_value: ScoreRanges) -> ScoreRanges:
+    def wild_type_score_in_normal_range(cls, field_value: Optional[ScoreRanges]) -> Optional[ScoreRanges]:
+        if field_value is None:
+            return None
+
         normal_ranges = [
             range_model.range for range_model in field_value.ranges if range_model.classification == "normal"
         ]
@@ -498,7 +506,7 @@ class ScoreSetWithVariants(ScoreSet):
     are requested.
     """
 
-    variants: list[SavedVariant]
+    variants: list["SavedVariant"]
 
 
 class AdminScoreSet(ScoreSet):
@@ -527,6 +535,8 @@ class ScoreSetPublicDump(SavedScoreSet):
 
 # ruff: noqa: E402
 from mavedb.view_models.experiment import Experiment
+from mavedb.view_models.variant import SavedVariant
 
+ScoreSetWithVariants.model_rebuild()
 ShortScoreSet.model_rebuild()
 ScoreSet.model_rebuild()

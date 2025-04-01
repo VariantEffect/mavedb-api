@@ -13,7 +13,7 @@ from tests.helpers.constants import (
     TEST_PUBMED_IDENTIFIER,
     TEST_BIORXIV_IDENTIFIER,
 )
-from tests.helpers.util import dummy_attributed_object_from_dict
+from tests.helpers.util.common import dummy_attributed_object_from_dict
 
 
 # Test valid experiment
@@ -162,7 +162,7 @@ def test_cannot_create_experiment_with_multiple_primary_publications():
         {"identifier": TEST_PUBMED_IDENTIFIER},
         {"identifier": TEST_BIORXIV_IDENTIFIER},
     ]
-    invalid_experiment = jsonable_encoder(experiment)
+    invalid_experiment = experiment.copy()
 
     with pytest.raises(ValueError) as exc_info:
         ExperimentCreate(**invalid_experiment)

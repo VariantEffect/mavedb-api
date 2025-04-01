@@ -11,7 +11,6 @@ from mavedb.view_models.base.base import BaseModel
 class MappedVariantBase(BaseModel):
     pre_mapped: Optional[Any] = None
     post_mapped: Optional[Any] = None
-    variant_urn: str
     vrs_version: Optional[str] = None
     error_message: Optional[str] = None
     modification_date: date
@@ -19,14 +18,9 @@ class MappedVariantBase(BaseModel):
     mapping_api_version: str
     current: bool
 
-    @classmethod
-    def from_orm(cls, obj: Any):
-        obj.variant_urn = obj.variant.urn
-        return super().from_orm(obj)
-
 
 class MappedVariantUpdate(MappedVariantBase):
-    clinical_controls: Sequence[ClinicalControlBase]
+    clinical_controls: Sequence[ClinicalControlBase] = []
 
 
 class MappedVariantCreate(MappedVariantUpdate):
@@ -36,7 +30,7 @@ class MappedVariantCreate(MappedVariantUpdate):
 # Properties shared by models stored in DB
 class SavedMappedVariant(MappedVariantBase):
     id: int
-    clingen_allele_id: Optional[str]
+    clingen_allele_id: Optional[str] = None
 
     record_type: str = None  # type: ignore
     _record_type_factory = record_type_validator()(set_record_type)
@@ -61,6 +55,6 @@ class MappedVariantWithControls(SavedMappedVariantWithControls):
 # ruff: noqa: E402
 from mavedb.view_models.clinical_control import ClinicalControlBase, ClinicalControl, SavedClinicalControl
 
-MappedVariantCreate.update_forward_refs()
-SavedMappedVariantWithControls.update_forward_refs()
-MappedVariantWithControls.update_forward_refs()
+MappedVariantCreate.model_rebuild()
+SavedMappedVariantWithControls.model_rebuild()
+MappedVariantWithControls.model_rebuild()

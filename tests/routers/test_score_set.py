@@ -8,7 +8,7 @@ from unittest.mock import patch
 import jsonschema
 import pytest
 from humps import camelize
-from sqlalchemy import select, delete
+from sqlalchemy import select
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
@@ -17,7 +17,6 @@ fastapi = pytest.importorskip("fastapi")
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_EXPERIMENT_URN_RE
 from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.models.enums.processing_state import ProcessingState
-from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
@@ -60,9 +59,6 @@ from tests.helpers.util.score_set import (
     link_clinical_controls_to_mapped_variants,
     publish_score_set,
     create_seq_score_set_with_variants,
-    update_expected_response_for_created_resources,
-    create_seq_score_set_with_mapped_variants,
-    add_thresholds_to_score_set,
 )
 from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import mock_worker_variant_insertion
@@ -1213,7 +1209,9 @@ def test_multiple_score_set_meta_analysis_single_experiment(
     )
 
     published_score_set_1_refresh = (client.get(f"/api/v1/score-sets/{published_score_set_1['urn']}")).json()
-    assert meta_score_set["metaAnalyzesScoreSetUrns"] == sorted([published_score_set_1["urn"], published_score_set_2["urn"]])
+    assert meta_score_set["metaAnalyzesScoreSetUrns"] == sorted(
+        [published_score_set_1["urn"], published_score_set_2["urn"]]
+    )
     assert published_score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
@@ -2488,12 +2486,13 @@ def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
     assert "hgvs_pro" in columns
     assert "hgvs_splice" not in columns
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
+    response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/annotated-variants")
     response_data = response.json()
 
     assert response.status_code == 404
     assert (
-        f"No annotated variants associated with score set URN {score_set['urn']} were found" in response_data["detail"]
+        f"No annotated variants associated with score set URN {publish_score_set['urn']} were found"
+        in response_data["detail"]
     )
 
 

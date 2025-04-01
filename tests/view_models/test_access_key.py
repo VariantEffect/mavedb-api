@@ -1,6 +1,6 @@
 from mavedb.view_models.access_key import SavedAccessKey
 
-from tests.helpers.util import dummy_attributed_object_from_dict
+from tests.helpers.util.common import dummy_attributed_object_from_dict
 
 
 def test_minimal_access_key():

@@ -8,6 +8,7 @@ def test_can_create_target_accession_with_assembly():
     assembly = "Test Assembly"
     target_accession = TargetAccessionCreate(
         accession=VALID_ACCESSION,
+        is_base_editor=False,
         assembly=assembly,
         gene=None,
     )
@@ -21,6 +22,7 @@ def test_can_create_target_accession_with_gene():
     gene = "Test Gene"
     target_accession = TargetAccessionCreate(
         accession=VALID_ACCESSION,
+        is_base_editor=False,
         assembly=None,
         gene=gene,
     )
@@ -34,6 +36,7 @@ def test_cannot_create_target_accession_without_assembly_or_gene():
     with pytest.raises(ValueError) as exc_info:
         TargetAccessionCreate(
             accession=VALID_ACCESSION,
+            is_base_editor=False,
             assembly=None,
             gene=None,
         )

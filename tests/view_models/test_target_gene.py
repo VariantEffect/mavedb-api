@@ -9,7 +9,7 @@ from tests.helpers.constants import (
     TEST_ENSEMBLE_EXTERNAL_IDENTIFIER,
     TEST_UNIPROT_EXTERNAL_IDENTIFIER,
 )
-from tests.helpers.util import dummy_attributed_object_from_dict
+from tests.helpers.util.common import dummy_attributed_object_from_dict
 
 
 def test_create_target_gene_with_sequence():

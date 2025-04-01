@@ -1,7 +1,7 @@
 import logging
 import urllib.parse
 
-from ga4gh.core.entity_models import Document, IRI
+from ga4gh.va_spec.base.core import Document, iriReference as IRI, MappableConcept
 
 from mavedb.models.experiment import Experiment
 from mavedb.models.score_set import ScoreSet
@@ -28,8 +28,12 @@ def experiment_to_document(experiment: Experiment) -> Document:
     """
     return Document(
         id=experiment.urn,
-        label="MaveDB experiment",
         title=experiment.title,
+        description=experiment.short_description,
+        subtype=MappableConcept(
+            conceptType="MaveDB Resource",
+            name="MaveDB Experiment",
+        ),
         urls=[experiment_as_iri(experiment).root],
     )
 
@@ -49,8 +53,12 @@ def score_set_to_document(score_set: ScoreSet) -> Document:
     """
     return Document(
         id=score_set.urn,
-        label="MaveDB score set",
         title=score_set.title,
+        description=score_set.short_description,
+        subtype=MappableConcept(
+            conceptType="MaveDB Resource",
+            name="MaveDB Score Set",
+        ),
         urls=[score_set_as_iri(score_set).root],
     )
 
@@ -72,6 +80,9 @@ def variant_to_document(variant: Variant) -> Document:
     """
     return Document(
         id=variant.urn,
-        label="MaveDB variant",
+        subtype=MappableConcept(
+            conceptType="MaveDB Resource",
+            name="MaveDB Variant",
+        ),
         urls=[variant_as_iri(variant).root],
     )

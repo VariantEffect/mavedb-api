@@ -8,12 +8,13 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityFunctionalImpactEvidenceLine
 from sqlalchemy import null, or_, select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.orm import Session
 
 from mavedb import deps
-from mavedb.lib.annotation.variant import annotation_for_variant
+from mavedb.lib.annotation.annotate import variant_pathogenicity_evidence
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import (
     get_current_user,
@@ -64,7 +65,7 @@ from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
-from mavedb.view_models import annotated_variant, mapped_variant, score_set, calibration, clinical_control
+from mavedb.view_models import mapped_variant, score_set, calibration, clinical_control
 from mavedb.view_models.search import ScoreSetsSearch
 
 logger = logging.getLogger(__name__)
@@ -362,7 +363,7 @@ def get_score_set_mapped_variants(
 @router.get(
     "/score-sets/{urn}/annotated-variants",
     status_code=200,
-    response_model=list[dict[str, annotated_variant.AnnotatedVariant]],
+    response_model=dict[str, Optional[VariantPathogenicityFunctionalImpactEvidenceLine]],
     response_model_exclude_none=True,
 )
 def get_score_set_annotated_variants(
@@ -390,6 +391,7 @@ def get_score_set_annotated_variants(
         .filter(ScoreSet.urn == urn)
         .filter(ScoreSet.id == Variant.score_set_id)
         .filter(Variant.id == MappedVariant.variant_id)
+        .where(MappedVariant.current.is_(True))
         .all()
     )
 
@@ -400,9 +402,9 @@ def get_score_set_annotated_variants(
             detail=f"No annotated variants associated with score set URN {urn} were found",
         )
 
-    annotated_variants = [annotation_for_variant(mapped_variant) for mapped_variant in mapped_variants]
-
-    return annotated_variants
+    return {
+        mapped_variant.variant.urn: variant_pathogenicity_evidence(mapped_variant) for mapped_variant in mapped_variants
+    }
 
 
 @router.post(

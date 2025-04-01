@@ -3,7 +3,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from typing import Any
 
-from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.models.contributor import Contributor
 
 
@@ -21,7 +20,3 @@ def add_contributor(db: Session, urn: str, model: Any, orcid_id: str, given_name
     item.contributors = [contributor]
     db.add(item)
     db.commit()
-
-
-def callable_nonexistent_orcid_user_exception():
-    raise NonexistentOrcidUserError()

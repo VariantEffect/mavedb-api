@@ -1351,52 +1351,54 @@ dev = ["black", "flake8", "flake8-pyproject", "mypy", "pre-commit", "pytest"]
 
 [[package]]
 name = "ga4gh-cat-vrs"
-version = "0.1.1"
+version = "0.5.0"
 description = "GA4GH Categorical Variation Representation (Cat-VRS) reference implementation"
 optional = true
 python-versions = ">=3.10"
 files = [
-    {file = "ga4gh.cat_vrs-0.1.1-py3-none-any.whl", hash = "sha256:c6c1ffba06c397728b668ee9d103714dd9c861bb75784f899ad20d0a62828fc1"},
-    {file = "ga4gh_cat_vrs-0.1.1.tar.gz", hash = "sha256:df94e709d9a410e68cdeccc6cfe3debfa51f07f1539c70c80f063096d24f0f57"},
+    {file = "ga4gh_cat_vrs-0.5.0-py3-none-any.whl", hash = "sha256:f6021ee3d37a59c8fca2ddf0590f5495b5fec89aff71a9ff9bdc8eda843ba40f"},
+    {file = "ga4gh_cat_vrs-0.5.0.tar.gz", hash = "sha256:32f383197d93fd913a1c8b44e6f9023b90d7063359efad7527917d98ebafd49f"},
 ]
 
 [package.dependencies]
-"ga4gh.vrs" = ">=2.0.0a12,<2.1.0"
+"ga4gh.vrs" = "==2.*"
 pydantic = "==2.*"
 
 [package.extras]
 dev = ["pre-commit", "ruff (==0.4.9)"]
+notebooks = ["jupyter"]
 tests = ["pytest", "pytest-cov"]
 
 [[package]]
 name = "ga4gh-va-spec"
-version = "0.1.1"
+version = "0.2.0"
 description = "GA4GH Variant Annotation (VA) reference implementation"
 optional = true
 python-versions = ">=3.10"
 files = [
-    {file = "ga4gh.va_spec-0.1.1-py3-none-any.whl", hash = "sha256:8e574d7f43fe3befd2cfa0a2538d894dd47a49e3da585fbb620c07c3757bccf9"},
-    {file = "ga4gh_va_spec-0.1.1.tar.gz", hash = "sha256:56636ff64cdd3f96f917f146fb0782f9a962d6841357f1bd5928297b5cb8e42a"},
+    {file = "ga4gh_va_spec-0.2.0-py3-none-any.whl", hash = "sha256:f25ac96b8a6d7d7ac85b11179d6b7dfa71a245723cc336752a7c4973908ed0a8"},
+    {file = "ga4gh_va_spec-0.2.0.tar.gz", hash = "sha256:38e67f6c4d4da15b92b97d3b48b9d689e3823353ceae4351ae21b729a2ace1fa"},
 ]
 
 [package.dependencies]
-"ga4gh.cat_vrs" = ">=0.1.0,<0.2.0"
-"ga4gh.vrs" = ">=2.0.0a12,<2.1.0"
+"ga4gh.cat_vrs" = ">=0.5.0,<0.6.0"
+"ga4gh.vrs" = "==2.*"
 pydantic = "==2.*"
 
 [package.extras]
 dev = ["pre-commit", "ruff (==0.4.9)"]
-tests = ["pytest", "pytest-cov"]
+notebooks = ["jupyter"]
+tests = ["pytest", "pytest-cov", "pyyaml"]
 
 [[package]]
 name = "ga4gh-vrs"
-version = "2.0.1"
+version = "2.1.2"
 description = "GA4GH Variation Representation Specification (VRS) reference implementation"
 optional = true
 python-versions = ">=3.10"
 files = [
-    {file = "ga4gh_vrs-2.0.1-py3-none-any.whl", hash = "sha256:0a0831157340645e1868d2cf98b57791880f7e2ba349d8c2d7471dd8a1fc0615"},
-    {file = "ga4gh_vrs-2.0.1.tar.gz", hash = "sha256:ecb70ec75a1a79f8d9acca2fdd8aa76f7e05282a12d7501e8f461b21e6da3cb0"},
+    {file = "ga4gh_vrs-2.1.2-py3-none-any.whl", hash = "sha256:1e13699dad8580f79db543d6f59d160ce6b869f13927df575e23b8042daafc1c"},
+    {file = "ga4gh_vrs-2.1.2.tar.gz", hash = "sha256:3886e24608ef7168dc461f2e5906ff3838f8b5486d79ec8c74c744d86449bf75"},
 ]
 
 [package.dependencies]
@@ -4366,4 +4368,4 @@ server = ["alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "dbe63401474ab39cfc90813dbf242ce7c21f92d561f336e2c5edc8441c4c3e83"
+content-hash = "66d9bf22d61ed6b09b423b5d7280e2b54d397bcd50e551c90101b84cf6ec1b1d"

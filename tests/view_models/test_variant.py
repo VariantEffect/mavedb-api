@@ -1,6 +1,6 @@
 from mavedb.view_models.variant import VariantCreate, Variant
 
-from tests.helpers.util import dummy_attributed_object_from_dict
+from tests.helpers.util.common import dummy_attributed_object_from_dict
 from tests.helpers.constants import TEST_MINIMAL_VARIANT, TEST_POPULATED_VARIANT, TEST_SAVED_VARIANT
 
 
