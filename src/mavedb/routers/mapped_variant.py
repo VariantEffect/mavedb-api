@@ -2,10 +2,17 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends
 from fastapi.exceptions import HTTPException
+from ga4gh.va_spec.base import StudyResult, EvidenceLine, Statement
 from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import Session
 
 from mavedb import deps
+from mavedb.lib.annotation.annotate import (
+    variant_study_result,
+    variant_functional_impact_statement,
+    variant_pathogenicity_evidence,
+)
+from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
 from mavedb.view_models import mapped_variant
@@ -48,6 +55,62 @@ async def show_mapped_variant(*, urn: str, db: Session = Depends(deps.get_db)) -
     """
 
     return await fetch_mapped_variant_by_variant_urn(db, urn)
+
+
+@router.get(
+    "/{urn}/va/study-result", status_code=200, response_model=Optional[StudyResult], responses={404: {}, 500: {}}
+)
+async def show_mapped_variant_study_result(*, urn: str, db: Session = Depends(deps.get_db)) -> Optional[StudyResult]:
+    """
+    Construct a VA-Spec StudyResult from a mapped variant.
+    """
+
+    mapped_variant = await fetch_mapped_variant_by_variant_urn(db, urn)
+
+    try:
+        return variant_study_result(mapped_variant)
+    except MappingDataDoesntExistException as e:
+        return HTTPException(
+            status_code=404, detail=f"Could not construct a study result for mapped variant {urn}: {e}"
+        )
+
+
+@router.get(
+    "/{urn}/va/functional-impact", status_code=200, response_model=Optional[Statement], responses={404: {}, 500: {}}
+)
+async def show_mapped_variant_functional_impact_statement(
+    *, urn: str, db: Session = Depends(deps.get_db)
+) -> Optional[Statement]:
+    """
+    Construct a VA-Spec Statement from a mapped variant.
+    """
+
+    mapped_variant = await fetch_mapped_variant_by_variant_urn(db, urn)
+
+    try:
+        return variant_functional_impact_statement(mapped_variant)
+    except MappingDataDoesntExistException as e:
+        return HTTPException(
+            status_code=404, detail=f"Could not construct a functional impact statement for mapped variant {urn}: {e}"
+        )
+
+
+@router.get(
+    "/{urn}/va/clinial-evidence", status_code=200, response_model=list[EvidenceLine], responses={404: {}, 500: {}}
+)
+async def show_mapped_variant_acmg_evidence_line(*, urn: str, db: Session = Depends(deps.get_db)) -> list[EvidenceLine]:
+    """
+    Construct a list of VA-Spec EvidenceLine(s) from a mapped variant.
+    """
+
+    mapped_variant = await fetch_mapped_variant_by_variant_urn(db, urn)
+
+    try:
+        return variant_pathogenicity_evidence(mapped_variant)
+    except MappingDataDoesntExistException as e:
+        return HTTPException(
+            status_code=404, detail=f"Could not construct a pathogenicity evidence line for mapped variant {urn}: {e}"
+        )
 
 
 # for testing only

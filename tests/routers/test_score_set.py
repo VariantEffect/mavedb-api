@@ -2708,12 +2708,13 @@ def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
     assert "hgvs_pro" in columns
     assert "hgvs_splice" not in columns
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
+    response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/annotated-variants")
     response_data = response.json()
 
     assert response.status_code == 404
     assert (
-        f"No annotated variants associated with score set URN {score_set['urn']} were found" in response_data["detail"]
+        f"No annotated variants associated with score set URN {publish_score_set['urn']} were found"
+        in response_data["detail"]
     )
 
 

@@ -13,7 +13,6 @@ from mavedb.view_models.base.base import BaseModel
 class MappedVariantBase(BaseModel):
     pre_mapped: Optional[Any] = None
     post_mapped: Optional[Any] = None
-    variant_urn: str
     vrs_version: Optional[str] = None
     error_message: Optional[str] = None
     modification_date: date

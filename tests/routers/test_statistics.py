@@ -429,7 +429,7 @@ def test_record_statistics_invalid_record(client, field_value):
     response = client.get(f"/api/v1/statistics/record/invalid-record/{field_value}")
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["path", "record"]
-    assert response.json()["detail"][0]["ctx"]["expected"] == ' or '.join([f"'{x}'" for x in RECORD_MODELS])
+    assert all(enum_val in response.json()["detail"][0]["ctx"]["expected"] for enum_val in RECORD_MODELS)
 
 
 @pytest.mark.parametrize("model_value", RECORD_MODELS)
@@ -489,7 +489,7 @@ def test_record_counts_invalid_model(client):
     response = client.get("/api/v1/statistics/record/invalid-model/published/count")
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["path", "model"]
-    assert response.json()["detail"][0]["ctx"]["expected"] == ' or '.join([f"'{x}'" for x in RECORD_MODELS])
+    assert all(enum_val in response.json()["detail"][0]["ctx"]["expected"] for enum_val in RECORD_MODELS)
 
 
 def test_record_counts_invalid_group(client):
@@ -497,7 +497,7 @@ def test_record_counts_invalid_group(client):
     response = client.get("/api/v1/statistics/record/experiment/published/count?group=invalid-group")
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["query", "group"]
-    assert response.json()["detail"][0]["ctx"]["expected"] == "'month' or 'year'"
+    assert all(enum_val in response.json()["detail"][0]["ctx"]["expected"] for enum_val in ["month", "year"])
 
 
 ####################################################################################################

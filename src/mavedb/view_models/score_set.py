@@ -469,6 +469,7 @@ class ScoreSetPublicDump(SavedScoreSet):
 from mavedb.view_models.experiment import Experiment
 from mavedb.view_models.variant import SavedVariant
 
+ScoreSetWithVariants.model_rebuild()
 ShortScoreSet.model_rebuild()
 ScoreSet.model_rebuild()
 ScoreSetWithVariants.model_rebuild()

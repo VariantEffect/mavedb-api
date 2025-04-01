@@ -4,9 +4,9 @@ from copy import deepcopy
 from fastapi.encoders import jsonable_encoder
 from humps import camelize
 
-from mavedb.view_models.publication_identifier import PublicationIdentifierCreate, PublicationIdentifier
-from mavedb.view_models.score_set import ScoreSetCreate, ScoreSetModify, SavedScoreSet
-from mavedb.view_models.target_gene import TargetGeneCreate, SavedTargetGene
+from mavedb.view_models.publication_identifier import PublicationIdentifier
+from mavedb.view_models.score_set import SavedScoreSet
+from mavedb.view_models.target_gene import SavedTargetGene
 from tests.helpers.constants import (
     TEST_PUBMED_IDENTIFIER,
     TEST_MINIMAL_ACC_SCORESET,
@@ -283,12 +283,9 @@ def test_cannot_create_score_set_with_inconsistent_base_editor_flags():
     target_gene_one.target_accession.is_base_editor = True
     target_gene_two.target_accession.is_base_editor = False
 
-    score_set_test.pop("targetGenes")
+    score_set_test["targetGenes"] = [target_gene_one, target_gene_two]
     with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(
-            **score_set_test,
-            target_genes=[target_gene_one, target_gene_two],
-        )
+        ScoreSetModify(**score_set_test)
 
     assert "All target accessions must be of the same base editor type." in str(exc_info.value)
 
