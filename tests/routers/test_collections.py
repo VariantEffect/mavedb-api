@@ -26,7 +26,7 @@ def test_create_private_collection(client, setup_router_db):
     response = client.post("/api/v1/collections/", json=TEST_COLLECTION)
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Collection.schema())
+    jsonschema.validate(instance=response_data, schema=Collection.model_json_schema())
     assert isinstance(MAVEDB_COLLECTION_URN_RE.fullmatch(response_data["urn"]), re.Match)
     expected_response = deepcopy(TEST_COLLECTION_RESPONSE)
     expected_response.update({"urn": response_data["urn"]})
@@ -41,7 +41,7 @@ def test_create_public_collection(client, setup_router_db):
     response = client.post("/api/v1/collections/", json=collection)
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Collection.schema())
+    jsonschema.validate(instance=response_data, schema=Collection.model_json_schema())
     assert isinstance(MAVEDB_COLLECTION_URN_RE.fullmatch(response_data["urn"]), re.Match)
     expected_response = deepcopy(TEST_COLLECTION_RESPONSE)
     expected_response.update({"urn": response_data["urn"], "private": False})
@@ -82,7 +82,7 @@ def test_add_collection_user_to_collection_role(role, client, setup_router_db):
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
-def test_creator_can_read_private_collection(session, client, setup_router_db, anonymous_app_overrides):
+def test_creator_can_read_private_collection(session, client, setup_router_db):
     collection = create_collection(client)
 
     response = client.get(f"/api/v1/collections/{collection['urn']}")

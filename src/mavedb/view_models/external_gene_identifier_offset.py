@@ -1,5 +1,7 @@
+from pydantic import field_validator
+
 from mavedb.view_models import external_gene_identifier, record_type_validator, set_record_type
-from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models.base.base import BaseModel
 
 
 class ExternalGeneIdentifierOffsetBase(BaseModel):
@@ -10,8 +12,8 @@ class ExternalGeneIdentifierOffsetBase(BaseModel):
 class ExternalGeneIdentifierOffsetCreate(ExternalGeneIdentifierOffsetBase):
     identifier: external_gene_identifier.ExternalGeneIdentifierCreate
 
-    @validator("offset")
-    def validate_offset(cls, v):
+    @field_validator("offset")
+    def validate_offset(cls, v: int) -> int:
         if v < 0:
             raise ValueError("Offset should not be a negative number")
         return v
@@ -25,7 +27,7 @@ class SavedExternalGeneIdentifierOffset(ExternalGeneIdentifierOffsetBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Properties to return to non-admin clients

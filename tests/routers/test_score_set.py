@@ -10,7 +10,9 @@ from humps import camelize
 from sqlalchemy import select
 
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_EXPERIMENT_URN_RE
+from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
@@ -25,7 +27,7 @@ from tests.helpers.constants import (
     TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
     TEST_PUBMED_IDENTIFIER,
     TEST_ORCID_ID,
-    TEST_SCORESET_RANGE,
+    TEST_SCORE_SET_RANGE,
     TEST_SAVED_SCORESET_RANGE,
     TEST_MINIMAL_ACC_SCORESET_RESPONSE,
     TEST_USER,
@@ -46,6 +48,8 @@ from tests.helpers.util import (
     create_seq_score_set,
     create_seq_score_set_with_variants,
     update_expected_response_for_created_resources,
+    create_seq_score_set_with_mapped_variants,
+    add_thresholds_to_score_set,
 )
 
 
@@ -55,11 +59,11 @@ from tests.helpers.util import (
 
 
 def test_TEST_MINIMAL_SEQ_SCORESET_is_valid():
-    jsonschema.validate(instance=TEST_MINIMAL_SEQ_SCORESET, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=TEST_MINIMAL_SEQ_SCORESET, schema=ScoreSetCreate.model_json_schema())
 
 
 def test_TEST_MINIMAL_ACC_SCORESET_is_valid():
-    jsonschema.validate(instance=TEST_MINIMAL_ACC_SCORESET, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=TEST_MINIMAL_ACC_SCORESET, schema=ScoreSetCreate.model_json_schema())
 
 
 ########################################################################################################################
@@ -76,7 +80,7 @@ def test_create_minimal_score_set(client, setup_router_db):
     assert response.status_code == 200
     response_data = response.json()
 
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
 
     expected_response = update_expected_response_for_created_resources(
@@ -106,7 +110,7 @@ def test_create_score_set_with_contributor(client, setup_router_db):
     assert response.status_code == 200
     response_data = response.json()
 
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
 
     expected_response = update_expected_response_for_created_resources(
@@ -129,17 +133,34 @@ def test_create_score_set_with_contributor(client, setup_router_db):
     assert response.status_code == 200
 
 
+def test_cannot_create_score_set_with_nonexistent_contributor(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    score_set.update({"contributors": [{"orcid_id": TEST_ORCID_ID}]})
+
+    with patch(
+        "mavedb.lib.orcid.fetch_orcid_user",
+        side_effect=NonexistentOrcidUserError(f"No ORCID user was found for ORCID ID {TEST_ORCID_ID}."),
+    ):
+        response = client.post("/api/v1/score-sets/", json=score_set)
+
+    assert response.status_code == 422
+    response_data = response.json()
+    assert "No ORCID user was found for ORCID ID 1111-1111-1111-1111." in response_data["detail"]
+
+
 def test_create_score_set_with_score_range(client, setup_router_db):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set["experimentUrn"] = experiment["urn"]
-    score_set.update({"score_ranges": TEST_SCORESET_RANGE})
+    score_set.update({"score_ranges": TEST_SCORE_SET_RANGE})
 
     response = client.post("/api/v1/score-sets/", json=score_set)
     assert response.status_code == 200
     response_data = response.json()
 
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
 
     expected_response = update_expected_response_for_created_resources(
@@ -207,7 +228,8 @@ def test_cannot_create_score_set_with_invalid_target_gene_category(client, setup
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     assert response.status_code == 422
     response_data = response.json()
-    assert "value is not a valid enumeration member;" in response_data["detail"][0]["msg"]
+    assert "Input should be" in response_data["detail"][0]["msg"]
+    assert all(field in response_data["detail"][0]["msg"] for field in TargetCategory._member_names_)
 
 
 ########################################################################################################################
@@ -230,7 +252,7 @@ def test_cannot_create_score_set_with_invalid_target_gene_category(client, setup
         ("doi_identifiers", [{"identifier": TEST_CROSSREF_IDENTIFIER}], [SAVED_DOI_IDENTIFIER]),
         ("license_id", EXTRA_LICENSE["id"], SAVED_SHORT_EXTRA_LICENSE),
         ("target_genes", TEST_MINIMAL_ACC_SCORESET["targetGenes"], TEST_MINIMAL_ACC_SCORESET_RESPONSE["targetGenes"]),
-        ("score_ranges", TEST_SCORESET_RANGE, TEST_SAVED_SCORESET_RANGE),
+        ("score_ranges", TEST_SCORE_SET_RANGE, TEST_SAVED_SCORESET_RANGE),
     ],
 )
 @pytest.mark.parametrize(
@@ -360,7 +382,7 @@ def test_can_update_score_set_supporting_data_after_publication(
         ("target_genes", TEST_MINIMAL_ACC_SCORESET["targetGenes"], TEST_MINIMAL_SEQ_SCORESET_RESPONSE["targetGenes"]),
         (
             "score_ranges",
-            TEST_SCORESET_RANGE,
+            TEST_SCORE_SET_RANGE,
             None,
         ),
     ],
@@ -416,6 +438,27 @@ def test_cannot_update_score_set_target_data_after_publication(
         assert expected_response_data == response_data[camelize(attribute)]
     else:
         assert camelize(attribute) not in response_data.keys()
+
+
+def test_cannot_update_score_set_with_nonexistent_contributor(
+    client,
+    setup_router_db,
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    score_set_update_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_update_payload.update({"contributors": [{"orcid_id": TEST_ORCID_ID}]})
+
+    with patch(
+        "mavedb.lib.orcid.fetch_orcid_user",
+        side_effect=NonexistentOrcidUserError(f"No ORCID user was found for ORCID ID {TEST_ORCID_ID}."),
+    ):
+        response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_update_payload)
+
+    assert response.status_code == 422
+    response_data = response.json()
+    assert "No ORCID user was found for ORCID ID 1111-1111-1111-1111." in response_data["detail"]
 
 
 ########################################################################################################################
@@ -545,7 +588,7 @@ def test_add_score_set_variants_scores_only_endpoint(client, setup_router_db, da
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -574,7 +617,7 @@ def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setu
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -598,7 +641,7 @@ def test_add_score_set_variants_scores_only_endpoint_utf8_encoded(client, setup_
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -627,7 +670,7 @@ def test_add_score_set_variants_scores_and_counts_endpoint_utf8_encoded(session,
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -716,8 +759,9 @@ def test_contributor_can_add_scores_to_other_user_score_set(session, client, set
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
+    print(response_data)
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
     score_set.update({"processingState": "processing"})
@@ -775,7 +819,7 @@ def test_contributor_can_add_scores_and_counts_to_other_user_score_set(session, 
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -823,7 +867,7 @@ def test_admin_can_add_scores_to_other_user_score_set(
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -852,7 +896,7 @@ def test_admin_can_add_scores_and_counts_to_other_user_score_set(session, client
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -2304,14 +2348,14 @@ def test_admin_can_add_score_calibrations_to_score_set(client, setup_router_db, 
 
     with DependencyOverrider(admin_app_overrides):
         response = client.post(
-            f"/api/v1/score-sets/{score_set['urn']}/calibration/data", json={"test_calibrations": calibration_payload}
+            f"/api/v1/score-sets/{score_set['urn']}/calibration/data", json={"pillar_project": calibration_payload}
         )
         response_data = response.json()
 
     expected_response = update_expected_response_for_created_resources(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
     )
-    expected_response["scoreCalibrations"] = {"test_calibrations": deepcopy(TEST_SAVED_SCORE_CALIBRATION)}
+    expected_response["scoreCalibrations"] = {"pillarProject": deepcopy(TEST_SAVED_SCORE_CALIBRATION)}
 
     assert response.status_code == 200
     for key in expected_response:
@@ -2328,7 +2372,7 @@ def test_score_set_not_found_for_non_existent_score_set_when_adding_score_calibr
     with DependencyOverrider(admin_app_overrides):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']+'xxx'}/calibration/data",
-            json={"test_calibrations": calibration_payload},
+            json={"pillar_project": calibration_payload},
         )
         response_data = response.json()
 
@@ -2364,31 +2408,6 @@ def test_upload_a_non_utf8_file(session, client, setup_router_db, data_files):
 ########################################################################################################################
 
 
-# Test file doesn't have hgvs_splice so its values are all NA.
-def test_download_scores_file(session, data_provider, client, setup_router_db, data_files):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
-    )
-
-    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
-        publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
-        assert publish_score_set_response.status_code == 200
-        queue.assert_called_once()
-    publish_score_set = publish_score_set_response.json()
-
-    download_scores_csv_response = client.get(
-        f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_na_columns=true"
-    )
-    assert download_scores_csv_response.status_code == 200
-    download_scores_csv = download_scores_csv_response.text
-    csv_header = download_scores_csv.split("\n")[0]
-    columns = csv_header.split(",")
-    assert "hgvs_nt" in columns
-    assert "hgvs_pro" in columns
-    assert "hgvs_splice" not in columns
-
-
 def test_download_counts_file(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -2415,3 +2434,211 @@ def test_download_counts_file(session, data_provider, client, setup_router_db, d
     assert "hgvs_nt" in columns
     assert "hgvs_pro" in columns
     assert "hgvs_splice" not in columns
+
+
+# Test file doesn't have hgvs_splice so its values are all NA.
+def test_download_scores_file(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+        publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+        assert publish_score_set_response.status_code == 200
+        queue.assert_called_once()
+
+    publish_score_set = publish_score_set_response.json()
+
+    download_scores_csv_response = client.get(
+        f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_na_columns=true"
+    )
+    assert download_scores_csv_response.status_code == 200
+    download_scores_csv = download_scores_csv_response.text
+    csv_header = download_scores_csv.split("\n")[0]
+    columns = csv_header.split(",")
+    assert "hgvs_nt" in columns
+    assert "hgvs_pro" in columns
+    assert "hgvs_splice" not in columns
+
+
+########################################################################################################################
+# Fetching annotated variants for a score set
+########################################################################################################################
+
+
+def test_cannot_get_annotated_variants_for_nonexistent_score_set(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/annotated-variants")
+    response_data = response.json()
+
+    assert response.status_code == 404
+    assert f"score set with URN {score_set['urn']+'xxx'} not found" in response_data["detail"]
+
+
+def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    with patch.object(ArqRedis, "enqueue_job", return_value=None) as queue:
+        publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+        assert publish_score_set_response.status_code == 200
+        queue.assert_called_once()
+
+    publish_score_set = publish_score_set_response.json()
+
+    download_scores_csv_response = client.get(
+        f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_na_columns=true"
+    )
+    assert download_scores_csv_response.status_code == 200
+    download_scores_csv = download_scores_csv_response.text
+    csv_header = download_scores_csv.split("\n")[0]
+    columns = csv_header.split(",")
+    assert "hgvs_nt" in columns
+    assert "hgvs_pro" in columns
+    assert "hgvs_splice" not in columns
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
+    response_data = response.json()
+
+    assert response.status_code == 404
+    assert (
+        f"No annotated variants associated with score set URN {score_set['urn']} were found" in response_data["detail"]
+    )
+
+
+def test_get_annotated_variants_for_minimal_clinical_score_set(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    # The contents of the annotated variants objects should be tested in more detail elsewhere.
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    # More detailed tests for annotated variant contents are performed elsewhere.
+    annotated_variants = {k: v for d in response_data for k, v in d.items()}
+    for annotated_variant_urn, annotated_variant in annotated_variants.items():
+        variant = session.scalar(select(VariantDbModel).filter(VariantDbModel.urn == annotated_variant_urn))
+
+        assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
+        assert len(annotated_variant.values()) == 1
+        assert (
+            annotated_variant["assayVariantEffectMeasurementStudyResult"]["score"]
+            == variant.data["score_data"]["score"]
+        )
+
+
+def test_get_annotated_variants_for_clinical_score_set_with_thresholds(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    with DependencyOverrider(admin_app_overrides):
+        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
+
+    # The contents of the annotated variants objects should be tested in more detail elsewhere.
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    # More detailed tests for annotated variant contents are performed elsewhere.
+    annotated_variants = {k: v for d in response_data for k, v in d.items()}
+    for annotated_variant_urn, annotated_variant in annotated_variants.items():
+        variant = session.scalar(select(VariantDbModel).filter(VariantDbModel.urn == annotated_variant_urn))
+
+        assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
+        assert "assayVariantEffectClinicalClassificationStatement" in annotated_variant
+        assert len(annotated_variant.values()) == 2
+        assert (
+            annotated_variant["assayVariantEffectMeasurementStudyResult"]["score"]
+            == variant.data["score_data"]["score"]
+        )
+
+
+def test_get_annotated_variants_for_clinical_score_set_with_ranges(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+    )
+
+    # The contents of the annotated variants objects should be tested in more detail elsewhere.
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    # More detailed tests for annotated variant contents are performed elsewhere.
+    annotated_variants = {k: v for d in response_data for k, v in d.items()}
+    for annotated_variant_urn, annotated_variant in annotated_variants.items():
+        variant = session.scalar(select(VariantDbModel).filter(VariantDbModel.urn == annotated_variant_urn))
+
+        assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
+        assert "assayVariantEffectFunctionalClassificationStatement" in annotated_variant
+        assert len(annotated_variant.values()) == 2
+        assert (
+            annotated_variant["assayVariantEffectMeasurementStudyResult"]["score"]
+            == variant.data["score_data"]["score"]
+        )
+
+
+def test_get_annotated_variants_for_clinical_score_set_with_ranges_and_thresholds(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+    )
+    with DependencyOverrider(admin_app_overrides):
+        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
+
+    # The contents of the annotated variants objects should be tested in more detail elsewhere.
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    # More detailed tests for annotated variant contents are performed elsewhere.
+    annotated_variants = {k: v for d in response_data for k, v in d.items()}
+    for annotated_variant_urn, annotated_variant in annotated_variants.items():
+        variant = session.scalar(select(VariantDbModel).filter(VariantDbModel.urn == annotated_variant_urn))
+
+        assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
+        assert "assayVariantEffectFunctionalClassificationStatement" in annotated_variant
+        assert "assayVariantEffectClinicalClassificationStatement" in annotated_variant
+        assert len(annotated_variant.values()) == 3
+        assert (
+            annotated_variant["assayVariantEffectMeasurementStudyResult"]["score"]
+            == variant.data["score_data"]["score"]
+        )
