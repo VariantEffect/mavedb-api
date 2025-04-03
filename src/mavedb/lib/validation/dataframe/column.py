@@ -73,18 +73,29 @@ def validate_variant_formatting(column: pd.Series, prefixes: list[str], targets:
 
     # if there is more than one target, we expect variants to be fully qualified
     if fully_qualified:
-        if not all(len(str(v).split(":")) == 2 for v in variants):
+        invalid_fully_qualified = {v for v in variants if len(str(v).split(":")) != 2}
+        if invalid_fully_qualified:
             raise ValidationError(
-                f"variants in the provided column '{column.name}' were expected to be fully qualified, but are not described in relation to an accession"
-            )
-        if len(set(str(v).split(":")[1][:2] for v in variants)) > 1:
-            raise ValidationError(f"variant column '{column.name}' has inconsistent variant prefixes")
-        if not all(str(v).split(":")[1][:2] in prefixes for v in variants):
-            raise ValidationError(f"variant column '{column.name}' has invalid variant prefixes")
-        if not all(str(v).split(":")[0] in targets for v in variants):
+                f"variants in the provided column '{column.name}' were expected to be fully qualified, "
+                "but are not described in relation to an accession. "
+                "Validation errors found:\n" + "\n".join(invalid_fully_qualified))
+
+        inconsistent_prefixes = {v for v in variants if len(set(str(v).split(":")[1][:2] for v in variants)) > 1}
+        if inconsistent_prefixes:
             raise ValidationError(
-                f"variant column '{column.name}' has invalid accession identifiers; some accession identifiers present in the score file were not added as targets"
-            )
+                f"variant column '{column.name}' has inconsistent variant prefixes':\n" + "\n".join(inconsistent_prefixes))
+
+        invalid_prefixes = {v for v in variants if str(v).split(":")[1][:2] not in prefixes}
+        if invalid_prefixes:
+            raise ValidationError(
+                f"variant column '{column.name}' has invalid variant prefixes':\n" + "\n".join(invalid_prefixes))
+
+        invalid_accessions = {v for v in variants if str(v).split(":")[0] not in targets}
+        if invalid_accessions:
+            raise ValidationError(
+                f"variant column '{column.name}' has invalid accession identifiers; "
+                "some accession identifiers present in the score file were not added as targets."
+                "Validation errors found:\n" + "\n".join(invalid_accessions))
 
     else:
         if len(set(v[:2] for v in variants)) > 1:
