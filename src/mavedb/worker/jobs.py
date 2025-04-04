@@ -23,7 +23,7 @@ from mavedb.lib.score_sets import (
     create_variants_data,
 )
 from mavedb.lib.slack import send_slack_message
-from mavedb.lib.validation.dataframe import (
+from mavedb.lib.validation.dataframe.dataframe import (
     validate_and_standardize_dataframe_pair,
 )
 from mavedb.lib.validation.exceptions import ValidationError

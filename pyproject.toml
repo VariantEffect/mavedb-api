@@ -97,7 +97,7 @@ plugins = [
 mypy_path = "mypy_stubs"
 
 [tool.pytest.ini_options]
-addopts = "-v -rP --import-mode=importlib --disable-socket --allow-hosts localhost,::1,127.0.0.1"
+addopts = "-v -rP --import-mode=importlib --disable-socket --allow-unix-socket --allow-hosts localhost,::1,127.0.0.1"
 asyncio_mode = 'strict'
 testpaths = "tests/"
 pythonpath = "."

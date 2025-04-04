@@ -11,7 +11,8 @@ TEST_MEDRXIV_IDENTIFIER = "2021.06.22.21259265"
 TEST_CROSSREF_IDENTIFIER = "10.1371/2021.06.22.21259265"
 TEST_ORCID_ID = "1111-1111-1111-1111"
 
-VALID_ACCESSION = "NM_001637.3"
+VALID_NT_ACCESSION = "NM_001637.3"
+VALID_PRO_ACCESSION = "NP_001637.4"
 VALID_GENE = "BRCA1"
 
 SAVED_PUBMED_PUBLICATION = {
@@ -417,16 +418,16 @@ TEST_SEQ_SCORESET = {
         {
             "name": "TEST1",
             "category": "protein_coding",
-            "external_identifiers": [],
             "target_sequence": {
                 "sequence_type": "dna",
                 "sequence": "ACGTTT",
-                "reference": {
-                    "id": 1,
-                    "short_name": "Name",
-                    "organism_name": "Organism",
-                    "creation_date": date.today().isoformat(),
-                    "modification_date": date.today().isoformat(),
+                "taxonomy": {
+                    "tax_id": TEST_TAXONOMY["tax_id"],
+                    "organism_name": TEST_TAXONOMY["organism_name"],
+                    "common_name": TEST_TAXONOMY["common_name"],
+                    "rank": TEST_TAXONOMY["rank"],
+                    "id": TEST_TAXONOMY["id"],
+                    "url": TEST_TAXONOMY["url"],
                 },
             },
         }
@@ -540,7 +541,12 @@ TEST_MINIMAL_ACC_SCORESET = {
             "name": "TEST2",
             "category": "protein_coding",
             "externalIdentifiers": [],
-            "targetAccession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
+            "targetAccession": {
+                "accession": VALID_NT_ACCESSION,
+                "assembly": "GRCh37",
+                "gene": VALID_GENE,
+                "isBaseEditor": False,
+            },
         }
     ],
 }
@@ -554,8 +560,31 @@ TEST_ACC_SCORESET = {
         {
             "name": "TEST2",
             "category": "protein_coding",
-            "external_identifiers": [],
-            "target_accession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
+            "target_accession": {
+                "accession": VALID_NT_ACCESSION,
+                "assembly": "GRCh37",
+                "gene": VALID_GENE,
+                "is_base_editor": False,
+            },
+        }
+    ],
+}
+
+TEST_BASE_EDITOR_SCORESET = {
+    "title": "Test Score Set Acc Title",
+    "short_description": "Test accession score set",
+    "abstract_text": "Abstract",
+    "method_text": "Methods",
+    "target_genes": [
+        {
+            "name": "TEST2",
+            "category": "protein_coding",
+            "target_accession": {
+                "accession": VALID_NT_ACCESSION,
+                "assembly": "GRCh37",
+                "gene": VALID_GENE,
+                "isBaseEditor": False,
+            },
         }
     ],
 }
@@ -594,9 +623,10 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
             "externalIdentifiers": [],
             "targetAccession": {
                 "recordType": "TargetAccession",
-                "accession": VALID_ACCESSION,
+                "accession": VALID_NT_ACCESSION,
                 "assembly": "GRCh37",
                 "gene": VALID_GENE,
+                "isBaseEditor": False,
             },
         }
     ],
@@ -614,10 +644,32 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     "officialCollections": [],
 }
 
-TEST_CDOT_TRANSCRIPT = {
+TEST_NT_CDOT_TRANSCRIPT = {
     "start_codon": 0,
     "stop_codon": 18,
-    "id": VALID_ACCESSION,
+    "id": VALID_NT_ACCESSION,
+    "gene_version": "313",
+    "gene_name": VALID_GENE,
+    "biotype": ["protein_coding"],
+    "protein": "NP_001628.1",
+    "genome_builds": {
+        "GRCh37": {
+            "cds_end": 1,
+            "cds_start": 18,
+            "contig": "NC_000007.13",
+            # The exons are non-sense but it doesn't really matter for the tests.
+            "exons": [[1, 12, 20, 2001, 2440, "M196 I1 M61 I1 M181"], [12, 18, 19, 1924, 2000, None]],
+            "start": 1,
+            "stop": 18,
+            "strand": "+",
+        }
+    },
+}
+
+TEST_PRO_CDOT_TRANSCRIPT = {
+    "start_codon": 0,
+    "stop_codon": 18,
+    "id": VALID_PRO_ACCESSION,
     "gene_version": "313",
     "gene_name": VALID_GENE,
     "biotype": ["protein_coding"],
@@ -646,7 +698,7 @@ TEST_MINIMAL_POST_MAPPED_METADATA = {
     "genomic": {
         "sequence_id": "ga4gh:SQ.em9khDCUYXrVWBfWr9r8fjBUrTjj1aig",
         "sequence_type": "dna",
-        "sequence_accessions": [VALID_ACCESSION],
+        "sequence_accessions": [VALID_NT_ACCESSION],
         "sequence_genes": [VALID_GENE],
     }
 }
