@@ -1,7 +1,7 @@
 """Add ClinGen allele IDs
 
 Revision ID: e8a3b5d8f885
-Revises: b85bc7b1bec7
+Revises: 4726e4dddde8
 Create Date: 2025-01-27 18:55:09.283855
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "e8a3b5d8f885"
-down_revision = "b85bc7b1bec7"
+down_revision = "4726e4dddde8"
 branch_labels = None
 depends_on = None
 
