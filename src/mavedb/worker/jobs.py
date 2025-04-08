@@ -762,7 +762,8 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
             return {"success": True, "retried": False}
 
         variant_content = [
-            (mapped_variant.post_mapped[""], variant, mapped_variant) for variant, mapped_variant in variant_objects
+            (mapped_variant.post_mapped["variation"]["expressions"][0]["value"], variant, mapped_variant)
+            for variant, mapped_variant in variant_objects
         ]
         submission_content = construct_ldh_submission(variant_content)
 

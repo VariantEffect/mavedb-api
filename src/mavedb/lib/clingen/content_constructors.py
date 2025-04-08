@@ -38,12 +38,17 @@ def construct_ldh_submission_entity(variant: Variant, mapped_variant: MappedVari
     return {
         "MaveDbMapping": [
             {
-                # TODO#372: We try to make all possible fields that are non-nullable represented that way.
-                "mavedb_id": variant.urn,  # type: ignore
-                "pre_mapped": mapped_variant.pre_mapped,  # type: ignore
-                "post_mapped": mapped_variant.post_mapped,  # type: ignore
-                "mapping_api_version": mapped_variant.mapping_api_version,  # type: ignore
-                "score": variant.data["score_data"]["score"],  # type: ignore
+                "entContent": {
+                    # TODO#372: We try to make all possible fields that are non-nullable represented that way.
+                    "mavedb_id": variant.urn,  # type: ignore
+                    "pre_mapped": mapped_variant.pre_mapped,  # type: ignore
+                    "post_mapped": mapped_variant.post_mapped,  # type: ignore
+                    "mapping_api_version": mapped_variant.mapping_api_version,  # type: ignore
+                    "score": variant.data["score_data"]["score"],  # type: ignore
+                },
+                "entId": variant.urn,  # type: ignore
+                # TODO: We should have some sort of constant for our base url.
+                "entIri": f"https://staging.mavedb.org/score-sets/{variant.urn}",  # type: ignore
             }
         ]
     }
