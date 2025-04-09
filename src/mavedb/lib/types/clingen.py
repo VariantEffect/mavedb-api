@@ -1,6 +1,5 @@
 from typing import TypedDict, Literal
 from typing_extensions import NotRequired
-from uuid import UUID
 
 
 # See: https://ldh.genome.network/docs/ldh/submit.html#content-submission-body
@@ -14,7 +13,7 @@ class EventSbj(TypedDict):
     id: str
     type: str
     format: Literal["hgvs", "alleleRegistryID", "clinvarID", "geneSymbol"]
-    add: bool
+    add: Literal["true", "false"]
 
 
 # Who/what triggered the event
@@ -32,7 +31,7 @@ class EventTrigger(TypedDict):
 class LdhEvent(TypedDict):
     type: str
     name: str
-    uuid: UUID
+    uuid: str
     sbj: EventSbj
     triggered: EventTrigger
 
@@ -59,8 +58,14 @@ class LdhMapping(TypedDict):
     score: float
 
 
+class LdhEntity(TypedDict):
+    entContent: LdhMapping
+    entId: str
+    entIri: str
+
+
 class LdhContentLinkedData(TypedDict):
-    MaveDbMapping: list[LdhMapping]
+    MaveDbMapping: list[LdhEntity]
 
 
 ### Linked Data Hub Submission Type

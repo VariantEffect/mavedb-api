@@ -1,7 +1,6 @@
 import logging
 import os
 from datetime import datetime
-from itertools import islice
 from typing import Optional
 
 import requests
@@ -10,7 +9,7 @@ from jose import jwt
 from mavedb.lib.logging.context import logging_context, save_to_logging_context, format_raised_exception_info_as_dict
 from mavedb.lib.clingen.constants import GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD
 from mavedb.lib.types.clingen import LdhSubmission
-from mavedb.lib.utils import request_with_backoff
+from mavedb.lib.utils import batched, request_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -68,30 +67,31 @@ class ClinGenLdhService:
     def dispatch_submissions(
         self, content_submissions: list[LdhSubmission], batch_size: Optional[int] = None
     ) -> tuple[list, list]:
-        # TODO: When we upgrade to Python 3.12, we can replace this with the built-in `itertools.batched` method.
-        if batch_size is not None:
-            batched_submissions: list[list[LdhSubmission]] = []
-            while batch := tuple(islice(content_submissions, batch_size)):
-                batched_submissions.append(list(batch))
-
-            save_to_logging_context({"ldh_submission_batch_size": batch_size})
-            save_to_logging_context({"ldh_submission_batch_count": len(batched_submissions)})
-
         submission_successes = []
         submission_failures = []
-        submissions = batched_submissions if batch_size is not None else content_submissions
-        save_to_logging_context({"ldh_submission_count": len(submissions)})
+        submissions = list(batched(content_submissions, batch_size)) if batch_size is not None else content_submissions
+        save_to_logging_context({"ldh_submission_count": len(content_submissions)})
 
-        logger.debug(msg="Dispatching ldh submissions.", extra=logging_context())
-        for content in submissions:
+        if batch_size is not None:
+            save_to_logging_context({"ldh_submission_batch_size": batch_size})
+            save_to_logging_context({"ldh_submission_batch_count": len(submissions)})
+            logger.debug("Batching ldh submissions.", extra=logging_context())
+
+        logger.info(msg=f"Dispatching {len(submissions)} ldh submissions...", extra=logging_context())
+        for idx, content in enumerate(submissions):
             try:
                 response = request_with_backoff(
                     method="PUT",
                     url=self.url,
                     json=content,
-                    headers={"Authorization": f"Bearer {self.authenticate()}"},
+                    headers={"Authorization": f"Bearer {self.authenticate()}", "Content-Type": "application/json"},
                 )
                 submission_successes.append(response.json())
+                logger.debug(
+                    msg=f"Successfully dispatched ldh submission ({idx+1} / {len(submissions)}).",
+                    extra=logging_context(),
+                )
+
             except requests.exceptions.RequestException as exc:
                 save_to_logging_context(format_raised_exception_info_as_dict(exc))
                 logger.error(msg="Failed to dispatch ldh submission.", exc_info=exc, extra=logging_context())
@@ -104,7 +104,7 @@ class ClinGenLdhService:
                 "ldh_submission_failure_count": len(submission_failures),
             }
         )
-        logger.info(msg="Done dispatching ldh submissions", extra=logging_context())
+        logger.info(msg="Done dispatching ldh submissions.", extra=logging_context())
         return submission_successes, submission_failures
 
     def _existing_jwt(self) -> Optional[str]:

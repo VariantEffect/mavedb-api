@@ -12,12 +12,12 @@ def construct_ldh_submission_event(sbj: LdhContentSubject) -> LdhEvent:
     return {
         "type": LDH_SUBMISSION_TYPE,
         "name": LDH_ENTITY_NAME,
-        "uuid": uuid4(),
+        "uuid": str(uuid4()),
         "sbj": {
             "id": sbj["Variant"]["hgvs"],
             "type": "Variant",
             "format": "hgvs",
-            "add": True,
+            "add": "true",
         },
         "triggered": {
             "by": {
@@ -36,10 +36,10 @@ def construct_ldh_submission_subject(hgvs: str) -> LdhContentSubject:
 
 def construct_ldh_submission_entity(variant: Variant, mapped_variant: MappedVariant) -> LdhContentLinkedData:
     return {
+        # TODO#372: We try to make all possible fields that are non-nullable represented that way.
         "MaveDbMapping": [
             {
                 "entContent": {
-                    # TODO#372: We try to make all possible fields that are non-nullable represented that way.
                     "mavedb_id": variant.urn,  # type: ignore
                     "pre_mapped": mapped_variant.pre_mapped,  # type: ignore
                     "post_mapped": mapped_variant.post_mapped,  # type: ignore

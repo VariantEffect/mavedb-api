@@ -24,3 +24,13 @@ def request_with_backoff(
             time.sleep(backoff_time)
 
     raise requests.exceptions.RequestException(f"Request to {url} failed after {backoff_limit} attempts.")
+
+
+# TODO: When we upgrade to Python 3.12, we can replace this with the built-in `itertools.batched` method.
+def batched(iterable, n):
+    """
+    Yield successive n-sized chunks from iterable.
+    """
+    l = len(iterable)  # noqa: E741
+    for i in range(0, l, n):
+        yield iterable[i : min((i + n, l))]
