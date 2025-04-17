@@ -32,7 +32,7 @@ from mavedb.lib.logging.context import (
     save_to_logging_context,
 )
 from mavedb.lib.permissions import PermissionException
-from mavedb.lib.slack import send_slack_message
+from mavedb.lib.slack import send_slack_error
 from mavedb.models import *  # noqa: F403
 from mavedb.routers import (
     access_keys,
@@ -176,7 +176,7 @@ async def exception_handler(request, err):
 
     try:
         logger.error(msg="Uncaught exception.", extra=logging_context(), exc_info=err)
-        send_slack_message(err=err, request=request)
+        send_slack_error(err=err, request=request)
     finally:
         log_request(request, response, time.time_ns())
 

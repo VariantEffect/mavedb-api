@@ -25,7 +25,7 @@ from mavedb.lib.score_sets import (
     create_variants,
     create_variants_data,
 )
-from mavedb.lib.slack import send_slack_message
+from mavedb.lib.slack import send_slack_error, send_slack_message
 from mavedb.lib.validation.dataframe import (
     validate_and_standardize_dataframe_pair,
 )
@@ -185,7 +185,7 @@ async def create_variants_for_score_set(
         logging_context["created_variants"] = 0
         logger.warning(msg="Encountered an internal exception while processing variants.", extra=logging_context)
 
-        send_slack_message(err=e)
+        send_slack_error(err=e)
         return {"success": False}
 
     # Catch all other exceptions. The exceptions caught here were intented to be system exiting.
@@ -274,7 +274,7 @@ async def map_variants_for_score_set(
             loop = asyncio.get_running_loop()
 
         except Exception as e:
-            send_slack_message(e)
+            send_slack_error(e)
             logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
             logger.error(
                 msg="Variant mapper encountered an unexpected error during setup. This job will not be retried.",
@@ -303,7 +303,7 @@ async def map_variants_for_score_set(
             db.add(score_set)
             db.commit()
 
-            send_slack_message(e)
+            send_slack_error(e)
             logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
             logger.warning(
                 msg="Variant mapper encountered an unexpected error while mapping variants. This job will be retried.",
@@ -330,7 +330,7 @@ async def map_variants_for_score_set(
                 score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
                 db.add(score_set)
                 db.commit()
-                send_slack_message(backoff_e)
+                send_slack_error(backoff_e)
                 logging_context = {**logging_context, **format_raised_exception_info_as_dict(backoff_e)}
                 logger.critical(
                     msg="While attempting to re-enqueue a mapping job that exited in error, another exception was encountered. This score set will not be mapped.",
@@ -486,7 +486,7 @@ async def map_variants_for_score_set(
             db.add(score_set)
             db.commit()
 
-            send_slack_message(e)
+            send_slack_error(e)
             logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
             logger.warning(
                 msg="An unexpected error occurred during variant mapping. This job will be attempted again.",
@@ -511,7 +511,7 @@ async def map_variants_for_score_set(
             except Exception as backoff_e:
                 score_set.mapping_state = MappingState.failed
                 score_set.mapping_errors = {"error_message": "Encountered an internal server error during mapping"}
-                send_slack_message(backoff_e)
+                send_slack_error(backoff_e)
                 logging_context = {**logging_context, **format_raised_exception_info_as_dict(backoff_e)}
                 logger.critical(
                     msg="While attempting to re-enqueue a mapping job that exited in error, another exception was encountered. This score set will not be mapped.",
@@ -587,7 +587,7 @@ async def variant_mapper_manager(ctx: dict, correlation_id: str, updater_id: int
         logging_context["existing_mapping_job_id"] = mapping_job_id
 
     except Exception as e:
-        send_slack_message(e)
+        send_slack_error(e)
 
         # Attempt to remove this item from the mapping queue.
         try:
@@ -647,7 +647,7 @@ async def variant_mapper_manager(ctx: dict, correlation_id: str, updater_id: int
         raise MappingEnqueueError()
 
     except Exception as e:
-        send_slack_message(e)
+        send_slack_error(e)
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logger.error(
             msg="Variant mapper manager encountered an unexpected error while enqueing a mapping job. This job will not be retried.",
@@ -707,6 +707,9 @@ async def refresh_published_variants_view(ctx: dict, correlation_id: str):
 async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score_set_id: int, publisher_id: int):
     logging_context = {}
     score_set = None
+    text = (
+        "Could not submit mappings to LDH for score set %s. Mappings for this score set should be submitted manually."
+    )
     try:
         db: Session = ctx["db"]
         score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one()
@@ -721,7 +724,12 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
         logger.debug(msg="Fetched score set metadata for ldh mapped resource submission.", extra=logging_context)
 
     except Exception as e:
-        send_slack_message(e)
+        send_slack_error(e)
+        if score_set:
+            send_slack_message(text=text % score_set.urn)
+        else:
+            send_slack_message(text=text % score_set_id)
+
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logger.error(
             msg="LDH mapped resource submission encountered an unexpected error during setup. This job will not be retried.",
@@ -734,10 +742,11 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
         ldh_service = ClinGenLdhService(url=LDH_SUBMISSION_URL)
         ldh_service.authenticate()
     except Exception as e:
-        send_slack_message(e)
+        send_slack_error(e)
+        send_slack_message(text=text % score_set.urn)
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logger.error(
-            msg="LDH mapped resource submission encountered an unexpected error while attempting to connect to the LDH. This job will not be retried.",
+            msg="LDH mapped resource submission encountered an unexpected error while attempting to authenticate to the LDH. This job will not be retried.",
             extra=logging_context,
         )
 
@@ -768,7 +777,8 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
         submission_content = construct_ldh_submission(variant_content)
 
     except Exception as e:
-        send_slack_message(e)
+        send_slack_error(e)
+        send_slack_message(text=text % score_set.urn)
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logger.error(
             msg="LDH mapped resource submission encountered an unexpected error while attempting to construct submission objects. This job will not be retried.",
@@ -785,7 +795,8 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
         submission_successes, submission_failures = await loop.run_in_executor(ctx["pool"], blocking)
 
     except Exception as e:
-        send_slack_message(e)
+        send_slack_error(e)
+        send_slack_message(text=text % score_set.urn)
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logger.error(
             msg="LDH mapped resource submission encountered an unexpected error while dispatching submissions. This job will not be retried.",
@@ -796,7 +807,10 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
         assert not submission_failures, f"{len(submission_failures)} submissions failed to be dispatched to the LDH."
         logger.info(msg="Dispatched all variant mapping submissions to the LDH.", extra=logging_context)
     except AssertionError as e:
-        send_slack_message(e)
+        send_slack_error(e)
+        send_slack_message(
+            text=f"{len(submission_failures)} submissions failed to be dispatched to the LDH for score set {score_set.urn}."
+        )
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logger.error(
             msg="LDH mapped resource submission failed to submit all mapping resources. This job will not be retried.",
@@ -806,3 +820,36 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
         return {"success": False, "retried": False}
 
     return {"success": True, "retried": False}
+
+
+async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: int, publisher_id: int) -> dict:
+    logging_context = {}
+    score_set = None
+    text = "Could not link mappings to LDH for score set %s. Mappings for this score set should be linked manually."
+    try:
+        db: Session = ctx["db"]
+        score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one()
+
+        logging_context = setup_job_state(ctx, publisher_id, score_set.urn, correlation_id)
+        logger.info(msg="Started LDH mapped resource linkage", extra=logging_context)
+
+        submission_urn = score_set.urn
+        assert submission_urn, "A valid URN is needed to link LDH objects for this score set."
+
+        logging_context["current_ldh_linking_resource"] = submission_urn
+        logger.debug(msg="Fetched score set metadata for ldh mapped resource linkage.", extra=logging_context)
+
+    except Exception as e:
+        send_slack_error(e)
+        if score_set:
+            send_slack_message(text=text % score_set.urn)
+        else:
+            send_slack_message(text=text % score_set_id)
+
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="LDH mapped resource linkage encountered an unexpected error during setup. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False}
