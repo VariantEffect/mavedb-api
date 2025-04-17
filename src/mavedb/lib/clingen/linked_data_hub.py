@@ -3,11 +3,14 @@ import requests
 import os
 from datetime import datetime
 from typing import Optional
+from urllib import parse
+
 
 from jose import jwt
 
 from mavedb.lib.logging.context import logging_context, save_to_logging_context, format_raised_exception_info_as_dict
-from mavedb.lib.clingen.constants import GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD
+from mavedb.lib.clingen.constants import GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD, LDH_LINKED_DATA_URL
+
 from mavedb.lib.types.clingen import LdhSubmission
 from mavedb.lib.utils import batched, request_with_backoff
 
@@ -121,4 +124,17 @@ class ClinGenLdhService:
             return existing_jwt
 
         logger.debug(msg="Found existing but expired Genboree JWT.", extra=logging_context())
+        return None
+
+
+def get_clingen_variation(urn: str) -> Optional[dict]:
+    response = requests.get(
+        f"{LDH_LINKED_DATA_URL}/{parse.quote_plus(urn)}",
+        headers={"Accept": "application/json"},
+    )
+
+    if response.status_code == 200:
+        return response.json()["data"]["ldFor"]["Variant"][0]
+    else:
+        logger.error(f"Failed to fetch data for URN {urn}: {response.status_code} - {response.text}")
         return None

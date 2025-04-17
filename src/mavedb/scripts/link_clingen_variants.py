@@ -1,33 +1,18 @@
 import click
-import requests
 import logging
-from typing import Optional, Sequence
-from urllib import parse
+from typing import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from mavedb.lib.clingen.linked_data_hub import get_clingen_variation
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.scripts.environment import with_database_session
-from mavedb.lib.clingen.constants import LDH_LINKED_DATA_URL
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
-
-def get_clingen_variation(urn: str) -> Optional[dict]:
-    response = requests.get(
-        f"{LDH_LINKED_DATA_URL}/{parse.quote_plus(urn)}",
-        headers={"Accept": "application/json"},
-    )
-
-    if response.status_code == 200:
-        return response.json()["data"]["ldFor"]["Variant"][0]
-    else:
-        logger.error(f"Failed to fetch data for URN {urn}: {response.status_code} - {response.text}")
-        return None
 
 
 @click.command()
