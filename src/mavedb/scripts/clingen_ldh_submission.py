@@ -52,6 +52,7 @@ def submit_urns_to_clingen(db: Session, urns: Sequence[str], debug: bool) -> lis
                 .join(MappedVariant)
                 .join(ScoreSet)
                 .where(ScoreSet.urn == urn)
+                .where(MappedVariant.post_mapped.is_not(None))
                 .where(MappedVariant.current.is_(True))
             ).all()
 
