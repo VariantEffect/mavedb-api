@@ -1,9 +1,9 @@
 import logging
+import requests
 import os
 from datetime import datetime
 from typing import Optional
 
-import requests
 from jose import jwt
 
 from mavedb.lib.logging.context import logging_context, save_to_logging_context, format_raised_exception_info_as_dict
@@ -19,13 +19,11 @@ class ClinGenLdhService:
         self.url = url
 
     def authenticate(self) -> str:
-        logger.info(msg="Attempting to use an existing Genboree JWT.", extra=logging_context())
-
         if existing_jwt := self._existing_jwt():
             logger.info(msg="Using existing Genboree JWT for authentication.", extra=logging_context())
             return existing_jwt
 
-        logger.info(
+        logger.debug(
             msg="No existing or valid Genboree JWT found. Authenticating via Genboree services.",
             extra=logging_context(),
         )
@@ -87,7 +85,7 @@ class ClinGenLdhService:
                     headers={"Authorization": f"Bearer {self.authenticate()}", "Content-Type": "application/json"},
                 )
                 submission_successes.append(response.json())
-                logger.debug(
+                logger.info(
                     msg=f"Successfully dispatched ldh submission ({idx+1} / {len(submissions)}).",
                     extra=logging_context(),
                 )
@@ -108,17 +106,19 @@ class ClinGenLdhService:
         return submission_successes, submission_failures
 
     def _existing_jwt(self) -> Optional[str]:
+        logger.debug(msg="Checking for existing Genboree JWT.", extra=logging_context())
+
         existing_jwt = os.getenv("GENBOREE_JWT")
 
         if not existing_jwt:
-            logger.debug(msg="No existing Genboree JWT was set.")
+            logger.debug(msg="No existing Genboree JWT was set.", extra=logging_context())
             return None
 
         expiration = jwt.get_unverified_claims(existing_jwt).get("exp", datetime.now().timestamp())
 
         if expiration > datetime.now().timestamp():
-            logger.debug(msg="Found existing and valid Genboree JWT.")
+            logger.debug(msg="Found existing and valid Genboree JWT.", extra=logging_context())
             return existing_jwt
 
-        logger.debug(msg="Found existing but expired Genboree JWT.")
+        logger.debug(msg="Found existing but expired Genboree JWT.", extra=logging_context())
         return None

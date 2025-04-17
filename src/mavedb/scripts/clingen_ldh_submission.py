@@ -14,7 +14,6 @@ from mavedb.lib.clingen.constants import DEFAULT_LDH_SUBMISSION_BATCH_SIZE, LDH_
 from mavedb.lib.clingen.content_constructors import construct_ldh_submission
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 
 def _variation_from_post_mapped(mapped_variant: MappedVariant) -> str:
@@ -28,13 +27,19 @@ def _variation_from_post_mapped(mapped_variant: MappedVariant) -> str:
         return mapped_variant.post_mapped["variation"]["expressions"][0]["value"]  # type: ignore
 
 
-def submit_urns_to_clingen(db: Session, urns: Sequence[str]) -> list[str]:
+def submit_urns_to_clingen(db: Session, urns: Sequence[str], debug: bool) -> list[str]:
     ldh_service = ClinGenLdhService(url=LDH_SUBMISSION_URL)
     ldh_service.authenticate()
 
     submitted_entities = []
 
-    for urn in urns:
+    if debug:
+        logger.debug("Debug mode enabled. Submitting only one request to ClinGen.")
+        urns = urns[:1]
+
+    for idx, urn in enumerate(urns):
+        logger.info(f"Processing URN: {urn}. (Scoreset {idx + 1}/{len(urns)})")
+
         try:
             score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == urn)).one_or_none()
             if not score_set:
@@ -64,6 +69,11 @@ def submit_urns_to_clingen(db: Session, urns: Sequence[str]) -> list[str]:
                 for variant, mapped_variant in variant_objects
             ]
 
+            if debug:
+                logger.debug("Debug mode enabled. Submitting only one request to ClinGen.")
+                variant_content = variant_content[:1]
+
+            logger.debug(f"Constructing LDH submission for {len(variant_content)} variants")
             submission_content = construct_ldh_submission(variant_content)
             submission_successes, submission_failures = ldh_service.dispatch_submissions(
                 submission_content, DEFAULT_LDH_SUBMISSION_BATCH_SIZE
@@ -87,7 +97,10 @@ def submit_urns_to_clingen(db: Session, urns: Sequence[str]) -> list[str]:
 @click.argument("urns", nargs=-1)
 @click.option("--all", help="Submit mapped variants for every score set in MaveDB.", is_flag=True)
 @click.option("--suppress-output", help="Suppress final print output to the console.", is_flag=True)
-def submit_clingen_urns_command(db: Session, urns: Sequence[str], all: bool, suppress_output: bool) -> None:
+@click.option("--debug", help="Enable debug mode. This will send only one request at most to ClinGen", is_flag=True)
+def submit_clingen_urns_command(
+    db: Session, urns: Sequence[str], all: bool, suppress_output: bool, debug: bool
+) -> None:
     """
     Submit data to ClinGen for mapped variant allele ID generation for the given URNs.
     """
@@ -103,10 +116,10 @@ def submit_clingen_urns_command(db: Session, urns: Sequence[str], all: bool, sup
         logger.error("No URNs provided. Please provide at least one URN.")
         return
 
-    submitted_variant_urns = submit_urns_to_clingen(db, urns)
+    submitted_variant_urns = submit_urns_to_clingen(db, urns, debug)
 
     if not suppress_output:
-        print(submitted_variant_urns)
+        print(", ".join(submitted_variant_urns))
 
 
 if __name__ == "__main__":

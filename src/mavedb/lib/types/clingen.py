@@ -13,7 +13,7 @@ class EventSbj(TypedDict):
     id: str
     type: str
     format: Literal["hgvs", "alleleRegistryID", "clinvarID", "geneSymbol"]
-    add: Literal["true", "false"]
+    add: bool
 
 
 # Who/what triggered the event
@@ -65,7 +65,7 @@ class LdhEntity(TypedDict):
 
 
 class LdhContentLinkedData(TypedDict):
-    MaveDbMapping: list[LdhEntity]
+    MaveDBMapping: list[LdhEntity]
 
 
 ### Linked Data Hub Submission Type

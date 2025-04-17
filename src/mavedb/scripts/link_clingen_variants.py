@@ -2,10 +2,12 @@ import click
 import requests
 import logging
 from typing import Optional, Sequence
+from urllib import parse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.scripts.environment import with_database_session
@@ -17,12 +19,12 @@ logger.setLevel(logging.DEBUG)
 
 def get_clingen_variation(urn: str) -> Optional[dict]:
     response = requests.get(
-        f"{LDH_LINKED_DATA_URL}/{urn}",
+        f"{LDH_LINKED_DATA_URL}/{parse.quote_plus(urn)}",
         headers={"Accept": "application/json"},
     )
 
     if response.status_code == 200:
-        return response.json()["data"]
+        return response.json()["data"]["ldFor"]["Variant"][0]
     else:
         logger.error(f"Failed to fetch data for URN {urn}: {response.status_code} - {response.text}")
         return None
@@ -31,13 +33,27 @@ def get_clingen_variation(urn: str) -> Optional[dict]:
 @click.command()
 @with_database_session
 @click.argument("urns", nargs=-1)
-def link_clingen_variants(db: Session, urns: Sequence[str]) -> None:
+@click.option("--score-sets/--variants", default=False)
+def link_clingen_variants(db: Session, urns: Sequence[str], score_sets: bool) -> None:
     """
     Submit data to ClinGen for mapped variant allele ID generation for the given URNs.
     """
     if not urns:
         logger.error("No URNs provided. Please provide at least one URN.")
         return
+
+    # Convert score set URNs to variant URNs.
+    if score_sets:
+        variants = [
+            db.scalars(
+                select(Variant.urn)
+                .join(MappedVariant)
+                .join(ScoreSet)
+                .where(ScoreSet.urn == urn, MappedVariant.current.is_(True))
+            ).all()
+            for urn in urns
+        ]
+        urns = [variant for sublist in variants for variant in sublist if variant is not None]
 
     failed_urns = []
     for urn in urns:
@@ -54,16 +70,15 @@ def link_clingen_variants(db: Session, urns: Sequence[str]) -> None:
             failed_urns.append(urn)
             continue
 
-        mapped_variant.clingen_allele_id = ldh_variation["id"]
+        mapped_variant.clingen_allele_id = ldh_variation["entId"]
         db.add(mapped_variant)
-        db.commit()
 
-        logger.info(f"Successfully linked URN {urn} to ClinGen variation {ldh_variation['id']}.")
+        logger.info(f"Successfully linked URN {urn} to ClinGen variation {ldh_variation['entId']}.")
 
     if failed_urns:
-        logger.warning(f"Failed to link the following URNs: {', '.join(failed_urns)}")
+        logger.warning(f"Failed to link the following {len(failed_urns)} URNs: {', '.join(failed_urns)}")
 
-    logger.info(f"Linking process completed. Linked {len(urns) - len(failed_urns)} URNs successfully.")
+    logger.info(f"Linking process completed. Linked {len(urns) - len(failed_urns)}/{len(urns)} URNs successfully.")
 
 
 if __name__ == "__main__":
