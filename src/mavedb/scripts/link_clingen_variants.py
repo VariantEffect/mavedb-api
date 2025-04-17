@@ -12,7 +12,6 @@ from mavedb.models.mapped_variant import MappedVariant
 from mavedb.scripts.environment import with_database_session
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 
 @click.command()
@@ -34,7 +33,7 @@ def link_clingen_variants(db: Session, urns: Sequence[str], score_sets: bool) ->
                 select(Variant.urn)
                 .join(MappedVariant)
                 .join(ScoreSet)
-                .where(ScoreSet.urn == urn, MappedVariant.current.is_(True))
+                .where(ScoreSet.urn == urn, MappedVariant.current.is_(True), MappedVariant.post_mapped.is_not(None))
             ).all()
             for urn in urns
         ]
