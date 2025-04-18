@@ -15,3 +15,5 @@ MAVEDB_BASE_GIT = "https://github.com/VariantEffect/mavedb-api"
 DEFAULT_LDH_SUBMISSION_BATCH_SIZE = 100
 LDH_SUBMISSION_URL = f"https://genboree.org/mq/brdg/pulsar/{CLIN_GEN_TENANT}/ldh/submissions/{LDH_ENTITY_ENDPOINT}"
 LDH_LINKED_DATA_URL = f"https://genboree.org/{LDH_TENANT}/{LDH_ENTITY_NAME}/id"
+
+LINKED_DATA_RETRY_THRESHOLD = 0.95

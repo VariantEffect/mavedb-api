@@ -15,9 +15,13 @@ from sqlalchemy.orm import Session
 
 from mavedb.data_providers.services import vrs_mapper
 from mavedb.db.view import refresh_all_mat_views
-from mavedb.lib.clingen.constants import DEFAULT_LDH_SUBMISSION_BATCH_SIZE, LDH_SUBMISSION_URL
+from mavedb.lib.clingen.constants import (
+    DEFAULT_LDH_SUBMISSION_BATCH_SIZE,
+    LDH_SUBMISSION_URL,
+    LINKED_DATA_RETRY_THRESHOLD,
+)
 from mavedb.lib.clingen.content_constructors import construct_ldh_submission
-from mavedb.lib.clingen.linked_data_hub import ClinGenLdhService
+from mavedb.lib.clingen.linked_data_hub import ClinGenLdhService, get_clingen_variation
 from mavedb.lib.exceptions import MappingEnqueueError, NonexistentMappingReferenceError, NonexistentMappingResultsError
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.score_sets import (
@@ -43,7 +47,8 @@ logger = logging.getLogger(__name__)
 MAPPING_QUEUE_NAME = "vrs_mapping_queue"
 MAPPING_CURRENT_ID_NAME = "vrs_mapping_current_job_id"
 BACKOFF_LIMIT = 5
-BACKOFF_IN_SECONDS = 15
+MAPPING_BACKOFF_IN_SECONDS = 15
+LINKING_BACKOFF_IN_SECONDS = 15 * 60
 
 
 ####################################################################################################
@@ -64,14 +69,14 @@ def setup_job_state(
 
 
 async def enqueue_job_with_backoff(
-    redis: ArqRedis, job_name: str, attempt: int, *args
+    redis: ArqRedis, job_name: str, attempt: int, backoff: int, *args
 ) -> tuple[Optional[str], bool, Any]:
     new_job_id = None
     backoff = None
     limit_reached = attempt > BACKOFF_LIMIT
     if not limit_reached:
         limit_reached = True
-        backoff = BACKOFF_IN_SECONDS * (2**attempt)
+        backoff = backoff * (2**attempt)
         attempt = attempt + 1
 
         # NOTE: for jobs supporting backoff, `attempt` should be the final argument.
@@ -315,7 +320,7 @@ async def map_variants_for_score_set(
             try:
                 await redis.lpush(MAPPING_QUEUE_NAME, score_set.id)  # type: ignore
                 new_job_id, max_retries_exceeded, backoff_time = await enqueue_job_with_backoff(
-                    redis, "variant_mapper_manager", attempt, correlation_id, updater_id
+                    redis, "variant_mapper_manager", attempt, MAPPING_BACKOFF_IN_SECONDS, correlation_id, updater_id
                 )
                 # If we fail to enqueue a mapping manager for this score set, evict it from the queue.
                 if new_job_id is None:
@@ -498,7 +503,7 @@ async def map_variants_for_score_set(
             try:
                 await redis.lpush(MAPPING_QUEUE_NAME, score_set.id)  # type: ignore
                 new_job_id, max_retries_exceeded, backoff_time = await enqueue_job_with_backoff(
-                    redis, "variant_mapper_manager", attempt, correlation_id, updater_id
+                    redis, "variant_mapper_manager", attempt, MAPPING_BACKOFF_IN_SECONDS, correlation_id, updater_id
                 )
                 # If we fail to enqueue a mapping manager for this score set, evict it from the queue.
                 if new_job_id is None:
@@ -704,7 +709,7 @@ async def refresh_published_variants_view(ctx: dict, correlation_id: str):
 ####################################################################################################
 
 
-async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score_set_id: int, publisher_id: int):
+async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score_set_id: int):
     logging_context = {}
     score_set = None
     text = (
@@ -714,7 +719,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
         db: Session = ctx["db"]
         score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one()
 
-        logging_context = setup_job_state(ctx, publisher_id, score_set.urn, correlation_id)
+        logging_context = setup_job_state(ctx, None, score_set.urn, correlation_id)
         logger.info(msg="Started LDH mapped resource submission", extra=logging_context)
 
         submission_urn = score_set.urn
@@ -822,7 +827,24 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
     return {"success": True, "retried": False}
 
 
-async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: int, publisher_id: int) -> dict:
+def get_ldh_variation(logging_ctx: dict, variant_urns: list[str]):
+    linked_data = []
+    for idx, variant_urn in enumerate(variant_urns):
+        logging_ctx["on_variation_fetch"] = idx
+        ldh_variation = get_clingen_variation(variant_urn)
+
+        if not ldh_variation:
+            linked_data.append((variant_urn, None))
+            continue
+        else:
+            linked_data.append((variant_urn, ldh_variation["entId"]))
+
+        logger.debug(msg=f"Found ClinGen variation {ldh_variation['entId']} for URN {variant_urn}.", extra=logging_ctx)
+
+    return linked_data
+
+
+async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: int, attempt: int) -> dict:
     logging_context = {}
     score_set = None
     text = "Could not link mappings to LDH for score set %s. Mappings for this score set should be linked manually."
@@ -830,7 +852,10 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
         db: Session = ctx["db"]
         score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one()
 
-        logging_context = setup_job_state(ctx, publisher_id, score_set.urn, correlation_id)
+        logging_context = setup_job_state(ctx, None, score_set.urn, correlation_id)
+        logging_context["linkage_retry_threshold"] = LINKED_DATA_RETRY_THRESHOLD
+        logging_context["attempt"] = attempt
+        logging_context["max_attempts"] = BACKOFF_LIMIT
         logger.info(msg="Started LDH mapped resource linkage", extra=logging_context)
 
         submission_urn = score_set.urn
@@ -853,3 +878,191 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
         )
 
         return {"success": False, "retried": False}
+
+    try:
+        variant_urns = db.scalars(
+            select(Variant.urn)
+            .join(MappedVariant)
+            .join(ScoreSet)
+            .where(
+                ScoreSet.urn == score_set.urn, MappedVariant.current.is_(True), MappedVariant.post_mapped.is_not(None)
+            )
+        ).all()
+        num_variant_urns = len(variant_urns)
+
+        logging_context["variants_to_link_ldh"] = submission_urn
+
+        if not variant_urns:
+            logger.warning(
+                msg="No current mapped variants with post mapped metadata were found for this score set. Skipping LDH linkage (nothing to do).",
+                extra=logging_context,
+            )
+
+            return {"success": True, "retried": False}
+
+        logger.info(
+            msg="Found current mapped variants with post mapped metadata for this score set. Attempting to link them to LDH submissions.",
+            extra=logging_context,
+        )
+
+    except Exception as e:
+        send_slack_error(e)
+        send_slack_message(text=text % score_set.urn)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="LDH mapped resource linkage encountered an unexpected error while attempting to build linkage urn list. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False}
+
+    try:
+        logger.info(msg="Attempting to link mapped variants to LDH submissions.", extra=logging_context)
+        # TODO#372: Non-nullable variant urns.
+        blocking = functools.partial(
+            get_ldh_variation,
+            variant_urns,  # type: ignore
+        )
+        loop = asyncio.get_running_loop()
+        linked_data = await loop.run_in_executor(ctx["pool"], blocking)
+
+    except Exception as e:
+        send_slack_error(e)
+        send_slack_message(text=text % score_set.urn)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="LDH mapped resource linkage encountered an unexpected error while attempting to link LDH submissions. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False}
+
+    try:
+        linkage_failures = []
+        for variant_urn, ldh_variation in linked_data:
+            # XXX: Should we unlink variation if it is not found?
+            if not ldh_variation:
+                logger.warning(
+                    msg=f"Failed to link mapped variant {variant_urn} to LDH submission. No LDH variation found.",
+                    extra=logging_context,
+                )
+                linkage_failures.append(variant_urn)
+                continue
+
+            mapped_variant = db.scalars(
+                select(MappedVariant).join(Variant).where(Variant.urn == variant_urn, MappedVariant.current.is_(True))
+            ).one_or_none()
+
+            if not mapped_variant:
+                logger.warning(
+                    msg=f"Failed to link mapped variant {variant_urn} to LDH submission. No mapped variant found.",
+                    extra=logging_context,
+                )
+                linkage_failures.append(variant_urn)
+                continue
+
+            mapped_variant.clingen_allele_id = ldh_variation
+            db.add(mapped_variant)
+
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+
+        send_slack_error(e)
+        send_slack_message(text=text % score_set.urn)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="LDH mapped resource linkage encountered an unexpected error while attempting to link LDH submissions. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False}
+
+    try:
+        num_linkage_failures = len(linkage_failures)
+        ratio_failed_linking = round(num_linkage_failures / num_variant_urns, 3)
+        logging_context["linkage_failure_rate"] = ratio_failed_linking
+        logging_context["linkage_failures"] = num_linkage_failures
+        logging_context["linkage_successes"] = num_variant_urns - num_linkage_failures
+
+        if not linkage_failures:
+            logger.info(
+                msg="Successfully linked all mapped variants to LDH submissions.",
+                extra=logging_context,
+            )
+            return {"success": True, "retried": False}
+
+        if ratio_failed_linking < LINKED_DATA_RETRY_THRESHOLD:
+            logger.warning(
+                msg="Linkage failures exist, but did not exceed the retry threshold.",
+                extra=logging_context,
+            )
+            send_slack_message(
+                text=f"Failed to link {len(linkage_failures)} mapped variants to LDH submissions for score set {score_set.urn}."
+                f"The retry threshold was not exceeded and this job will not be retried. URNs failed to link: {', '.join(linkage_failures)}."
+            )
+            return {"success": True, "retried": False}
+
+    except Exception as e:
+        send_slack_error(e)
+        send_slack_message(text=text % score_set.urn)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="LDH mapped resource linkage encountered an unexpected error while attempting to finalize linkage. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False}
+
+    # If we reach this point, we should consider the job failed (there were failures which exceeded our retry threshold).
+    new_job_id = None
+    max_retries_exceeded = None
+    try:
+        new_job_id, max_retries_exceeded, backoff_time = await enqueue_job_with_backoff(
+            ctx["redis"], "variant_mapper_manager", attempt, LINKING_BACKOFF_IN_SECONDS, correlation_id
+        )
+
+        logging_context["backoff_limit_exceeded"] = max_retries_exceeded
+        logging_context["backoff_deferred_in_seconds"] = backoff_time
+        logging_context["backoff_job_id"] = new_job_id
+
+    except Exception as e:
+        send_slack_error(e)
+        send_slack_message(text=text % score_set.urn)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.critical(
+            msg="LDH mapped resource linkage encountered an unexpected error while attempting to retry a failed linkage job. This job will not be retried.",
+            extra=logging_context,
+        )
+    else:
+        if new_job_id and not max_retries_exceeded:
+            logger.info(
+                msg="After a failure condition while linking mapped variants to LDH submissions, another linkage job was queued.",
+                extra=logging_context,
+            )
+            send_slack_message(
+                text=f"Failed to link {len(linkage_failures)} ({ratio_failed_linking} of total mapped variants for {score_set.urn})."
+                f"The retry threshold was exceeded and this job was successfully retried. This was attempt {attempt}. Retry will occur in {backoff_time} seconds. URNs failed to link: {', '.join(linkage_failures)}."
+            )
+        elif new_job_id is None and not max_retries_exceeded:
+            logger.error(
+                msg="After a failure condition while linking mapped variants to LDH submissions, another linkage job was unable to be queued.",
+                extra=logging_context,
+            )
+            send_slack_message(
+                text=f"Failed to link {len(linkage_failures)} ({ratio_failed_linking} of total mapped variants for {score_set.urn})."
+                f"The retry threshold was exceeded but this job could not be retried. This was attempt {attempt}. URNs failed to link: {', '.join(linkage_failures)}."
+            )
+        else:
+            logger.error(
+                msg="After a failure condition while linking mapped variants to LDH submissions, the maximum retries for this job were exceeded. The reamining linkage failures will not be retried.",
+                extra=logging_context,
+            )
+            send_slack_message(
+                text=f"Failed to link {len(linkage_failures)} ({ratio_failed_linking} of total mapped variants for {score_set.urn})."
+                f"The retry threshold was exceeded but this job has exceeded the maximum retry level. URNs failed to link: {', '.join(linkage_failures)}."
+            )
+
+    finally:
+        return {"success": False, "retried": (not max_retries_exceeded and new_job_id is not None)}
