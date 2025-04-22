@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 @with_database_session
 @click.argument("urns", nargs=-1)
 @click.option("--score-sets/--variants", default=False)
-def link_clingen_variants(db: Session, urns: Sequence[str], score_sets: bool) -> None:
+@click.option("--unlinked", default=False)
+def link_clingen_variants(db: Session, urns: Sequence[str], score_sets: bool, unlinked: bool) -> None:
     """
     Submit data to ClinGen for mapped variant allele ID generation for the given URNs.
     """
@@ -28,15 +29,17 @@ def link_clingen_variants(db: Session, urns: Sequence[str], score_sets: bool) ->
 
     # Convert score set URNs to variant URNs.
     if score_sets:
-        variants = [
-            db.scalars(
-                select(Variant.urn)
-                .join(MappedVariant)
-                .join(ScoreSet)
-                .where(ScoreSet.urn == urn, MappedVariant.current.is_(True), MappedVariant.post_mapped.is_not(None))
-            ).all()
-            for urn in urns
-        ]
+        query = (
+            select(Variant.urn)
+            .join(MappedVariant)
+            .join(ScoreSet)
+            .where(MappedVariant.current.is_(True), MappedVariant.post_mapped.is_not(None))
+        )
+
+        if unlinked:
+            query = query.where(MappedVariant.clingen_allele_id.is_(None))
+
+        variants = [db.scalars(query.where(ScoreSet.urn == urn)).all() for urn in urns]
         urns = [variant for sublist in variants for variant in sublist if variant is not None]
 
     failed_urns = []
