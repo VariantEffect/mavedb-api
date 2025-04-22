@@ -18,12 +18,66 @@ logger = logging.getLogger(__name__)
 
 
 class ClinGenLdhService:
+    """
+    A service class for interacting with the ClinGen Linked Data Hub (LDH) API.
+
+    This class provides methods for authenticating with the Genboree services and dispatching
+    submissions to the ClinGen LDH API.
+
+    Attributes:
+        url (str): The base URL of the ClinGen LDH API.
+
+    Methods:
+        __init__(url: str) -> None:
+            Initializes the ClinGenLdhService instance with the given API URL.
+
+        authenticate() -> str:
+            Authenticates with the Genboree services and retrieves a JSON Web Token (JWT).
+            If a valid JWT already exists, it is reused. Otherwise, a new JWT is obtained
+            by authenticating with the Genboree API.
+
+        dispatch_submissions(content_submissions: list[LdhSubmission], batch_size: Optional[int] = None) -> tuple[list, list]:
+            Dispatches a list of LDH submissions to the ClinGen LDH API. Supports optional
+            batching of submissions.
+
+            Args:
+                content_submissions (list[LdhSubmission]): A list of LDH submissions to be dispatched.
+                batch_size (Optional[int]): The size of each batch for submission. If None, no batching is applied.
+
+            Returns:
+                tuple[list, list]: A tuple containing two lists:
+                    - A list of successful submission responses.
+                    - A list of failed submissions.
+
+        _existing_jwt() -> Optional[str]:
+            Checks for an existing and valid Genboree JWT in the environment variables.
+
+            Returns:
+                Optional[str]: The existing JWT if valid, or None if no valid JWT is found.
+    """
+
     def __init__(self, url: str) -> None:
         self.url = url
 
     def authenticate(self) -> str:
+        """
+        Authenticates with Genboree services and retrieves a JSON Web Token (JWT).
+
+        This method first checks for an existing JWT using the `_existing_jwt` method. If a valid JWT is found,
+        it is returned immediately. Otherwise, the method attempts to authenticate with Genboree services
+        using the account name and password provided via environment variables.
+
+        Raises:
+            ValueError: If the Genboree account name or password is not set, or if the JWT cannot be parsed
+                        from the authentication response.
+            requests.exceptions.HTTPError: If the HTTP request to Genboree services fails.
+
+        Returns:
+            str: The JWT retrieved from Genboree services, which is also stored in the `GENBOREE_JWT`
+                 environment variable for future use.
+        """
         if existing_jwt := self._existing_jwt():
-            logger.info(msg="Using existing Genboree JWT for authentication.", extra=logging_context())
+            logger.debug(msg="Using existing Genboree JWT for authentication.", extra=logging_context())
             return existing_jwt
 
         logger.debug(
@@ -68,6 +122,22 @@ class ClinGenLdhService:
     def dispatch_submissions(
         self, content_submissions: list[LdhSubmission], batch_size: Optional[int] = None
     ) -> tuple[list, list]:
+        """
+        Dispatches a list of content submissions to a specified URL in batches, if specified.
+
+        Args:
+            content_submissions (list[LdhSubmission]): A list of submissions to be dispatched.
+            batch_size (Optional[int]): The size of each batch for dispatching submissions.
+                If None, submissions are dispatched without batching.
+
+        Returns:
+            tuple[list, list]: A tuple containing two lists:
+                - The first list contains the successful submission responses.
+                - The second list contains the submissions that failed to dispatch.
+
+        Raises:
+            requests.exceptions.RequestException: If an error occurs during the HTTP request.
+        """
         submission_successes = []
         submission_failures = []
         submissions = list(batched(content_submissions, batch_size)) if batch_size is not None else content_submissions
@@ -109,6 +179,16 @@ class ClinGenLdhService:
         return submission_successes, submission_failures
 
     def _existing_jwt(self) -> Optional[str]:
+        """
+        Checks for an existing Genboree JWT (JSON Web Token) in the environment variables.
+
+        This method retrieves the JWT from the "GENBOREE_JWT" environment variable, verifies its
+        presence, and checks its expiration status. If the token is valid and not expired, it is returned.
+        Otherwise, it returns None.
+
+        Returns:
+            Optional[str]: The existing and valid Genboree JWT if found, otherwise None.
+        """
         logger.debug(msg="Checking for existing Genboree JWT.", extra=logging_context())
 
         existing_jwt = os.getenv("GENBOREE_JWT")
@@ -128,6 +208,16 @@ class ClinGenLdhService:
 
 
 def get_clingen_variation(urn: str) -> Optional[dict]:
+    """
+    Fetches ClinGen variation data for a given URN (Uniform Resource Name) from the Linked Data Hub.
+
+    Args:
+        urn (str): The URN of the variation to fetch.
+
+    Returns:
+        Optional[dict]: A dictionary containing the variation data if the request is successful,
+                        or None if the request fails.
+    """
     response = requests.get(
         f"{LDH_LINKED_DATA_URL}/{parse.quote_plus(urn)}",
         headers={"Accept": "application/json"},

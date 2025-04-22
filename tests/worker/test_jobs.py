@@ -30,9 +30,11 @@ from mavedb.worker.jobs import (
     create_variants_for_score_set,
     map_variants_for_score_set,
     variant_mapper_manager,
+    submit_score_set_mappings_to_ldh,
 )
 from tests.helpers.constants import (
     TEST_CDOT_TRANSCRIPT,
+    TEST_CLINGEN_SUBMISSION_RESPONSE,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_SEQ_SCORESET,
@@ -1457,3 +1459,60 @@ async def test_mapping_manager_enqueues_mapping_process_with_unsuccessful_mappin
     assert len(mapped_variants_for_score_set) == 0
     assert score_set.mapping_state == MappingState.failed
     assert score_set.mapping_errors is not None
+
+
+############################################################################################################################################
+# ClinGen Submission
+############################################################################################################################################
+
+
+@pytest.mark.asyncio
+async def test_submit_score_set_mappings_to_ldh_success(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    async def dummy_submission_job():
+        return TEST_CLINGEN_SUBMISSION_RESPONSE
+
+    with patch.object(
+        _UnixSelectorEventLoop,
+        "run_in_executor",
+        return_value=dummy_submission_job(),
+    ):
+        result = await submit_score_set_mappings_to_ldh(standalone_worker_context, uuid4().hex, score_set.id)
+
+    assert result["success"]
+    assert not result["retried"]
+
+
+@pytest.mark.asyncio
+async def test_submit_score_set_mappings_to_ldh_exception_in_submission(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    async def failed_submission_job():
+        raise Exception("Submission failed")
+
+    with patch.object(
+        _UnixSelectorEventLoop,
+        "run_in_executor",
+        return_value=failed_submission_job(),
+    ):
+        result = await submit_score_set_mappings_to_ldh(standalone_worker_context, uuid4().hex, score_set.id, 1)
+
+    assert not result["success"]
+    assert not result["retried"]

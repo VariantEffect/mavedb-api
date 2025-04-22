@@ -866,3 +866,10 @@ TEST_SAVED_GENERIC_CLINICAL_CONTROL = {
     "dbVersion": "2024",
     "mappedVariants": [],
 }
+
+
+TEST_CLINGEN_SUBMISSION_RESPONSE = {
+    "data": {"msg": "Data sent successfully", "msgIds": ["(148894,0,-1,0)"]},
+    "metadata": {"rendered": {"by": "https://genboree.org/mq/brdg/srvc", "when": datetime.now().isoformat()}},
+    "status": {"code": 200, "name": "OK"},
+}
