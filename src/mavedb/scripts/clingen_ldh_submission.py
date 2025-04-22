@@ -12,19 +12,9 @@ from mavedb.scripts.environment import with_database_session
 from mavedb.lib.clingen.linked_data_hub import ClinGenLdhService
 from mavedb.lib.clingen.constants import DEFAULT_LDH_SUBMISSION_BATCH_SIZE, LDH_SUBMISSION_URL
 from mavedb.lib.clingen.content_constructors import construct_ldh_submission
+from mavedb.lib.variants import hgvs_from_mapped_variant
 
 logger = logging.getLogger(__name__)
-
-
-def _variation_from_post_mapped(mapped_variant: MappedVariant) -> str:
-    """
-    Extract the variation from the post_mapped field of the MappedVariant object.
-    """
-    try:
-        # Assuming post_mapped is a dictionary with a specific structure
-        return mapped_variant.post_mapped["expressions"][0]["value"]  # type: ignore
-    except KeyError:
-        return mapped_variant.post_mapped["variation"]["expressions"][0]["value"]  # type: ignore
 
 
 def submit_urns_to_clingen(db: Session, urns: Sequence[str], debug: bool) -> list[str]:
@@ -61,14 +51,17 @@ def submit_urns_to_clingen(db: Session, urns: Sequence[str], debug: bool) -> lis
                 continue
 
             logger.debug(f"Preparing {len(variant_objects)} mapped variants for submission")
-            variant_content = [
-                (
-                    _variation_from_post_mapped(mapped_variant),
-                    variant,
-                    mapped_variant,
-                )
-                for variant, mapped_variant in variant_objects
-            ]
+
+            variant_content: list[tuple[str, Variant, MappedVariant]] = []
+            for variant, mapped_variant in variant_objects:
+                variation = hgvs_from_mapped_variant(mapped_variant)
+
+                if not variation:
+                    logger.warning(f"No variation found for variant {variant.urn}.")
+                    continue
+
+                for allele in variation:
+                    variant_content.append((allele, variant, mapped_variant))
 
             if debug:
                 logger.debug("Debug mode enabled. Submitting only one request to ClinGen.")
@@ -85,12 +78,13 @@ def submit_urns_to_clingen(db: Session, urns: Sequence[str], debug: bool) -> lis
             else:
                 logger.info(f"Successfully submitted all variants for URN: {urn}")
 
-            submitted_entities.extend([variant[1].urn for variant in variant_content])
+            submitted_entities.extend([variant.urn for _, variant, _ in variant_content])
 
         except Exception as e:
             logger.error(f"Error processing URN {urn}", exc_info=e)
 
-    return submitted_entities
+    # TODO#372: non-nullable urns.
+    return submitted_entities  # type: ignore
 
 
 @click.command()
