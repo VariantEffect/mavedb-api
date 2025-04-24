@@ -4,6 +4,12 @@ from humps import camelize
 
 from mavedb.models.enums.processing_state import ProcessingState
 
+
+VALID_EXPERIMENT_SET_URN = "urn:mavedb:01234567"
+VALID_EXPERIMENT_URN = f"{VALID_EXPERIMENT_SET_URN}-abcd"
+VALID_SCORE_SET_URN = f"{VALID_EXPERIMENT_URN}-0123"
+VALID_VARIANT_URN = f"{VALID_SCORE_SET_URN}#1"
+
 TEST_PUBMED_IDENTIFIER = "20711194"
 TEST_PUBMED_URL_IDENTIFIER = "https://pubmed.ncbi.nlm.nih.gov/37162834/"
 TEST_BIORXIV_IDENTIFIER = "2021.06.21.212592"
@@ -799,7 +805,7 @@ TEST_MINIMAL_MAPPED_VARIANT = {
 }
 
 
-TEST_SCORESET_RANGE = {
+TEST_SCORE_SET_RANGE = {
     "wt_score": 1.0,
     "ranges": [
         {"label": "test1", "classification": "normal", "range": (0, 2.0)},
@@ -808,7 +814,7 @@ TEST_SCORESET_RANGE = {
 }
 
 
-TEST_SAVED_SCORESET_RANGE = {
+TEST_SAVED_SCORE_SET_RANGE = {
     "wtScore": 1.0,
     "ranges": [
         {"label": "test1", "classification": "normal", "range": [0.0, 2.0]},

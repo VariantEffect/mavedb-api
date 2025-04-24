@@ -26,9 +26,8 @@ from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
-    TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE,
-    TEST_VALID_PRE_MAPPED_VRS_ALLELE,
-    TEST_VALID_POST_MAPPED_VRS_ALLELE,
+    TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
+    TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
     EXTRA_USER,
     TEST_CDOT_TRANSCRIPT,
     TEST_COLLECTION,
@@ -38,7 +37,8 @@ from tests.helpers.constants import (
     TEST_MINIMAL_POST_MAPPED_METADATA,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_MINIMAL_MAPPED_VARIANT,
-    TEST_VALID_PRE_MAPPED_VRS_HAPLOTYPE,
+    TEST_VALID_PRE_MAPPED_VRS_CIS_PHASED_BLOCK,
+    TEST_VALID_POST_MAPPED_VRS_CIS_PHASED_BLOCK,
 )
 
 
@@ -228,8 +228,12 @@ def mock_worker_vrs_mapping(client, db, score_set, alleles=True):
     # It's un-important what the contents of each mapped VRS object are, so use the same constant for each variant.
     for variant in variants:
         mapped_variant = MappedVariantDbModel(
-            pre_mapped=TEST_VALID_PRE_MAPPED_VRS_ALLELE if alleles else TEST_VALID_PRE_MAPPED_VRS_HAPLOTYPE,
-            post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE if alleles else TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE,
+            pre_mapped=TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X
+            if alleles
+            else TEST_VALID_PRE_MAPPED_VRS_CIS_PHASED_BLOCK,
+            post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X
+            if alleles
+            else TEST_VALID_POST_MAPPED_VRS_CIS_PHASED_BLOCK,
             variant=variant,
             vrs_version="2.0",
             modification_date=date.today(),

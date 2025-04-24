@@ -85,15 +85,6 @@ class ClinGenLdhService:
             extra=logging_context(),
         )
 
-        try:
-            assert GENBOREE_ACCOUNT_NAME is not None, "Genboree account name is not set."
-            assert GENBOREE_ACCOUNT_PASSWORD is not None, "Genboree account password is not set."
-        except AssertionError as exc:
-            msg = "Genboree account name and/or password are not set. Unable to authenticate with Genboree services."
-            save_to_logging_context(format_raised_exception_info_as_dict(exc))
-            logger.error(msg=msg, extra=logging_context())
-            raise ValueError(msg)
-
         auth_url = f"https://genboree.org/auth/usr/gb:{GENBOREE_ACCOUNT_NAME}/auth"
         auth_body = {"type": "plain", "val": GENBOREE_ACCOUNT_PASSWORD}
         auth_response = requests.post(auth_url, json=auth_body)
@@ -115,6 +106,7 @@ class ClinGenLdhService:
             raise ValueError(msg)
 
         # TODO#411: We should consider using a secret manager to store persistent/setable secrets like this.
+        #           I'd prefer not to ever set environment variables, especially externally generated content.
         os.environ["GENBOREE_JWT"] = auth_jwt
         logger.info(msg="Successfully authenticated with Genboree services.", extra=logging_context())
         return auth_jwt

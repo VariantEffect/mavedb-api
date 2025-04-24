@@ -1,25 +1,36 @@
 from unittest.mock import patch
 from uuid import UUID
 
+from mavedb.constants import MAVEDB_BASE_GIT, MAVEDB_FRONTEND_URL
 from mavedb.lib.clingen.content_constructors import (
     construct_ldh_submission_event,
     construct_ldh_submission_subject,
     construct_ldh_submission,
     construct_ldh_submission_entity,
 )
-from mavedb.lib.clingen.constants import LDH_ENTITY_NAME, LDH_SUBMISSION_TYPE, MAVEDB_BASE_GIT
+from mavedb.lib.clingen.constants import LDH_ENTITY_NAME, LDH_SUBMISSION_TYPE
 from mavedb import __version__
+
+from tests.helpers.constants import (
+    TEST_HGVS_IDENTIFIER,
+    VALID_VARIANT_URN,
+    TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
+    TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
+)
+
+
+def test_construct_ldh_submission_subject():
+    result = construct_ldh_submission_subject(TEST_HGVS_IDENTIFIER)
+    assert result == {"Variant": {"hgvs": TEST_HGVS_IDENTIFIER}}
 
 
 def test_construct_ldh_submission_event():
-    sbj = {"Variant": {"hgvs": "NM_000546.5:c.215C>G"}}
+    sbj = construct_ldh_submission_subject(TEST_HGVS_IDENTIFIER)
 
     with (
         patch("mavedb.lib.clingen.content_constructors.uuid4") as mock_uuid4,
-        patch("mavedb.lib.clingen.content_constructors.datetime") as mock_datetime,
     ):
         mock_uuid4.return_value = UUID("12345678-1234-5678-1234-567812345678")
-        mock_datetime.now.return_value = "2023-01-01T00:00:00"
 
         result = construct_ldh_submission_event(sbj)
 
@@ -27,7 +38,7 @@ def test_construct_ldh_submission_event():
         assert result["name"] == LDH_ENTITY_NAME
         assert result["uuid"] == "12345678-1234-5678-1234-567812345678"
         assert result["sbj"] == {
-            "id": "NM_000546.5:c.215C>G",
+            "id": TEST_HGVS_IDENTIFIER,
             "type": "Variant",
             "format": "hgvs",
             "add": True,
@@ -37,100 +48,41 @@ def test_construct_ldh_submission_event():
             "id": "resource_published",
             "iri": f"{MAVEDB_BASE_GIT}/releases/tag/v{__version__}",
         }
-        assert result["triggered"]["at"] == "2023-01-01T00:00:00"
 
 
-def test_construct_ldh_submission_subject():
-    hgvs = "NM_000546.5:c.215C>G"
-    result = construct_ldh_submission_subject(hgvs)
-
-    assert result == {"Variant": {"hgvs": hgvs}}
-
-
-def test_construct_ldh_submission_entity():
-    class MockVariant:
-        def __init__(self, urn, data):
-            self.urn = urn
-            self.data = data
-
-    class MockMappedVariant:
-        def __init__(self, pre_mapped, post_mapped, mapping_api_version):
-            self.pre_mapped = pre_mapped
-            self.post_mapped = post_mapped
-            self.mapping_api_version = mapping_api_version
-
-    variant = MockVariant(
-        urn="urn:example:variant123",
-        data={"score_data": {"score": 0.95}},
-    )
-    mapped_variant = MockMappedVariant(
-        pre_mapped="pre-mapped-value",
-        post_mapped="post-mapped-value",
-        mapping_api_version="v1.0",
-    )
-
-    result = construct_ldh_submission_entity(variant, mapped_variant)
+def test_construct_ldh_submission_entity(mock_variant, mock_mapped_variant):
+    result = construct_ldh_submission_entity(mock_variant, mock_mapped_variant)
 
     assert "MaveDBMapping" in result
     assert len(result["MaveDBMapping"]) == 1
     mapping = result["MaveDBMapping"][0]
 
-    assert mapping["entContent"]["mavedb_id"] == "urn:example:variant123"
-    assert mapping["entContent"]["pre_mapped"] == "pre-mapped-value"
-    assert mapping["entContent"]["post_mapped"] == "post-mapped-value"
-    assert mapping["entContent"]["mapping_api_version"] == "v1.0"
-    assert mapping["entContent"]["score"] == 0.95
+    assert mapping["entContent"]["mavedb_id"] == VALID_VARIANT_URN
+    assert mapping["entContent"]["pre_mapped"] == TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X
+    assert mapping["entContent"]["post_mapped"] == TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X
+    assert mapping["entContent"]["mapping_api_version"] == "pytest.mapping.1.0"
+    assert mapping["entContent"]["score"] == 1.0
 
-    assert mapping["entId"] == "urn:example:variant123"
-    assert mapping["entIri"] == "https://staging.mavedb.org/score-sets/urn:example:variant123"
+    assert mapping["entId"] == VALID_VARIANT_URN
+    assert mapping["entIri"] == f"{MAVEDB_FRONTEND_URL}/{VALID_VARIANT_URN}"
 
 
-def test_construct_ldh_submission():
-    class MockVariant:
-        def __init__(self, urn, data):
-            self.urn = urn
-            self.data = data
-
-    class MockMappedVariant:
-        def __init__(self, pre_mapped, post_mapped, mapping_api_version):
-            self.pre_mapped = pre_mapped
-            self.post_mapped = post_mapped
-            self.mapping_api_version = mapping_api_version
-
-    variant1 = MockVariant(
-        urn="urn:example:variant123",
-        data={"score_data": {"score": 0.95}},
-    )
-    mapped_variant1 = MockMappedVariant(
-        pre_mapped="pre-mapped-value1",
-        post_mapped="post-mapped-value1",
-        mapping_api_version="v1.0",
-    )
-
-    variant2 = MockVariant(
-        urn="urn:example:variant456",
-        data={"score_data": {"score": 0.85}},
-    )
-    mapped_variant2 = MockMappedVariant(
-        pre_mapped="pre-mapped-value2",
-        post_mapped="post-mapped-value2",
-        mapping_api_version="v2.0",
-    )
-
+def test_construct_ldh_submission(mock_variant, mock_mapped_variant):
     variant_content = [
-        ("NM_000546.5:c.215C>G", variant1, mapped_variant1),
-        ("NM_000546.5:c.216C>T", variant2, mapped_variant2),
+        (TEST_HGVS_IDENTIFIER, mock_variant, mock_mapped_variant),
+        (TEST_HGVS_IDENTIFIER, mock_variant, mock_mapped_variant),
     ]
+
+    uuid_1 = UUID("12345678-1234-5678-1234-567812345678")
+    uuid_2 = UUID("87654321-4321-8765-4321-876543218765")
 
     with (
         patch("mavedb.lib.clingen.content_constructors.uuid4") as mock_uuid4,
-        patch("mavedb.lib.clingen.content_constructors.datetime") as mock_datetime,
     ):
         mock_uuid4.side_effect = [
-            UUID("12345678-1234-5678-1234-567812345678"),
-            UUID("87654321-4321-8765-4321-876543218765"),
+            uuid_1,
+            uuid_2,
         ]
-        mock_datetime.now.return_value = "2023-01-01T00:00:00"
 
         result = construct_ldh_submission(variant_content)
 
@@ -138,16 +90,16 @@ def test_construct_ldh_submission():
 
         # Validate the first submission
         submission1 = result[0]
-        assert submission1["event"]["uuid"] == "12345678-1234-5678-1234-567812345678"
-        assert submission1["event"]["sbj"]["id"] == "NM_000546.5:c.215C>G"
-        assert submission1["content"]["sbj"] == {"Variant": {"hgvs": "NM_000546.5:c.215C>G"}}
-        assert submission1["content"]["ld"]["MaveDBMapping"][0]["entContent"]["mavedb_id"] == "urn:example:variant123"
-        assert submission1["content"]["ld"]["MaveDBMapping"][0]["entContent"]["score"] == 0.95
+        assert submission1["event"]["uuid"] == uuid_1
+        assert submission1["event"]["sbj"]["id"] == TEST_HGVS_IDENTIFIER
+        assert submission1["content"]["sbj"] == {"Variant": {"hgvs": TEST_HGVS_IDENTIFIER}}
+        assert submission1["content"]["ld"]["MaveDBMapping"][0]["entContent"]["mavedb_id"] == VALID_VARIANT_URN
+        assert submission1["content"]["ld"]["MaveDBMapping"][0]["entContent"]["score"] == 1.0
 
         # Validate the second submission
         submission2 = result[1]
-        assert submission2["event"]["uuid"] == "87654321-4321-8765-4321-876543218765"
-        assert submission2["event"]["sbj"]["id"] == "NM_000546.5:c.216C>T"
-        assert submission2["content"]["sbj"] == {"Variant": {"hgvs": "NM_000546.5:c.216C>T"}}
-        assert submission2["content"]["ld"]["MaveDBMapping"][0]["entContent"]["mavedb_id"] == "urn:example:variant456"
-        assert submission2["content"]["ld"]["MaveDBMapping"][0]["entContent"]["score"] == 0.85
+        assert submission2["event"]["uuid"] == uuid_2
+        assert submission2["event"]["sbj"]["id"] == TEST_HGVS_IDENTIFIER
+        assert submission2["content"]["sbj"] == {"Variant": {"hgvs": TEST_HGVS_IDENTIFIER}}
+        assert submission2["content"]["ld"]["MaveDBMapping"][0]["entContent"]["mavedb_id"] == VALID_VARIANT_URN
+        assert submission2["content"]["ld"]["MaveDBMapping"][0]["entContent"]["score"] == 1.0

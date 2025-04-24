@@ -2,8 +2,9 @@ from datetime import datetime
 from uuid import uuid4
 
 from mavedb import __version__
+from mavedb.constants import MAVEDB_BASE_GIT, MAVEDB_FRONTEND_URL
 from mavedb.lib.types.clingen import LdhContentLinkedData, LdhContentSubject, LdhEvent, LdhSubmission
-from mavedb.lib.clingen.constants import LDH_ENTITY_NAME, LDH_SUBMISSION_TYPE, MAVEDB_BASE_GIT
+from mavedb.lib.clingen.constants import LDH_ENTITY_NAME, LDH_SUBMISSION_TYPE
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
 
@@ -42,8 +43,7 @@ def construct_ldh_submission_entity(variant: Variant, mapped_variant: MappedVari
                     "score": variant.data["score_data"]["score"],  # type: ignore
                 },
                 "entId": variant.urn,  # type: ignore
-                # TODO: We should have some sort of constant for our base url.
-                "entIri": f"https://staging.mavedb.org/score-sets/{variant.urn}",  # type: ignore
+                "entIri": f"{MAVEDB_FRONTEND_URL}/{variant.urn}",  # type: ignore
             }
         ]
     }
