@@ -764,14 +764,13 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
         return {"success": False, "retried": False, "enqueued_job": None}
 
     try:
-        variant_objects = db.scalars(
+        variant_objects = db.execute(
             select(Variant, MappedVariant)
             .join(MappedVariant)
-            .where(
-                Variant.score_set_id == score_set.id,
-                MappedVariant.current.is_(True),
-                MappedVariant.post_mapped.is_not(None),
-            )
+            .join(ScoreSet)
+            .where(ScoreSet.urn == score_set.urn)
+            .where(MappedVariant.post_mapped.is_not(None))
+            .where(MappedVariant.current.is_(True))
         ).all()
 
         if not variant_objects:

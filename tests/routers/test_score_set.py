@@ -26,8 +26,8 @@ from tests.helpers.constants import (
     TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
     TEST_PUBMED_IDENTIFIER,
     TEST_ORCID_ID,
-    TEST_SCORESET_RANGE,
-    TEST_SAVED_SCORESET_RANGE,
+    TEST_SCORE_SET_RANGE,
+    TEST_SAVED_SCORE_SET_RANGE,
     TEST_MINIMAL_ACC_SCORESET_RESPONSE,
     TEST_USER,
     TEST_INACTIVE_LICENSE,
@@ -138,7 +138,7 @@ def test_create_score_set_with_score_range(client, setup_router_db):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set["experimentUrn"] = experiment["urn"]
-    score_set.update({"score_ranges": TEST_SCORESET_RANGE})
+    score_set.update({"score_ranges": TEST_SCORE_SET_RANGE})
 
     response = client.post("/api/v1/score-sets/", json=score_set)
     assert response.status_code == 200
@@ -150,7 +150,7 @@ def test_create_score_set_with_score_range(client, setup_router_db):
     expected_response = update_expected_response_for_created_resources(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
-    expected_response["scoreRanges"] = TEST_SAVED_SCORESET_RANGE
+    expected_response["scoreRanges"] = TEST_SAVED_SCORE_SET_RANGE
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -164,7 +164,7 @@ def test_remove_score_range_from_score_set(client, setup_router_db):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set["experimentUrn"] = experiment["urn"]
-    score_set.update({"score_ranges": TEST_SCORESET_RANGE})
+    score_set.update({"score_ranges": TEST_SCORE_SET_RANGE})
 
     response = client.post("/api/v1/score-sets/", json=score_set)
     assert response.status_code == 200
@@ -176,7 +176,7 @@ def test_remove_score_range_from_score_set(client, setup_router_db):
     expected_response = update_expected_response_for_created_resources(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
-    expected_response["scoreRanges"] = TEST_SAVED_SCORESET_RANGE
+    expected_response["scoreRanges"] = TEST_SAVED_SCORE_SET_RANGE
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -235,7 +235,7 @@ def test_cannot_create_score_set_with_invalid_target_gene_category(client, setup
         ("doi_identifiers", [{"identifier": TEST_CROSSREF_IDENTIFIER}], [SAVED_DOI_IDENTIFIER]),
         ("license_id", EXTRA_LICENSE["id"], SAVED_SHORT_EXTRA_LICENSE),
         ("target_genes", TEST_MINIMAL_ACC_SCORESET["targetGenes"], TEST_MINIMAL_ACC_SCORESET_RESPONSE["targetGenes"]),
-        ("score_ranges", TEST_SCORESET_RANGE, TEST_SAVED_SCORESET_RANGE),
+        ("score_ranges", TEST_SCORE_SET_RANGE, TEST_SAVED_SCORE_SET_RANGE),
     ],
 )
 @pytest.mark.parametrize(
@@ -365,7 +365,7 @@ def test_can_update_score_set_supporting_data_after_publication(
         ("target_genes", TEST_MINIMAL_ACC_SCORESET["targetGenes"], TEST_MINIMAL_SEQ_SCORESET_RESPONSE["targetGenes"]),
         (
             "score_ranges",
-            TEST_SCORESET_RANGE,
+            TEST_SCORE_SET_RANGE,
             None,
         ),
     ],

@@ -30,6 +30,10 @@ TEST_HGVS_IDENTIFIER = f"{TEST_REFSEQ_IDENTIFIER}:p.Asp5Phe"
 VALID_ACCESSION = "NM_001637.3"
 VALID_GENE = "BRCA1"
 
+VALID_CLINGEN_PA_ID = "PA2579908752"
+VALID_CLINGEN_CA_ID = "CA341478553"
+VALID_CLINGEN_LDH_ID = "2786738861"
+
 SAVED_PUBMED_PUBLICATION = {
     "recordType": "PublicationIdentifier",
     "identifier": "20711194",
@@ -937,4 +941,78 @@ TEST_CLINGEN_SUBMISSION_RESPONSE = {
     "data": {"msg": "Data sent successfully", "msgIds": ["(148894,0,-1,0)"]},
     "metadata": {"rendered": {"by": "https://genboree.org/mq/brdg/srvc", "when": datetime.now().isoformat()}},
     "status": {"code": 200, "name": "OK"},
+}
+
+
+TEST_CLINGEN_SUBMISSION_UNAUTHORIZED_RESPONSE = {
+    "metadata": {"rendered": {"when": datetime.now().isoformat()}},
+    "status": {"code": 403, "msg": "Bad Auth Info - jwt malformed", "name": "Forbidden"},
+}
+
+TEST_CLINGEN_SUBMISSION_BAD_RESQUEST_RESPONSE = {
+    "metadata": {"rendered": {"when": datetime.now().isoformat()}},
+    "status": {
+        "code": 400,
+        "msg": "Put Failed - Error! Submission was an empty object. Submission must consist of valid, non-Empty JSON objects",
+        "name": "Bad Request",
+    },
+}
+
+
+TEST_CLINGEN_LDH_LINKING_RESPONSE = {
+    "data": {
+        "created": datetime.now().isoformat(),
+        "creator": "brl_clingen",
+        "entContent": {
+            "mapping_api_version": "pytest.mapping.1.0",
+            "mavedb_id": VALID_VARIANT_URN,
+            "post_mapped": TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
+            "pre_mapped": TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
+            "score": 1.0,
+        },
+        "entId": VALID_VARIANT_URN,
+        "entIri": f"https://staging.mavedb.org/score-sets/{VALID_VARIANT_URN}",
+        "entType": "MaveDBMapping",
+        "ldFor": {
+            "Variant": [
+                {
+                    "created": datetime.now().isoformat(),
+                    "creator": "brl_clingen",
+                    "entId": VALID_CLINGEN_PA_ID,
+                    "entIri": f"http://reg.genome.network/allele/{VALID_CLINGEN_PA_ID}",
+                    "entType": "Variant",
+                    "ldhId": VALID_CLINGEN_LDH_ID,
+                    "ldhIri": f"https://10.15.55.128/ldh-stg/Variant/id/{VALID_CLINGEN_LDH_ID}",
+                    "modified": datetime.now().isoformat(),
+                    "modifier": "brl_clingen",
+                    "rev": "_hLpznbC-A-",
+                }
+            ]
+        },
+        "ldhId": VALID_CLINGEN_LDH_ID,
+        "ldhIri": f"https://10.15.55.128/ldh-stg/MaveDBMapping/id/{VALID_CLINGEN_LDH_ID}",
+        "modified": datetime.now().isoformat(),
+        "modifier": "brl_clingen",
+        "rev": "_jj3a99K---",
+    },
+    "metadata": {"rendered": {"by": "https://10.15.55.128/ldh-stg/srvc", "when": datetime.now().isoformat()}},
+    "status": {"code": 200, "name": "OK"},
+}
+
+
+TEST_CLINGEN_LDH_LINKING_RESPONSE_NOT_FOUND = {
+    "metadata": {"rendered": {"by": "https://10.15.55.128/ldh-stg/srvc", "when": datetime.now().isoformat()}},
+    "status": {
+        "code": 404,
+        "msg": f"Bad Entity - No 'MaveDBMapping' entity found with identifier {VALID_VARIANT_URN}",
+        "name": "Not Found",
+    },
+}
+
+
+TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST = {
+    "errCode": 400,
+    "errMsg": "INVALID URL - Your request is invalid. Specifically, the URL path you provided ('/ldh-stg/MaveDBMapping/i/urn%3Amavedb%3A00000050-a-1%231') is not valid for HTTP 'GET' requests to the CG-LDH API service.",
+    "errName": "Bad Request",
+    "errCat": "INVALID URL",
 }
