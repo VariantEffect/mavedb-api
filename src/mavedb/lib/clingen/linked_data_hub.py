@@ -216,7 +216,28 @@ def get_clingen_variation(urn: str) -> Optional[dict]:
     )
 
     if response.status_code == 200:
-        return response.json()["data"]["ldFor"]["Variant"][0]
+        return response.json()
     else:
         logger.error(f"Failed to fetch data for URN {urn}: {response.status_code} - {response.text}")
+        return None
+
+
+def clingen_allele_id_from_ldh_variation(variation: Optional[dict]) -> Optional[str]:
+    """
+    Extracts the ClinGen allele ID from a given variation dictionary.
+
+    Args:
+        variation (Optional[dict]): A dictionary containing variation data, otherwise None.
+
+    Returns:
+        Optional[str]: The ClinGen allele ID if found, otherwise None.
+    """
+    if not variation:
+        return None
+
+    try:
+        return variation["data"]["ldFor"]["Variant"][0]["entId"]
+    except KeyError as exc:
+        save_to_logging_context(format_raised_exception_info_as_dict(exc))
+        logger.error("Failed to extract ClinGen allele ID from variation data.", extra=logging_context())
         return None

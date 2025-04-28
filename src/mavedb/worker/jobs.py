@@ -21,7 +21,11 @@ from mavedb.lib.clingen.constants import (
     LINKED_DATA_RETRY_THRESHOLD,
 )
 from mavedb.lib.clingen.content_constructors import construct_ldh_submission
-from mavedb.lib.clingen.linked_data_hub import ClinGenLdhService, get_clingen_variation
+from mavedb.lib.clingen.linked_data_hub import (
+    ClinGenLdhService,
+    get_clingen_variation,
+    clingen_allele_id_from_ldh_variation,
+)
 from mavedb.lib.exceptions import (
     MappingEnqueueError,
     LinkingEnqueueError,
@@ -814,6 +818,8 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
             extra=logging_context,
         )
 
+        return {"success": False, "retried": False, "enqueued_job": None}
+
     try:
         assert not submission_failures, f"{len(submission_failures)} submissions failed to be dispatched to the LDH."
         logger.info(msg="Dispatched all variant mapping submissions to the LDH.", extra=logging_context)
@@ -863,23 +869,6 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
     return {"success": True, "retried": False, "enqueued_job": new_job}
 
 
-def get_ldh_variation(logging_ctx: dict, variant_urns: list[str]):
-    linked_data = []
-    for idx, variant_urn in enumerate(variant_urns):
-        logging_ctx["on_variation_fetch"] = idx
-        ldh_variation = get_clingen_variation(variant_urn)
-
-        if not ldh_variation:
-            linked_data.append((variant_urn, None))
-            continue
-        else:
-            linked_data.append((variant_urn, ldh_variation["entId"]))
-
-        logger.debug(msg=f"Found ClinGen variation {ldh_variation['entId']} for URN {variant_urn}.", extra=logging_ctx)
-
-    return linked_data
-
-
 async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: int, attempt: int) -> dict:
     logging_context = {}
     score_set = None
@@ -913,7 +902,7 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
             extra=logging_context,
         )
 
-        return {"success": False, "retried": False}
+        return {"success": False, "retried": False, "enqueued_job": None}
 
     try:
         variant_urns = db.scalars(
@@ -934,7 +923,7 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
                 extra=logging_context,
             )
 
-            return {"success": True, "retried": False}
+            return {"success": True, "retried": False, "enqueued_job": None}
 
         logger.info(
             msg="Found current mapped variants with post mapped metadata for this score set. Attempting to link them to LDH submissions.",
@@ -950,13 +939,13 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
             extra=logging_context,
         )
 
-        return {"success": False, "retried": False}
+        return {"success": False, "retried": False, "enqueued_job": None}
 
     try:
         logger.info(msg="Attempting to link mapped variants to LDH submissions.", extra=logging_context)
         # TODO#372: Non-nullable variant urns.
         blocking = functools.partial(
-            get_ldh_variation,
+            lambda urns: [(variant_urn, get_clingen_variation(variant_urn)) for variant_urn in urns],
             variant_urns,  # type: ignore
         )
         loop = asyncio.get_running_loop()
@@ -971,12 +960,19 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
             extra=logging_context,
         )
 
-        return {"success": False, "retried": False}
+        return {"success": False, "retried": False, "enqueued_job": None}
 
     try:
+        linked_allele_ids = [
+            (variant_urn, clingen_allele_id_from_ldh_variation(clingen_variation))
+            for variant_urn, clingen_variation in linked_data
+        ]
+
+        print(linked_allele_ids)
+
         linkage_failures = []
-        for variant_urn, ldh_variation in linked_data:
-            # XXX: Should we unlink variation if it is not found?
+        for variant_urn, ldh_variation in linked_allele_ids:
+            # XXX: Should we unlink variation if it is not found? Does this constitute a failure?
             if not ldh_variation:
                 logger.warning(
                     msg=f"Failed to link mapped variant {variant_urn} to LDH submission. No LDH variation found.",
@@ -1013,7 +1009,7 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
             extra=logging_context,
         )
 
-        return {"success": False, "retried": False}
+        return {"success": False, "retried": False, "enqueued_job": None}
 
     try:
         num_linkage_failures = len(linkage_failures)
@@ -1022,12 +1018,16 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
         logging_context["linkage_failures"] = num_linkage_failures
         logging_context["linkage_successes"] = num_variant_urns - num_linkage_failures
 
+        assert (
+            len(linked_allele_ids) == num_variant_urns
+        ), f"{num_variant_urns - len(linked_allele_ids)} appear to not have been attempted to be linked."
+
         if not linkage_failures:
             logger.info(
                 msg="Successfully linked all mapped variants to LDH submissions.",
                 extra=logging_context,
             )
-            return {"success": True, "retried": False}
+            return {"success": True, "retried": False, "enqueued_job": None}
 
         if ratio_failed_linking < LINKED_DATA_RETRY_THRESHOLD:
             logger.warning(
@@ -1038,7 +1038,7 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
                 text=f"Failed to link {len(linkage_failures)} mapped variants to LDH submissions for score set {score_set.urn}."
                 f"The retry threshold was not exceeded and this job will not be retried. URNs failed to link: {', '.join(linkage_failures)}."
             )
-            return {"success": True, "retried": False}
+            return {"success": True, "retried": False, "enqueued_job": None}
 
     except Exception as e:
         send_slack_error(e)
@@ -1049,7 +1049,7 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
             extra=logging_context,
         )
 
-        return {"success": False, "retried": False}
+        return {"success": False, "retried": False, "enqueued_job": None}
 
     # If we reach this point, we should consider the job failed (there were failures which exceeded our retry threshold).
     new_job_id = None
@@ -1079,7 +1079,7 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
             )
             send_slack_message(
                 text=f"Failed to link {len(linkage_failures)} ({ratio_failed_linking} of total mapped variants for {score_set.urn})."
-                f"The retry threshold was exceeded and this job was successfully retried. This was attempt {attempt}. Retry will occur in {backoff_time} seconds. URNs failed to link: {', '.join(linkage_failures)}."
+                f"This job was successfully retried. This was attempt {attempt}. Retry will occur in {backoff_time} seconds. URNs failed to link: {', '.join(linkage_failures)}."
             )
         elif new_job_id is None and not max_retries_exceeded:
             logger.error(
@@ -1088,7 +1088,7 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
             )
             send_slack_message(
                 text=f"Failed to link {len(linkage_failures)} ({ratio_failed_linking} of total mapped variants for {score_set.urn})."
-                f"The retry threshold was exceeded but this job could not be retried. This was attempt {attempt}. URNs failed to link: {', '.join(linkage_failures)}."
+                f"This job could not be retried due to an unexpected issue while attempting to enqueue another linkage job. This was attempt {attempt}. URNs failed to link: {', '.join(linkage_failures)}."
             )
         else:
             logger.error(
@@ -1097,8 +1097,12 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
             )
             send_slack_message(
                 text=f"Failed to link {len(linkage_failures)} ({ratio_failed_linking} of total mapped variants for {score_set.urn})."
-                f"The retry threshold was exceeded but this job has exceeded the maximum retry level. URNs failed to link: {', '.join(linkage_failures)}."
+                f"The retry threshold was exceeded and this job will not be retried. URNs failed to link: {', '.join(linkage_failures)}."
             )
 
     finally:
-        return {"success": False, "retried": (not max_retries_exceeded and new_job_id is not None)}
+        return {
+            "success": False,
+            "retried": (not max_retries_exceeded and new_job_id is not None),
+            "enqueued_job": new_job_id,
+        }

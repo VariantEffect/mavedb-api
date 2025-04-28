@@ -5,7 +5,7 @@ from typing import Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from mavedb.lib.clingen.linked_data_hub import get_clingen_variation
+from mavedb.lib.clingen.linked_data_hub import get_clingen_variation, clingen_allele_id_from_ldh_variation
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.models.mapped_variant import MappedVariant
@@ -45,8 +45,9 @@ def link_clingen_variants(db: Session, urns: Sequence[str], score_sets: bool, un
     failed_urns = []
     for urn in urns:
         ldh_variation = get_clingen_variation(urn)
+        allele_id = clingen_allele_id_from_ldh_variation(ldh_variation)
 
-        if not ldh_variation:
+        if not allele_id:
             failed_urns.append(urn)
             continue
 
@@ -57,10 +58,10 @@ def link_clingen_variants(db: Session, urns: Sequence[str], score_sets: bool, un
             failed_urns.append(urn)
             continue
 
-        mapped_variant.clingen_allele_id = ldh_variation["entId"]
+        mapped_variant.clingen_allele_id = allele_id
         db.add(mapped_variant)
 
-        logger.info(f"Successfully linked URN {urn} to ClinGen variation {ldh_variation['entId']}.")
+        logger.info(f"Successfully linked URN {urn} to ClinGen variation {allele_id}.")
 
     if failed_urns:
         logger.warning(f"Failed to link the following {len(failed_urns)} URNs: {', '.join(failed_urns)}")
