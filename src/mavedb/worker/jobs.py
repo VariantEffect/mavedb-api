@@ -1078,7 +1078,7 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
                 extra=logging_context,
             )
             send_slack_message(
-                text=f"Failed to link {len(linkage_failures)} ({ratio_failed_linking} of total mapped variants for {score_set.urn})."
+                text=f"Failed to link {len(linkage_failures)} ({ratio_failed_linking*100}% of total mapped variants for {score_set.urn})."
                 f"This job was successfully retried. This was attempt {attempt}. Retry will occur in {backoff_time} seconds. URNs failed to link: {', '.join(linkage_failures)}."
             )
         elif new_job_id is None and not max_retries_exceeded:

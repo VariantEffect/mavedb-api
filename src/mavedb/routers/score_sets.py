@@ -1198,16 +1198,7 @@ async def get_clinical_controls_for_score_set(
     clinical_controls_with_mapped_variant = []
     for control_variant in clinical_controls_for_item:
         control_variant.mapped_variants = [
-            # As of now, we only have linked clingen allele IDs for v1.3 VRS. Once v2.0 has been linked to clingen allele IDs,
-            # we can transition to the other filter.
-            # Staging filter
-            mv
-            for mv in control_variant.mapped_variants
-            if mv.vrs_version == "1.3" and mv.variant.score_set_id == item.id
-            # Production filter
-            # mv
-            # for mv in control_variant.mapped_variants
-            # if mv.current and mv.variant.score_set_id == item.id
+            mv for mv in control_variant.mapped_variants if mv.current and mv.variant.score_set_id == item.id
         ]
 
         if control_variant.mapped_variants:

@@ -90,7 +90,7 @@ def test_construct_ldh_submission(mock_variant, mock_mapped_variant):
 
         # Validate the first submission
         submission1 = result[0]
-        assert submission1["event"]["uuid"] == uuid_1
+        assert submission1["event"]["uuid"] == str(uuid_1)
         assert submission1["event"]["sbj"]["id"] == TEST_HGVS_IDENTIFIER
         assert submission1["content"]["sbj"] == {"Variant": {"hgvs": TEST_HGVS_IDENTIFIER}}
         assert submission1["content"]["ld"]["MaveDBMapping"][0]["entContent"]["mavedb_id"] == VALID_VARIANT_URN
@@ -98,7 +98,7 @@ def test_construct_ldh_submission(mock_variant, mock_mapped_variant):
 
         # Validate the second submission
         submission2 = result[1]
-        assert submission2["event"]["uuid"] == uuid_2
+        assert submission2["event"]["uuid"] == str(uuid_2)
         assert submission2["event"]["sbj"]["id"] == TEST_HGVS_IDENTIFIER
         assert submission2["content"]["sbj"] == {"Variant": {"hgvs": TEST_HGVS_IDENTIFIER}}
         assert submission2["content"]["ld"]["MaveDBMapping"][0]["entContent"]["mavedb_id"] == VALID_VARIANT_URN

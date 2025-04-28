@@ -237,7 +237,7 @@ def clingen_allele_id_from_ldh_variation(variation: Optional[dict]) -> Optional[
 
     try:
         return variation["data"]["ldFor"]["Variant"][0]["entId"]
-    except KeyError as exc:
+    except (KeyError, IndexError) as exc:
         save_to_logging_context(format_raised_exception_info_as_dict(exc))
         logger.error("Failed to extract ClinGen allele ID from variation data.", extra=logging_context())
         return None

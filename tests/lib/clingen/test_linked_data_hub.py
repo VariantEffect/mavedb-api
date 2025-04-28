@@ -7,7 +7,13 @@ from unittest.mock import patch, MagicMock
 
 from mavedb.lib.clingen.constants import LDH_LINKED_DATA_URL, GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD
 from mavedb.lib.utils import batched
-from mavedb.lib.clingen.linked_data_hub import ClinGenLdhService, get_clingen_variation
+from mavedb.lib.clingen.linked_data_hub import (
+    ClinGenLdhService,
+    get_clingen_variation,
+    clingen_allele_id_from_ldh_variation,
+)
+
+from tests.helpers.constants import VALID_CLINGEN_CA_ID
 
 
 TEST_CLINGEN_URL = "https://pytest.clingen.com"
@@ -209,15 +215,16 @@ class TestClinGenLdhService:
 
 @patch("mavedb.lib.clingen.linked_data_hub.requests.get")
 def test_get_clingen_variation_success(mock_get):
+    mocked_response_json = {"data": {"ldFor": {"Variant": [{"id": "variant_1", "name": "Test Variant"}]}}}
     mock_response = MagicMock()
     mock_response.status_code = 200
-    mock_response.json.return_value = {"data": {"ldFor": {"Variant": [{"id": "variant_1", "name": "Test Variant"}]}}}
+    mock_response.json.return_value = mocked_response_json
     mock_get.return_value = mock_response
 
     urn = "urn:example:variant"
     result = get_clingen_variation(urn)
 
-    assert result == {"id": "variant_1", "name": "Test Variant"}
+    assert result == mocked_response_json
     mock_get.assert_called_once_with(
         f"{LDH_LINKED_DATA_URL}/{parse.quote_plus(urn)}",
         headers={"Accept": "application/json"},
@@ -241,18 +248,26 @@ def test_get_clingen_variation_failure(mock_get):
     )
 
 
-@patch("mavedb.lib.clingen.linked_data_hub.requests.get")
-def test_get_clingen_variation_invalid_response(mock_get):
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {"data": {"ldFor": {}}}  # Missing "Variant" key
-    mock_get.return_value = mock_response
+def test_clingen_allele_id_from_ldh_variation_success():
+    variation = {"data": {"ldFor": {"Variant": [{"entId": VALID_CLINGEN_CA_ID}]}}}
+    result = clingen_allele_id_from_ldh_variation(variation)
+    assert result == VALID_CLINGEN_CA_ID
 
-    urn = "urn:example:variant"
-    with pytest.raises(KeyError):
-        get_clingen_variation(urn)
 
-    mock_get.assert_called_once_with(
-        f"{LDH_LINKED_DATA_URL}/{parse.quote_plus(urn)}",
-        headers={"Accept": "application/json"},
-    )
+def test_clingen_allele_id_from_ldh_variation_missing_key():
+    variation = {"data": {"ldFor": {"Variant": []}}}
+
+    result = clingen_allele_id_from_ldh_variation(variation)
+    assert result is None
+
+
+def test_clingen_allele_id_from_ldh_variation_no_variation():
+    result = clingen_allele_id_from_ldh_variation(None)
+    assert result is None
+
+
+def test_clingen_allele_id_from_ldh_variation_key_error():
+    variation = {"data": {}}
+
+    result = clingen_allele_id_from_ldh_variation(variation)
+    assert result is None

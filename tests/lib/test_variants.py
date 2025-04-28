@@ -64,5 +64,5 @@ def test_hgvs_from_mapped_variant_invalid_type():
 def test_hgvs_from_mapped_variant_invalid_structure():
     mapped_variant = MagicMock()
     mapped_variant.post_mapped = {"invalid_key": "InvalidType"}
-    with pytest.raises(ValueError):
+    with pytest.raises(KeyError):
         hgvs_from_mapped_variant(mapped_variant)

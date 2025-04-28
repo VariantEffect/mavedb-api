@@ -1947,7 +1947,7 @@ async def test_link_score_set_mappings_to_ldh_objects_failures_exist_but_do_not_
         ),
         patch(
             "mavedb.worker.jobs.LINKED_DATA_RETRY_THRESHOLD",
-            -1,
+            2,
         ),
     ):
         result = await link_clingen_variants(standalone_worker_context, uuid4().hex, score_set.id, 1)

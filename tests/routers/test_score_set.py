@@ -2464,7 +2464,10 @@ def test_can_fetch_current_clinical_controls_for_score_set_with_parameters(
 
     query_string = "?"
     for param, accessor in parameters:
-        query_string += f"&{param}={clinical_control[accessor]}"
+        query_string += f"{param}={clinical_control[accessor]}&"
+
+    # Remove the last '&' from the query string
+    query_string = query_string.strip("&")
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls{query_string}")
     assert response.status_code == 200
