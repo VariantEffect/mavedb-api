@@ -121,14 +121,12 @@ class TestClinGenLdhService:
 
     ### Test the dispatch_submissions method
 
-    @patch("mavedb.lib.clingen.linked_data_hub.request_with_backoff")
+    @patch("mavedb.lib.clingen.linked_data_hub.requests.put")
     @patch("mavedb.lib.clingen.linked_data_hub.ClinGenLdhService.authenticate")
     @patch("mavedb.lib.clingen.linked_data_hub.batched")
-    def test_dispatch_submissions_success(
-        self, mock_batched, mock_authenticate, mock_request_with_backoff, clingen_service
-    ):
+    def test_dispatch_submissions_success(self, mock_batched, mock_authenticate, mock_request, clingen_service):
         mock_authenticate.return_value = "test_jwt_token"
-        mock_request_with_backoff.return_value.json.return_value = {"success": True}
+        mock_request.return_value.json.return_value = {"success": True}
 
         content_submissions = [{"id": 1}, {"id": 2}, {"id": 3}]
         mock_batched.return_value = [[{"id": 1}, {"id": 2}], [{"id": 3}]]  # Simulate batching
@@ -140,18 +138,17 @@ class TestClinGenLdhService:
         assert len(failures) == 0
         mock_batched.assert_called_once_with(content_submissions, 2)
         for submission in batched(content_submissions, batch_size):
-            mock_request_with_backoff.assert_any_call(
-                method="PUT",
+            mock_request.assert_any_call(
                 url=clingen_service.url,
                 json=submission,
                 headers={"Authorization": "Bearer test_jwt_token", "Content-Type": "application/json"},
             )
 
-    @patch("mavedb.lib.clingen.linked_data_hub.request_with_backoff")
+    @patch("mavedb.lib.clingen.linked_data_hub.requests.put")
     @patch("mavedb.lib.clingen.linked_data_hub.ClinGenLdhService.authenticate")
-    def test_dispatch_submissions_failure(self, mock_authenticate, mock_request_with_backoff, clingen_service):
+    def test_dispatch_submissions_failure(self, mock_authenticate, mock_request, clingen_service):
         mock_authenticate.return_value = "test_jwt_token"
-        mock_request_with_backoff.side_effect = requests.exceptions.RequestException("Request failed")
+        mock_request.side_effect = requests.exceptions.RequestException("Request failed")
 
         content_submissions = [{"id": 1}, {"id": 2}, {"id": 3}]
 
@@ -160,24 +157,23 @@ class TestClinGenLdhService:
         assert len(successes) == 0
         assert len(failures) == 3
         for submission in content_submissions:
-            mock_request_with_backoff.assert_any_call(
-                method="PUT",
+            mock_request.assert_any_call(
                 url=clingen_service.url,
                 json=submission,
                 headers={"Authorization": "Bearer test_jwt_token", "Content-Type": "application/json"},
             )
 
-    @patch("mavedb.lib.clingen.linked_data_hub.request_with_backoff")
+    @patch("mavedb.lib.clingen.linked_data_hub.requests.put")
     @patch("mavedb.lib.clingen.linked_data_hub.ClinGenLdhService.authenticate")
-    def test_dispatch_submissions_partial_success(self, mock_authenticate, mock_request_with_backoff, clingen_service):
+    def test_dispatch_submissions_partial_success(self, mock_authenticate, mock_request, clingen_service):
         mock_authenticate.return_value = "test_jwt_token"
 
-        def mock_request_with_backoff_side_effect(*args, **kwargs):
+        def mock_request_side_effect(*args, **kwargs):
             if kwargs["json"]["id"] == 2:
                 raise requests.exceptions.RequestException("Request failed")
             return MagicMock(json=MagicMock(return_value={"success": True}))
 
-        mock_request_with_backoff.side_effect = mock_request_with_backoff_side_effect
+        mock_request.side_effect = mock_request_side_effect
 
         content_submissions = [{"id": 1}, {"id": 2}, {"id": 3}]
 
@@ -187,14 +183,12 @@ class TestClinGenLdhService:
         assert len(failures) == 1
         assert failures[0]["id"] == 2
 
-    @patch("mavedb.lib.clingen.linked_data_hub.request_with_backoff")
+    @patch("mavedb.lib.clingen.linked_data_hub.requests.put")
     @patch("mavedb.lib.clingen.linked_data_hub.ClinGenLdhService.authenticate")
     @patch("mavedb.lib.clingen.linked_data_hub.batched")
-    def test_dispatch_submissions_no_batching(
-        self, mock_batched, mock_authenticate, mock_request_with_backoff, clingen_service
-    ):
+    def test_dispatch_submissions_no_batching(self, mock_batched, mock_authenticate, mock_request, clingen_service):
         mock_authenticate.return_value = "test_jwt_token"
-        mock_request_with_backoff.return_value.json.return_value = {"success": True}
+        mock_request.return_value.json.return_value = {"success": True}
 
         content_submissions = [{"id": 1}, {"id": 2}, {"id": 3}]
         mock_batched.return_value = content_submissions  # No batching
@@ -205,8 +199,7 @@ class TestClinGenLdhService:
         assert len(failures) == 0
         mock_batched.assert_not_called()
         for submission in content_submissions:
-            mock_request_with_backoff.assert_any_call(
-                method="PUT",
+            mock_request.assert_any_call(
                 url=clingen_service.url,
                 json=submission,
                 headers={"Authorization": "Bearer test_jwt_token", "Content-Type": "application/json"},
