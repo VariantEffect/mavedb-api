@@ -974,9 +974,13 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
 
     try:
         logger.info(msg="Attempting to link mapped variants to LDH submissions.", extra=logging_context)
+
+        def all_clingen_variation(variant_urns):
+            return [(variant_urn, get_clingen_variation(variant_urn)) for variant_urn in variant_urns]
+
         # TODO#372: Non-nullable variant urns.
         blocking = functools.partial(
-            lambda urns: [(variant_urn, get_clingen_variation(variant_urn)) for variant_urn in urns],
+            all_clingen_variation,
             variant_urns,  # type: ignore
         )
         loop = asyncio.get_running_loop()
