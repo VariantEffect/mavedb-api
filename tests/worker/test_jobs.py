@@ -121,6 +121,8 @@ async def setup_records_files_and_variants_with_mapping(
         result = await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
     assert result["success"]
+    assert not result["retried"]
+    assert result["enqueued_job"] is not None
     return session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
 
 
@@ -462,6 +464,13 @@ async def test_create_variants_for_score_set_enqueues_manager_and_successful_map
     async def dummy_mapping_job():
         return await setup_mapping_output(async_client, session, score_set)
 
+    async def dummy_submission_job():
+        return [TEST_CLINGEN_SUBMISSION_RESPONSE, None]
+
+    # Variants have not yet been created, so infer their URNs.
+    async def dummy_linking_job():
+        return [(f"{score_set_urn}#{i}", TEST_CLINGEN_LDH_LINKING_RESPONSE) for i in range(1, len(scores) + 1)]
+
     with (
         patch.object(
             cdot.hgvs.dataproviders.RESTDataProvider,
@@ -471,9 +480,11 @@ async def test_create_variants_for_score_set_enqueues_manager_and_successful_map
         patch.object(
             _UnixSelectorEventLoop,
             "run_in_executor",
-            return_value=dummy_mapping_job(),
+            side_effect=[dummy_mapping_job(), dummy_submission_job(), dummy_linking_job()],
         ),
+        patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
+        patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
     ):
         await arq_redis.enqueue_job("create_variants_for_score_set", uuid4().hex, score_set.id, 1, scores, counts)
         await arq_worker.async_run()
@@ -583,6 +594,7 @@ async def test_create_mapped_variants_for_scoreset(
     assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert result["success"]
     assert not result["retried"]
+    assert result["enqueued_job"] is not None
     assert len(mapped_variants_for_score_set) == score_set.num_variants
     assert score_set.mapping_state == MappingState.complete
     assert score_set.mapping_errors is None
@@ -656,6 +668,7 @@ async def test_create_mapped_variants_for_scoreset_with_existing_mapped_variants
     assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert result["success"]
     assert not result["retried"]
+    assert result["enqueued_job"] is not None
     assert len(mapped_variants_for_score_set) == score_set.num_variants + 1
     assert len(preexisting_variants) == 1
     assert len(new_variants) == score_set.num_variants
@@ -1048,6 +1061,7 @@ async def test_create_mapped_variants_for_scoreset_no_mapping_output(
     assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert result["success"]
     assert not result["retried"]
+    assert result["enqueued_job"] is not None
     assert len(mapped_variants_for_score_set) == 0
     assert score_set.mapping_state == MappingState.failed
 
@@ -1381,6 +1395,17 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping(
     async def dummy_mapping_job():
         return await setup_mapping_output(async_client, session, score_set)
 
+    async def dummy_submission_job():
+        return [TEST_CLINGEN_SUBMISSION_RESPONSE, None]
+
+    async def dummy_linking_job():
+        return [
+            (variant_urn, TEST_CLINGEN_LDH_LINKING_RESPONSE)
+            for variant_urn in session.scalars(
+                select(Variant.urn).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
+            ).all()
+        ]
+
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
@@ -1388,9 +1413,11 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping(
         patch.object(
             _UnixSelectorEventLoop,
             "run_in_executor",
-            return_value=dummy_mapping_job(),
+            side_effect=[dummy_mapping_job(), dummy_submission_job(), dummy_linking_job()],
         ),
+        patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
+        patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
     ):
         await arq_redis.enqueue_job("variant_mapper_manager", uuid4().hex, 1)
         await arq_worker.async_run()
@@ -1425,6 +1452,17 @@ async def test_mapping_manager_enqueues_mapping_process_with_retried_mapping_suc
     async def dummy_mapping_job():
         return await setup_mapping_output(async_client, session, score_set)
 
+    async def dummy_submission_job():
+        return [TEST_CLINGEN_SUBMISSION_RESPONSE, None]
+
+    async def dummy_linking_job():
+        return [
+            (variant_urn, TEST_CLINGEN_LDH_LINKING_RESPONSE)
+            for variant_urn in session.scalars(
+                select(Variant.urn).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
+            ).all()
+        ]
+
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
@@ -1432,9 +1470,11 @@ async def test_mapping_manager_enqueues_mapping_process_with_retried_mapping_suc
         patch.object(
             _UnixSelectorEventLoop,
             "run_in_executor",
-            side_effect=[failed_mapping_job(), dummy_mapping_job()],
+            side_effect=[failed_mapping_job(), dummy_mapping_job(), dummy_submission_job(), dummy_linking_job()],
         ),
+        patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
+        patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
     ):
         await arq_redis.enqueue_job("variant_mapper_manager", uuid4().hex, 1)
         await arq_worker.async_run()

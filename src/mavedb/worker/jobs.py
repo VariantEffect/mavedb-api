@@ -28,6 +28,7 @@ from mavedb.lib.clingen.linked_data_hub import (
 )
 from mavedb.lib.exceptions import (
     MappingEnqueueError,
+    SubmissionEnqueueError,
     LinkingEnqueueError,
     NonexistentMappingReferenceError,
     NonexistentMappingResultsError,
@@ -557,8 +558,38 @@ async def map_variants_for_score_set(
                 db.commit()
                 return {"success": False, "retried": (not max_retries_exceeded and new_job_id is not None)}
 
+    new_job_id = None
+    try:
+        new_job = await redis.enqueue_job(
+            "submit_score_set_mappings_to_ldh",
+            correlation_id,
+            score_set.id,
+        )
+
+        if new_job:
+            new_job_id = new_job.job_id
+
+            logging_context["submit_clingen_variants_job_id"] = new_job_id
+            logger.info(msg="Queued a new ClinGen submission job.", extra=logging_context)
+
+        else:
+            raise SubmissionEnqueueError()
+
+    except Exception as e:
+        send_slack_error(e)
+        send_slack_message(
+            f"Could not submit mappings to LDH for score set {score_set.urn}. Mappings for this score set should be submitted manually."
+        )
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="Mapped variant ClinGen submission encountered an unexpected error while attempting to enqueue a submission job. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False, "enqueued_job": new_job_id}
+
     ctx["state"][ctx["job_id"]] = logging_context.copy()
-    return {"success": True, "retried": False}
+    return {"success": True, "retried": False, "enqueued_job": new_job_id}
 
 
 async def variant_mapper_manager(ctx: dict, correlation_id: str, updater_id: int, attempt: int = 1) -> dict:
@@ -836,14 +867,14 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
 
         return {"success": False, "retried": False, "enqueued_job": None}
 
-    new_job = None
+    new_job_id = None
     try:
         new_job = await redis.enqueue_job(
             "link_clingen_variants",
             correlation_id,
             score_set.id,
             1,
-            defer_by=timedelta(minutes=LINKING_BACKOFF_IN_SECONDS),
+            _defer_by=timedelta(minutes=LINKING_BACKOFF_IN_SECONDS),
         )
 
         if new_job:
@@ -864,9 +895,9 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
             extra=logging_context,
         )
 
-        return {"success": False, "retried": False, "enqueued_job": new_job}
+        return {"success": False, "retried": False, "enqueued_job": new_job_id}
 
-    return {"success": True, "retried": False, "enqueued_job": new_job}
+    return {"success": True, "retried": False, "enqueued_job": new_job_id}
 
 
 async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: int, attempt: int) -> dict:
@@ -967,8 +998,6 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
             (variant_urn, clingen_allele_id_from_ldh_variation(clingen_variation))
             for variant_urn, clingen_variation in linked_data
         ]
-
-        print(linked_allele_ids)
 
         linkage_failures = []
         for variant_urn, ldh_variation in linked_allele_ids:

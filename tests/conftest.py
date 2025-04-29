@@ -28,7 +28,13 @@ from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.authorization import require_current_user
 from mavedb.models.user import User
 from mavedb.server_main import app
-from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager
+from mavedb.worker.jobs import (
+    create_variants_for_score_set,
+    map_variants_for_score_set,
+    variant_mapper_manager,
+    submit_score_set_mappings_to_ldh,
+    link_clingen_variants,
+)
 
 sys.path.append(".")
 
@@ -160,7 +166,13 @@ async def arq_worker(data_provider, session, arq_redis):
         ctx["pool"] = futures.ProcessPoolExecutor()
 
     worker_ = Worker(
-        functions=[create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager],
+        functions=[
+            create_variants_for_score_set,
+            map_variants_for_score_set,
+            variant_mapper_manager,
+            submit_score_set_mappings_to_ldh,
+            link_clingen_variants,
+        ],
         redis_pool=arq_redis,
         burst=True,
         poll_delay=0,
