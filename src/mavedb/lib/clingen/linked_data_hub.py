@@ -12,7 +12,7 @@ from mavedb.lib.logging.context import logging_context, save_to_logging_context,
 from mavedb.lib.clingen.constants import GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD, LDH_LINKED_DATA_URL
 
 from mavedb.lib.types.clingen import LdhSubmission
-from mavedb.lib.utils import batched, request_with_backoff
+from mavedb.lib.utils import batched
 
 logger = logging.getLogger(__name__)
 
@@ -143,12 +143,13 @@ class ClinGenLdhService:
         logger.info(msg=f"Dispatching {len(submissions)} ldh submissions...", extra=logging_context())
         for idx, content in enumerate(submissions):
             try:
-                response = request_with_backoff(
-                    method="PUT",
+                logger.debug(msg=f"Dispatching submission {idx+1}.", extra=logging_context())
+                response = requests.put(
                     url=self.url,
                     json=content,
                     headers={"Authorization": f"Bearer {self.authenticate()}", "Content-Type": "application/json"},
                 )
+                response.raise_for_status()
                 submission_successes.append(response.json())
                 logger.info(
                     msg=f"Successfully dispatched ldh submission ({idx+1} / {len(submissions)}).",
