@@ -874,7 +874,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
             correlation_id,
             score_set.id,
             1,
-            _defer_by=timedelta(minutes=LINKING_BACKOFF_IN_SECONDS),
+            _defer_by=timedelta(seconds=LINKING_BACKOFF_IN_SECONDS),
         )
 
         if new_job:
