@@ -26,7 +26,7 @@ async def fetch_mapped_variant_by_variant_urn(db, urn: str) -> Optional[MappedVa
             db.query(MappedVariant)
             .filter(Variant.urn == urn)
             .filter(MappedVariant.variant_id == Variant.id)
-            .filter(MappedVariant.current == True)
+            .filter(MappedVariant.current)  # filter current is true
             .one_or_none()
         )
     except MultipleResultsFound:
