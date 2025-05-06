@@ -238,7 +238,7 @@ def validate_genomic_variant(
                 validator.validate(parser.parse(str(variant_obj)), strict=False)
         except MaveHgvsParseError as e:
             logger.error("err", exc_info=e)
-            return False, f"Failed to parse variant string '{str(variant_obj)}' at row {idx}."
+            return False, f"Failed to parse variant string '{variant}' at row {idx}."
         except hgvs.exceptions.HGVSError as e:
             return False, f"Failed to parse row {idx} with HGVS exception: {e}."
 
