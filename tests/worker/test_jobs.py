@@ -1789,7 +1789,7 @@ async def test_submit_score_set_mappings_to_ldh_exception_during_linking_enqueue
             return_value=dummy_submission_job(),
         ),
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
-        patch.object(ArqRedis, "enqueue_job", side_effect=Exception()),
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception()),
     ):
         result = await submit_score_set_mappings_to_ldh(standalone_worker_context, uuid4().hex, score_set.id)
 
@@ -1822,7 +1822,7 @@ async def test_submit_score_set_mappings_to_ldh_linking_not_queued_when_expected
             return_value=dummy_submission_job(),
         ),
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
-        patch.object(ArqRedis, "enqueue_job", return_value=None),
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=None),
     ):
         result = await submit_score_set_mappings_to_ldh(standalone_worker_context, uuid4().hex, score_set.id)
 
@@ -2089,7 +2089,7 @@ async def test_link_score_set_mappings_to_ldh_objects_failures_exist_and_eclipse
             "mavedb.worker.jobs.LINKED_DATA_RETRY_THRESHOLD",
             1,
         ),
-        patch.object(ArqRedis, "enqueue_job", return_value=awaitable_exception()),
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=awaitable_exception()),
     ):
         result = await link_clingen_variants(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
