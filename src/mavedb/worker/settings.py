@@ -15,6 +15,8 @@ from mavedb.worker.jobs import (
     variant_mapper_manager,
     refresh_materialized_views,
     refresh_published_variants_view,
+    submit_score_set_mappings_to_ldh,
+    link_clingen_variants,
 )
 
 # ARQ requires at least one task on startup.
@@ -23,6 +25,8 @@ BACKGROUND_FUNCTIONS: list[Callable] = [
     variant_mapper_manager,
     map_variants_for_score_set,
     refresh_published_variants_view,
+    submit_score_set_mappings_to_ldh,
+    link_clingen_variants,
 ]
 # In UTC time. Depending on daylight savings time, this will bounce around by an hour but should always be very early in the morning
 # for all of the USA.
