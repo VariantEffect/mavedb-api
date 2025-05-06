@@ -16,7 +16,13 @@ from mavedb.models.user import User
 from mavedb.server_main import app
 from mavedb.deps import get_db, get_worker, hgvs_data_provider
 from arq.worker import Worker
-from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager
+from mavedb.worker.jobs import (
+    create_variants_for_score_set,
+    map_variants_for_score_set,
+    link_clingen_variants,
+    submit_score_set_mappings_to_ldh,
+    variant_mapper_manager,
+)
 
 from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_USER
 
@@ -100,7 +106,13 @@ async def arq_worker(data_provider, session, arq_redis):
         ctx["pool"] = futures.ProcessPoolExecutor()
 
     worker_ = Worker(
-        functions=[create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager],
+        functions=[
+            create_variants_for_score_set,
+            map_variants_for_score_set,
+            variant_mapper_manager,
+            submit_score_set_mappings_to_ldh,
+            link_clingen_variants,
+        ],
         redis_pool=arq_redis,
         burst=True,
         poll_delay=0,
