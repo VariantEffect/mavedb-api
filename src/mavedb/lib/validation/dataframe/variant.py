@@ -217,7 +217,7 @@ def validate_genomic_variant(
             If the variant is not a valid HGVS string (for reasons of transcript/variant inconsistency).
         """
 
-        for variant_sub_string in variant.components():
+        for variant_sub_string in variant.components(): # type: ignore
             validator.validate(parser.parse(variant_sub_string), strict=False)
 
         return True
