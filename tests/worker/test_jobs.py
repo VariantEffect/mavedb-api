@@ -1,16 +1,19 @@
+# ruff: noqa: E402
+
 from asyncio.unix_events import _UnixSelectorEventLoop
 from copy import deepcopy
 from datetime import date
 from unittest.mock import patch
 from uuid import uuid4
 
-import arq.jobs
-import cdot.hgvs.dataproviders
 import jsonschema
 import pandas as pd
 import pytest
-from arq import ArqRedis
 from sqlalchemy import not_, select
+
+arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
 
 from mavedb.data_providers.services import VRSMap
 from mavedb.lib.mave.constants import HGVS_NT_COLUMN
@@ -34,23 +37,36 @@ from mavedb.worker.jobs import (
     submit_score_set_mappings_to_ldh,
     link_clingen_variants,
 )
+
+
 from tests.helpers.constants import (
-    TEST_CDOT_TRANSCRIPT,
     TEST_CLINGEN_SUBMISSION_RESPONSE,
     TEST_CLINGEN_SUBMISSION_BAD_RESQUEST_RESPONSE,
     TEST_CLINGEN_SUBMISSION_UNAUTHORIZED_RESPONSE,
     TEST_CLINGEN_LDH_LINKING_RESPONSE,
+    TEST_NT_CDOT_TRANSCRIPT,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_VARIANT_MAPPING_SCAFFOLD,
-    VALID_ACCESSION,
+    VALID_NT_ACCESSION,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS1_X,
-    TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
+    TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
 )
-from tests.helpers.util import awaitable_exception
+from tests.helpers.util.exceptions import awaitable_exception
+from tests.helpers.util.experiment import create_experiment
+from tests.helpers.util.score_set import create_seq_score_set
+
+
+@pytest.fixture
+def populate_worker_db(data_files, client):
+    # create score set via API. In production, the API would invoke this worker job
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    return score_set["urn"]
 
 
 async def setup_records_and_files(async_client, data_files, input_score_set):
@@ -89,7 +105,7 @@ async def setup_records_files_and_variants(session, async_client, data_files, in
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider,
         "_get_transcript",
-        return_value=TEST_CDOT_TRANSCRIPT,
+        return_value=TEST_NT_CDOT_TRANSCRIPT,
     ):
         result = await create_variants_for_score_set(worker_ctx, uuid4().hex, score_set.id, 1, scores, counts)
 
@@ -171,7 +187,7 @@ async def setup_mapping_output(async_client, session, score_set, empty=False):
             {
                 "exception": "encountered 1 invalid variant strings.",
                 "detail": [
-                    "Failed to parse row 0 with HGVS exception: NM_001637.3:c.1T>A: Variant reference (T) does not agree with reference sequence (G)"
+                    "Failed to parse row 0 with HGVS exception: NM_001637.3:c.1T>A: Variant reference (T) does not agree with reference sequence (G)."
                 ],
             },
         ),
@@ -192,13 +208,13 @@ async def test_create_variants_for_score_set_with_validation_error(
     if input_score_set == TEST_MINIMAL_SEQ_SCORESET:
         scores.loc[:, HGVS_NT_COLUMN].iloc[0] = "c.1T>A"
     else:
-        scores.loc[:, HGVS_NT_COLUMN].iloc[0] = f"{VALID_ACCESSION}:c.1T>A"
+        scores.loc[:, HGVS_NT_COLUMN].iloc[0] = f"{VALID_NT_ACCESSION}:c.1T>A"
 
     with (
         patch.object(
             cdot.hgvs.dataproviders.RESTDataProvider,
             "_get_transcript",
-            return_value=TEST_CDOT_TRANSCRIPT,
+            return_value=TEST_NT_CDOT_TRANSCRIPT,
         ) as hdp,
     ):
         result = await create_variants_for_score_set(
@@ -305,7 +321,7 @@ async def test_create_variants_for_score_set_with_existing_variants(
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider,
         "_get_transcript",
-        return_value=TEST_CDOT_TRANSCRIPT,
+        return_value=TEST_NT_CDOT_TRANSCRIPT,
     ) as hdp:
         result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
@@ -328,7 +344,7 @@ async def test_create_variants_for_score_set_with_existing_variants(
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider,
         "_get_transcript",
-        return_value=TEST_CDOT_TRANSCRIPT,
+        return_value=TEST_NT_CDOT_TRANSCRIPT,
     ) as hdp:
         result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
@@ -386,7 +402,7 @@ async def test_create_variants_for_score_set_with_existing_exceptions(
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider,
         "_get_transcript",
-        return_value=TEST_CDOT_TRANSCRIPT,
+        return_value=TEST_NT_CDOT_TRANSCRIPT,
     ) as hdp:
         result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
@@ -425,7 +441,7 @@ async def test_create_variants_for_score_set(
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider,
         "_get_transcript",
-        return_value=TEST_CDOT_TRANSCRIPT,
+        return_value=TEST_NT_CDOT_TRANSCRIPT,
     ) as hdp:
         result = await create_variants_for_score_set(
             standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
@@ -475,7 +491,7 @@ async def test_create_variants_for_score_set_enqueues_manager_and_successful_map
         patch.object(
             cdot.hgvs.dataproviders.RESTDataProvider,
             "_get_transcript",
-            return_value=TEST_CDOT_TRANSCRIPT,
+            return_value=TEST_NT_CDOT_TRANSCRIPT,
         ) as hdp,
         patch.object(
             _UnixSelectorEventLoop,
@@ -861,7 +877,7 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception_retry_faile
             "run_in_executor",
             return_value=awaitable_exception(),
         ),
-        patch.object(ArqRedis, "lpush", awaitable_exception()),
+        patch.object(arq.ArqRedis, "lpush", awaitable_exception()),
     ):
         result = await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
@@ -955,7 +971,7 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_retry_faile
             "run_in_executor",
             return_value=dummy_mapping_job(),
         ),
-        patch.object(ArqRedis, "lpush", awaitable_exception()),
+        patch.object(arq.ArqRedis, "lpush", awaitable_exception()),
     ):
         result = await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
@@ -1080,7 +1096,7 @@ async def test_mapping_manager_empty_queue(setup_worker_db, standalone_worker_co
 @pytest.mark.asyncio
 async def test_mapping_manager_empty_queue_error_during_setup(setup_worker_db, standalone_worker_context):
     await standalone_worker_context["redis"].set(MAPPING_CURRENT_ID_NAME, "")
-    with patch.object(ArqRedis, "rpop", Exception()):
+    with patch.object(arq.ArqRedis, "rpop", Exception()):
         result = await variant_mapper_manager(standalone_worker_context, uuid4().hex, 1)
 
     # No new jobs should have been created if nothing is in the queue, and the queue should remain empty.
@@ -1162,7 +1178,7 @@ async def test_mapping_manager_occupied_queue_mapping_in_progress_error_during_e
     await standalone_worker_context["redis"].set(MAPPING_CURRENT_ID_NAME, "5")
     with (
         patch.object(arq.jobs.Job, "status", return_value=arq.jobs.JobStatus.in_progress),
-        patch.object(ArqRedis, "enqueue_job", return_value=awaitable_exception()),
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=awaitable_exception()),
     ):
         result = await variant_mapper_manager(standalone_worker_context, uuid4().hex, 1)
 
@@ -1190,7 +1206,7 @@ async def test_mapping_manager_occupied_queue_mapping_not_in_progress_error_duri
     await standalone_worker_context["redis"].set(MAPPING_CURRENT_ID_NAME, "")
     with (
         patch.object(arq.jobs.Job, "status", return_value=arq.jobs.JobStatus.not_found),
-        patch.object(ArqRedis, "enqueue_job", return_value=awaitable_exception()),
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=awaitable_exception()),
     ):
         result = await variant_mapper_manager(standalone_worker_context, uuid4().hex, 1)
 
@@ -1773,7 +1789,7 @@ async def test_submit_score_set_mappings_to_ldh_exception_during_linking_enqueue
             return_value=dummy_submission_job(),
         ),
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
-        patch.object(ArqRedis, "enqueue_job", side_effect=Exception()),
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception()),
     ):
         result = await submit_score_set_mappings_to_ldh(standalone_worker_context, uuid4().hex, score_set.id)
 
@@ -1806,7 +1822,7 @@ async def test_submit_score_set_mappings_to_ldh_linking_not_queued_when_expected
             return_value=dummy_submission_job(),
         ),
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
-        patch.object(ArqRedis, "enqueue_job", return_value=None),
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=None),
     ):
         result = await submit_score_set_mappings_to_ldh(standalone_worker_context, uuid4().hex, score_set.id)
 
@@ -2073,7 +2089,7 @@ async def test_link_score_set_mappings_to_ldh_objects_failures_exist_and_eclipse
             "mavedb.worker.jobs.LINKED_DATA_RETRY_THRESHOLD",
             1,
         ),
-        patch.object(ArqRedis, "enqueue_job", return_value=awaitable_exception()),
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=awaitable_exception()),
     ):
         result = await link_clingen_variants(standalone_worker_context, uuid4().hex, score_set.id, 1)
 

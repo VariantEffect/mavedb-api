@@ -177,6 +177,26 @@ class ScoreSetModify(ScoreSetBase):
 
         return field_value
 
+    # Validate nested label fields are not identical
+    @validator("target_genes")
+    def target_accession_base_editor_targets_are_consistent(cls, field_value, values):
+        # Only target accessions can have base editor data.
+        if len(field_value) > 1 and all([target.target_accession is not None for target in field_value]):
+            if len(set(target.target_accession.is_base_editor for target in field_value)) > 1:
+                # Throw the error for the first target, since it necessarily has an inconsistent base editor value.
+                raise ValidationError(
+                    "All target accessions must be of the same base editor type.",
+                    custom_loc=[
+                        "body",
+                        "targetGene",
+                        0,
+                        "targetAccession",
+                        "isBaseEditor",
+                    ],
+                )
+
+        return field_value
+
     @validator("score_ranges")
     def score_range_labels_must_be_unique(cls, field_value: Optional[ScoreRanges]):
         if field_value is None:
