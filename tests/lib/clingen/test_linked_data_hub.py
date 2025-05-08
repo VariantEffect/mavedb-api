@@ -1,9 +1,15 @@
+# ruff: noqa: E402
+
 import os
-from urllib import parse
 import pytest
 import requests
 from datetime import datetime
 from unittest.mock import patch, MagicMock
+from urllib import parse
+
+arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.clingen.constants import LDH_LINKED_DATA_URL, GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD
 from mavedb.lib.utils import batched
