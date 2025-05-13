@@ -27,8 +27,10 @@ def test_functional_classification_of_variant_with_ranges(mock_mapped_variant, s
 def test_functional_classification_of_variant_without_ranges(mock_mapped_variant):
     mock_mapped_variant.variant.score_set.score_ranges = None
 
-    result = functional_classification_of_variant(mock_mapped_variant)
-    assert result is None
+    with pytest.raises(ValueError) as exc:
+        functional_classification_of_variant(mock_mapped_variant)
+
+    assert f"Variant {mock_mapped_variant.variant.urn} does not have a score set with score ranges" in str(exc.value)
 
 
 @pytest.mark.parametrize(
@@ -41,8 +43,8 @@ def test_functional_classification_of_variant_without_ranges(mock_mapped_variant
         (2, EvidenceOutcome.PS3_MODERATE, StrengthOfEvidenceProvided.MODERATE),
         (-4, EvidenceOutcome.BS3, StrengthOfEvidenceProvided.STRONG),
         (4, EvidenceOutcome.PS3, StrengthOfEvidenceProvided.STRONG),
-        (-8, EvidenceOutcome.BS3, StrengthOfEvidenceProvided.STRONG),
-        (8, EvidenceOutcome.PS3, StrengthOfEvidenceProvided.STRONG),
+        (-8, EvidenceOutcome.BS3, StrengthOfEvidenceProvided.VERY_STRONG),
+        (8, EvidenceOutcome.PS3, StrengthOfEvidenceProvided.VERY_STRONG),
     ],
 )
 def test_clinical_classification_of_variant_with_thresholds(
@@ -58,6 +60,9 @@ def test_clinical_classification_of_variant_with_thresholds(
 def test_clinical_classification_of_variant_without_thresholds(mock_mapped_variant):
     mock_mapped_variant.variant.score_set.score_calibrations = None
 
-    classification, strength = pillar_project_clinical_classification_of_variant(mock_mapped_variant)
-    assert classification is None
-    assert strength is None
+    with pytest.raises(ValueError) as exc:
+        pillar_project_clinical_classification_of_variant(mock_mapped_variant)
+
+    assert f"Variant {mock_mapped_variant.variant.urn} does not have a score set with score thresholds" in str(
+        exc.value
+    )

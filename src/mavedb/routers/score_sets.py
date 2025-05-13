@@ -9,12 +9,17 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityFunctionalImpactEvidenceLine
+from ga4gh.va_spec.base import Statement, ExperimentalVariantFunctionalImpactStudyResult
 from sqlalchemy import null, or_, select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.orm import Session
 
 from mavedb import deps
-from mavedb.lib.annotation.annotate import variant_pathogenicity_evidence
+from mavedb.lib.annotation.annotate import (
+    variant_pathogenicity_evidence,
+    variant_functional_impact_statement,
+    variant_study_result,
+)
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import (
     get_current_user,
@@ -361,7 +366,7 @@ def get_score_set_mapped_variants(
 
 
 @router.get(
-    "/score-sets/{urn}/annotated-variants",
+    "/score-sets/{urn}/annotated-variants/pathogenicity-evidence-line",
     status_code=200,
     response_model=dict[str, Optional[VariantPathogenicityFunctionalImpactEvidenceLine]],
     response_model_exclude_none=True,
@@ -373,14 +378,17 @@ def get_score_set_annotated_variants(
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
     """
-    Return annotated variants from a score set, identified by URN.
+    Return pathogenicity evidence line annotations for mapped variants within a score set.
     """
-    save_to_logging_context({"requested_resource": urn, "resource_property": "annotated-variants"})
+    save_to_logging_context(
+        {"requested_resource": urn, "resource_property": "annotated-variants/pathogenicity-evidence-line"}
+    )
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
         logger.info(
-            msg="Could not fetch the requested annotated variants; No such score set exists.", extra=logging_context()
+            msg="Could not fetch the requested pathogenicity evidence lines; No such score set exists.",
+            extra=logging_context(),
         )
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
 
@@ -396,15 +404,114 @@ def get_score_set_annotated_variants(
     )
 
     if not mapped_variants:
-        logger.info(msg="No annotated variants are associated with the requested score set.", extra=logging_context())
+        logger.info(msg="No mapped variants are associated with the requested score set.", extra=logging_context())
         raise HTTPException(
             status_code=404,
-            detail=f"No annotated variants associated with score set URN {urn} were found",
+            detail=f"No mapped variants associated with score set URN {urn} were found. Could not construct evidence lines.",
         )
 
     return {
         mapped_variant.variant.urn: variant_pathogenicity_evidence(mapped_variant) for mapped_variant in mapped_variants
     }
+
+
+@router.get(
+    "/score-sets/{urn}/annotated-variants/functional-impact-statement",
+    status_code=200,
+    response_model=dict[str, Optional[Statement]],
+    response_model_exclude_none=True,
+)
+def get_score_set_annotated_variants_functional_statement(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+):
+    """
+    Return functional impact statement annotations for mapped variants within a score set.
+    """
+    save_to_logging_context(
+        {"requested_resource": urn, "resource_property": "annotated-variants/functional-impact-statement"}
+    )
+
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
+    if not score_set:
+        logger.info(
+            msg="Could not fetch the requested functional impact statements; No such score set exists.",
+            extra=logging_context(),
+        )
+        raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
+
+    assert_permission(user_data, score_set, Action.READ)
+
+    mapped_variants = (
+        db.query(MappedVariant)
+        .filter(ScoreSet.urn == urn)
+        .filter(ScoreSet.id == Variant.score_set_id)
+        .filter(Variant.id == MappedVariant.variant_id)
+        .where(MappedVariant.current.is_(True))
+        .all()
+    )
+
+    if not mapped_variants:
+        logger.info(msg="No mapped variants are associated with the requested score set.", extra=logging_context())
+        raise HTTPException(
+            status_code=404,
+            detail=f"No mapped variants associated with score set URN {urn} were found. Could not construct functional impact statements.",
+        )
+
+    return {
+        mapped_variant.variant.urn: variant_functional_impact_statement(mapped_variant)
+        for mapped_variant in mapped_variants
+    }
+
+
+@router.get(
+    "/score-sets/{urn}/annotated-variants/functional-study-result",
+    status_code=200,
+    response_model=dict[str, Optional[ExperimentalVariantFunctionalImpactStudyResult]],
+    response_model_exclude_none=True,
+)
+def get_score_set_annotated_variants_functional_study_result(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+):
+    """
+    Return functional study result annotations for mapped variants within a score set.
+    """
+    save_to_logging_context(
+        {"requested_resource": urn, "resource_property": "annotated-variants/functional-study-result"}
+    )
+
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
+    if not score_set:
+        logger.info(
+            msg="Could not fetch the requested functional study results; No such score set exists.",
+            extra=logging_context(),
+        )
+        raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
+
+    assert_permission(user_data, score_set, Action.READ)
+
+    mapped_variants = (
+        db.query(MappedVariant)
+        .filter(ScoreSet.urn == urn)
+        .filter(ScoreSet.id == Variant.score_set_id)
+        .filter(Variant.id == MappedVariant.variant_id)
+        .where(MappedVariant.current.is_(True))
+        .all()
+    )
+
+    if not mapped_variants:
+        logger.info(msg="No mapped variants are associated with the requested score set.", extra=logging_context())
+        raise HTTPException(
+            status_code=404,
+            detail=f"No mapped variants associated with score set URN {urn} were found. Could not construct study results.",
+        )
+
+    return {mapped_variant.variant.urn: variant_study_result(mapped_variant) for mapped_variant in mapped_variants}
 
 
 @router.post(

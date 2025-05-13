@@ -42,5 +42,5 @@ def mapped_variant_to_functional_statement(
                 code=classification, system="ga4gh-gks-term:experimental-var-func-impact-classification"
             ),
         ),
-        hasEvidenceLines=[evidence_item.model_dump(exclude_none=True) for evidence_item in evidence],
+        hasEvidenceLines=[evidence_item for evidence_item in evidence],
     )

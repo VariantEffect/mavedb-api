@@ -22,7 +22,7 @@ def test_experiment_to_document(mock_experiment):
 
     assert document.id == mock_experiment.urn
     assert document.title == mock_experiment.title
-    assert document.description == mock_experiment.description
+    assert document.description == mock_experiment.short_description
     assert document.subtype.name == "MaveDB Experiment"
     assert len(document.urls) > 0
     assert experiment_as_iri(mock_experiment).root in document.urls
@@ -38,7 +38,7 @@ def test_score_set_to_document(mock_score_set):
 
     assert document.id == mock_score_set.urn
     assert document.title == mock_score_set.title
-    assert document.description == mock_score_set.description
+    assert document.description == mock_score_set.short_description
     assert document.subtype.name == "MaveDB Score Set"
     assert len(document.urls) > 0
     assert score_set_as_iri(mock_score_set).root in document.urls

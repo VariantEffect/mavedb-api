@@ -79,7 +79,10 @@ def pillar_project_clinical_classification_of_variant(
     mapped_variant: MappedVariant,
 ) -> tuple[Optional[EvidenceOutcome], Optional[StrengthOfEvidenceProvided]]:
     if mapped_variant.variant.score_set.score_calibrations is None:
-        return None, None
+        raise ValueError(
+            f"Variant {mapped_variant.variant.urn} does not have a score set with score thresholds."
+            " Unable to classify clinical impact."
+        )
 
     score_calibration = PillarProjectCalibration(
         **jsonable_encoder(mapped_variant.variant.score_set.score_calibrations["pillar_project"])

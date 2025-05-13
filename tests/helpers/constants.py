@@ -197,7 +197,7 @@ TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X = {
         },
     },
     "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "D"}],
-    "expressions": [{"value": TEST_HGVS_IDENTIFIER, "syntax": "hgvs.p"}],
+    "expressions": [{"value": TEST_HGVS_IDENTIFIER, "syntax": "hgvs.p", "type": "Expression", "syntax_version": None}],
 }
 
 # VRS 1.X
