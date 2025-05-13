@@ -10,7 +10,7 @@ from mavedb.models.variant import Variant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.scripts.environment import with_database_session
 from mavedb.lib.clingen.linked_data_hub import ClinGenLdhService
-from mavedb.lib.clingen.constants import DEFAULT_LDH_SUBMISSION_BATCH_SIZE, LDH_SUBMISSION_URL
+from mavedb.lib.clingen.constants import DEFAULT_LDH_SUBMISSION_BATCH_SIZE, LDH_SUBMISSION_ENDPOINT
 from mavedb.lib.clingen.content_constructors import construct_ldh_submission
 from mavedb.lib.variants import hgvs_from_mapped_variant
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 def submit_urns_to_clingen(db: Session, urns: Sequence[str], debug: bool) -> list[str]:
-    ldh_service = ClinGenLdhService(url=LDH_SUBMISSION_URL)
+    ldh_service = ClinGenLdhService(url=LDH_SUBMISSION_ENDPOINT)
     ldh_service.authenticate()
 
     submitted_entities = []

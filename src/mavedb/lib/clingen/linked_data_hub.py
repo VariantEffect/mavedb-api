@@ -9,7 +9,7 @@ from urllib import parse
 from jose import jwt
 
 from mavedb.lib.logging.context import logging_context, save_to_logging_context, format_raised_exception_info_as_dict
-from mavedb.lib.clingen.constants import GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD, LDH_LINKED_DATA_URL
+from mavedb.lib.clingen.constants import GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD, LDH_MAVE_ACCESS_ENDPOINT
 
 from mavedb.lib.types.clingen import LdhSubmission
 from mavedb.lib.utils import batched
@@ -212,7 +212,7 @@ def get_clingen_variation(urn: str) -> Optional[dict]:
                         or None if the request fails.
     """
     response = requests.get(
-        f"{LDH_LINKED_DATA_URL}/{parse.quote_plus(urn)}",
+        f"{LDH_MAVE_ACCESS_ENDPOINT}/{parse.quote_plus(urn)}",
         headers={"Accept": "application/json"},
     )
 

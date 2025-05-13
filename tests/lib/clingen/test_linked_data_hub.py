@@ -11,7 +11,7 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
-from mavedb.lib.clingen.constants import LDH_LINKED_DATA_URL, GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD
+from mavedb.lib.clingen.constants import LDH_MAVE_ACCESS_ENDPOINT, GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD
 from mavedb.lib.utils import batched
 from mavedb.lib.clingen.linked_data_hub import (
     ClinGenLdhService,
@@ -225,7 +225,7 @@ def test_get_clingen_variation_success(mock_get):
 
     assert result == mocked_response_json
     mock_get.assert_called_once_with(
-        f"{LDH_LINKED_DATA_URL}/{parse.quote_plus(urn)}",
+        f"{LDH_MAVE_ACCESS_ENDPOINT}/{parse.quote_plus(urn)}",
         headers={"Accept": "application/json"},
     )
 
@@ -242,7 +242,7 @@ def test_get_clingen_variation_failure(mock_get):
 
     assert result is None
     mock_get.assert_called_once_with(
-        f"{LDH_LINKED_DATA_URL}/{parse.quote_plus(urn)}",
+        f"{LDH_MAVE_ACCESS_ENDPOINT}/{parse.quote_plus(urn)}",
         headers={"Accept": "application/json"},
     )
 

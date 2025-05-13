@@ -17,7 +17,7 @@ from mavedb.data_providers.services import vrs_mapper
 from mavedb.db.view import refresh_all_mat_views
 from mavedb.lib.clingen.constants import (
     DEFAULT_LDH_SUBMISSION_BATCH_SIZE,
-    LDH_SUBMISSION_URL,
+    LDH_SUBMISSION_ENDPOINT,
     LINKED_DATA_RETRY_THRESHOLD,
     CLIN_GEN_SUBMISSION_ENABLED,
 )
@@ -792,7 +792,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
         return {"success": False, "retried": False, "enqueued_job": None}
 
     try:
-        ldh_service = ClinGenLdhService(url=LDH_SUBMISSION_URL)
+        ldh_service = ClinGenLdhService(url=LDH_SUBMISSION_ENDPOINT)
         ldh_service.authenticate()
     except Exception as e:
         send_slack_error(e)

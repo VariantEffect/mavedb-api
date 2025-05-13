@@ -2027,11 +2027,26 @@ async def test_link_score_set_mappings_to_ldh_objects_exception_while_parsing_li
         standalone_worker_context,
     )
 
+    async def dummy_linking_job():
+        return [
+            (variant_urn, TEST_CLINGEN_LDH_LINKING_RESPONSE)
+            for variant_urn in session.scalars(
+                select(Variant.urn).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
+            ).all()
+        ]
+
     # We are unable to mock requests via requests_mock that occur inside another event loop. Instead, patch the return
     # value of the EventLoop itself, which would have made the request.
-    with patch(
-        "mavedb.lib.clingen.linked_data_hub.clingen_allele_id_from_ldh_variation",
-        side_effect=Exception(),
+    with (
+        patch.object(
+            _UnixSelectorEventLoop,
+            "run_in_executor",
+            return_value=dummy_linking_job(),
+        ),
+        patch(
+            "mavedb.worker.jobs.clingen_allele_id_from_ldh_variation",
+            side_effect=Exception(),
+        ),
     ):
         result = await link_clingen_variants(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
