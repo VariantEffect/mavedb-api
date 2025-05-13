@@ -46,7 +46,7 @@ def acmg_evidence_line(
                 code=evidence_outcome,
                 system="ACMG Guidelines, 2015",
             ),
-            "name": f"ACMG 2015 {evidence_outcome} Criterion Met",
+            "name": f"ACMG 2015 {evidence_outcome.name} Criterion Met",
         },
         strengthOfEvidenceProvided=MappableConcept(
             primaryCoding=Coding(
@@ -63,7 +63,7 @@ def acmg_evidence_line(
             mavedb_modifier_contribution(mapped_variant.variant, mapped_variant.variant.score_set.modified_by),
         ],
         targetProposition=proposition,
-        hasEvidenceItems=[evidence_item.model_dump(exclude_none=True) for evidence_item in evidence],
+        hasEvidenceItems=[evidence_item for evidence_item in evidence],
     )
 
 
@@ -72,6 +72,8 @@ def functional_evidence_line(
 ) -> EvidenceLine:
     return EvidenceLine(
         description=f"Functional evidence line for {mapped_variant.variant.urn}",
+        # Pydantic validates the provided dictionary meets the expected structure of possible models, but
+        # chokes if you provide the model directly.
         hasEvidenceItems=[evidence_item.model_dump(exclude_none=True) for evidence_item in evidence],
         directionOfEvidenceProvided="supports",
         specifiedBy=publication_identifiers_to_method(

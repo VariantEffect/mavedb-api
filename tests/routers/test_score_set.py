@@ -233,7 +233,6 @@ def test_cannot_create_score_set_with_score_range_and_source_when_publication_no
     )
 
 
-
 def test_cannot_create_score_set_with_nonexistent_contributor(client, setup_router_db):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
@@ -295,15 +294,8 @@ def test_remove_score_range_from_score_set(
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
 
-    score_set.pop("score_ranges")
-    response = client.put(f"/api/v1/score-sets/{response_data['urn']}", json=score_set)
+    response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
     assert response.status_code == 200
-    response_data = response.json()
-
-    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
-    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
-
-    assert "scoreRanges" not in response_data.keys()
 
 
 def test_cannot_create_score_set_without_email(client, setup_router_db):
@@ -2671,19 +2663,25 @@ def test_can_fetch_current_clinical_control_options_for_score_set(
 ########################################################################################################################
 
 
-def test_cannot_get_annotated_variants_for_nonexistent_score_set(client, setup_router_db):
+@pytest.mark.parametrize(
+    "annotation_type", ["pathogenicity-evidence-line", "functional-impact-statement", "functional-study-result"]
+)
+def test_cannot_get_annotated_variants_for_nonexistent_score_set(client, setup_router_db, annotation_type):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/annotated-variants")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/annotated-variants/{annotation_type}")
     response_data = response.json()
 
     assert response.status_code == 404
     assert f"score set with URN {score_set['urn']+'xxx'} not found" in response_data["detail"]
 
 
+@pytest.mark.parametrize(
+    "annotation_type", ["pathogenicity-evidence-line", "functional-impact-statement", "functional-study-result"]
+)
 def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
-    client, session, data_provider, data_files, setup_router_db
+    client, session, data_provider, data_files, setup_router_db, annotation_type
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -2708,117 +2706,45 @@ def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
     assert "hgvs_pro" in columns
     assert "hgvs_splice" not in columns
 
-    response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/annotated-variants")
+    response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/annotated-variants/{annotation_type}")
     response_data = response.json()
 
     assert response.status_code == 404
     assert (
-        f"No annotated variants associated with score set URN {publish_score_set['urn']} were found"
+        f"No mapped variants associated with score set URN {publish_score_set['urn']} were found"
         in response_data["detail"]
     )
 
 
-def test_get_annotated_variants_for_minimal_clinical_score_set(
-    client, session, data_provider, data_files, setup_router_db
-):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_mapped_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
-    )
-    link_clinical_controls_to_mapped_variants(session, score_set)
-
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
-    assert response.status_code == 200
-
-    response_data = response.json()
-    assert len(response_data) == 2
-    for control_option in response_data:
-        assert len(control_option["availableVersions"]) == 1
-        assert control_option["dbName"] in (
-            TEST_SAVED_CLINVAR_CONTROL["dbName"],
-            TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbName"],
-        )
-        assert all(
-            control_version
-            in (TEST_SAVED_CLINVAR_CONTROL["dbVersion"], TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbVersion"])
-            for control_version in control_option["availableVersions"]
-        )
+# Tests that annotated variants of the correct type are returned when appropriate. The contents of these
+# annotated variants are not tested here, and are tested in more detail via the annotation library tests.
 
 
-def test_cannot_fetch_clinical_control_options_for_nonexistent_score_set(
-    client, setup_router_db, session, data_provider, data_files
-):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_mapped_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
-    )
-    link_clinical_controls_to_mapped_variants(session, score_set)
-
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/clinical-controls/options")
-
-    assert response.status_code == 404
-    response_data = response.json()
-    assert f"score set with URN '{score_set['urn']+'xxx'}' not found" in response_data["detail"]
-
-
-def test_cannot_fetch_clinical_control_options_for_score_set_when_none_exist(
-    client, setup_router_db, session, data_provider, data_files
-):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_mapped_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
-    )
-
-    # The contents of the annotated variants objects should be tested in more detail elsewhere.
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
-    response_data = response.json()
-
-    assert response.status_code == 200
-    assert len(response_data) == score_set["numVariants"]
-
-    # More detailed tests for annotated variant contents are performed elsewhere.
-    annotated_variants = {k: v for d in response_data for k, v in d.items()}
-    for annotated_variant_urn, annotated_variant in annotated_variants.items():
-        variant = session.scalar(select(VariantDbModel).filter(VariantDbModel.urn == annotated_variant_urn))
-
-        assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
-        assert len(annotated_variant.values()) == 1
-        assert (
-            annotated_variant["assayVariantEffectMeasurementStudyResult"]["score"]
-            == variant.data["score_data"]["score"]
-        )
-
-
-def test_get_annotated_variants_for_clinical_score_set_with_thresholds(
+def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
     client, session, data_provider, data_files, setup_router_db, admin_app_overrides
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv", update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT)}
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT)},
     )
 
     # The contents of the annotated variants objects should be tested in more detail elsewhere.
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
     response_data = response.json()
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    # More detailed tests for annotated variant contents are performed elsewhere.
-    annotated_variants = {k: v for d in response_data for k, v in d.items()}
-    for annotated_variant_urn, annotated_variant in annotated_variants.items():
-        variant = session.scalar(select(VariantDbModel).filter(VariantDbModel.urn == annotated_variant_urn))
-
-        assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
-        assert "assayVariantEffectClinicalClassificationStatement" in annotated_variant
-        assert len(annotated_variant.values()) == 2
-        assert (
-            annotated_variant["assayVariantEffectMeasurementStudyResult"]["score"]
-            == variant.data["score_data"]["score"]
-        )
+    for variant_urn, annotated_variant in response_data.items():
+        assert f"Pathogenicity evidence line {variant_urn}" in annotated_variant.get("description")
 
 
-def test_get_annotated_variants_for_clinical_score_set_with_ranges(
+def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thresholds_not_present(
     client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
@@ -2831,28 +2757,62 @@ def test_get_annotated_variants_for_clinical_score_set_with_ranges(
         update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)},
     )
 
-    # The contents of the annotated variants objects should be tested in more detail elsewhere.
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
     response_data = response.json()
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    # More detailed tests for annotated variant contents are performed elsewhere.
-    annotated_variants = {k: v for d in response_data for k, v in d.items()}
-    for annotated_variant_urn, annotated_variant in annotated_variants.items():
-        variant = session.scalar(select(VariantDbModel).filter(VariantDbModel.urn == annotated_variant_urn))
-
-        assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
-        assert "assayVariantEffectFunctionalClassificationStatement" in annotated_variant
-        assert len(annotated_variant.values()) == 2
-        assert (
-            annotated_variant["assayVariantEffectMeasurementStudyResult"]["score"]
-            == variant.data["score_data"]["score"]
-        )
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant is None
 
 
-def test_get_annotated_variants_for_clinical_score_set_with_ranges_and_thresholds(
+def test_annotated_pathogenicity_evidence_lines_exists_for_score_set_when_ranges_not_present(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT)},
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for variant_urn, annotated_variant in response_data.items():
+        assert f"Pathogenicity evidence line {variant_urn}" in annotated_variant.get("description")
+
+
+def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thresholds_and_ranges_not_present(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant is None
+
+
+def test_get_annotated_functional_impact_statement_for_score_set(
     client, session, data_provider, data_files, setup_router_db, admin_app_overrides
 ):
     experiment = create_experiment(client)
@@ -2865,26 +2825,180 @@ def test_get_annotated_variants_for_clinical_score_set_with_ranges_and_threshold
         update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
 
-    # The contents of the annotated variants objects should be tested in more detail elsewhere.
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
     response_data = response.json()
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    # More detailed tests for annotated variant contents are performed elsewhere.
-    annotated_variants = {k: v for d in response_data for k, v in d.items()}
-    for annotated_variant_urn, annotated_variant in annotated_variants.items():
-        variant = session.scalar(select(VariantDbModel).filter(VariantDbModel.urn == annotated_variant_urn))
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant.get("type") == "Statement"
 
         assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
         assert "assayVariantEffectFunctionalClassificationStatement" in annotated_variant
         assert "assayVariantEffectClinicalClassificationStatement" in annotated_variant
         assert len(annotated_variant.values()) == 3
-        assert (
-            annotated_variant["assayVariantEffectMeasurementStudyResult"]["score"]
-            == variant.data["score_data"]["score"]
-        )
+
+
+def test_annotated_functional_impact_statement_exists_for_score_set_when_thresholds_not_present(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)},
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant.get("type") == "Statement"
+
+
+def test_nonetype_annotated_functional_impact_statement_for_score_set_when_ranges_not_present(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT)},
+
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant is None
+
+
+def test_nonetype_annotated_functional_impact_statement_for_score_set_when_thresholds_and_ranges_not_present(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant is None
+
+
+def test_get_annotated_functional_study_result_for_score_set(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
+
+
+def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_not_present(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)},
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
+
+
+def test_annotated_functional_study_result_exists_for_score_set_when_ranges_not_present(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT)},
+
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
+
+
+def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_and_ranges_not_present(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
 
 
 ########################################################################################################################

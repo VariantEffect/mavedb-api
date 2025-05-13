@@ -152,6 +152,7 @@ def mock_score_set(mock_user, mock_experiment, mock_publication_associations):
     score_set.modified_by = mock_user
     score_set.published_date = datetime(2023, 1, 1)
     score_set.title = "Mock score set"
+    score_set.short_description = "Mock score set"
     score_set.creation_date = datetime(2023, 1, 2)
     score_set.modification_date = datetime(2023, 1, 3)
     score_set.private = False

@@ -9,8 +9,8 @@ def test_score_set_to_data_set(mock_score_set):
     assert isinstance(data_set, DataSet)
     assert data_set.id == mock_score_set.urn
     assert data_set.description == mock_score_set.short_description
-    assert data_set.license == mock_score_set.license.short_name
-    assert data_set.releaseDate == mock_score_set.published_date.strftime("%Y-%m-%d")
+    assert data_set.license.name == mock_score_set.license.short_name
+    assert data_set.releaseDate.strftime("%Y-%m-%d") == mock_score_set.published_date.strftime("%Y-%m-%d")
     assert data_set.reportedIn is not None
     assert isinstance(data_set.reportedIn, iriReference)
 

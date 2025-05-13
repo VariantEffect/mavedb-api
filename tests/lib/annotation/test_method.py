@@ -37,7 +37,7 @@ def test_publication_identifier_to_method(mock_publication):
     subtype = "Test subtype"
     method = publication_identifier_to_method(mock_publication, subtype=subtype)
     assert method.name == subtype
-    assert method.reportedIn == mock_publication.url
+    assert method.reportedIn.root == mock_publication.url
 
 
 def test_publication_identifier_to_method_no_url(mock_publication):
@@ -56,7 +56,7 @@ def test_publication_identifiers_to_method(mock_publication):
 
     method = publication_identifiers_to_method([association])
     assert method.name == "Experimental protocol"
-    assert method.reportedIn == mock_publication.url
+    assert method.reportedIn.root == mock_publication.url
 
 
 def test_empty_publication_identifiers_to_method():
@@ -80,7 +80,7 @@ def test_mavedb_api_releases_as_iri():
 def test_mavedb_api_as_method():
     method = mavedb_api_as_method()
     assert method.name == "Software version"
-    assert method.reportedIn == MAVEDB_API_RELEASES_URL
+    assert method.reportedIn.root == MAVEDB_API_RELEASES_URL
 
 
 def test_mavedb_vrs_releases_as_iri():
@@ -90,7 +90,7 @@ def test_mavedb_vrs_releases_as_iri():
 def test_mavedb_vrs_as_method():
     method = mavedb_vrs_as_method()
     assert method.name == "Software version"
-    assert method.reportedIn == MAVEDB_MAPPER_RELEASES_URL
+    assert method.reportedIn.root == MAVEDB_MAPPER_RELEASES_URL
 
 
 def test_pillar_project_calibrations_as_iri():
@@ -100,7 +100,7 @@ def test_pillar_project_calibrations_as_iri():
 def test_pillar_project_calibration_method():
     method = pillar_project_calibration_method()
     assert method.name == "Software version"
-    assert method.reportedIn == MAVEDB_CALIBRATION_URL
+    assert method.reportedIn.root == MAVEDB_CALIBRATION_URL
 
 
 def test_variant_interpretation_functional_guideline_as_iri():
@@ -110,7 +110,7 @@ def test_variant_interpretation_functional_guideline_as_iri():
 def test_variant_interpretation_functional_guideline_method():
     method = variant_interpretation_functional_guideline_method()
     assert method.name == "Variant interpretation guideline"
-    assert method.reportedIn == FUNCITONAL_GUIDELINES_URL
+    assert method.reportedIn.root == FUNCITONAL_GUIDELINES_URL
 
 
 def test_variant_interpretation_clinical_guideline_as_iri():
@@ -120,4 +120,4 @@ def test_variant_interpretation_clinical_guideline_as_iri():
 def test_variant_interpretation_clinical_guideline_method():
     method = variant_interpretation_clinical_guideline_method()
     assert method.name == "Variant interpretation guideline"
-    assert method.reportedIn == CLINICAL_GUIDELINES_URL
+    assert method.reportedIn.root == CLINICAL_GUIDELINES_URL
