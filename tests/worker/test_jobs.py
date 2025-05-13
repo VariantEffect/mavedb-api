@@ -129,16 +129,19 @@ async def setup_records_files_and_variants_with_mapping(
     async def dummy_mapping_job():
         return await setup_mapping_output(async_client, session, score_set)
 
-    with patch.object(
-        _UnixSelectorEventLoop,
-        "run_in_executor",
-        return_value=dummy_mapping_job(),
+    with (
+        patch.object(
+            _UnixSelectorEventLoop,
+            "run_in_executor",
+            return_value=dummy_mapping_job(),
+        ),
+        patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", False),
     ):
         result = await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
     assert result["success"]
     assert not result["retried"]
-    assert result["enqueued_job"] is not None
+    assert result["enqueued_job"] is None
     return session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
 
 
@@ -501,6 +504,7 @@ async def test_create_variants_for_score_set_enqueues_manager_and_successful_map
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
+        patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", True),
     ):
         await arq_redis.enqueue_job("create_variants_for_score_set", uuid4().hex, score_set.id, 1, scores, counts)
         await arq_worker.async_run()
@@ -595,10 +599,13 @@ async def test_create_mapped_variants_for_scoreset(
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    with patch.object(
-        _UnixSelectorEventLoop,
-        "run_in_executor",
-        return_value=dummy_mapping_job(),
+    with (
+        patch.object(
+            _UnixSelectorEventLoop,
+            "run_in_executor",
+            return_value=dummy_mapping_job(),
+        ),
+        patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", True),
     ):
         result = await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
@@ -638,10 +645,13 @@ async def test_create_mapped_variants_for_scoreset_with_existing_mapped_variants
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    with patch.object(
-        _UnixSelectorEventLoop,
-        "run_in_executor",
-        return_value=dummy_mapping_job(),
+    with (
+        patch.object(
+            _UnixSelectorEventLoop,
+            "run_in_executor",
+            return_value=dummy_mapping_job(),
+        ),
+        patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", True),
     ):
         existing_variant = session.scalars(select(Variant)).first()
 
@@ -1061,10 +1071,13 @@ async def test_create_mapped_variants_for_scoreset_no_mapping_output(
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
-    with patch.object(
-        _UnixSelectorEventLoop,
-        "run_in_executor",
-        return_value=dummy_mapping_job(),
+    with (
+        patch.object(
+            _UnixSelectorEventLoop,
+            "run_in_executor",
+            return_value=dummy_mapping_job(),
+        ),
+        patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", True),
     ):
         result = await map_variants_for_score_set(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
@@ -1434,10 +1447,59 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping(
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
+        patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", True),
     ):
-        await arq_redis.enqueue_job("variant_mapper_manager", uuid4().hex, 1)
         await arq_worker.async_run()
-        await arq_worker.run_check()
+        num_completed_jobs = await arq_worker.run_check()
+
+    # We should have completed all jobs exactly once.
+    assert num_completed_jobs == 4
+
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
+    mapped_variants_for_score_set = session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
+    ).all()
+    assert (await arq_redis.llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await arq_redis.get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
+    assert len(mapped_variants_for_score_set) == score_set.num_variants
+    assert score_set.mapping_state == MappingState.complete
+    assert score_set.mapping_errors is None
+
+
+@pytest.mark.asyncio
+async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping_linking_disabled(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    async def dummy_mapping_job():
+        return await setup_mapping_output(async_client, session, score_set)
+
+    # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
+    # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
+    # object that sets up test mappingn output.
+    with (
+        patch.object(
+            _UnixSelectorEventLoop,
+            "run_in_executor",
+            side_effect=[dummy_mapping_job()],
+        ),
+        patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
+        patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
+        patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
+        patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", False),
+    ):
+        await arq_worker.async_run()
+        num_completed_jobs = await arq_worker.run_check()
+
+    # We should have completed the manager and mapping jobs, but not the submission or linking jobs.
+    assert num_completed_jobs == 2
 
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
@@ -1491,10 +1553,13 @@ async def test_mapping_manager_enqueues_mapping_process_with_retried_mapping_suc
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
+        patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", True),
     ):
-        await arq_redis.enqueue_job("variant_mapper_manager", uuid4().hex, 1)
         await arq_worker.async_run()
-        await arq_worker.run_check()
+        num_completed_jobs = await arq_worker.run_check()
+
+    # We should have completed the mapping manager job twice, the mapping job twice, the submission job, and the linking job.
+    assert num_completed_jobs == 6
 
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
@@ -1533,9 +1598,11 @@ async def test_mapping_manager_enqueues_mapping_process_with_unsuccessful_mappin
         ),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
     ):
-        await arq_redis.enqueue_job("variant_mapper_manager", uuid4().hex, 1)
         await arq_worker.async_run()
-        await arq_worker.run_check()
+        num_completed_jobs = await arq_worker.run_check()
+
+    # We should have completed 6 mapping jobs and 6 management jobs.
+    assert num_completed_jobs == 12
 
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(

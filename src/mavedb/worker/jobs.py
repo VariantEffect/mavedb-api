@@ -19,6 +19,7 @@ from mavedb.lib.clingen.constants import (
     DEFAULT_LDH_SUBMISSION_BATCH_SIZE,
     LDH_SUBMISSION_URL,
     LINKED_DATA_RETRY_THRESHOLD,
+    CLIN_GEN_SUBMISSION_ENABLED,
 )
 from mavedb.lib.clingen.content_constructors import construct_ldh_submission
 from mavedb.lib.clingen.linked_data_hub import (
@@ -560,20 +561,26 @@ async def map_variants_for_score_set(
 
     new_job_id = None
     try:
-        new_job = await redis.enqueue_job(
-            "submit_score_set_mappings_to_ldh",
-            correlation_id,
-            score_set.id,
-        )
+        if CLIN_GEN_SUBMISSION_ENABLED:
+            new_job = await redis.enqueue_job(
+                "submit_score_set_mappings_to_ldh",
+                correlation_id,
+                score_set.id,
+            )
 
-        if new_job:
-            new_job_id = new_job.job_id
+            if new_job:
+                new_job_id = new_job.job_id
 
-            logging_context["submit_clingen_variants_job_id"] = new_job_id
-            logger.info(msg="Queued a new ClinGen submission job.", extra=logging_context)
+                logging_context["submit_clingen_variants_job_id"] = new_job_id
+                logger.info(msg="Queued a new ClinGen submission job.", extra=logging_context)
 
+            else:
+                raise SubmissionEnqueueError()
         else:
-            raise SubmissionEnqueueError()
+            logger.warning(
+                msg="ClinGen submission is disabled, skipped submission of mapped variants to LDH.",
+                extra=logging_context,
+            )
 
     except Exception as e:
         send_slack_error(e)
