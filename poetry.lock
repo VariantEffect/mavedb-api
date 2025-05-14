@@ -233,7 +233,7 @@ tests = ["pytest (>=7.1,<8.0)", "pytest-cov (>=4.1,<5.0)", "pytest-optional-test
 name = "bioutils"
 version = "0.6.1"
 description = "miscellaneous simple bioinformatics utilities and lookup tables"
-optional = true
+optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 markers = "extra == \"server\""
@@ -721,7 +721,7 @@ botocore = ["botocore"]
 name = "canonicaljson"
 version = "2.0.0"
 description = "Canonical JSON"
-optional = true
+optional = false
 python-versions = ">=3.7"
 groups = ["main"]
 markers = "extra == \"server\""
@@ -1432,7 +1432,7 @@ tqdm = ["tqdm"]
 name = "ga4gh-cat-vrs"
 version = "0.5.0"
 description = "GA4GH Categorical Variation Representation (Cat-VRS) reference implementation"
-optional = true
+optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 markers = "extra == \"server\""
@@ -1454,7 +1454,7 @@ tests = ["pytest", "pytest-cov"]
 name = "ga4gh-va-spec"
 version = "0.2.0"
 description = "GA4GH Variant Annotation (VA) reference implementation"
-optional = true
+optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 markers = "extra == \"server\""
@@ -1477,7 +1477,7 @@ tests = ["pytest", "pytest-cov", "pyyaml"]
 name = "ga4gh-vrs"
 version = "2.1.3"
 description = "GA4GH Variation Representation Specification (VRS) reference implementation"
-optional = true
+optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 markers = "extra == \"server\""
@@ -4634,4 +4634,4 @@ server = ["alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "30a08cc033ad72e840c82b6c721d43675a8890ef0f6fecf05499314cf6e9e51d"
+content-hash = "874b2292bb9d67fbe44acf23d56ff73ee939bacc948ab855433b0dfbfe4c634a"
