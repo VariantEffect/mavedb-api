@@ -2,8 +2,6 @@ import logging
 from enum import StrEnum
 from typing import Optional
 
-from fastapi.encoders import jsonable_encoder
-
 from ga4gh.va_spec.acmg_2015 import EvidenceOutcome
 from ga4gh.va_spec.base import StrengthOfEvidenceProvided
 
@@ -59,7 +57,7 @@ def functional_classification_of_variant(
         )
 
     # This view model object is much simpler to work with.
-    score_ranges = ScoreRanges(**jsonable_encoder(mapped_variant.variant.score_set.score_ranges))
+    score_ranges = ScoreRanges(**mapped_variant.variant.score_set.score_ranges)
 
     # This property of this column is guaranteed to be defined.
     functional_score: float = mapped_variant.variant.data["score_data"]["score"]  # type: ignore
@@ -85,7 +83,7 @@ def pillar_project_clinical_classification_of_variant(
         )
 
     score_calibration = PillarProjectCalibration(
-        **jsonable_encoder(mapped_variant.variant.score_set.score_calibrations["pillar_project"])
+        **mapped_variant.variant.score_set.score_calibrations["pillar_project"]
     )
 
     # NOTE: It is presumed these thresholds are ordered.
