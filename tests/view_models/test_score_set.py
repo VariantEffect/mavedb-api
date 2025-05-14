@@ -4,12 +4,12 @@ from mavedb.view_models.publication_identifier import PublicationIdentifierCreat
 from mavedb.view_models.score_set import ScoreSetCreate, ScoreSetModify
 from mavedb.view_models.target_gene import TargetGeneCreate
 from tests.helpers.constants import TEST_MINIMAL_ACC_SCORESET, TEST_MINIMAL_SEQ_SCORESET
-from fastapi.encoders import jsonable_encoder
 from humps import camelize
 
 from mavedb.view_models.publication_identifier import PublicationIdentifier
 from mavedb.view_models.score_set import SavedScoreSet
 from mavedb.view_models.target_gene import SavedTargetGene
+
 from tests.helpers.constants import (
     VALID_EXPERIMENT_URN,
     TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
@@ -23,7 +23,7 @@ from tests.helpers.util.common import dummy_attributed_object_from_dict
 def test_can_create_score_set():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
-    score_set = ScoreSetCreate(**jsonable_encoder(score_set_test))
+    score_set = ScoreSetCreate(**score_set_test)
 
     assert score_set.title == "Test Score Set Title"
     assert score_set.short_description == "Test score set"
