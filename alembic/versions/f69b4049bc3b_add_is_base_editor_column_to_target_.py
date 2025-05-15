@@ -1,7 +1,7 @@
 """Add is_base_editor column to target_accessions
 
 Revision ID: f69b4049bc3b
-Revises: c404b6719110
+Revises: d6e5a9fde3c9
 Create Date: 2025-03-02 14:06:52.217554
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "f69b4049bc3b"
-down_revision = "c404b6719110"
+down_revision = "d6e5a9fde3c9"
 branch_labels = None
 depends_on = None
 

@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
 from mavedb.db.base import Base
+from mavedb.models import *  # noqa: F403
 
 sys.path.append(".")
 

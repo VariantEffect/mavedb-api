@@ -191,7 +191,7 @@ def validate_hgvs_genomic_column(
 def validate_genomic_variant(
     idx: Hashable, variant_string: str, parser: "Parser", validator: "Validator"
 ) -> tuple[bool, Optional[str]]:
-    def _validate_allelic_variation(transcript: str, variant: str) -> bool:
+    def _validate_allelic_variation(variant: Variant) -> bool:
         """
         The HGVS package is currently unable to parse allelic variation, and this doesn't seem like a planned
         feature (see: https://github.com/biocommons/hgvs/issues/538). As a workaround and because MaveHGVS
@@ -201,7 +201,7 @@ def validate_genomic_variant(
 
         Parameters
         ----------
-        variant : str
+        variant : MaveHGVS Style Variant
             The multi-variant allele to validate.
 
         Returns
@@ -216,16 +216,9 @@ def validate_genomic_variant(
         hgvs.exceptions.HGVSError
             If the variant is not a valid HGVS string (for reasons of transcript/variant inconsistency).
         """
-        # Validate each sub-variant in an allele is valid with respect to the transcript.
-        # mavehgvs doesn't offer a convenient way to access the variant sub-string in a multi-variant,
-        # but this is the same logic it uses to parse them into component substrings.
-        variant_match = Variant.fullmatch(variant)
-        if not variant_match:
-            return False
 
-        variant_string = variant_match.groupdict()["multi_variant"]
-        for variant_sub_string in variant_string[3:-1].split(";"):
-            validator.validate(parser.parse(f"{transcript}:{variant_string[0]}.{variant_sub_string}"), strict=False)
+        for variant_sub_string in variant.components(): # type: ignore
+            validator.validate(parser.parse(variant_sub_string), strict=False)
 
         return True
 
@@ -238,13 +231,11 @@ def validate_genomic_variant(
 
     for variant in variant_string.split(" "):
         try:
-            # Some issue with mavehgvs RegEx causes multivariants with a transcript identifier
-            # to fail RegEx validation, so we need to split the transcript and variant string up front.
-            transcript, variant_string = variant.split(":")
-            if Variant(variant_string).is_multi_variant():
-                _validate_allelic_variation(transcript, variant_string)
+            variant_obj = Variant(variant)
+            if variant_obj.is_multi_variant():
+                _validate_allelic_variation(variant_obj)
             else:
-                validator.validate(parser.parse(variant), strict=False)
+                validator.validate(parser.parse(str(variant_obj)), strict=False)
         except MaveHgvsParseError as e:
             logger.error("err", exc_info=e)
             return False, f"Failed to parse variant string '{variant}' at row {idx}."

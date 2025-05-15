@@ -4,6 +4,12 @@ from humps import camelize
 
 from mavedb.models.enums.processing_state import ProcessingState
 
+
+VALID_EXPERIMENT_SET_URN = "urn:mavedb:01234567"
+VALID_EXPERIMENT_URN = f"{VALID_EXPERIMENT_SET_URN}-abcd"
+VALID_SCORE_SET_URN = f"{VALID_EXPERIMENT_URN}-0123"
+VALID_VARIANT_URN = f"{VALID_SCORE_SET_URN}#1"
+
 TEST_PUBMED_IDENTIFIER = "20711194"
 TEST_PUBMED_URL_IDENTIFIER = "https://pubmed.ncbi.nlm.nih.gov/37162834/"
 TEST_BIORXIV_IDENTIFIER = "2021.06.21.212592"
@@ -11,9 +17,24 @@ TEST_MEDRXIV_IDENTIFIER = "2021.06.22.21259265"
 TEST_CROSSREF_IDENTIFIER = "10.1371/2021.06.22.21259265"
 TEST_ORCID_ID = "1111-1111-1111-1111"
 
+TEST_GA4GH_IDENTIFIER = "ga4gh:SQ.test"
+# ^[0-9A-Za-z_\-]{32}$
+TEST_GA4GH_DIGEST = "ga4ghtest_ga4ghtest_ga4ghtest_dg"
+# ^SQ.[0-9A-Za-z_\-]{32}$
+TEST_REFGET_ACCESSION = "SQ.ga4ghtest_ga4ghtest_ga4ghtest_rg"
+TEST_SEQUENCE_LOCATION_ACCESSION = "ga4gh:SL.test"
+
+TEST_REFSEQ_IDENTIFIER = "NM_003345"
+TEST_HGVS_IDENTIFIER = f"{TEST_REFSEQ_IDENTIFIER}:p.Asp5Phe"
+
+VALID_ACCESSION = "NM_001637.3"
 VALID_NT_ACCESSION = "NM_001637.3"
 VALID_PRO_ACCESSION = "NP_001637.4"
 VALID_GENE = "BRCA1"
+
+VALID_CLINGEN_PA_ID = "PA2579908752"
+VALID_CLINGEN_CA_ID = "CA341478553"
+VALID_CLINGEN_LDH_ID = "2786738861"
 
 SAVED_PUBMED_PUBLICATION = {
     "recordType": "PublicationIdentifier",
@@ -35,6 +56,114 @@ SAVED_DOI_IDENTIFIER = {
     "identifier": TEST_CROSSREF_IDENTIFIER,
     "url": f"https://doi.org/{TEST_CROSSREF_IDENTIFIER}",
     "id": 1,
+}
+
+# VRS 1.X
+TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS1_X = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "variation": {
+        "state": {"type": "LiteralSequenceExpression", "sequence": "V"},
+        "digest": TEST_GA4GH_DIGEST,
+        "location": {
+            "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+            "end": 2,
+            "type": "SequenceLocation",
+            "start": 1,
+            "digest": TEST_GA4GH_DIGEST,
+            "sequenceReference": {
+                "type": "SequenceReference",
+                "refgetAccession": TEST_REFGET_ACCESSION,
+            },
+        },
+        "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "W"}],
+    },
+}
+
+TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "variation": {
+        "state": {"type": "LiteralSequenceExpression", "sequence": "F"},
+        "digest": TEST_GA4GH_DIGEST,
+        "location": {
+            "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+            "end": 6,
+            "type": "SequenceLocation",
+            "start": 5,
+            "digest": TEST_GA4GH_DIGEST,
+            "sequenceReference": {
+                "type": "SequenceReference",
+                "label": TEST_REFSEQ_IDENTIFIER,
+                "refgetAccession": TEST_REFGET_ACCESSION,
+            },
+        },
+        "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "D"}],
+        "expressions": [{"value": TEST_HGVS_IDENTIFIER, "syntax": "hgvs.p"}],
+    },
+}
+
+# VRS 2.X
+TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "V"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 2,
+        "type": "SequenceLocation",
+        "start": 1,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "W"}],
+}
+
+TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "F"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 6,
+        "type": "SequenceLocation",
+        "start": 5,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "label": TEST_REFSEQ_IDENTIFIER,
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "D"}],
+    "expressions": [{"value": TEST_HGVS_IDENTIFIER, "syntax": "hgvs.p"}],
+}
+
+# VRS 1.X
+TEST_VALID_PRE_MAPPED_VRS_HAPLOTYPE = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X, TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X],
+}
+
+TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X, TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X],
+}
+
+# VRS 2.X
+TEST_VALID_PRE_MAPPED_VRS_CIS_PHASED_BLOCK = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X, TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X],
+}
+
+TEST_VALID_POST_MAPPED_VRS_CIS_PHASED_BLOCK = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X, TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X],
 }
 
 TEST_USER = {
@@ -733,7 +862,7 @@ TEST_MINIMAL_MAPPED_VARIANT = {
 }
 
 
-TEST_SCORESET_RANGE = {
+TEST_SCORE_SET_RANGE = {
     "wt_score": 1.0,
     "ranges": [
         {"label": "test1", "classification": "normal", "range": (0, 2.0)},
@@ -742,7 +871,7 @@ TEST_SCORESET_RANGE = {
 }
 
 
-TEST_SAVED_SCORESET_RANGE = {
+TEST_SAVED_SCORE_SET_RANGE = {
     "wtScore": 1.0,
     "ranges": [
         {"label": "test1", "classification": "normal", "range": [0.0, 2.0]},
@@ -815,4 +944,128 @@ TEST_COLLECTION_RESPONSE = {
     ],
     "editors": [],
     "viewers": [],
+}
+
+TEST_CLINVAR_CONTROL = {
+    "db_identifier": "183058",
+    "gene_symbol": "PTEN",
+    "clinical_significance": "Likely benign",
+    "clinical_review_status": "criteria provided, multiple submitters, no conflicts",
+    "db_name": "ClinVar",
+    "db_version": "11_2024",
+}
+
+
+TEST_SAVED_CLINVAR_CONTROL = {
+    "recordType": "ClinicalControlWithMappedVariants",
+    "dbIdentifier": "183058",
+    "geneSymbol": "PTEN",
+    "clinicalSignificance": "Likely benign",
+    "clinicalReviewStatus": "criteria provided, multiple submitters, no conflicts",
+    "dbName": "ClinVar",
+    "dbVersion": "11_2024",
+    "mappedVariants": [],
+}
+
+
+TEST_GENERIC_CLINICAL_CONTROL = {
+    "db_identifier": "ABC123",
+    "gene_symbol": "BRCA1",
+    "clinical_significance": "benign",
+    "clinical_review_status": "lots of convincing evidence",
+    "db_name": "GenDB",
+    "db_version": "2024",
+}
+
+
+TEST_SAVED_GENERIC_CLINICAL_CONTROL = {
+    "recordType": "ClinicalControlWithMappedVariants",
+    "dbIdentifier": "ABC123",
+    "geneSymbol": "BRCA1",
+    "clinicalSignificance": "benign",
+    "clinicalReviewStatus": "lots of convincing evidence",
+    "dbName": "GenDB",
+    "dbVersion": "2024",
+    "mappedVariants": [],
+}
+
+
+TEST_CLINGEN_SUBMISSION_RESPONSE = {
+    "data": {"msg": "Data sent successfully", "msgIds": ["(148894,0,-1,0)"]},
+    "metadata": {"rendered": {"by": "https://genboree.org/mq/brdg/srvc", "when": datetime.now().isoformat()}},
+    "status": {"code": 200, "name": "OK"},
+}
+
+
+TEST_CLINGEN_SUBMISSION_UNAUTHORIZED_RESPONSE = {
+    "metadata": {"rendered": {"when": datetime.now().isoformat()}},
+    "status": {"code": 403, "msg": "Bad Auth Info - jwt malformed", "name": "Forbidden"},
+}
+
+TEST_CLINGEN_SUBMISSION_BAD_RESQUEST_RESPONSE = {
+    "metadata": {"rendered": {"when": datetime.now().isoformat()}},
+    "status": {
+        "code": 400,
+        "msg": "Put Failed - Error! Submission was an empty object. Submission must consist of valid, non-Empty JSON objects",
+        "name": "Bad Request",
+    },
+}
+
+
+TEST_CLINGEN_LDH_LINKING_RESPONSE = {
+    "data": {
+        "created": datetime.now().isoformat(),
+        "creator": "brl_clingen",
+        "entContent": {
+            "mapping_api_version": "pytest.mapping.1.0",
+            "mavedb_id": VALID_VARIANT_URN,
+            "post_mapped": TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
+            "pre_mapped": TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
+            "score": 1.0,
+        },
+        "entId": VALID_VARIANT_URN,
+        "entIri": f"https://staging.mavedb.org/score-sets/{VALID_VARIANT_URN}",
+        "entType": "MaveDBMapping",
+        "ldFor": {
+            "Variant": [
+                {
+                    "created": datetime.now().isoformat(),
+                    "creator": "brl_clingen",
+                    "entId": VALID_CLINGEN_PA_ID,
+                    "entIri": f"http://reg.genome.network/allele/{VALID_CLINGEN_PA_ID}",
+                    "entType": "Variant",
+                    "ldhId": VALID_CLINGEN_LDH_ID,
+                    "ldhIri": f"https://10.15.55.128/ldh-stg/Variant/id/{VALID_CLINGEN_LDH_ID}",
+                    "modified": datetime.now().isoformat(),
+                    "modifier": "brl_clingen",
+                    "rev": "_hLpznbC-A-",
+                }
+            ]
+        },
+        "ldhId": VALID_CLINGEN_LDH_ID,
+        "ldhIri": f"https://10.15.55.128/ldh-stg/MaveDBMapping/id/{VALID_CLINGEN_LDH_ID}",
+        "modified": datetime.now().isoformat(),
+        "modifier": "brl_clingen",
+        "rev": "_jj3a99K---",
+    },
+    "metadata": {"rendered": {"by": "https://10.15.55.128/ldh-stg/srvc", "when": datetime.now().isoformat()}},
+    "status": {"code": 200, "name": "OK"},
+}
+
+
+TEST_CLINGEN_LDH_LINKING_RESPONSE_NOT_FOUND = {
+    "metadata": {"rendered": {"by": "https://10.15.55.128/ldh-stg/srvc", "when": datetime.now().isoformat()}},
+    "status": {
+        "code": 404,
+        "msg": f"Bad Entity - No 'MaveDBMapping' entity found with identifier {VALID_VARIANT_URN}",
+        "name": "Not Found",
+    },
+}
+
+
+TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST = {
+    "errCode": 400,
+    "errMsg": "INVALID URL - Your request is invalid. Specifically, the URL path you provided ('/ldh-stg/MaveDBMapping/i/urn%3Amavedb%3A00000050-a-1%231') is not valid for HTTP 'GET' requests to the CG-LDH API service.",
+    "errName": "Bad Request",
+    "errCat": "INVALID URL",
 }

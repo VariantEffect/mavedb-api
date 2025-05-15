@@ -33,7 +33,7 @@ from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.variant import Variant
-from tests.helpers.constants import TEST_SAVED_SCORESET_RANGE, TEST_EXPERIMENT, TEST_ACC_SCORESET, TEST_SEQ_SCORESET
+from tests.helpers.constants import TEST_EXPERIMENT, TEST_ACC_SCORESET, TEST_SAVED_SCORE_SET_RANGE, TEST_SEQ_SCORESET
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import create_seq_score_set
 
@@ -380,7 +380,7 @@ def test_create_null_score_range(setup_lib_db, client, session):
 
 def test_update_null_score_range(setup_lib_db, client, session):
     experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"], update={"scoreRanges": TEST_SAVED_SCORESET_RANGE})
+    score_set = create_seq_score_set(client, experiment["urn"], update={"scoreRanges": TEST_SAVED_SCORE_SET_RANGE})
     db_score_set = session.scalar(select(ScoreSet).where(ScoreSet.score_ranges.is_(None)))
     assert db_score_set is None
 
