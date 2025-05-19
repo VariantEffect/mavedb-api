@@ -15,7 +15,7 @@ def construct_ldh_submission_event(sbj: LdhContentSubject) -> LdhEvent:
         "type": LDH_SUBMISSION_TYPE,
         "name": LDH_ENTITY_NAME,
         "uuid": str(uuid4()),
-        "sbj": {"id": sbj["Variant"]["hgvs"], "type": "Variant", "format": "hgvs", "add": True},
+        "sbj": {"id": sbj["Variant"]["hgvs"], "type": "Variant", "format": "hgvs", "add": True, "iri": None},
         "triggered": {
             "by": {
                 "host": MAVEDB_BASE_GIT,
@@ -39,6 +39,7 @@ def construct_ldh_submission_entity(variant: Variant, mapped_variant: Optional[M
                 "entContent": {
                     "mavedb_id": variant.urn,  # type: ignore
                     "score": variant.data["score_data"]["score"],  # type: ignore
+                    "score_set_description": variant.score_set.short_description,  # type: ignore
                 },
                 "entId": variant.urn,  # type: ignore
                 "entIri": f"{MAVEDB_FRONTEND_URL}/{variant.urn}",  # type: ignore
