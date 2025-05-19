@@ -2,7 +2,7 @@ import click
 import logging
 from typing import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.clingen.linked_data_hub import get_clingen_variation, clingen_allele_id_from_ldh_variation
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 @with_database_session
 @click.argument("urns", nargs=-1)
 @click.option("--score-sets/--variants", default=False)
-@click.option("--unlinked", default=False)
+@click.option("--unlinked", default=False, is_flag=True)
 def link_clingen_variants(db: Session, urns: Sequence[str], score_sets: bool, unlinked: bool) -> None:
     """
     Submit data to ClinGen for mapped variant allele ID generation for the given URNs.
@@ -51,7 +51,7 @@ def link_clingen_variants(db: Session, urns: Sequence[str], score_sets: bool, un
             failed_urns.append(urn)
             continue
 
-        mapped_variant = db.scalar(select(MappedVariant).join(Variant).where(Variant.urn == urn))
+        mapped_variant = db.scalar(select(MappedVariant).join(Variant).where(and_(Variant.urn == urn, MappedVariant.current.is_(True))))
 
         if not mapped_variant:
             logger.warning(f"No mapped variant found for URN {urn}.")
