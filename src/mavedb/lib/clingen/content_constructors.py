@@ -32,7 +32,7 @@ def construct_ldh_submission_subject(hgvs: str) -> LdhContentSubject:
 
 
 def construct_ldh_submission_entity(variant: Variant, mapped_variant: Optional[MappedVariant]) -> LdhContentLinkedData:
-    entity = {
+    entity: LdhContentLinkedData = {
         # TODO#372: We try to make all possible fields that are non-nullable represented that way.
         "MaveDBMapping": [
             {
