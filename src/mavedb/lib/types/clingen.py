@@ -1,4 +1,4 @@
-from typing import TypedDict, Literal
+from typing import Optional, TypedDict, Literal
 from typing_extensions import NotRequired
 
 
@@ -34,6 +34,7 @@ class LdhEvent(TypedDict):
     uuid: str
     sbj: EventSbj
     triggered: EventTrigger
+    iri: Optional[str]
 
 
 ### Linked Data Hub Content Types
