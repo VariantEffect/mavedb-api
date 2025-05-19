@@ -1,5 +1,6 @@
 from unittest.mock import patch
 from uuid import UUID
+from urllib.parse import quote_plus
 
 from mavedb.constants import MAVEDB_BASE_GIT, MAVEDB_FRONTEND_URL
 from mavedb.lib.clingen.content_constructors import (
@@ -16,6 +17,7 @@ from tests.helpers.constants import (
     VALID_VARIANT_URN,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
+    VALID_SCORE_SET_URN,
 )
 
 
@@ -64,7 +66,10 @@ def test_construct_ldh_submission_entity(mock_variant, mock_mapped_variant):
     assert mapping["entContent"]["score"] == 1.0
 
     assert mapping["entId"] == VALID_VARIANT_URN
-    assert mapping["entIri"] == f"{MAVEDB_FRONTEND_URL}/{VALID_VARIANT_URN}"
+    assert (
+        mapping["entIri"]
+        == f"{MAVEDB_FRONTEND_URL}/score-sets/{quote_plus(VALID_SCORE_SET_URN)}?variant={quote_plus(VALID_VARIANT_URN)}"
+    )
 
 
 def test_construct_ldh_submission(mock_variant, mock_mapped_variant):

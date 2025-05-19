@@ -1,5 +1,6 @@
 from datetime import datetime
 from uuid import uuid4
+from urllib.parse import quote_plus
 
 from mavedb import __version__
 from mavedb.constants import MAVEDB_BASE_GIT, MAVEDB_FRONTEND_URL
@@ -43,7 +44,7 @@ def construct_ldh_submission_entity(variant: Variant, mapped_variant: MappedVari
                     "score": variant.data["score_data"]["score"],  # type: ignore
                 },
                 "entId": variant.urn,  # type: ignore
-                "entIri": f"{MAVEDB_FRONTEND_URL}/{variant.urn}",  # type: ignore
+                "entIri": f"{MAVEDB_FRONTEND_URL}/score-sets/{quote_plus(variant.score_set.urn)}?variant={quote_plus(variant.urn)}",  # type: ignore
             }
         ]
     }
