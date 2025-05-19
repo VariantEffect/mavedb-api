@@ -1,4 +1,4 @@
-from ga4gh.va_spec.base import (
+from ga4gh.va_spec.base.core import (
     ExperimentalVariantFunctionalImpactStudyResult,
 )
 from mavedb.models.mapped_variant import MappedVariant

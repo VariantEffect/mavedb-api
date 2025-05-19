@@ -99,8 +99,10 @@ def vrs_object_from_mapped_variant(mapping_results: dict) -> MolecularVariation:
     """
     if mapping_results.get("type") == "CisPhasedBlock" or mapping_results.get("type") == "Haplotype":
         return MolecularVariation(
+            # It's unclear why MyPy complains about the missing id field, so just add it as None (it is None by default anyway)
             CisPhasedBlock(
-                members=[allele_from_mapped_variant_dictionary_result(member) for member in mapping_results["members"]]
+                id=None,
+                members=[allele_from_mapped_variant_dictionary_result(member) for member in mapping_results["members"]],
             )
         )
 

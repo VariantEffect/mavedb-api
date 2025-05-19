@@ -11,7 +11,7 @@ This module supports the construction of three main VA-Spec data structures base
 from typing import Optional
 
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityFunctionalImpactEvidenceLine
-from ga4gh.va_spec.base import ExperimentalVariantFunctionalImpactStudyResult, Statement
+from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 
 from mavedb.lib.annotation.evidence_line import acmg_evidence_line, functional_evidence_line
 from mavedb.lib.annotation.proposition import (

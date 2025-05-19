@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Optional
 
 from ga4gh.va_spec.acmg_2015 import EvidenceOutcome
-from ga4gh.va_spec.base import StrengthOfEvidenceProvided
+from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
 
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.lib.validation.utilities import inf_or_float

@@ -1,15 +1,13 @@
 from typing import Optional, Union
 
-from ga4gh.core.models import Coding
+from ga4gh.core.models import Coding, MappableConcept, iriReference
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityFunctionalImpactEvidenceLine
-from ga4gh.va_spec.base import VariantPathogenicityProposition
 from ga4gh.va_spec.base.core import (
-    MappableConcept,
     EvidenceLine,
     StudyResult,
     EvidenceLineType,
     StatementType,
-    iriReference,
+    VariantPathogenicityProposition,
 )
 
 from mavedb.lib.annotation.classification import pillar_project_clinical_classification_of_variant
@@ -35,7 +33,7 @@ def acmg_evidence_line(
 ) -> Optional[VariantPathogenicityFunctionalImpactEvidenceLine]:
     evidence_outcome, evidence_strength = pillar_project_clinical_classification_of_variant(mapped_variant)
 
-    if not evidence_outcome and not evidence_strength:
+    if not evidence_outcome or not evidence_strength:
         return None
 
     return VariantPathogenicityFunctionalImpactEvidenceLine(
@@ -73,8 +71,9 @@ def functional_evidence_line(
     return EvidenceLine(
         description=f"Functional evidence line for {mapped_variant.variant.urn}",
         # Pydantic validates the provided dictionary meets the expected structure of possible models, but
-        # chokes if you provide the model directly.
-        hasEvidenceItems=[evidence_item.model_dump(exclude_none=True) for evidence_item in evidence],
+        # chokes if you provide the model directly. It probably isn't surprising MyPy doesn't love this method
+        # of validation, so we just ignore it.
+        hasEvidenceItems=[evidence_item.model_dump(exclude_none=True) for evidence_item in evidence],  # type: ignore
         directionOfEvidenceProvided="supports",
         specifiedBy=publication_identifiers_to_method(
             mapped_variant.variant.score_set.publication_identifier_associations

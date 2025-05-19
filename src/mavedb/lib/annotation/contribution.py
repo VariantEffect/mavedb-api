@@ -2,8 +2,8 @@ import logging
 from datetime import datetime
 from typing import Union
 
-from ga4gh.core.models import Coding, Extension
-from ga4gh.va_spec.base.core import Contribution, MappableConcept
+from ga4gh.core.models import Coding, Extension, MappableConcept
+from ga4gh.va_spec.base.core import Contribution
 
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.experiment import Experiment
