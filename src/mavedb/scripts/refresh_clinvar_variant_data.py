@@ -78,7 +78,7 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[s
                 .where(MappedVariant.current.is_(True), MappedVariant.post_mapped.is_not(None))
                 .where(and_(
                     MappedVariant.clingen_allele_id.is_not(None),
-                    MappedVariant.current,
+                    MappedVariant.current.is_(True),
                     ScoreSet.urn.in_(urns)
                 ))
         ).all()
