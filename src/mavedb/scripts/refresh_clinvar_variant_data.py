@@ -90,7 +90,7 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[s
 
     logger.info(f"Fetching ClinGen data for {total_variants_with_clingen_ids} variants.")
     for index, clingen_id in enumerate(clingen_ids):
-        if total_variants_with_clingen_ids > 0 and index % (total_variants_with_clingen_ids // 100) == 0:
+        if total_variants_with_clingen_ids > 0 and index % (max(total_variants_with_clingen_ids // 100, 1)) == 0:
             logger.info(f"Progress: {index / total_variants_with_clingen_ids:.0%}")
 
         # Guaranteed based on our query filters.
