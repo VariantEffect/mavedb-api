@@ -42,6 +42,7 @@ def test_construct_ldh_submission_event():
             "type": "Variant",
             "format": "hgvs",
             "add": True,
+            "iri": None
         }
         assert result["triggered"]["by"] == {
             "host": MAVEDB_BASE_GIT,
