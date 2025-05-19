@@ -47,9 +47,9 @@ def construct_ldh_submission_entity(variant: Variant, mapped_variant: Optional[M
         ]
     }
     if mapped_variant is not None:
-        entity["MaveDBMapping"][0]["pre_mapped"] = mapped_variant.pre_mapped
-        entity["MaveDBMapping"][0]["post_mapped"] = mapped_variant.post_mapped
-        entity["MaveDBMapping"][0]["mapping_api_version"] = mapped_variant.mapping_api_version
+        entity["MaveDBMapping"][0]["entContent"]["pre_mapped"] = mapped_variant.pre_mapped
+        entity["MaveDBMapping"][0]["entContent"]["post_mapped"] = mapped_variant.post_mapped
+        entity["MaveDBMapping"][0]["entContent"]["mapping_api_version"] = mapped_variant.mapping_api_version
     return entity
 
 

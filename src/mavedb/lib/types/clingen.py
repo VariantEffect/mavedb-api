@@ -14,6 +14,7 @@ class EventSbj(TypedDict):
     type: str
     format: Literal["hgvs", "alleleRegistryID", "clinvarID", "geneSymbol"]
     add: bool
+    iri: Optional[str]
 
 
 # Who/what triggered the event
@@ -34,7 +35,6 @@ class LdhEvent(TypedDict):
     uuid: str
     sbj: EventSbj
     triggered: EventTrigger
-    iri: Optional[str]
 
 
 ### Linked Data Hub Content Types
