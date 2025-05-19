@@ -131,6 +131,8 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[s
             select(MappedVariant).where(MappedVariant.clingen_allele_id == clingen_id)
         ).all()
         for mapped_variant in variants_with_clingen_allele_id:
+            if clinvar_variant.id in [c.id for c in mapped_variant.clinical_controls]:
+                continue
             mapped_variant.clinical_controls.append(clinvar_variant)
             db.add(mapped_variant)
 
