@@ -1,9 +1,15 @@
+from _typeshed import Incomplete
 from abc import ABC
+from datetime import date
 from enum import Enum
 from pydantic import BaseModel, RootModel, StringConstraints as StringConstraints
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypeVar
 
-from mypy_stubs.ga4gh.core.models import Coding
+from ...core.models import Coding, MappableConcept
+from ...vrs.models import MolecularVariation
+
+StatementType = TypeVar("StatementType")
+EvidenceLineType = TypeVar("EvidenceLineType")
 
 class CoreImType(str, Enum):
     AGENT = str
@@ -72,7 +78,7 @@ class InformationEntity(InformationEntityBase):
     derivedFrom: list[InformationEntity] | None = None
 
 class Document(InformationEntity):
-    type: Literal["Document"] = "Document"  # type: ignore
+    type: Literal["Document"] = "Document"
     subtype: Coding | None = None
     title: str | None = None
     urls: list[Annotated[str, None]] | None = None
@@ -80,7 +86,7 @@ class Document(InformationEntity):
     pmid: int | None = None
 
 class Method(InformationEntity):
-    type: Literal["Method"] = "Method"  # type: ignore
+    type: Literal["Method"] = "Method"
     subtype: Coding | None = None
     license: str | None = None
 
@@ -91,53 +97,97 @@ class RecordMetadata(BaseModel):
     dateRecordCreated: str | None = None
     contributions: list[Contribution] | None = None
 
-class DataSet(InformationEntity):
-    type: Literal["DataSet"] = "DataSet"  # type: ignore
-    subtype: Coding | None = None
-    releaseDate: str | None = None
+class DataSet(Entity):
+    type: Literal["DataSet"] = "DataSet"
+    subtype: MappableConcept | None = None
+    reportedIn: Document | iriReference | None = None
+    releaseDate: date | None = None
     version: str | None = None
-    license: str | None = None
+    license: MappableConcept | None = None
 
 class EvidenceLine(InformationEntity):
-    type: Literal["EvidenceLine"] = "EvidenceLine"  # type: ignore
-    hasEvidenceItems: list[InformationEntity] | None = None
-    directionOfEvidenceProvided: Direction | None = None
-    strengthOfEvidenceProvided: Coding | iriReference | None = None
+    type: Literal["EvidenceLine"] = "EvidenceLine"
+    targetProposition: Proposition | SubjectVariantProposition | None = None
+    hasEvidenceItems: list[StudyResult | Statement | EvidenceLine | iriReference] | None = None
+    directionOfEvidenceProvided: Direction
+    strengthOfEvidenceProvided: MappableConcept | None = None
     scoreOfEvidenceProvided: float | None = None
+    evidenceOutcome: MappableConcept | None = None
 
-class StatementBase(InformationEntity, ABC):
-    predicate: str
-    direction: Direction | None = None
-    strength: Coding | iriReference | None = None
-    score: float | None = None
-    statementText: str | None = None
-    classification: Coding | iriReference | None = None
-    hasEvidenceLines: list[EvidenceLine] | None = None
-
-class Statement(StatementBase):
+class Proposition(Entity):
     subject: dict
+    predicate: str
     object: dict
 
-class StudyGroup(Entity):
-    type: Literal["StudyGroup"] = "StudyGroup"
-    memberCount: int | None = None
-    isSubsetOf: list[StudyGroup] | None = None
-    characteristics: list[Characteristic] | None = None
+class Statement(InformationEntity):
+    type: Literal["Statement"] = "Statement"
+    proposition: (
+        ExperimentalVariantFunctionalImpactProposition
+        | VariantDiagnosticProposition
+        | VariantOncogenicityProposition
+        | VariantPathogenicityProposition
+        | VariantPrognosticProposition
+        | VariantTherapeuticResponseProposition
+    )
+    direction: Direction
+    strength: MappableConcept | None = None
+    score: float | None = None
+    classification: MappableConcept | None = None
+    hasEvidenceLines: list[EvidenceLine | iriReference] | None = None
 
-class Characteristic(BaseModel):
-    name: str
-    value: str
-    valueOperator: bool | None = None
+class StudyResult(RootModel):
+    root: CohortAlleleFrequencyStudyResult | ExperimentalVariantFunctionalImpactStudyResult
 
-class StudyResultBase(InformationEntityBase, ABC):
-    sourceDataSet: list[DataSet] | None = None
+class _StudyResult(InformationEntity, ABC):
+    sourceDataSet: DataSet | None = None
     ancillaryResults: dict | None = None
     qualityMeasures: dict | None = None
 
-class StudyResult(InformationEntityBase, ABC):
-    focus: Coding | iriReference | None = None
-    sourceDataSet: list[DataSet] | None = None
-    componentResult: list[StudyResult] | None = None
-    studyGroup: StudyGroup | None = None
-    ancillaryResults: dict | None = None
-    qualityMeasures: dict | None = None
+class _SubjectVariantPropositionBase(Entity, ABC):
+    subjectVariant: MolecularVariation | CategoricalVariant | iriReference
+
+class SubjectVariantProposition(RootModel):
+    root: (
+        ExperimentalVariantFunctionalImpactProposition
+        | VariantPathogenicityProposition
+        | VariantDiagnosticProposition
+        | VariantPrognosticProposition
+        | VariantOncogenicityProposition
+        | VariantTherapeuticResponseProposition
+    )
+
+class ClinicalVariantProposition(_SubjectVariantPropositionBase):
+    geneContextQualifier: MappableConcept | iriReference | None = None
+    alleleOriginQualifier: MappableConcept | iriReference | None = None
+
+class VariantPathogenicityProposition(ClinicalVariantProposition):
+    type: Literal["VariantPathogenicityProposition"] = "VariantPathogenicityProposition"
+    targetProposition: VariantPathogenicityProposition | None = None
+    strengthOfEvidenceProvided: Coding | iriReference | None = None
+    specifiedBy: Method | iriReference | None = None
+    hasEvidenceLines: list[EvidenceLine] | None = None
+
+class ExperimentalVariantFunctionalImpactStudyResult(_StudyResult):
+    type: Literal["ExperimentalVariantFunctionalImpactStudyResult"] = "ExperimentalVariantFunctionalImpactStudyResult"
+    focusVariant: MolecularVariation | iriReference
+    functionalImpactScore: float | None = None
+    specifiedBy: Method | iriReference | None = None
+    sourceDataSet: DataSet | None = None
+
+class ExperimentalVariantFunctionalImpactProposition(_SubjectVariantPropositionBase):
+    type: Literal["ExperimentalVariantFunctionalImpactProposition"] = "ExperimentalVariantFunctionalImpactProposition"
+    predicate: str = "impactsFunctionOf"
+    objectSequenceFeature: iriReference | MappableConcept
+    experimentalContextQualifier: iriReference | Document | dict | None = None
+
+# TODO#319: When we pull in CatVRS as a dependency, we can fully type this but as of now there is no need.
+CategoricalVariant = Incomplete
+
+# Proposition types we don't care about and thus have no need to strongly type.
+VariantDiagnosticProposition = Incomplete
+VariantOncogenicityProposition = Incomplete
+VariantPrognosticProposition = Incomplete
+VariantTherapeuticResponseProposition = Incomplete
+
+# Study result types we don't care about and thus have no need to strongly type.
+CohortAlleleFrequencyStudyResult = Incomplete

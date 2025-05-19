@@ -2,8 +2,8 @@ from _typeshed import Incomplete
 from abc import ABC
 from collections.abc import Generator
 from enum import Enum
-from ga4gh.core.identifiers import PrevVrsVersion as PrevVrsVersion
-from ga4gh.core.entity_models import Entity as Entity, IRI as IRI
+from ..core.identifiers import PrevVrsVersion as PrevVrsVersion
+from ..core.models import Entity as Entity, iriReference as IRI
 from pydantic import BaseModel, RootModel, StringConstraints as StringConstraints, ValidationInfo as ValidationInfo
 from typing import Annotated, Literal
 
@@ -13,48 +13,48 @@ def overlaps(a: list, b: list): ...
 def pydantic_class_refatt_map(): ...
 
 class VrsType(str, Enum):
-    LEN_EXPR: str
-    REF_LEN_EXPR: str
-    LIT_SEQ_EXPR: str
-    SEQ_REF: str
-    SEQ_LOC: str
-    ALLELE: str
-    CIS_PHASED_BLOCK: str
-    ADJACENCY: str
-    TERMINUS: str
-    TRAVERSAL_BLOCK: str
-    DERIVATIVE_MOL: str
-    CN_COUNT: str
-    CN_CHANGE: str
+    LEN_EXPR = "LengthExpression"
+    REF_LEN_EXPR = "ReferenceLengthExpression"
+    LIT_SEQ_EXPR = "LiteralSequenceExpression"
+    SEQ_REF = "SequenceReference"
+    SEQ_LOC = "SequenceLocation"
+    ALLELE = "Allele"
+    CIS_PHASED_BLOCK = "CisPhasedBlock"
+    ADJACENCY = "Adjacency"
+    TERMINUS = "Terminus"
+    TRAVERSAL_BLOCK = "TraversalBlock"
+    DERIVATIVE_MOL = "DerivativeMolecule"
+    CN_COUNT = "CopyNumberCount"
+    CN_CHANGE = "CopyNumberChange"
 
 class Orientation(str, Enum):
-    FORWARD: str
-    REVERSE_COMPLEMENT: str
+    FORWARD = "forward"
+    REVERSE_COMPLEMENT = "reverse_complement"
 
 class ResidueAlphabet(str, Enum):
-    AA: str
-    NA: str
+    AA = "aa"
+    NA = "na"
 
 class CopyChange(str, Enum):
-    EFO_0030069: str
-    EFO_0020073: str
-    EFO_0030068: str
-    EFO_0030067: str
-    EFO_0030064: str
-    EFO_0030070: str
-    EFO_0030071: str
-    EFO_0030072: str
+    COMPLETE_GENOMIC_LOSS = "complete genomic loss"
+    HIGH_LEVEL_LOSS = "high-level loss"
+    LOW_LEVEL_LOSS = "low-level loss"
+    LOSS = "loss"
+    REGIONAL_BASE_PLOIDY = "regional base ploidy"
+    GAIN = "gain"
+    LOW_LEVEL_GAIN = "low-level gain"
+    HIGH_LEVEL_GAIN = "high-level gain"
 
 class Syntax(str, Enum):
-    HGVS_C: str
-    HGVS_P: str
-    HGVS_G: str
-    HGVS_M: str
-    HGVS_N: str
-    HGVS_R: str
-    HGVS_ISCN: str
-    GNOMAD: str
-    SPDI: str
+    HGVS_C = "hgvs.c"
+    HGVS_P = "hgvs.p"
+    HGVS_G = "hgvs.g"
+    HGVS_M = "hgvs.m"
+    HGVS_N = "hgvs.n"
+    HGVS_R = "hgvs.r"
+    HGVS_ISCN = "iscn"
+    GNOMAD = "gnomad"
+    SPDI = "spdi"
 
 class _ValueObject(Entity, ABC):
     def __hash__(self): ...
@@ -67,7 +67,7 @@ class _ValueObject(Entity, ABC):
 
 class _Ga4ghIdentifiableObject(_ValueObject, ABC):
     type: str
-    digest: Annotated[str, None] | None
+    digest: Annotated[str, None] | None = None
     def __lt__(self, other): ...
     @staticmethod
     def is_ga4gh_identifiable(): ...
@@ -85,7 +85,7 @@ class _Ga4ghIdentifiableObject(_ValueObject, ABC):
 class Expression(BaseModel):
     syntax: Syntax
     value: str
-    syntax_version: str | None
+    syntax_version: str | None = None
 
 class Range(RootModel):
     root: list[int | None]
@@ -98,39 +98,39 @@ class SequenceString(RootModel):
     root: Annotated[str, None]
 
 class LengthExpression(_ValueObject):
-    type: Literal["LengthExpression"]
-    length: Range | int | None
+    type: Literal["LengthExpression"] = "LengthExpression"
+    length: Range | int | None = None
     class ga4gh(_ValueObject.ga4gh):
         keys: Incomplete
 
 class ReferenceLengthExpression(_ValueObject):
-    type: Literal["ReferenceLengthExpression"]
+    type: Literal["ReferenceLengthExpression"] = "ReferenceLengthExpression"
     length: Range | int
-    sequence: SequenceString | None
+    sequence: SequenceString | None = None
     repeatSubunitLength: int
     class ga4gh(_ValueObject.ga4gh):
         keys: Incomplete
 
 class LiteralSequenceExpression(_ValueObject):
-    type: Literal["LiteralSequenceExpression"]
+    type: Literal["LiteralSequenceExpression"] = "LiteralSequenceExpression"
     sequence: SequenceString
     class ga4gh(_ValueObject.ga4gh):
         keys: Incomplete
 
 class SequenceReference(_ValueObject):
-    type: Literal["SequenceReference"]
+    type: Literal["SequenceReference"] = "SequenceReference"
     refgetAccession: Annotated[str, None]
-    residueAlphabet: ResidueAlphabet | None
-    circular: bool | None
+    residueAlphabet: ResidueAlphabet | None = None
+    circular: bool | None = None
     class ga4gh(_ValueObject.ga4gh):
         keys: Incomplete
 
 class SequenceLocation(_Ga4ghIdentifiableObject):
-    type: Literal["SequenceLocation"]
-    sequenceReference: IRI | SequenceReference | None
-    start: Range | int | None
-    end: Range | int | None
-    sequence: SequenceString | None
+    type: Literal["SequenceLocation"] = "SequenceLocation"
+    sequenceReference: IRI | SequenceReference | None = None
+    start: Range | int | None = None
+    end: Range | int | None = None
+    sequence: SequenceString | None = None
     def validate_start_end(cls, v: Range | int | None, info: ValidationInfo) -> Range | int | None: ...
     def ga4gh_serialize_as_version(self, as_version: PrevVrsVersion): ...
     def get_refget_accession(self): ...
@@ -140,10 +140,10 @@ class SequenceLocation(_Ga4ghIdentifiableObject):
         keys: Incomplete
 
 class _VariationBase(_Ga4ghIdentifiableObject, ABC):
-    expressions: list[Expression] | None
+    expressions: list[Expression] | None = None
 
 class Allele(_VariationBase):
-    type: Literal["Allele"]
+    type: Literal["Allele"] = "Allele"
     location: IRI | SequenceLocation
     state: LiteralSequenceExpression | ReferenceLengthExpression | LengthExpression
     def ga4gh_serialize_as_version(self, as_version: PrevVrsVersion): ...
@@ -153,41 +153,41 @@ class Allele(_VariationBase):
         keys: Incomplete
 
 class CisPhasedBlock(_VariationBase):
-    type: Literal["CisPhasedBlock"]
+    type: Literal["CisPhasedBlock"] = "CisPhasedBlock"
     members: list[Allele | IRI]
-    sequenceReference: SequenceReference | None
+    sequenceReference: SequenceReference | None = None
     def ga4gh_serialize(self) -> dict: ...
     class ga4gh(_Ga4ghIdentifiableObject.ga4gh):
         prefix: str
         keys: Incomplete
 
 class Adjacency(_VariationBase):
-    type: Literal["Adjacency"]
+    type: Literal["Adjacency"] = "Adjacency"
     adjoinedSequences: list[IRI | SequenceLocation]
-    linker: LiteralSequenceExpression | ReferenceLengthExpression | LengthExpression | None
-    homology: bool | None
+    linker: LiteralSequenceExpression | ReferenceLengthExpression | LengthExpression | None = None
+    homology: bool | None = None
     class ga4gh(_Ga4ghIdentifiableObject.ga4gh):
         prefix: str
         keys: Incomplete
 
 class Terminus(_VariationBase):
-    type: Literal["Terminus"]
+    type: Literal["Terminus"] = "Terminus"
     location: IRI | SequenceLocation
     class ga4gh(_Ga4ghIdentifiableObject.ga4gh):
         prefix: str
         keys: Incomplete
 
 class TraversalBlock(_ValueObject):
-    type: Literal["TraversalBlock"]
-    orientation: Orientation | None
-    component: Allele | CisPhasedBlock | Adjacency | Terminus | None
+    type: Literal["TraversalBlock"] = "TraversalBlock"
+    orientation: Orientation | None = None
+    component: Allele | CisPhasedBlock | Adjacency | Terminus | None = None
     class ga4gh(_ValueObject.ga4gh):
         keys: Incomplete
 
 class DerivativeMolecule(_VariationBase):
-    type: Literal["DerivativeMolecule"]
+    type: Literal["DerivativeMolecule"] = "DerivativeMolecule"
     components: list[IRI | TraversalBlock]
-    circular: bool | None
+    circular: bool | None = None
     class ga4gh(_Ga4ghIdentifiableObject.ga4gh):
         prefix: str
         keys: Incomplete
@@ -196,14 +196,14 @@ class _CopyNumber(_VariationBase, ABC):
     location: IRI | SequenceLocation
 
 class CopyNumberCount(_CopyNumber):
-    type: Literal["CopyNumberCount"]
+    type: Literal["CopyNumberCount"] = "CopyNumberCount"
     copies: Range | int
     class ga4gh(_Ga4ghIdentifiableObject.ga4gh):
         prefix: str
         keys: Incomplete
 
 class CopyNumberChange(_CopyNumber):
-    type: Literal["CopyNumberChange"]
+    type: Literal["CopyNumberChange"] = "CopyNumberChange"
     copyChange: CopyChange
     class ga4gh(_Ga4ghIdentifiableObject.ga4gh):
         prefix: str

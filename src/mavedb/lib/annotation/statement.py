@@ -1,7 +1,8 @@
 from typing import Union
-from ga4gh.va_spec.base import Statement, ExperimentalVariantFunctionalImpactProposition
+from ga4gh.core.models import MappableConcept
 from ga4gh.va_spec.base.core import (
-    MappableConcept,
+    ExperimentalVariantFunctionalImpactProposition,
+    Statement,
     StudyResult,
     EvidenceLineType,
     StatementType,

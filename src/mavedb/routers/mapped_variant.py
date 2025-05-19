@@ -1,8 +1,9 @@
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends
 from fastapi.exceptions import HTTPException
-from ga4gh.va_spec.base import StudyResult, EvidenceLine, Statement
+from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityFunctionalImpactEvidenceLine
 from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import Session
 
@@ -18,15 +19,16 @@ from mavedb.models.variant import Variant
 from mavedb.view_models import mapped_variant
 
 
-async def fetch_mapped_variant_by_variant_urn(db, urn: str) -> Optional[MappedVariant]:
+async def fetch_mapped_variant_by_variant_urn(db, urn: str) -> MappedVariant:
     """
     We may combine this function back to show_mapped_variant if none of any new function call it.
     Fetch one mapped variant by variant URN.
 
     :param db: An active database session.
     :param urn: The variant URN.
-    :return: The mapped variant, or None if the URL was not found or refers to a private score set not owned by the specified
-        user.
+    :return: The mapped variant.
+
+    :raises HTTPException: If the mapped variant is not found or if multiple variants are found.
     """
     try:
         item = (
@@ -58,9 +60,14 @@ async def show_mapped_variant(*, urn: str, db: Session = Depends(deps.get_db)) -
 
 
 @router.get(
-    "/{urn}/va/study-result", status_code=200, response_model=Optional[StudyResult], responses={404: {}, 500: {}}
+    "/{urn}/va/study-result",
+    status_code=200,
+    response_model=ExperimentalVariantFunctionalImpactStudyResult,
+    responses={404: {}, 500: {}},
 )
-async def show_mapped_variant_study_result(*, urn: str, db: Session = Depends(deps.get_db)) -> Optional[StudyResult]:
+async def show_mapped_variant_study_result(
+    *, urn: str, db: Session = Depends(deps.get_db)
+) -> ExperimentalVariantFunctionalImpactStudyResult:
     """
     Construct a VA-Spec StudyResult from a mapped variant.
     """
@@ -70,17 +77,12 @@ async def show_mapped_variant_study_result(*, urn: str, db: Session = Depends(de
     try:
         return variant_study_result(mapped_variant)
     except MappingDataDoesntExistException as e:
-        return HTTPException(
-            status_code=404, detail=f"Could not construct a study result for mapped variant {urn}: {e}"
-        )
+        raise HTTPException(status_code=404, detail=f"Could not construct a study result for mapped variant {urn}: {e}")
 
 
-@router.get(
-    "/{urn}/va/functional-impact", status_code=200, response_model=Optional[Statement], responses={404: {}, 500: {}}
-)
-async def show_mapped_variant_functional_impact_statement(
-    *, urn: str, db: Session = Depends(deps.get_db)
-) -> Optional[Statement]:
+# TODO#416: For now, this route supports only one statement per mapped variant. Eventually, we should support the possibility of multiple statements.
+@router.get("/{urn}/va/functional-impact", status_code=200, response_model=Statement, responses={404: {}, 500: {}})
+async def show_mapped_variant_functional_impact_statement(*, urn: str, db: Session = Depends(deps.get_db)) -> Statement:
     """
     Construct a VA-Spec Statement from a mapped variant.
     """
@@ -88,17 +90,31 @@ async def show_mapped_variant_functional_impact_statement(
     mapped_variant = await fetch_mapped_variant_by_variant_urn(db, urn)
 
     try:
-        return variant_functional_impact_statement(mapped_variant)
+        functional_impact = variant_functional_impact_statement(mapped_variant)
     except MappingDataDoesntExistException as e:
-        return HTTPException(
+        raise HTTPException(
             status_code=404, detail=f"Could not construct a functional impact statement for mapped variant {urn}: {e}"
         )
 
+    if not functional_impact:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Could not construct a functional impact statement for mapped variant {urn}: No evidence found",
+        )
 
+    return functional_impact
+
+
+# TODO#416: For now, this route supports only one evidence line per mapped variant. Eventually, we should support the possibility of multiple evidence lines.
 @router.get(
-    "/{urn}/va/clinial-evidence", status_code=200, response_model=list[EvidenceLine], responses={404: {}, 500: {}}
+    "/{urn}/va/clinial-evidence",
+    status_code=200,
+    response_model=VariantPathogenicityFunctionalImpactEvidenceLine,
+    responses={404: {}, 500: {}},
 )
-async def show_mapped_variant_acmg_evidence_line(*, urn: str, db: Session = Depends(deps.get_db)) -> list[EvidenceLine]:
+async def show_mapped_variant_acmg_evidence_line(
+    *, urn: str, db: Session = Depends(deps.get_db)
+) -> VariantPathogenicityFunctionalImpactEvidenceLine:
     """
     Construct a list of VA-Spec EvidenceLine(s) from a mapped variant.
     """
@@ -106,11 +122,19 @@ async def show_mapped_variant_acmg_evidence_line(*, urn: str, db: Session = Depe
     mapped_variant = await fetch_mapped_variant_by_variant_urn(db, urn)
 
     try:
-        return variant_pathogenicity_evidence(mapped_variant)
+        pathogenicity_evidence = variant_pathogenicity_evidence(mapped_variant)
     except MappingDataDoesntExistException as e:
-        return HTTPException(
+        raise HTTPException(
             status_code=404, detail=f"Could not construct a pathogenicity evidence line for mapped variant {urn}: {e}"
         )
+
+    if not pathogenicity_evidence:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Could not construct a pathogenicity evidence line for mapped variant {urn}: No evidence found",
+        )
+
+    return pathogenicity_evidence
 
 
 # for testing only

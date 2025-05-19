@@ -1,16 +1,15 @@
 import logging
 import urllib.parse
 
-from ga4gh.va_spec.base.core import Document, iriReference as IRI, MappableConcept
+from ga4gh.core.models import MappableConcept, iriReference as IRI
+from ga4gh.va_spec.base.core import Document
 
+from mavedb.constants import MAVEDB_FRONTEND_URL
 from mavedb.models.experiment import Experiment
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 
 logger = logging.getLogger(__name__)
-
-# TODO: move centrally
-BASE_URL = "https://mavedb.org"
 
 
 def experiment_as_iri(experiment: Experiment) -> IRI:
@@ -18,7 +17,7 @@ def experiment_as_iri(experiment: Experiment) -> IRI:
     Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for the provided MaveDB experiment. Within
     the context of VA-Spec, these can be used interchangeably with an equivalent document object for brevity.
     """
-    return IRI(f"{BASE_URL}/experiments/{experiment.urn}")
+    return IRI(f"{MAVEDB_FRONTEND_URL}/experiments/{experiment.urn}")
 
 
 def experiment_to_document(experiment: Experiment) -> Document:
@@ -43,7 +42,7 @@ def score_set_as_iri(score_set: ScoreSet) -> IRI:
     Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for the provided MaveDB score set. Within
     the context of VA-Spec, these can be used interchangeably with an equivalent document object for brevity.
     """
-    return IRI(f"{BASE_URL}/score-sets/{score_set.urn}")
+    return IRI(f"{MAVEDB_FRONTEND_URL}/score-sets/{score_set.urn}")
 
 
 def score_set_to_document(score_set: ScoreSet) -> Document:
