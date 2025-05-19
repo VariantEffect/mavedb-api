@@ -78,7 +78,7 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[s
                 .where(MappedVariant.current.is_(True), MappedVariant.post_mapped.is_not(None))
                 .where(and_(
                     MappedVariant.clingen_allele_id.is_not(None),
-                    MappedVariant.current == True,
+                    MappedVariant.current,
                     ScoreSet.urn.in_(urns)
                 ))
         ).all()
@@ -144,7 +144,7 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[s
 
 @click.command()
 @with_database_session
-@click.argument("urns", help="Optional list of score set URNs to process.", nargs=-1)
+@click.argument("urns", nargs=-1)
 @click.option("--month", default=None, help="Populate mapped variants for every score set in MaveDB.")
 @click.option("--year", default=None, help="Populate mapped variants for every score set in MaveDB.")
 def refresh_clinvar_variants_command(db: Session, month: Optional[str], year: Optional[str], urns: Sequence[str]) -> None:
