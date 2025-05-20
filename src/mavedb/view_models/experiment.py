@@ -43,7 +43,7 @@ class OfficialCollection(BaseModel):
     urn: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
         arbitrary_types_allowed = True
 
 

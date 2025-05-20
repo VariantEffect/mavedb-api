@@ -81,7 +81,7 @@ class SavedCollection(CollectionBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
     # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
     # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.
