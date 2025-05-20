@@ -1,5 +1,11 @@
-import pytest  # noqa: F401
+# ruff: noqa: E402
+
+import pytest
 import json
+
+arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
 
 from humps import camelize
 from sqlalchemy import select
