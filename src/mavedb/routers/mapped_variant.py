@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from fastapi.exceptions import HTTPException
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityFunctionalImpactEvidenceLine
+from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import Session
 
@@ -30,7 +31,7 @@ from mavedb.view_models import mapped_variant
 logger = logging.getLogger(__name__)
 
 
-async def fetch_mapped_variant_by_variant_urn(db, user: Optional[UserData], urn: str) -> MappedVariant:
+async def fetch_mapped_variant_by_variant_urn(db: Session, user: Optional[UserData], urn: str) -> MappedVariant:
     """
     We may combine this function back to show_mapped_variant if none of any new function call it.
     Fetch one mapped variant by variant URN.
@@ -43,10 +44,8 @@ async def fetch_mapped_variant_by_variant_urn(db, user: Optional[UserData], urn:
     """
     try:
         item = (
-            db.query(MappedVariant)
-            .filter(Variant.urn == urn)
-            .filter(MappedVariant.variant_id == Variant.id)
-            .filter(MappedVariant.current)  # filter current is true
+            db.execute(select(MappedVariant).join(Variant).where(Variant.urn == urn, MappedVariant.current.is_(True)))
+            .scalars()
             .one_or_none()
         )
     except MultipleResultsFound:
@@ -54,6 +53,7 @@ async def fetch_mapped_variant_by_variant_urn(db, user: Optional[UserData], urn:
             msg="Could not fetch the requested mapped variant; Multiple such variants exist.", extra=logging_context()
         )
         raise HTTPException(status_code=500, detail=f"Multiple variants with URN {urn} were found.")
+
     if not item:
         logger.info(
             msg="Could not fetch the requested mapped variant; No such mapped variants exist.", extra=logging_context()
@@ -61,7 +61,8 @@ async def fetch_mapped_variant_by_variant_urn(db, user: Optional[UserData], urn:
 
         raise HTTPException(status_code=404, detail=f"Mapped variant with URN {urn} not found")
 
-    assert_permission(user, item, Action.READ)
+    # Base mapped variant read permission on the score set in which it is contained.
+    assert_permission(user, item.variant.score_set, Action.READ)
     return item
 
 
@@ -80,7 +81,7 @@ async def show_mapped_variant(
     """
     Fetch a mapped variant by URN.
     """
-    save_to_logging_context({"requested_resource": {urn}})
+    save_to_logging_context({"requested_resource": urn})
 
     return await fetch_mapped_variant_by_variant_urn(db, user, urn)
 
@@ -97,7 +98,7 @@ async def show_mapped_variant_study_result(
     """
     Construct a VA-Spec StudyResult from a mapped variant.
     """
-    save_to_logging_context({"requested_resource": {urn}})
+    save_to_logging_context({"requested_resource": urn})
 
     mapped_variant = await fetch_mapped_variant_by_variant_urn(db, user, urn)
 
@@ -105,7 +106,7 @@ async def show_mapped_variant_study_result(
         return variant_study_result(mapped_variant)
     except MappingDataDoesntExistException as e:
         logger.info(
-            msg="Could not construct a study result for this mapped variant; No mapping data exists for this score set.",
+            msg=f"Could not construct a study result for mapped variant {urn}: {e}",
             extra=logging_context(),
         )
         raise HTTPException(status_code=404, detail=f"Could not construct a study result for mapped variant {urn}: {e}")
@@ -119,7 +120,7 @@ async def show_mapped_variant_functional_impact_statement(
     """
     Construct a VA-Spec Statement from a mapped variant.
     """
-    save_to_logging_context({"requested_resource": {urn}})
+    save_to_logging_context({"requested_resource": urn})
 
     mapped_variant = await fetch_mapped_variant_by_variant_urn(db, user, urn)
 
@@ -149,7 +150,7 @@ async def show_mapped_variant_functional_impact_statement(
 
 # TODO#416: For now, this route supports only one evidence line per mapped variant. Eventually, we should support the possibility of multiple evidence lines.
 @router.get(
-    "/{urn}/va/clinial-evidence",
+    "/{urn}/va/clinical-evidence",
     status_code=200,
     response_model=VariantPathogenicityFunctionalImpactEvidenceLine,
     responses={404: {}, 500: {}},
@@ -160,7 +161,7 @@ async def show_mapped_variant_acmg_evidence_line(
     """
     Construct a list of VA-Spec EvidenceLine(s) from a mapped variant.
     """
-    save_to_logging_context({"requested_resource": {urn}})
+    save_to_logging_context({"requested_resource": urn})
 
     mapped_variant = await fetch_mapped_variant_by_variant_urn(db, user, urn)
 
@@ -177,12 +178,12 @@ async def show_mapped_variant_acmg_evidence_line(
 
     if not pathogenicity_evidence:
         logger.info(
-            msg="Could not construct a pathogenicity evidence line for this mapped variant; No calibratoin evidence exists for this score set.",
+            msg="Could not construct a pathogenicity evidence line for this mapped variant; No calibrations exist for this score set.",
             extra=logging_context(),
         )
         raise HTTPException(
             status_code=404,
-            detail=f"Could not construct a pathogenicity evidence line for mapped variant {urn}: No evidence found",
+            detail=f"Could not construct a pathogenicity evidence line for mapped variant {urn}; No calibrations exist for this score set",
         )
 
     return pathogenicity_evidence
