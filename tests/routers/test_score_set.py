@@ -14,10 +14,6 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
-arq = pytest.importorskip("arq")
-cdot = pytest.importorskip("cdot")
-fastapi = pytest.importorskip("fastapi")
-
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_EXPERIMENT_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.clinical_control import ClinicalControl
