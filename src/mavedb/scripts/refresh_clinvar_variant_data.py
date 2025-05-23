@@ -1,4 +1,6 @@
 import click
+from mavedb.models.score_set import ScoreSet
+from mavedb.models.variant import Variant
 import requests
 import csv
 import time
@@ -7,10 +9,10 @@ import gzip
 import random
 import io
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Sequence
 from datetime import date
 
-from sqlalchemy import select, distinct, func
+from sqlalchemy import and_, select, distinct
 from sqlalchemy.orm import Session
 
 from mavedb.models.mapped_variant import MappedVariant
@@ -62,20 +64,33 @@ def query_clingen_allele_api(allele_id: str) -> Dict[str, Any]:
     return response.json()
 
 
-def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[str]) -> None:
+def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[str], urns: Sequence[str]) -> None:
     tsv_content = fetch_clinvar_variant_summary_tsv(month, year)
     tsv_data = parse_tsv(tsv_content)
     version = f"{month}_{year}" if month and year else f"{date.today().month}_{date.today().year}"
     logger.info(f"Fetched TSV variant data for ClinVar for {version}.")
 
-    total_variants_with_clingen_ids = db.scalar(func.count(distinct(MappedVariant.clingen_allele_id)))
-    clingen_ids = db.scalars(
-        select(distinct(MappedVariant.clingen_allele_id)).where(MappedVariant.clingen_allele_id.is_not(None))
-    ).all()
+    if urns:
+        clingen_ids = db.scalars(
+            select(distinct(MappedVariant.clingen_allele_id))
+                .join(Variant)
+                .join(ScoreSet)
+                .where(MappedVariant.current.is_(True), MappedVariant.post_mapped.is_not(None))
+                .where(and_(
+                    MappedVariant.clingen_allele_id.is_not(None),
+                    MappedVariant.current.is_(True),
+                    ScoreSet.urn.in_(urns)
+                ))
+        ).all()
+    else:
+        clingen_ids = db.scalars(
+            select(distinct(MappedVariant.clingen_allele_id)).where(MappedVariant.clingen_allele_id.is_not(None))
+        ).all()
+    total_variants_with_clingen_ids = len(clingen_ids)
 
     logger.info(f"Fetching ClinGen data for {total_variants_with_clingen_ids} variants.")
     for index, clingen_id in enumerate(clingen_ids):
-        if total_variants_with_clingen_ids > 0 and index % (total_variants_with_clingen_ids // 100) == 0:
+        if total_variants_with_clingen_ids > 0 and index % (max(total_variants_with_clingen_ids // 100, 1)) == 0:
             logger.info(f"Progress: {index / total_variants_with_clingen_ids:.0%}")
 
         # Guaranteed based on our query filters.
@@ -116,6 +131,8 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[s
             select(MappedVariant).where(MappedVariant.clingen_allele_id == clingen_id)
         ).all()
         for mapped_variant in variants_with_clingen_allele_id:
+            if clinvar_variant.id in [c.id for c in mapped_variant.clinical_controls]:
+                continue
             mapped_variant.clinical_controls.append(clinvar_variant)
             db.add(mapped_variant)
 
@@ -127,10 +144,11 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[s
 
 @click.command()
 @with_database_session
+@click.argument("urns", nargs=-1)
 @click.option("--month", default=None, help="Populate mapped variants for every score set in MaveDB.")
 @click.option("--year", default=None, help="Populate mapped variants for every score set in MaveDB.")
-def refresh_clinvar_variants_command(db: Session, month: Optional[str], year: Optional[str]) -> None:
-    refresh_clinvar_variants(db, month, year)
+def refresh_clinvar_variants_command(db: Session, month: Optional[str], year: Optional[str], urns: Sequence[str]) -> None:
+    refresh_clinvar_variants(db, month, year, urns)
 
 
 if __name__ == "__main__":

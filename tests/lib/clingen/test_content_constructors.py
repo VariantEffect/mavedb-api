@@ -11,6 +11,7 @@ from mavedb.lib.clingen.content_constructors import (
 )
 from mavedb.lib.clingen.constants import LDH_ENTITY_NAME, LDH_SUBMISSION_TYPE
 from mavedb import __version__
+import pytest
 
 from tests.helpers.constants import (
     TEST_HGVS_IDENTIFIER,
@@ -44,6 +45,7 @@ def test_construct_ldh_submission_event():
             "type": "Variant",
             "format": "hgvs",
             "add": True,
+            "iri": None
         }
         assert result["triggered"]["by"] == {
             "host": MAVEDB_BASE_GIT,
@@ -52,18 +54,26 @@ def test_construct_ldh_submission_event():
         }
 
 
-def test_construct_ldh_submission_entity(mock_variant, mock_mapped_variant):
-    result = construct_ldh_submission_entity(mock_variant, mock_mapped_variant)
+@pytest.mark.parametrize("has_mapped_variant", [(True), (False)])
+def test_construct_ldh_submission_entity(mock_variant, mock_mapped_variant, has_mapped_variant: bool):
+    mapped_variant = mock_mapped_variant if has_mapped_variant else None
+    result = construct_ldh_submission_entity(mock_variant, mapped_variant)
 
     assert "MaveDBMapping" in result
     assert len(result["MaveDBMapping"]) == 1
     mapping = result["MaveDBMapping"][0]
 
     assert mapping["entContent"]["mavedb_id"] == VALID_VARIANT_URN
-    assert mapping["entContent"]["pre_mapped"] == TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X
-    assert mapping["entContent"]["post_mapped"] == TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X
-    assert mapping["entContent"]["mapping_api_version"] == "pytest.mapping.1.0"
     assert mapping["entContent"]["score"] == 1.0
+
+    if has_mapped_variant:
+        assert mapping["entContent"]["pre_mapped"] == TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X
+        assert mapping["entContent"]["post_mapped"] == TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X
+        assert mapping["entContent"]["mapping_api_version"] == "pytest.mapping.1.0"
+    else:
+        assert "pre_mapped" not in mapping["entContent"]
+        assert "post_mapped" not in mapping["entContent"]
+        assert "mapping_api_version" not in mapping["entContent"]
 
     assert mapping["entId"] == VALID_VARIANT_URN
     assert (
@@ -72,10 +82,12 @@ def test_construct_ldh_submission_entity(mock_variant, mock_mapped_variant):
     )
 
 
-def test_construct_ldh_submission(mock_variant, mock_mapped_variant):
+@pytest.mark.parametrize("has_mapped_variant", [(True), (False)])
+def test_construct_ldh_submission(mock_variant, mock_mapped_variant, has_mapped_variant: bool):
+    mapped_variant = mock_mapped_variant if has_mapped_variant else None
     variant_content = [
-        (TEST_HGVS_IDENTIFIER, mock_variant, mock_mapped_variant),
-        (TEST_HGVS_IDENTIFIER, mock_variant, mock_mapped_variant),
+        (TEST_HGVS_IDENTIFIER, mock_variant, mapped_variant),
+        (TEST_HGVS_IDENTIFIER, mock_variant, mapped_variant),
     ]
 
     uuid_1 = UUID("12345678-1234-5678-1234-567812345678")

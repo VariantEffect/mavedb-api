@@ -1,4 +1,4 @@
-from typing import TypedDict, Literal
+from typing import Optional, TypedDict, Literal
 from typing_extensions import NotRequired
 
 
@@ -14,6 +14,7 @@ class EventSbj(TypedDict):
     type: str
     format: Literal["hgvs", "alleleRegistryID", "clinvarID", "geneSymbol"]
     add: bool
+    iri: Optional[str]
 
 
 # Who/what triggered the event
@@ -52,9 +53,9 @@ class LdhContentSubject(TypedDict):
 # The entities we are submitting
 class LdhMapping(TypedDict):
     mavedb_id: str
-    pre_mapped: str
-    post_mapped: str
-    mapping_api_version: str
+    pre_mapped: Optional[str]
+    post_mapped: Optional[str]
+    mapping_api_version: Optional[str]
     score: float
 
 
