@@ -32,9 +32,11 @@ from tests.helpers.constants import (
     TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
     TEST_PUBMED_IDENTIFIER,
     TEST_ORCID_ID,
+    TEST_SAVED_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE,
     TEST_SCORE_SET_RANGE,
     TEST_SAVED_SCORE_SET_RANGE,
     TEST_MINIMAL_ACC_SCORESET_RESPONSE,
+    TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE,
     TEST_USER,
     TEST_INACTIVE_LICENSE,
     SAVED_DOI_IDENTIFIER,
@@ -45,6 +47,8 @@ from tests.helpers.constants import (
     TEST_SAVED_SCORE_CALIBRATION,
     TEST_SAVED_CLINVAR_CONTROL,
     TEST_SAVED_GENERIC_CLINICAL_CONTROL,
+    TEST_SCORE_SET_RANGE_WITH_ODDS_PATH,
+    TEST_SAVED_SCORE_SET_RANGE_WITH_ODDS_PATH,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.common import update_expected_response_for_created_resources
@@ -141,11 +145,18 @@ def test_create_score_set_with_contributor(client, setup_router_db):
     assert response.status_code == 200
 
 
-def test_create_score_set_with_score_range(client, setup_router_db):
+@pytest.mark.parametrize(
+    "score_ranges,saved_score_ranges",
+    [
+        (TEST_SCORE_SET_RANGE, TEST_SAVED_SCORE_SET_RANGE),
+        (TEST_SCORE_SET_RANGE_WITH_ODDS_PATH, TEST_SAVED_SCORE_SET_RANGE_WITH_ODDS_PATH),
+    ],
+)
+def test_create_score_set_with_score_range(client, setup_router_db, score_ranges, saved_score_ranges):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set["experimentUrn"] = experiment["urn"]
-    score_set.update({"score_ranges": TEST_SCORE_SET_RANGE})
+    score_set.update({"score_ranges": score_ranges})
 
     response = client.post("/api/v1/score-sets/", json=score_set)
     assert response.status_code == 200
@@ -157,7 +168,7 @@ def test_create_score_set_with_score_range(client, setup_router_db):
     expected_response = update_expected_response_for_created_resources(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
-    expected_response["scoreRanges"] = TEST_SAVED_SCORE_SET_RANGE
+    expected_response["scoreRanges"] = saved_score_ranges
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -165,6 +176,60 @@ def test_create_score_set_with_score_range(client, setup_router_db):
 
     response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
     assert response.status_code == 200
+
+
+@pytest.mark.parametrize("publication_list", ["primary_publication_identifiers", "secondary_publication_identifiers"])
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_create_score_set_with_score_range_and_odds_path_source(
+    client, setup_router_db, publication_list, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    score_set[publication_list] = TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE["odds_path"]["source"]
+    score_set.update({"score_ranges": TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE})
+
+    response = client.post("/api/v1/score-sets/", json=score_set)
+    assert response.status_code == 200
+    response_data = response.json()
+
+    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
+
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
+    )
+    expected_response[camelize(publication_list)] = [SAVED_PUBMED_PUBLICATION]
+    expected_response["scoreRanges"] = TEST_SAVED_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE
+
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+
+    response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
+    assert response.status_code == 200
+
+
+def test_cannot_create_score_set_with_score_range_and_odds_path_source_when_publication_not_in_publications(
+    client, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    score_set.update({"score_ranges": TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE})
+
+    response = client.post("/api/v1/score-sets/", json=score_set)
+    assert response.status_code == 422
+
+    response_data = response.json()
+    assert (
+        "Odds path source publication identifier at index 0 is not defined in score set publications."
+        in response_data["detail"][0]["msg"]
+    )
 
 
 def test_remove_score_range_from_score_set(client, setup_router_db):
@@ -1166,7 +1231,9 @@ def test_multiple_score_set_meta_analysis_single_experiment(
     )
 
     published_score_set_1_refresh = (client.get(f"/api/v1/score-sets/{published_score_set_1['urn']}")).json()
-    assert meta_score_set["metaAnalyzesScoreSetUrns"] == sorted([published_score_set_1["urn"], published_score_set_2["urn"]])
+    assert meta_score_set["metaAnalyzesScoreSetUrns"] == sorted(
+        [published_score_set_1["urn"], published_score_set_2["urn"]]
+    )
     assert published_score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:

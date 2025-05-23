@@ -21,6 +21,7 @@ from mavedb.view_models.doi_identifier import (
     DoiIdentifierCreate,
     SavedDoiIdentifier,
 )
+from mavedb.view_models.odds_path import OddsPath
 from mavedb.view_models.license import ShortLicense
 from mavedb.view_models.publication_identifier import (
     PublicationIdentifier,
@@ -79,6 +80,7 @@ class ScoreRange(BaseModel):
 class ScoreRanges(BaseModel):
     wt_score: Optional[float]
     ranges: list[ScoreRange]  # type: ignore
+    odds_path: Optional[OddsPath] = None
 
 
 class ScoreSetGetter(PublicationIdentifiersGetter):
@@ -291,6 +293,35 @@ class ScoreSetModify(ScoreSetBase):
             f"The provided wild type score of {field_value.wt_score} is not within any of the provided normal ranges. This score should be within a normal range.",
             custom_loc=["body", "scoreRanges", "wtScore"],
         )
+
+    @root_validator()
+    def validate_score_range_odds_path_source_in_publication_identifiers(cls, values):
+        score_ranges: Optional[ScoreRanges] = values.get("score_ranges")
+        if values.get("score_ranges") is None or score_ranges.odds_path is None:
+            return values
+
+        if score_ranges.odds_path.source is None or len(score_ranges.odds_path.source) == 0:
+            return values
+
+        for idx, pub in enumerate(score_ranges.odds_path.source):
+            primary_publication_identifiers = (
+                values.get("primary_publication_identifiers", [])
+                if values.get("primary_publication_identifiers")
+                else []
+            )
+            secondary_publication_identifiers = (
+                values.get("secondary_publication_identifiers", [])
+                if values.get("secondary_publication_identifiers")
+                else []
+            )
+            if pub not in [*primary_publication_identifiers, *secondary_publication_identifiers]:
+                raise ValidationError(
+                    f"Odds path source publication identifier at index {idx} is not defined in score set publications. "
+                    "To use a publication identifier in the odds path source, it must be defined in the primary or secondary publication identifiers.",
+                    custom_loc=["body", "scoreRanges", "oddsPath", "source", idx],
+                )
+
+        return values
 
 
 class ScoreSetCreate(ScoreSetModify):
