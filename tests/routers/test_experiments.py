@@ -36,6 +36,7 @@ from tests.helpers.constants import (
     TEST_PUBMED_IDENTIFIER,
     TEST_PUBMED_URL_IDENTIFIER,
     TEST_USER,
+    TEST_USER2,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.contributor import add_contributor
@@ -710,6 +711,33 @@ def test_admin_can_update_other_users_private_experiment(
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=Experiment.schema())
     assert (test_field, response_data[test_field]) == (test_field, test_value)
+
+
+def test_can_add_two_contributors(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    add_contributor(
+        session,
+        experiment["urn"],
+        ExperimentDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    add_contributor(
+        session,
+        experiment["urn"],
+        ExperimentDbModel,
+        TEST_USER2["username"],
+        TEST_USER2["first_name"],
+        TEST_USER2["last_name"],
+    )
+    response = client.get(f"/api/v1/experiments/{experiment['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+    assert len(response_data["contributors"]) == 2
+    assert any(c["orcidId"] == TEST_USER["username"] for c in response_data["contributors"])
+    assert any(c["orcidId"] == TEST_USER2["username"] for c in response_data["contributors"])
 
 
 def test_can_edit_published_experiment(client, setup_router_db):
