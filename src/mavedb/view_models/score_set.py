@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Collection, Dict, Optional, Sequence, Literal
+from typing import Any, Collection, Dict, Optional, Sequence
 
 from humps import camelize
 from pydantic import root_validator
@@ -21,13 +21,13 @@ from mavedb.view_models.doi_identifier import (
     DoiIdentifierCreate,
     SavedDoiIdentifier,
 )
-from mavedb.view_models.odds_path import OddsPath
 from mavedb.view_models.license import ShortLicense
 from mavedb.view_models.publication_identifier import (
     PublicationIdentifier,
     PublicationIdentifierCreate,
     SavedPublicationIdentifier,
 )
+from mavedb.view_models.score_range import SavedScoreSetRanges, ScoreSetRangesCreate, ScoreSetRanges
 from mavedb.view_models.target_gene import (
     SavedTargetGene,
     ShortTargetGene,
@@ -49,38 +49,6 @@ class OfficialCollection(BaseModel):
     class Config:
         orm_mode = True
         arbitrary_types_allowed = True
-
-
-class ScoreRange(BaseModel):
-    label: str
-    description: Optional[str]
-    classification: Literal["normal", "abnormal", "not_specified"]
-    # Purposefully vague type hint because of some odd JSON Schema generation behavior.
-    # Typing this as tuple[Union[float, None], Union[float, None]] will generate an invalid
-    # jsonschema, and fail all tests that access the schema. This may be fixed in pydantic v2,
-    # but it's unclear. Even just typing it as Tuple[Any, Any] will generate an invalid schema!
-    range: list[Any]  # really: tuple[Union[float, None], Union[float, None]]
-
-    @validator("range")
-    def ranges_are_not_backwards(cls, field_value: tuple[Any]):
-        if len(field_value) != 2:
-            raise ValidationError("Only a lower and upper bound are allowed.")
-
-        field_value[0] = inf_or_float(field_value[0], True) if field_value[0] is not None else None
-        field_value[1] = inf_or_float(field_value[1], False) if field_value[1] is not None else None
-
-        if inf_or_float(field_value[0], True) > inf_or_float(field_value[1], False):
-            raise ValidationError("The lower bound of the score range may not be larger than the upper bound.")
-        elif inf_or_float(field_value[0], True) == inf_or_float(field_value[1], False):
-            raise ValidationError("The lower and upper bound of the score range may not be the same.")
-
-        return field_value
-
-
-class ScoreRanges(BaseModel):
-    wt_score: Optional[float]
-    ranges: list[ScoreRange]  # type: ignore
-    odds_path: Optional[OddsPath] = None
 
 
 class ScoreSetGetter(PublicationIdentifiersGetter):
@@ -112,7 +80,7 @@ class ScoreSetModify(ScoreSetBase):
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]]
     doi_identifiers: Optional[list[DoiIdentifierCreate]]
     target_genes: list[TargetGeneCreate]
-    score_ranges: Optional[ScoreRanges]
+    score_ranges: Optional[ScoreSetRangesCreate]
 
     @validator("title", "short_description", "abstract_text", "method_text")
     def validate_field_is_non_empty(cls, v):
@@ -200,7 +168,7 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     @validator("score_ranges")
-    def score_range_labels_must_be_unique(cls, field_value: Optional[ScoreRanges]):
+    def score_range_labels_must_be_unique(cls, field_value: Optional[ScoreSetRangesCreate]):
         if field_value is None:
             return None
 
@@ -219,7 +187,9 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     @validator("score_ranges")
-    def score_range_normal_classification_exists_if_wild_type_score_provided(cls, field_value: Optional[ScoreRanges]):
+    def score_range_normal_classification_exists_if_wild_type_score_provided(
+        cls, field_value: Optional[ScoreSetRangesCreate]
+    ):
         if field_value is None:
             return None
 
@@ -233,7 +203,7 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     @validator("score_ranges")
-    def ranges_do_not_overlap(cls, field_value: Optional[ScoreRanges]):
+    def ranges_do_not_overlap(cls, field_value: Optional[ScoreSetRangesCreate]):
         def test_overlap(tp1, tp2) -> bool:
             # Always check the tuple with the lowest lower bound. If we do not check
             # overlaps in this manner, checking the overlap of (0,1) and (1,2) will
@@ -266,7 +236,7 @@ class ScoreSetModify(ScoreSetBase):
         return field_value
 
     @validator("score_ranges")
-    def wild_type_score_in_normal_range(cls, field_value: Optional[ScoreRanges]):
+    def wild_type_score_in_normal_range(cls, field_value: Optional[ScoreSetRangesCreate]):
         if field_value is None:
             return None
 
@@ -296,14 +266,14 @@ class ScoreSetModify(ScoreSetBase):
 
     @root_validator()
     def validate_score_range_odds_path_source_in_publication_identifiers(cls, values):
-        score_ranges: Optional[ScoreRanges] = values.get("score_ranges")
-        if values.get("score_ranges") is None or score_ranges.odds_path is None:
+        score_ranges: Optional[ScoreSetRangesCreate] = values.get("score_ranges")
+        if score_ranges is None or score_ranges.odds_path_source is None:
             return values
 
-        if score_ranges.odds_path.source is None or len(score_ranges.odds_path.source) == 0:
+        if not score_ranges.odds_path_source:
             return values
 
-        for idx, pub in enumerate(score_ranges.odds_path.source):
+        for idx, pub in enumerate(score_ranges.odds_path_source):
             primary_publication_identifiers = (
                 values.get("primary_publication_identifiers", [])
                 if values.get("primary_publication_identifiers")
@@ -445,7 +415,7 @@ class SavedScoreSet(ScoreSetBase):
     dataset_columns: Dict
     external_links: Dict[str, ExternalLink]
     contributors: list[Contributor]
-    score_ranges: Optional[ScoreRanges]
+    score_ranges: Optional[SavedScoreSetRanges]
     score_calibrations: Optional[dict[str, Calibration]]
 
     _record_type_factory = record_type_validator()(set_record_type)
@@ -483,6 +453,7 @@ class ScoreSet(SavedScoreSet):
     processing_errors: Optional[dict]
     mapping_state: Optional[MappingState]
     mapping_errors: Optional[dict]
+    score_ranges: Optional[ScoreSetRanges]
 
 
 class ScoreSetWithVariants(ScoreSet):
@@ -515,6 +486,7 @@ class ScoreSetPublicDump(SavedScoreSet):
     processing_errors: Optional[Dict]
     mapping_state: Optional[MappingState]
     mapping_errors: Optional[Dict]
+    score_ranges: Optional[ScoreSetRanges]
 
 
 # ruff: noqa: E402

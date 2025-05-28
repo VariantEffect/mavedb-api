@@ -1,27 +1,22 @@
-from typing import Literal, Optional, Sequence
+from typing import Literal
+from pydantic import validator
 
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
-from mavedb.view_models.publication_identifier import PublicationIdentifierBase
-
-
-class OddsPathRatio(BaseModel):
-    normal: float
-    abnormal: float
-
-
-class OddsPathEvidenceStrengths(BaseModel):
-    normal: Literal["BS3_STRONG"]
-    abnormal: Literal["PS3_STRONG"]
 
 
 class OddsPathBase(BaseModel):
-    ratios: OddsPathRatio
-    evidence_strengths: OddsPathEvidenceStrengths
+    ratio: float
+    evidence: Literal["BS3_STRONG", "PS3_STRONG"]
 
 
 class OddsPathModify(OddsPathBase):
-    source: Optional[list[PublicationIdentifierBase]] = None
+    @validator("ratio")
+    def ratio_must_be_positive(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("OddsPath value must be greater than or equal to 0")
+
+        return value
 
 
 class OddsPathCreate(OddsPathModify):
@@ -30,8 +25,6 @@ class OddsPathCreate(OddsPathModify):
 
 class SavedOddsPath(OddsPathBase):
     record_type: str = None  # type: ignore
-
-    source: Optional[Sequence[PublicationIdentifierBase]] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
 

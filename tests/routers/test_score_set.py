@@ -190,7 +190,7 @@ def test_create_score_set_with_score_range_and_odds_path_source(
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set["experimentUrn"] = experiment["urn"]
-    score_set[publication_list] = TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE["odds_path"]["source"]
+    score_set[publication_list] = TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE["odds_path_source"]
     score_set.update({"score_ranges": TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE})
 
     response = client.post("/api/v1/score-sets/", json=score_set)

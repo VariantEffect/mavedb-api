@@ -862,115 +862,141 @@ TEST_MINIMAL_MAPPED_VARIANT = {
 }
 
 
-TEST_ODDS_PATH = {
-    "ratios": {
-        "normal": 0.5,
-        "abnormal": 5.0,
-    },
-    "evidence_strengths": {
-        "normal": "BS3_STRONG",
-        "abnormal": "PS3_STRONG",
-    },
-    "source": None,
+TEST_WT_SCORE = 1.0
+
+
+TEST_BS3_ODDS_PATH = {
+    "ratio": 0.5,
+    "evidence": "BS3_STRONG",
 }
 
 
-TEST_SAVED_ODDS_PATH = {
+TEST_PS3_ODDS_PATH = {
+    "ratio": 0.5,
+    "evidence": "BS3_STRONG",
+}
+
+TEST_SAVED_BS3_ODDS_PATH = {
     "recordType": "OddsPath",
-    "ratios": {
-        "normal": 0.5,
-        "abnormal": 5.0,
-    },
-    "evidenceStrengths": {
-        "normal": "BS3_STRONG",
-        "abnormal": "PS3_STRONG",
-    },
+    "ratio": 0.5,
+    "evidence": "BS3_STRONG",
 }
 
 
-TEST_ODDS_PATH_WITH_SOURCE = {
-    "ratios": {
-        "normal": 0.5,
-        "abnormal": 5.0,
-    },
-    "evidence_strengths": {
-        "normal": "BS3_STRONG",
-        "abnormal": "PS3_STRONG",
-    },
-    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
-}
-
-
-TEST_SAVED_ODDS_PATH_WITH_SOURCE = {
+TEST_SAVED_PS3_ODDS_PATH = {
     "recordType": "OddsPath",
-    "ratios": {
-        "normal": 0.5,
-        "abnormal": 5.0,
-    },
-    "evidenceStrengths": {
-        "normal": "BS3_STRONG",
-        "abnormal": "PS3_STRONG",
-    },
-    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+    "ratio": 0.5,
+    "evidence": "BS3_STRONG",
+}
+
+
+TEST_SCORE_SET_NORMAL_RANGE = {
+    "label": "test1",
+    "classification": "normal",
+    "range": (0, 2.0),
+}
+
+
+TEST_SAVED_SCORE_SET_NORMAL_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "normal",
+    "range": [0.0, 2.0],
+}
+
+
+TEST_SCORE_SET_NORMAL_RANGE_WITH_ODDS_PATH = {
+    "label": "test1",
+    "classification": "normal",
+    "range": (0, 2.0),
+    "odds_path": TEST_BS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_SCORE_SET_NORMAL_RANGE_WITH_ODDS_PATH = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "normal",
+    "range": [0.0, 2.0],
+    "oddsPath": TEST_SAVED_BS3_ODDS_PATH,
+}
+
+
+TEST_SCORE_SET_ABNORMAL_RANGE = {
+    "label": "test2",
+    "classification": "abnormal",
+    "range": (-2.0, 0),
+}
+
+
+TEST_SAVED_SCORE_SET_ABNORMAL_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test2",
+    "classification": "abnormal",
+    "range": [-2.0, 0.0],
+}
+
+
+TEST_SCORE_SET_ABNORMAL_RANGE_WITH_ODDS_PATH = {
+    "label": "test2",
+    "classification": "abnormal",
+    "range": (-2.0, 0),
+    "odds_path": TEST_PS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_SCORE_SET_ABNORMAL_RANGE_WITH_ODDS_PATH = {
+    "recordType": "ScoreRange",
+    "label": "test2",
+    "classification": "abnormal",
+    "range": [-2.0, 0.0],
+    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
 }
 
 
 TEST_SCORE_SET_RANGE = {
-    "wt_score": 1.0,
+    "wt_score": TEST_WT_SCORE,
     "ranges": [
-        {"label": "test1", "classification": "normal", "range": (0, 2.0)},
-        {"label": "test2", "classification": "abnormal", "range": (-2.0, 0)},
+        TEST_SCORE_SET_NORMAL_RANGE,
+        TEST_SCORE_SET_ABNORMAL_RANGE,
     ],
-    "odds_path": None,
+    "odds_path_source": None,
 }
 
 
 TEST_SAVED_SCORE_SET_RANGE = {
-    "wtScore": 1.0,
-    "ranges": [
-        {"label": "test1", "classification": "normal", "range": [0.0, 2.0]},
-        {"label": "test2", "classification": "abnormal", "range": [-2.0, 0.0]},
-    ],
+    "recordType": "ScoreSetRanges",
+    "wtScore": TEST_WT_SCORE,
+    "ranges": [TEST_SAVED_SCORE_SET_NORMAL_RANGE, TEST_SAVED_SCORE_SET_ABNORMAL_RANGE],
 }
 
 
 TEST_SCORE_SET_RANGE_WITH_ODDS_PATH = {
-    "wt_score": 1.0,
-    "ranges": [
-        {"label": "test1", "classification": "normal", "range": (0, 2.0)},
-        {"label": "test2", "classification": "abnormal", "range": (-2.0, 0)},
-    ],
-    "odds_path": TEST_ODDS_PATH,
+    "wt_score": TEST_WT_SCORE,
+    "ranges": [TEST_SCORE_SET_NORMAL_RANGE_WITH_ODDS_PATH, TEST_SCORE_SET_ABNORMAL_RANGE_WITH_ODDS_PATH],
+    "odds_path_source": None,
 }
 
 
 TEST_SAVED_SCORE_SET_RANGE_WITH_ODDS_PATH = {
-    "wtScore": 1.0,
-    "ranges": [
-        {"label": "test1", "classification": "normal", "range": [0.0, 2.0]},
-        {"label": "test2", "classification": "abnormal", "range": [-2.0, 0.0]},
-    ],
-    "oddsPath": TEST_SAVED_ODDS_PATH,
+    "recordType": "ScoreSetRanges",
+    "wtScore": TEST_WT_SCORE,
+    "ranges": [TEST_SAVED_SCORE_SET_NORMAL_RANGE_WITH_ODDS_PATH, TEST_SAVED_SCORE_SET_ABNORMAL_RANGE_WITH_ODDS_PATH],
 }
 
 
 TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE = {
-    "wt_score": 1.0,
-    "ranges": [
-        {"label": "test1", "classification": "normal", "range": (0, 2.0)},
-        {"label": "test2", "classification": "abnormal", "range": (-2.0, 0)},
-    ],
-    "odds_path": TEST_ODDS_PATH_WITH_SOURCE,
+    "wt_score": TEST_WT_SCORE,
+    "ranges": [TEST_SCORE_SET_NORMAL_RANGE_WITH_ODDS_PATH, TEST_SCORE_SET_ABNORMAL_RANGE_WITH_ODDS_PATH],
+    "odds_path_source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
 }
 
 
 TEST_SAVED_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE = {
-    "wtScore": 1.0,
-    "ranges": [
-        {"label": "test1", "classification": "normal", "range": [0.0, 2.0]},
-        {"label": "test2", "classification": "abnormal", "range": [-2.0, 0.0]},
-    ],
-    "oddsPath": TEST_SAVED_ODDS_PATH_WITH_SOURCE,
+    "recordType": "ScoreSetRanges",
+    "wtScore": TEST_WT_SCORE,
+    "ranges": [TEST_SAVED_SCORE_SET_NORMAL_RANGE_WITH_ODDS_PATH, TEST_SAVED_SCORE_SET_ABNORMAL_RANGE_WITH_ODDS_PATH],
+    "oddsPathSource": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
 }
 
 
