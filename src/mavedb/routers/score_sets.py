@@ -23,6 +23,7 @@ from mavedb.lib.authorization import (
 )
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError, ValidationError
+from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
     find_or_create_doi_identifier,
@@ -135,7 +136,15 @@ def search_score_sets(
     Search score sets.
     """
     score_sets = _search_score_sets(db, None, search)
-    return fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
+    updated_score_sets = fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
+    enriched_score_sets = []
+    if updated_score_sets:
+        for u in updated_score_sets:
+            enriched_experiment = enrich_experiment_with_num_score_sets(u.experiment, user_data)
+            response_item = score_set.ScoreSet.from_orm(u).copy(update={"experiment": enriched_experiment})
+            enriched_score_sets.append(response_item)
+
+    return enriched_score_sets
 
 
 @router.get("/score-sets/mapped-genes", status_code=200, response_model=dict[str, list[str]])
@@ -183,7 +192,15 @@ def search_my_score_sets(
     Search score sets created by the current user..
     """
     score_sets = _search_score_sets(db, user_data.user, search)
-    return fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
+    updated_score_sets = fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
+    enriched_score_sets = []
+    if updated_score_sets:
+        for u in updated_score_sets:
+            enriched_experiment = enrich_experiment_with_num_score_sets(u.experiment, user_data)
+            response_item = score_set.ScoreSet.from_orm(u).copy(update={"experiment": enriched_experiment})
+            enriched_score_sets.append(response_item)
+
+    return enriched_score_sets
 
 
 @router.get(
@@ -203,7 +220,11 @@ async def show_score_set(
     Fetch a single score set by URN.
     """
     save_to_logging_context({"requested_resource": urn})
-    return await fetch_score_set_by_urn(db, urn, user_data, None, False)
+    item = await fetch_score_set_by_urn(db, urn, user_data, None, False)
+    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+    response_item = score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
+
+    return response_item
 
 
 @router.get(
@@ -647,7 +668,11 @@ async def create_score_set(
     db.refresh(item)
 
     save_to_logging_context({"created_resource": item.urn})
-    return item
+
+    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+    response_item = score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
+
+    return response_item
 
 
 @router.post(
@@ -711,7 +736,10 @@ async def upload_score_set_variant_data(
     db.add(item)
     db.commit()
     db.refresh(item)
-    return item
+    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+    response_item = score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
+
+    return response_item
 
 
 @router.post(
@@ -748,7 +776,10 @@ async def update_score_set_calibration_data(
     db.refresh(item)
 
     save_to_logging_context({"updated_resource": item.urn})
-    return item
+    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+    response_item = score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
+
+    return response_item
 
 
 @router.put(
@@ -1004,7 +1035,11 @@ async def update_score_set(
     db.refresh(item)
 
     save_to_logging_context({"updated_resource": item.urn})
-    return item
+
+    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+    response_item = score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
+
+    return response_item
 
 
 @router.delete("/score-sets/{urn}", responses={422: {}})
@@ -1142,4 +1177,7 @@ async def publish_score_set(
             msg="Failed to enqueue published variant materialized view refresh job.", extra=logging_context()
         )
 
-    return item
+    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+    response_item = score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
+
+    return response_item

@@ -14,7 +14,7 @@ from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.authorization import require_current_user, require_current_user_with_email
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import NonexistentOrcidUserError
-from mavedb.lib.experiments import search_experiments as _search_experiments
+from mavedb.lib.experiments import search_experiments as _search_experiments, enrich_experiment_with_num_score_sets
 from mavedb.lib.identifiers import (
     find_or_create_doi_identifier,
     find_or_create_publication_identifier,
@@ -89,7 +89,13 @@ def search_experiments(search: ExperimentsSearch, db: Session = Depends(deps.get
     """
     Search experiments.
     """
-    return _search_experiments(db, None, search)
+    items = _search_experiments(db, None, search)
+    if items:
+        items = [
+            enrich_experiment_with_num_score_sets(exp, None)
+            for exp in items
+        ]
+    return items
 
 
 @router.post(
@@ -105,7 +111,13 @@ def search_my_experiments(
     """
     Search experiments created by the current user..
     """
-    return _search_experiments(db, user_data.user, search)
+    items = _search_experiments(db, user_data.user, search)
+    if items:
+        items = [
+            enrich_experiment_with_num_score_sets(exp, user_data)
+            for exp in items
+        ]
+    return items
 
 
 @router.get(
@@ -133,7 +145,9 @@ def fetch_experiment(
         raise HTTPException(status_code=404, detail=f"Experiment with URN {urn} not found")
 
     assert_permission(user_data, item, Action.READ)
-    return item
+    updated_experiment = enrich_experiment_with_num_score_sets(item, user_data)
+
+    return updated_experiment
 
 
 @router.get(
@@ -184,6 +198,13 @@ def get_experiment_score_sets(
     else:
         filtered_score_sets.sort(key=attrgetter("urn"))
         save_to_logging_context({"associated_resources": [item.urn for item in score_set_result]})
+        enriched_score_sets = []
+        for fs in filtered_score_sets:
+            enriched_experiment = enrich_experiment_with_num_score_sets(fs.experiment, user_data)
+            response_item = score_set.ScoreSet.from_orm(fs).copy(update={"experiment": enriched_experiment})
+            enriched_score_sets.append(response_item)
+
+        return enriched_score_sets
 
     return filtered_score_sets
 
@@ -429,7 +450,9 @@ async def update_experiment(
     db.refresh(item)
 
     save_to_logging_context({"updated_resource": item.urn})
-    return item
+    updated_item = enrich_experiment_with_num_score_sets(item, user_data)
+
+    return updated_item
 
 
 @router.delete("/experiments/{urn}", response_model=None, responses={422: {}})

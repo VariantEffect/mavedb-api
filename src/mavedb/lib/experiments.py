@@ -5,6 +5,8 @@ from sqlalchemy import func, or_, not_
 from sqlalchemy.orm import Session
 
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.permissions import Action
+from mavedb.lib.score_sets import find_superseded_score_set_tail
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.experiment import Experiment
@@ -14,6 +16,7 @@ from mavedb.models.experiment_controlled_keyword import (
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
+from mavedb.view_models import experiment
 from mavedb.view_models.search import ExperimentsSearch
 
 logger = logging.getLogger(__name__)
@@ -125,3 +128,30 @@ def search_experiments(
     )
 
     return items
+
+
+def enrich_experiment_with_num_score_sets(
+        item_update: Experiment, user: Optional[User]
+) -> experiment:
+    """
+    Validate and update the number of score set in experiment. The superseded score set is excluded.
+    Data structure: experiment{score_set_urns, num_score_sets}
+    """
+    filter_superseded_score_set_tails = [
+        find_superseded_score_set_tail(
+            score_set,
+            Action.READ,
+            user
+        ) for score_set in item_update.score_sets
+    ]
+    filtered_score_sets = [score_set for score_set in filter_superseded_score_set_tails if score_set is not None]
+    filtered_score_set_urns = []
+    if filtered_score_sets:
+        filtered_score_set_urns = list(set([score_set.urn for score_set in filtered_score_sets]))
+        filtered_score_set_urns.sort()
+
+    updated_experiment = experiment.Experiment.from_orm(item_update).copy(update={
+        "num_score_sets": len(filtered_score_set_urns),
+        "score_set_urns": filtered_score_set_urns,
+    })
+    return updated_experiment

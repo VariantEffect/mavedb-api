@@ -132,6 +132,7 @@ class SavedExperiment(ExperimentBase):
 
 # Properties to return to non-admin clients
 class Experiment(SavedExperiment):
+    num_score_sets: Optional[int] = None
     score_set_urns: list[str]
     processing_state: Optional[str]
     doi_identifiers: Sequence[DoiIdentifier]

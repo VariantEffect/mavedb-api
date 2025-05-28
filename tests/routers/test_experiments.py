@@ -53,7 +53,11 @@ def test_create_minimal_experiment(client, setup_router_db):
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
-    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
+    expected_response.update({
+        "urn": response_data["urn"],
+        "experimentSetUrn": response_data["experimentSetUrn"],
+        "numScoreSets": 0
+    })
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
@@ -74,7 +78,11 @@ def test_create_experiment_with_contributor(client, setup_router_db):
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
-    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
+    expected_response.update({
+        "urn": response_data["urn"],
+        "experimentSetUrn": response_data["experimentSetUrn"],
+        "numScoreSets": 0
+    })
     expected_response["contributors"] = [
         {
             "recordType": "Contributor",
@@ -96,7 +104,11 @@ def test_create_experiment_with_keywords(session, client, setup_router_db):
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE)
-    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
+    expected_response.update({
+        "urn": response_data["urn"],
+        "experimentSetUrn": response_data["experimentSetUrn"],
+        "numScoreSets": 0
+    })
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
@@ -389,7 +401,11 @@ def test_create_experiment_that_keywords_have_duplicate_others(client, setup_rou
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE)
-    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
+    expected_response.update({
+        "urn": response_data["urn"],
+        "experimentSetUrn": response_data["experimentSetUrn"],
+        "numScoreSets": 0
+    })
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
@@ -944,7 +960,11 @@ def test_create_experiment_with_invalid_primary_publication(client, setup_router
 def test_get_own_private_experiment(client, setup_router_db):
     experiment = create_experiment(client)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
-    expected_response.update({"urn": experiment["urn"], "experimentSetUrn": experiment["experimentSetUrn"]})
+    expected_response.update({
+        "urn": experiment["urn"],
+        "experimentSetUrn": experiment["experimentSetUrn"],
+        "numScoreSets": 0
+    })
     response = client.get(f"/api/v1/experiments/{experiment['urn']}")
     assert response.status_code == 200
     response_data = response.json()
@@ -977,7 +997,11 @@ def test_anonymous_cannot_get_users_private_experiment(session, client, anonymou
 def test_admin_can_get_other_users_private_experiment(client, admin_app_overrides, setup_router_db):
     experiment = create_experiment(client)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
-    expected_response.update({"urn": experiment["urn"], "experimentSetUrn": experiment["experimentSetUrn"]})
+    expected_response.update({
+        "urn": experiment["urn"],
+        "experimentSetUrn": experiment["experimentSetUrn"],
+        "numScoreSets": 0
+    })
     with DependencyOverrider(admin_app_overrides):
         response = client.get(f"/api/v1/experiments/{experiment['urn']}")
 
@@ -987,6 +1011,114 @@ def test_admin_can_get_other_users_private_experiment(client, admin_app_override
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
+
+
+def test_users_get_one_score_set_to_own_private_experiment(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    response = client.get(f"/api/v1/experiments/{experiment['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["numScoreSets"] == 1
+    assert score_set["urn"] in response_data["scoreSetUrns"]
+
+
+def test_users_get_one_score_set_to_own_public_experiment(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    pub_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    assert pub_score_set_response.status_code == 200
+    pub_score_set = pub_score_set_response.json()
+    response = client.get(f"/api/v1/experiments/{pub_score_set['experiment']['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["numScoreSets"] == 1
+    assert pub_score_set["urn"] in response_data["scoreSetUrns"]
+
+
+def test_users_get_one_published_score_set_from_other_experiment(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    pub_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    assert pub_score_set_response.status_code == 200
+    pub_score_set = pub_score_set_response.json()
+    change_ownership(session, pub_score_set['experiment']['urn'], ExperimentDbModel)
+    change_ownership(session, pub_score_set["urn"], ScoreSetDbModel)
+    response = client.get(f"/api/v1/experiments/{pub_score_set['experiment']['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["numScoreSets"] == 1
+    assert pub_score_set["urn"] in response_data["scoreSetUrns"]
+
+
+def test_users_get_one_published_score_set_from_others_experiment_with_a_private_score_set(
+        session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    pub_score_set_response = client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish")
+    assert pub_score_set_response.status_code == 200
+    pub_score_set = pub_score_set_response.json()
+    score_set_2 = create_seq_score_set_with_variants(
+        client, session, data_provider, pub_score_set['experiment']['urn'], data_files / "scores.csv"
+    )
+    change_ownership(session, score_set_2["urn"], ScoreSetDbModel)
+    response = client.get(f"/api/v1/experiments/{pub_score_set['experiment']['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["numScoreSets"] == 1
+    assert pub_score_set["urn"] in response_data["scoreSetUrns"]
+
+
+def test_users_get_two_score_sets_from_own_experiment_with_a_private_and_a_published_score_sets(
+        session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set_1 = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    pub_score_set_response = client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish")
+    assert pub_score_set_response.status_code == 200
+    pub_score_set = pub_score_set_response.json()
+    score_set_2 = create_seq_score_set_with_variants(
+        client, session, data_provider, pub_score_set['experiment']['urn'], data_files / "scores.csv"
+    )
+    response = client.get(f"/api/v1/experiments/{pub_score_set['experiment']['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["numScoreSets"] == 2
+    assert pub_score_set["urn"] in response_data["scoreSetUrns"]
+    assert score_set_2["urn"] in response_data["scoreSetUrns"]
+
+
+def test_users_get_one_score_set_from_own_experiment_with_a_superseding_score_sets(
+        session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    pub_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+    assert pub_score_set_response.status_code == 200
+    pub_score_set = pub_score_set_response.json()
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = pub_score_set["experiment"]["urn"]
+    score_set_post_payload["supersededScoreSetUrn"] = pub_score_set["urn"]
+    superseding_score_set_response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert superseding_score_set_response.status_code == 200
+    superseding_score_set = superseding_score_set_response.json()
+    response = client.get(f"/api/v1/experiments/{superseding_score_set['experiment']['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+    # Only the superseding score set in experiment's score set list.
+    assert response_data["numScoreSets"] == 1
+    assert superseding_score_set["urn"] in response_data["scoreSetUrns"]
+    assert pub_score_set["urn"] not in response_data["scoreSetUrns"]
 
 
 def test_search_experiments(session, client, setup_router_db):

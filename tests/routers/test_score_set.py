@@ -82,6 +82,7 @@ def test_create_minimal_score_set(client, setup_router_db):
     expected_response = update_expected_response_for_created_resources(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
+    expected_response["experiment"].update({"numScoreSets": 1})
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -120,6 +121,7 @@ def test_create_score_set_with_contributor(client, setup_router_db):
             "familyName": "User",
         }
     ]
+    expected_response["experiment"].update({"numScoreSets": 1})
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -146,6 +148,7 @@ def test_create_score_set_with_score_range(client, setup_router_db):
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
     expected_response["scoreRanges"] = TEST_SAVED_SCORESET_RANGE
+    expected_response["experiment"].update({"numScoreSets": 1})
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -172,6 +175,7 @@ def test_remove_score_range_from_score_set(client, setup_router_db):
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
     expected_response["scoreRanges"] = TEST_SAVED_SCORESET_RANGE
+    expected_response["experiment"].update({"numScoreSets": 1})
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -246,6 +250,7 @@ def test_can_update_score_set_data_before_publication(
     expected_response = update_expected_response_for_created_resources(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
     )
+    expected_response["experiment"].update({"numScoreSets": 1})
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
     assert response.status_code == 200
@@ -333,6 +338,7 @@ def test_can_update_score_set_supporting_data_after_publication(
             "processingState": ProcessingState.success.name,
         }
     )
+    expected_response["experiment"].update({"numScoreSets": 1})
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -398,6 +404,7 @@ def test_cannot_update_score_set_target_data_after_publication(
             "processingState": ProcessingState.success.name,
         }
     )
+    expected_response["experiment"].update({"numScoreSets": 1})
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -429,6 +436,7 @@ def test_get_own_private_score_set(client, setup_router_db):
     expected_response = update_expected_response_for_created_resources(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
     )
+    expected_response["experiment"].update({"numScoreSets": 1})
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
     assert response.status_code == 200
@@ -497,6 +505,7 @@ def test_contributor_can_get_other_users_private_score_set(session, client, setu
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
     }
+    expected_response["experiment"].update({"numScoreSets": 1})
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
     assert response.status_code == 200
@@ -513,7 +522,7 @@ def test_admin_can_get_other_user_private_score_set(session, client, admin_app_o
     expected_response = update_expected_response_for_created_resources(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
     )
-
+    expected_response["experiment"].update({"numScoreSets": 1})
     with DependencyOverrider(admin_app_overrides):
         response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
 
@@ -883,7 +892,7 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
     expected_response = update_expected_response_for_created_resources(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), response_data["experiment"], response_data
     )
-    expected_response["experiment"].update({"publishedDate": date.today().isoformat()})
+    expected_response["experiment"].update({"publishedDate": date.today().isoformat(), "numScoreSets": 1})
     expected_response.update(
         {
             "urn": response_data["urn"],
@@ -1031,7 +1040,7 @@ def test_contributor_can_publish_other_users_score_set(session, data_provider, c
     expected_response = update_expected_response_for_created_resources(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), response_data["experiment"], response_data
     )
-    expected_response["experiment"].update({"publishedDate": date.today().isoformat()})
+    expected_response["experiment"].update({"publishedDate": date.today().isoformat(), "numScoreSets": 1})
     expected_response.update(
         {
             "urn": response_data["urn"],
@@ -2312,6 +2321,7 @@ def test_admin_can_add_score_calibrations_to_score_set(client, setup_router_db, 
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
     )
     expected_response["scoreCalibrations"] = {"test_calibrations": deepcopy(TEST_SAVED_SCORE_CALIBRATION)}
+    expected_response["experiment"].update({"numScoreSets": 1})
 
     assert response.status_code == 200
     for key in expected_response:
