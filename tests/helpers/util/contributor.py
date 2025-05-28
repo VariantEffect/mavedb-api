@@ -1,5 +1,4 @@
 from sqlalchemy.orm.exc import NoResultFound
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 from typing import Any
 
