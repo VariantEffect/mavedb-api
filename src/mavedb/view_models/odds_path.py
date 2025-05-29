@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 from pydantic import validator
 
 from mavedb.view_models import record_type_validator, set_record_type
@@ -7,7 +7,18 @@ from mavedb.view_models.base.base import BaseModel
 
 class OddsPathBase(BaseModel):
     ratio: float
-    evidence: Literal["BS3_STRONG", "PS3_STRONG"]
+    evidence: Optional[
+        Literal[
+            "BS3_STRONG",
+            "BS3_MODERATE",
+            "BS3_SUPPORTING",
+            "INDETERMINATE",
+            "PS3_VERY_STRONG",
+            "PS3_STRONG",
+            "PS3_MODERATE",
+            "PS3_SUPPORTING",
+        ]
+    ] = None
 
 
 class OddsPathModify(OddsPathBase):
