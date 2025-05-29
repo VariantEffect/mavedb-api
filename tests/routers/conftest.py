@@ -1,36 +1,29 @@
 from pathlib import Path
 from shutil import copytree
-from unittest.mock import patch
 
-import cdot.hgvs.dataproviders
 import pytest
 
+from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.user_role import UserRole
-from mavedb.models.published_variant import PublishedVariantsMV
 from mavedb.models.license import License
 from mavedb.models.role import Role
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
+
 from tests.helpers.constants import (
     ADMIN_USER,
+    TEST_CLINVAR_CONTROL,
+    TEST_GENERIC_CLINICAL_CONTROL,
     EXTRA_USER,
     EXTRA_CONTRIBUTOR,
-    TEST_CDOT_TRANSCRIPT,
     TEST_DB_KEYWORDS,
     TEST_LICENSE,
     TEST_INACTIVE_LICENSE,
     EXTRA_LICENSE,
     TEST_TAXONOMY,
     TEST_USER,
-)
-from tests.helpers.util import (
-    create_acc_score_set_with_variants,
-    create_experiment,
-    create_seq_score_set_with_variants,
-    create_mapped_variants_for_score_set,
-    publish_score_set,
 )
 
 
@@ -50,6 +43,8 @@ def setup_router_db(session):
     db.add(License(**TEST_INACTIVE_LICENSE))
     db.add(License(**EXTRA_LICENSE))
     db.add(Contributor(**EXTRA_CONTRIBUTOR))
+    db.add(ClinicalControl(**TEST_CLINVAR_CONTROL))
+    db.add(ClinicalControl(**TEST_GENERIC_CLINICAL_CONTROL))
     db.bulk_save_objects([ControlledKeyword(**keyword_obj) for keyword_obj in TEST_DB_KEYWORDS])
     db.commit()
 
@@ -58,32 +53,6 @@ def setup_router_db(session):
 def data_files(tmp_path):
     copytree(Path(__file__).absolute().parent / "data", tmp_path / "data")
     return tmp_path / "data"
-
-
-# Fixtures for setting up score sets on which to calculate statistics.
-# Adds an experiment and score set to the database, then publishes the score set.
-@pytest.fixture
-def setup_acc_scoreset(setup_router_db, session, data_provider, client, data_files):
-    experiment = create_experiment(client)
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
-        score_set = create_acc_score_set_with_variants(
-            client, session, data_provider, experiment["urn"], data_files / "scores_acc.csv"
-        )
-        publish_score_set(client, score_set["urn"])
-
-
-@pytest.fixture
-def setup_seq_scoreset(setup_router_db, session, data_provider, client, data_files):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
-    )
-    create_mapped_variants_for_score_set(session, score_set["urn"])
-    publish_score_set(client, score_set["urn"])
-
-    # Note that we have not created indexes for this view when it is generated via metadata. This differs
-    # from the database created via alembic, which does create indexes.
-    PublishedVariantsMV.refresh(session, False)
 
 
 @pytest.fixture

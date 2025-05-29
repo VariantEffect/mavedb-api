@@ -34,7 +34,6 @@ from mavedb.view_models.target_gene import (
     TargetGeneCreate,
 )
 from mavedb.view_models.user import SavedUser, User
-from mavedb.view_models.variant import VariantInDbBase
 
 
 class ExternalLink(BaseModel):
@@ -175,6 +174,26 @@ class ScoreSetModify(ScoreSetBase):
     def at_least_one_target_gene_exists(cls, field_value, values):
         if len(field_value) < 1:
             raise ValidationError("Score sets should define at least one target.")
+
+        return field_value
+
+    # Validate nested label fields are not identical
+    @validator("target_genes")
+    def target_accession_base_editor_targets_are_consistent(cls, field_value, values):
+        # Only target accessions can have base editor data.
+        if len(field_value) > 1 and all([target.target_accession is not None for target in field_value]):
+            if len(set(target.target_accession.is_base_editor for target in field_value)) > 1:
+                # Throw the error for the first target, since it necessarily has an inconsistent base editor value.
+                raise ValidationError(
+                    "All target accessions must be of the same base editor type.",
+                    custom_loc=[
+                        "body",
+                        "targetGene",
+                        0,
+                        "targetAccession",
+                        "isBaseEditor",
+                    ],
+                )
 
         return field_value
 
@@ -441,7 +460,7 @@ class ScoreSetWithVariants(ScoreSet):
     are requested.
     """
 
-    variants: list[VariantInDbBase]
+    variants: list[SavedVariant]
 
 
 class AdminScoreSet(ScoreSet):
@@ -469,6 +488,8 @@ class ScoreSetPublicDump(SavedScoreSet):
 
 # ruff: noqa: E402
 from mavedb.view_models.experiment import Experiment
+from mavedb.view_models.variant import SavedVariant
 
 ShortScoreSet.update_forward_refs()
 ScoreSet.update_forward_refs()
+ScoreSetWithVariants.update_forward_refs()
