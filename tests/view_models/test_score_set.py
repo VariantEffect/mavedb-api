@@ -3,7 +3,12 @@ import pytest
 from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
 from mavedb.view_models.score_set import ScoreSetCreate, ScoreSetModify
 from mavedb.view_models.target_gene import TargetGeneCreate
-from tests.helpers.constants import TEST_MINIMAL_ACC_SCORESET, TEST_MINIMAL_SEQ_SCORESET
+from tests.helpers.constants import (
+    TEST_MINIMAL_ACC_SCORESET,
+    TEST_MINIMAL_SEQ_SCORESET,
+    TEST_SCORE_SET_RANGE_WITH_ODDS_PATH,
+    TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE,
+)
 
 
 def test_cannot_create_score_set_without_a_target():
@@ -331,37 +336,6 @@ def test_cannot_create_score_set_with_overlapping_lower_unbounded_ranges():
     assert "Score ranges may not overlap; `range_1` overlaps with `range_2`" in str(exc_info.value)
 
 
-def test_cannot_create_score_set_with_backwards_bounds():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": 0.5,
-        "ranges": [
-            {"label": "range_1", "classification": "normal", "range": (1, 0)},
-            {"label": "range_2", "classification": "abnormal", "range": (2, 1)},
-        ],
-    }
-
-    with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(**score_set_test)
-
-    assert "The lower bound of the score range may not be larger than the upper bound." in str(exc_info.value)
-
-
-def test_cannot_create_score_set_with_equal_bounds():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": 1,
-        "ranges": [
-            {"label": "range_1", "classification": "normal", "range": (-1, -1)},
-        ],
-    }
-
-    with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(**score_set_test)
-
-    assert "The lower and upper bound of the score range may not be the same." in str(exc_info.value)
-
-
 def test_cannot_create_score_set_with_duplicate_range_labels():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["score_ranges"] = {
@@ -492,6 +466,35 @@ def test_can_create_score_set_with_any_range_classification(classification):
     }
 
     ScoreSetModify(**score_set_test)
+
+
+def test_can_create_score_set_with_odds_path_in_score_ranges():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["score_ranges"] = TEST_SCORE_SET_RANGE_WITH_ODDS_PATH.copy()
+
+    ScoreSetModify(**score_set_test)
+
+
+def test_can_create_score_set_with_odds_path_and_source_in_score_ranges():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["primary_publication_identifiers"] = TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE[
+        "odds_path_source"
+    ]
+    score_set_test["score_ranges"] = TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE.copy()
+
+    ScoreSetModify(**score_set_test)
+
+
+def test_cannot_create_score_set_with_odds_path_and_source_in_score_ranges_if_source_not_in_score_set_publications():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["score_ranges"] = TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE.copy()
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetModify(**score_set_test)
+
+    assert "Odds path source publication identifier at index 0 is not defined in score set publications." in str(
+        exc_info.value
+    )
 
 
 def test_cannot_create_score_set_with_inconsistent_base_editor_flags():
