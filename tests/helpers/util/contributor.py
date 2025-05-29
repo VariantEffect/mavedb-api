@@ -12,11 +12,13 @@ def add_contributor(db: Session, urn: str, model: Any, orcid_id: str, given_name
     assert item is not None
 
     try:
-        contributor = db.execute(select(Contributor).where(Contributor.orcid_id == orcid_id)).one()
+        # scalar_one(): extract the ORM instance from the result
+        contributor = db.execute(select(Contributor).where(Contributor.orcid_id == orcid_id)).scalar_one()
     except NoResultFound:
         contributor = Contributor(orcid_id=orcid_id, given_name=given_name, family_name=family_name)
         db.add(contributor)
 
-    item.contributors = [contributor]
+    if contributor not in item.contributors:
+        item.contributors.append(contributor)
     db.add(item)
     db.commit()

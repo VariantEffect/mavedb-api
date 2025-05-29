@@ -467,6 +467,39 @@ def test_anonymous_user_cannot_get_user_private_score_set(session, client, setup
     assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
 
 
+def test_can_add_contributor_in_both_experiment_and_score_set(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    add_contributor(
+        session,
+        experiment["urn"],
+        ExperimentDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    score_set_response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+    assert score_set_response.status_code == 200
+    ss_response_data = score_set_response.json()
+    assert len(ss_response_data["contributors"]) == 1
+    assert any(c["orcidId"] == TEST_USER["username"] for c in ss_response_data["contributors"])
+    experiment_response = client.get(f"/api/v1/experiments/{experiment['urn']}")
+    assert experiment_response.status_code == 200
+    exp_response_data = experiment_response.json()
+    assert len(exp_response_data["contributors"]) == 1
+    assert any(c["orcidId"] == TEST_USER["username"] for c in exp_response_data["contributors"])
+
+
 def test_contributor_can_get_other_users_private_score_set(session, client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])

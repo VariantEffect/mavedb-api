@@ -177,6 +177,17 @@ TEST_USER = {
     "is_first_login": True,
 }
 
+TEST_USER2 = {
+    "username": "1111-2222-3333-4444",
+    "first_name": "First",
+    "last_name": "Last",
+    "email": "test_user2@test.com",
+    "is_active": True,
+    "is_staff": False,
+    "is_superuser": False,
+    "is_first_login": True,
+}
+
 CONTRIBUTOR = {
     "orcid_id": TEST_USER["username"],
     "given_name": TEST_USER["first_name"],
