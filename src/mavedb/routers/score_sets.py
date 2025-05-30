@@ -226,6 +226,95 @@ async def show_score_set(
 
 
 @router.get(
+    "/score-sets/{urn}/variants/data",
+    status_code=200,
+    responses={
+        200: {
+            "content": {"text/csv": {}},
+            "description": """Variant data in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
+            """ and hgvs_splice), plus score columns defined by the score set.""",
+        }
+    },
+)
+def get_score_set_variants_csv(
+    *,
+    urn: str,
+    start: int = Query(default=None, description="Start index for pagination"),
+    limit: int = Query(default=None, description="Maximum number of variants to return"),
+    drop_na_columns: Optional[bool] = None,
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+) -> Any:
+    """
+    Return tabular variant data from a score set, identified by URN, in CSV format.
+
+    This differs from get_score_set_scores_csv() in that it returns only the HGVS columns, score column, and mapped HGVS
+    string.
+
+    TODO (https://github.com/VariantEffect/mavedb-api/issues/446) We may want to turn this into a general-purpose CSV
+    export endpoint, with options governing which columns to include.
+
+    Parameters
+    __________
+
+    Parameters
+    __________
+    urn : str
+        The URN of the score set to fetch variants from.
+    start : Optional[int]
+        The index to start from. If None, starts from the beginning.
+    limit : Optional[int]
+        The maximum number of variants to return. If None, returns all variants.
+    drop_na_columns : bool, optional
+        Whether to drop columns that contain only NA values. Defaults to False.
+    db : Session
+        The database session to use.
+    user_data : Optional[UserData]
+        The user data of the current user. If None, no user-specific permissions are checked.
+
+    Returns
+    _______
+    str
+        The CSV string containing the variant data.
+    """
+    save_to_logging_context(
+        {
+            "requested_resource": urn,
+            "resource_property": "scores",
+            "start": start,
+            "limit": limit,
+            "drop_na_columns": drop_na_columns,
+        }
+    )
+
+    if start and start < 0:
+        logger.info(msg="Could not fetch scores with negative start index.", extra=logging_context())
+        raise HTTPException(status_code=400, detail="Start index must be non-negative")
+    if limit is not None and limit <= 0:
+        logger.info(msg="Could not fetch scores with non-positive limit.", extra=logging_context())
+        raise HTTPException(status_code=400, detail="Limit must be positive")
+
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
+    if not score_set:
+        logger.info(msg="Could not fetch the requested scores; No such score set exists.", extra=logging_context())
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
+    assert_permission(user_data, score_set, Action.READ)
+
+    csv_str = get_score_set_variants_as_csv(
+        db,
+        score_set,
+        "scores",
+        start,
+        limit,
+        drop_na_columns,
+        include_custom_columns=False,
+        include_post_mapped_hgvs=True,
+    )
+    return StreamingResponse(iter([csv_str]), media_type="text/csv")
+
+
+@router.get(
     "/score-sets/{urn}/scores",
     status_code=200,
     responses={
