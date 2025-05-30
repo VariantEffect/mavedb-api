@@ -13,6 +13,8 @@ from tests.helpers.util.score_set import create_seq_score_set_with_variants, pub
 from tests.helpers.util.user import change_ownership
 
 arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
 
 
 def test_users_get_one_private_experiment_from_own_experiment_set(client, setup_router_db):
