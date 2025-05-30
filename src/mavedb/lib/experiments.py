@@ -1,9 +1,10 @@
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import func, or_, not_
 from sqlalchemy.orm import Session
 
+from mavedb.lib.authentication import UserData
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action
 from mavedb.lib.score_sets import find_superseded_score_set_tail
@@ -131,8 +132,8 @@ def search_experiments(
 
 
 def enrich_experiment_with_num_score_sets(
-        item_update: Experiment, user: Optional[User]
-) -> experiment:
+        item_update: Experiment, user_data: Optional[UserData]
+) -> Any:
     """
     Validate and update the number of score set in experiment. The superseded score set is excluded.
     Data structure: experiment{score_set_urns, num_score_sets}
@@ -141,7 +142,7 @@ def enrich_experiment_with_num_score_sets(
         find_superseded_score_set_tail(
             score_set,
             Action.READ,
-            user
+            user_data
         ) for score_set in item_update.score_sets
     ]
     filtered_score_sets = [score_set for score_set in filter_superseded_score_set_tails if score_set is not None]

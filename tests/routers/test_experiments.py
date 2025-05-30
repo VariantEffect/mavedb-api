@@ -42,7 +42,7 @@ from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.user import change_ownership
 from tests.helpers.util.experiment import create_experiment
-from tests.helpers.util.score_set import create_seq_score_set, publish_score_set
+from tests.helpers.util.score_set import create_seq_score_set, create_seq_score_set_with_variants, publish_score_set
 from tests.helpers.util.variant import mock_worker_variant_insertion
 
 
@@ -1063,11 +1063,9 @@ def test_admin_can_get_other_users_private_experiment(client, admin_app_override
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
-def test_users_get_one_score_set_to_own_private_experiment(session, data_provider, client, setup_router_db, data_files):
+def test_users_get_one_score_set_to_own_private_experiment(client, setup_router_db):
     experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
-    )
+    score_set = create_seq_score_set(client, experiment["urn"])
     response = client.get(f"/api/v1/experiments/{experiment['urn']}")
     assert response.status_code == 200
     response_data = response.json()
@@ -1077,34 +1075,35 @@ def test_users_get_one_score_set_to_own_private_experiment(session, data_provide
 
 def test_users_get_one_score_set_to_own_public_experiment(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_variants(
+    unpublished_score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    pub_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
-    assert pub_score_set_response.status_code == 200
-    pub_score_set = pub_score_set_response.json()
-    response = client.get(f"/api/v1/experiments/{pub_score_set['experiment']['urn']}")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(f"/api/v1/experiments/{score_set['experiment']['urn']}")
     assert response.status_code == 200
     response_data = response.json()
     assert response_data["numScoreSets"] == 1
-    assert pub_score_set["urn"] in response_data["scoreSetUrns"]
+    assert score_set["urn"] in response_data["scoreSetUrns"]
 
 
 def test_users_get_one_published_score_set_from_other_experiment(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_variants(
+    unpublished_score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    pub_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
-    assert pub_score_set_response.status_code == 200
-    pub_score_set = pub_score_set_response.json()
-    change_ownership(session, pub_score_set['experiment']['urn'], ExperimentDbModel)
-    change_ownership(session, pub_score_set["urn"], ScoreSetDbModel)
-    response = client.get(f"/api/v1/experiments/{pub_score_set['experiment']['urn']}")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
+    change_ownership(session, score_set['experiment']['urn'], ExperimentDbModel)
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+    response = client.get(f"/api/v1/experiments/{score_set['experiment']['urn']}")
     assert response.status_code == 200
     response_data = response.json()
     assert response_data["numScoreSets"] == 1
-    assert pub_score_set["urn"] in response_data["scoreSetUrns"]
+    assert score_set["urn"] in response_data["scoreSetUrns"]
 
 
 def test_users_get_one_published_score_set_from_others_experiment_with_a_private_score_set(
@@ -1113,9 +1112,9 @@ def test_users_get_one_published_score_set_from_others_experiment_with_a_private
     score_set_1 = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    pub_score_set_response = client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish")
-    assert pub_score_set_response.status_code == 200
-    pub_score_set = pub_score_set_response.json()
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        pub_score_set = publish_score_set(client, score_set_1["urn"])
+        worker_queue.assert_called_once()
     score_set_2 = create_seq_score_set_with_variants(
         client, session, data_provider, pub_score_set['experiment']['urn'], data_files / "scores.csv"
     )
@@ -1133,9 +1132,9 @@ def test_users_get_two_score_sets_from_own_experiment_with_a_private_and_a_publi
     score_set_1 = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    pub_score_set_response = client.post(f"/api/v1/score-sets/{score_set_1['urn']}/publish")
-    assert pub_score_set_response.status_code == 200
-    pub_score_set = pub_score_set_response.json()
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        pub_score_set = publish_score_set(client, score_set_1["urn"])
+        worker_queue.assert_called_once()
     score_set_2 = create_seq_score_set_with_variants(
         client, session, data_provider, pub_score_set['experiment']['urn'], data_files / "scores.csv"
     )
@@ -1153,9 +1152,9 @@ def test_users_get_one_score_set_from_own_experiment_with_a_superseding_score_se
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    pub_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
-    assert pub_score_set_response.status_code == 200
-    pub_score_set = pub_score_set_response.json()
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        pub_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_post_payload["experimentUrn"] = pub_score_set["experiment"]["urn"]
     score_set_post_payload["supersededScoreSetUrn"] = pub_score_set["urn"]

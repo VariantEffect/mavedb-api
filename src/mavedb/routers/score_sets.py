@@ -73,7 +73,7 @@ logger = logging.getLogger(__name__)
 
 async def fetch_score_set_by_urn(
     db, urn: str, user: Optional[UserData], owner_or_contributor: Optional[UserData], only_published: bool
-) -> Optional[ScoreSet]:
+) -> ScoreSet:
     """
     Fetch one score set by URN, ensuring that the user has read permission.
 
