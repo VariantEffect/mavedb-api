@@ -1,8 +1,5 @@
-from unittest.mock import patch
 import pytest
-
-arq = pytest.importorskip("arq")
-
+from unittest.mock import patch
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
@@ -14,6 +11,8 @@ from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import create_seq_score_set_with_variants, publish_score_set
 from tests.helpers.util.user import change_ownership
+
+arq = pytest.importorskip("arq")
 
 
 def test_users_get_one_private_experiment_from_own_experiment_set(client, setup_router_db):
