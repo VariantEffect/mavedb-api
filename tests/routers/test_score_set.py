@@ -207,6 +207,7 @@ def test_create_score_set_with_score_range_and_odds_path_source(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
     expected_response[camelize(publication_list)] = [SAVED_PUBMED_PUBLICATION]
+    expected_response["experiment"].update({"numScoreSets": 1})
     expected_response["scoreRanges"] = TEST_SAVED_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
