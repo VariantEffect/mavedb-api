@@ -2,7 +2,9 @@
 
 import re
 from copy import deepcopy
+import csv
 from datetime import date
+from io import StringIO
 from unittest.mock import patch
 
 import jsonschema
@@ -27,6 +29,8 @@ from tests.helpers.constants import (
     EXTRA_USER,
     EXTRA_LICENSE,
     TEST_CROSSREF_IDENTIFIER,
+    TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION,
+    TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
@@ -62,7 +66,7 @@ from tests.helpers.util.score_set import (
     publish_score_set,
 )
 from tests.helpers.util.user import change_ownership
-from tests.helpers.util.variant import mock_worker_variant_insertion
+from tests.helpers.util.variant import create_mapped_variants_for_score_set, mock_worker_variant_insertion
 
 
 ########################################################################################################################
@@ -2346,6 +2350,44 @@ def test_upload_a_non_utf8_file(session, client, setup_router_db, data_files):
 ########################################################################################################################
 # Score set download files
 ########################################################################################################################
+
+@pytest.mark.parametrize("mapped_variant,has_hgvs_g,has_hgvs_p", [(None, False, False), (TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION, True, False), (TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION, False, True)], ids=["without_post_mapped_vrs", "with_post_mapped_hgvs_g", "with_post_mapped_hgvs_p"])
+def test_download_variants_data_file(session, data_provider, client, setup_router_db, data_files, mapped_variant, has_hgvs_g, has_hgvs_p):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    if mapped_variant is not None:
+        create_mapped_variants_for_score_set(session, score_set["urn"], mapped_variant)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    download_scores_csv_response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?drop_na_columns=true"
+    )
+    assert download_scores_csv_response.status_code == 200
+    download_scores_csv = download_scores_csv_response.text
+
+    reader = csv.DictReader(StringIO(download_scores_csv))
+    assert sorted(reader.fieldnames) == sorted([
+        "accession",
+        "hgvs_nt",
+        "hgvs_pro",
+        "post_mapped_hgvs_g",
+        "post_mapped_hgvs_p",
+        "score",
+    ])
+    rows = list(reader)
+    for row in rows:
+        if has_hgvs_g:
+            assert row["post_mapped_hgvs_g"] == mapped_variant["post_mapped"]["expressions"][0]["value"]
+        else:
+            assert row["post_mapped_hgvs_g"] == "NA"
+        if has_hgvs_p:
+            assert row["post_mapped_hgvs_p"] == mapped_variant["post_mapped"]["expressions"][0]["value"]
+        else:
+            assert row["post_mapped_hgvs_p"] == "NA"
 
 
 # Test file doesn't have hgvs_splice so its values are all NA.
