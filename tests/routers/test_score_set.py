@@ -2351,8 +2351,19 @@ def test_upload_a_non_utf8_file(session, client, setup_router_db, data_files):
 # Score set download files
 ########################################################################################################################
 
-@pytest.mark.parametrize("mapped_variant,has_hgvs_g,has_hgvs_p", [(None, False, False), (TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION, True, False), (TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION, False, True)], ids=["without_post_mapped_vrs", "with_post_mapped_hgvs_g", "with_post_mapped_hgvs_p"])
-def test_download_variants_data_file(session, data_provider, client, setup_router_db, data_files, mapped_variant, has_hgvs_g, has_hgvs_p):
+
+@pytest.mark.parametrize(
+    "mapped_variant,has_hgvs_g,has_hgvs_p",
+    [
+        (None, False, False),
+        (TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION, True, False),
+        (TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION, False, True),
+    ],
+    ids=["without_post_mapped_vrs", "with_post_mapped_hgvs_g", "with_post_mapped_hgvs_p"],
+)
+def test_download_variants_data_file(
+    session, data_provider, client, setup_router_db, data_files, mapped_variant, has_hgvs_g, has_hgvs_p
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
@@ -2370,14 +2381,16 @@ def test_download_variants_data_file(session, data_provider, client, setup_route
     download_scores_csv = download_scores_csv_response.text
 
     reader = csv.DictReader(StringIO(download_scores_csv))
-    assert sorted(reader.fieldnames) == sorted([
-        "accession",
-        "hgvs_nt",
-        "hgvs_pro",
-        "post_mapped_hgvs_g",
-        "post_mapped_hgvs_p",
-        "score",
-    ])
+    assert sorted(reader.fieldnames) == sorted(
+        [
+            "accession",
+            "hgvs_nt",
+            "hgvs_pro",
+            "post_mapped_hgvs_g",
+            "post_mapped_hgvs_p",
+            "score",
+        ]
+    )
     rows = list(reader)
     for row in rows:
         if has_hgvs_g:

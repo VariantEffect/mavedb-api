@@ -1095,10 +1095,7 @@ TEST_MINIMAL_MAPPED_VARIANT = {
 TEST_POST_MAPPED_VRS_WITH_HGVS_G_EXPRESSION = {
     "id": "ga4gh:VA.fRW7u-kBQnAKitu1PoDMLvlECWZTHCos",
     "type": "Allele",
-    "state": {
-        "type": "LiteralSequenceExpression",
-        "sequence": "G"
-    },
+    "state": {"type": "LiteralSequenceExpression", "sequence": "G"},
     "digest": "fRW7u-kBQnAKitu1PoDMLvlECWZTHCos",
     "location": {
         "id": "ga4gh:SL.99b3WBaSSmaSTs6YmJfIhl1ZDCV07VZY",
@@ -1109,27 +1106,17 @@ TEST_POST_MAPPED_VRS_WITH_HGVS_G_EXPRESSION = {
         "sequenceReference": {
             "type": "SequenceReference",
             "label": "NC_000018.10",
-            "refgetAccession": "SQ.vWwFhJ5lQDMhh-czg06YtlWqu0lvFAZV"
-        }
+            "refgetAccession": "SQ.vWwFhJ5lQDMhh-czg06YtlWqu0lvFAZV",
+        },
     },
-    "extensions": [{
-        "name": "vrs_ref_allele_seq",
-        "type": "Extension",
-        "value": "C"
-    }],
-    "expressions": [{
-        "value": "NC_000018.10:g.23536836C>G",
-        "syntax": "hgvs.g"
-    }]
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "C"}],
+    "expressions": [{"value": "NC_000018.10:g.23536836C>G", "syntax": "hgvs.g"}],
 }
 
 TEST_POST_MAPPED_VRS_WITH_HGVS_P_EXPRESSION = {
     "id": "ga4gh:VA.zkOAzZK5qG0D0mkJUfXlK1aS075OGSjh",
     "type": "Allele",
-    "state": {
-        "type": "LiteralSequenceExpression",
-        "sequence": "R"
-    },
+    "state": {"type": "LiteralSequenceExpression", "sequence": "R"},
     "digest": "zkOAzZK5qG0D0mkJUfXlK1aS075OGSjh",
     "location": {
         "id": "ga4gh:SL.uUyRpJbrPttRThL7A2zeWAnTcb_7f1R2",
@@ -1137,20 +1124,10 @@ TEST_POST_MAPPED_VRS_WITH_HGVS_P_EXPRESSION = {
         "type": "SequenceLocation",
         "start": 115,
         "digest": "uUyRpJbrPttRThL7A2zeWAnTcb_7f1R2",
-        "sequenceReference": {
-            "type": "SequenceReference",
-            "refgetAccession": "SQ.StlJo3M4b8cS253ufe9nPpWqQHBDOSPs"
-        }
+        "sequenceReference": {"type": "SequenceReference", "refgetAccession": "SQ.StlJo3M4b8cS253ufe9nPpWqQHBDOSPs"},
     },
-    "extensions": [{
-        "name": "vrs_ref_allele_seq",
-        "type": "Extension",
-        "value": "Q"
-    }],
-    "expressions": [{
-        "value": "NP_002746.1:p.Gln116Arg",
-        "syntax": "hgvs.p"
-    }]
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "Q"}],
+    "expressions": [{"value": "NP_002746.1:p.Gln116Arg", "syntax": "hgvs.p"}],
 }
 
 TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION = {

@@ -619,26 +619,12 @@ def variant_to_csv_row(
         elif column_key == "post_mapped_hgvs_g":
             hgvs_str = get_hgvs_from_mapped_variant(mapping.post_mapped) if mapping and mapping.post_mapped else None
             if hgvs_str is not None and is_hgvs_g(hgvs_str):
-                # parsed_variant = hgvs_parser.parse(hgvs_str)
-                # if parsed_variant is None:
-                #     raise ValueError(f"Invalid HGVS notation in post-mapped variant: {hgvs_str}")
-                # elif parsed_variant.type == "g":
-                #     value = hgvs_str
-                # else:
-                #     value = ""
                 value = hgvs_str
             else:
                 value = ""
         elif column_key == "post_mapped_hgvs_p":
             hgvs_str = get_hgvs_from_mapped_variant(mapping.post_mapped) if mapping and mapping.post_mapped else None
             if hgvs_str is not None and is_hgvs_p(hgvs_str):
-                # parsed_variant = hgvs_parser.parse(hgvs_str)
-                # if parsed_variant is None:
-                #     raise ValueError(f"Invalid HGVS notation in post-mapped variant: {hgvs_str}")
-                # elif parsed_variant.type == "p":
-                #     value = hgvs_str
-                # else:
-                #     value = ""
                 value = hgvs_str
             else:
                 value = ""
