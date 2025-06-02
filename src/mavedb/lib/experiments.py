@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional
+from typing import Optional
 
 from sqlalchemy import func, or_, not_
 from sqlalchemy.orm import Session
@@ -112,7 +112,7 @@ def search_experiments(
                     # Keep experiments without any score sets
                     not_(Experiment.score_sets.any()),
                     # Keep experiments where score sets exist but have no meta_analyzes_score_sets
-                    Experiment.score_sets.any(not_(ScoreSet.meta_analyzes_score_sets.any()))
+                    Experiment.score_sets.any(not_(ScoreSet.meta_analyzes_score_sets.any())),
                 )
             )
         else:
@@ -132,27 +132,27 @@ def search_experiments(
 
 
 def enrich_experiment_with_num_score_sets(
-        item_update: Experiment, user_data: Optional[UserData]
+    item_update: Experiment, user_data: Optional[UserData]
 ) -> experiment.Experiment:
     """
     Validate and update the number of score set in experiment. The superseded score set is excluded.
     Data structure: experiment{score_set_urns, num_score_sets}
     """
     filter_superseded_score_set_tails = [
-        find_superseded_score_set_tail(
-            score_set,
-            Action.READ,
-            user_data
-        ) for score_set in item_update.score_sets
+        find_superseded_score_set_tail(score_set, Action.READ, user_data) for score_set in item_update.score_sets
     ]
-    filtered_score_set_urns = sorted({
-        score_set.urn
-        for score_set in filter_superseded_score_set_tails
-        if score_set is not None and score_set.urn is not None
-    })
+    filtered_score_set_urns = sorted(
+        {
+            score_set.urn
+            for score_set in filter_superseded_score_set_tails
+            if score_set is not None and score_set.urn is not None
+        }
+    )
 
-    updated_experiment = experiment.Experiment.from_orm(item_update).copy(update={
-        "num_score_sets": len(filtered_score_set_urns),
-        "score_set_urns": filtered_score_set_urns,
-    })
+    updated_experiment = experiment.Experiment.from_orm(item_update).copy(
+        update={
+            "num_score_sets": len(filtered_score_set_urns),
+            "score_set_urns": filtered_score_set_urns,
+        }
+    )
     return updated_experiment
