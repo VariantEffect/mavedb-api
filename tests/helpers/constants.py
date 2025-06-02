@@ -17,7 +17,8 @@ TEST_MEDRXIV_IDENTIFIER = "2021.06.22.21259265"
 TEST_CROSSREF_IDENTIFIER = "10.1371/2021.06.22.21259265"
 TEST_ORCID_ID = "1111-1111-1111-1111"
 
-TEST_GA4GH_IDENTIFIER = "ga4gh:SQ.test"
+# "^ga4gh:([^.]+)\.([0-9A-Za-z_\-]{32})$"
+TEST_GA4GH_IDENTIFIER = "ga4gh:SQ.TestTestTestTestTestTestTestTest"
 # ^[0-9A-Za-z_\-]{32}$
 TEST_GA4GH_DIGEST = "ga4ghtest_ga4ghtest_ga4ghtest_dg"
 # ^SQ.[0-9A-Za-z_\-]{32}$

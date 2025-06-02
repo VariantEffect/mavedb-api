@@ -3,6 +3,8 @@
 import pytest
 import json
 
+from tests.helpers.util.user import change_ownership
+
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
@@ -15,6 +17,7 @@ from urllib.parse import quote_plus
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityFunctionalImpactEvidenceLine
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant
 from mavedb.view_models.mapped_variant import SavedMappedVariant
 
@@ -494,3 +497,139 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_no_score_calibra
         f"Could not construct a pathogenicity evidence line for mapped variant {score_set['urn']}#1; No calibrations exist"
         in response_data["detail"]
     )
+
+
+def test_show_mapped_variants_by_ga4gh_identifier(client, session, data_provider, data_files, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    mapped_variant = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
+    assert mapped_variant is not None
+
+    response = client.get(f"/api/v1/mapped-variants/vrs/{quote_plus(mapped_variant.pre_mapped['id'])}")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for response_data in response_data:
+        assert response_data["preMapped"]["id"] == mapped_variant.pre_mapped["id"]
+        SavedMappedVariant.model_validate_json(json.dumps(response_data))
+
+
+def test_cannot_show_mapped_variants_by_ga4gh_identifier_when_none_exist(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    mapped_variant = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
+    assert mapped_variant is not None
+
+    fake_mapped_variant_id = mapped_variant.pre_mapped["id"]
+    fake_mapped_variant_id = fake_mapped_variant_id[:-3] + "aaa"  # Modify the ID to ensure it doesn't exist
+
+    response = client.get(f"/api/v1/mapped-variants/vrs/{quote_plus(fake_mapped_variant_id)}")
+    assert response.status_code == 404
+
+
+def test_show_mapped_variants_by_ga4gh_identifier_with_non_current_variants(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    mapped_variant = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
+    assert mapped_variant is not None
+
+    # Set the mapped variant to non-current
+    mapped_variant.current = False
+    session.add(mapped_variant)
+    session.commit()
+
+    response = client.get(
+        f"/api/v1/mapped-variants/vrs/{quote_plus(mapped_variant.pre_mapped['id'])}?only_current=false"
+    )
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for response_data in response_data:
+        assert response_data["preMapped"]["id"] == mapped_variant.pre_mapped["id"]
+        SavedMappedVariant.model_validate_json(json.dumps(response_data))
+
+
+def test_show_mapped_variants_by_ga4gh_identifier_with_only_current_variants(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    mapped_variant = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
+    mapped_variant2 = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#2'))
+    assert mapped_variant is not None
+    assert mapped_variant2 is not None
+
+    # Set the mapped variant to non-current
+    mapped_variant2.current = False
+    mapped_variant2.pre_mapped = mapped_variant.pre_mapped  # Ensure both pre mapped blobs match besides current status
+    session.add(mapped_variant)
+    session.commit()
+
+    response = client.get(
+        f"/api/v1/mapped-variants/vrs/{quote_plus(mapped_variant.pre_mapped['id'])}?only_current=true"
+    )
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"] - 1
+
+    for response_data in response_data:
+        assert response_data["preMapped"]["id"] == mapped_variant.pre_mapped["id"]
+        SavedMappedVariant.model_validate_json(json.dumps(response_data))
+
+
+def test_cannot_show_mapped_variants_by_ga4gh_identifier_without_score_set_permissions(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+
+    mapped_variant = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
+    assert mapped_variant is not None
+
+    response = client.get(f"/api/v1/mapped-variants/vrs/{quote_plus(mapped_variant.pre_mapped['id'])}")
+    assert response.status_code == 404

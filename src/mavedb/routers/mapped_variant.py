@@ -1,11 +1,12 @@
 import logging
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Path
 from fastapi.exceptions import HTTPException
+from ga4gh.core import GA4GH_IR_REGEXP
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityFunctionalImpactEvidenceLine
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,7 @@ from mavedb.lib.annotation.annotate import (
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import get_current_user
+from mavedb.lib.permissions import has_permission
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
     logging_context,
@@ -187,6 +189,45 @@ async def show_mapped_variant_acmg_evidence_line(
         )
 
     return pathogenicity_evidence
+
+
+@router.get(
+    "/vrs/{identifier}",
+    status_code=200,
+    response_model=list[mapped_variant.MappedVariant],
+    responses={404: {}, 500: {}},
+)
+async def show_mapped_variants_by_identifier(
+    *,
+    identifier: Annotated[
+        str,
+        Path(
+            description="String, a valid GA4GH digest based identifier.",
+            json_schema_extra={"example": "ga4gh:SQ.0123abcd"},
+            regex=GA4GH_IR_REGEXP,
+        ),
+    ],
+    only_current: bool = True,
+    db: Session = Depends(deps.get_db),
+    user: Optional[UserData] = Depends(get_current_user),
+) -> list[MappedVariant]:
+    """
+    Fetch a mapped variant by GA4GH identifier.
+    """
+    query = select(MappedVariant).where(
+        or_(MappedVariant.pre_mapped["id"].astext == identifier, MappedVariant.post_mapped["id"].astext == identifier)
+    )
+
+    if only_current:
+        query = query.where(MappedVariant.current.is_(True))
+
+    items = db.scalars(query).all()
+
+    permitted_items = [item for item in items if has_permission(user, item.variant.score_set, Action.READ).permitted]
+    if not permitted_items:
+        raise HTTPException(status_code=404, detail=f"No mapped variants with identifier {identifier} were found")
+
+    return permitted_items
 
 
 # for testing only
