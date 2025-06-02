@@ -1,7 +1,7 @@
 from datetime import date
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String, Index, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, relationship
 
@@ -43,4 +43,8 @@ class MappedVariant(Base):
         "GnomADVariant",
         secondary=gnomad_variants_mapped_variants_association_table,
         back_populates="mapped_variants",
+
+    __table_args__ = (
+        Index("ix_mapped_variants_pre_mapped_id", text("(pre_mapped->>'id')")),
+        Index("ix_mapped_variants_post_mapped_id", text("(post_mapped->>'id')")),
     )
