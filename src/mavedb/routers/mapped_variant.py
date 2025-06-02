@@ -3,7 +3,7 @@ from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, Path
 from fastapi.exceptions import HTTPException
-from ga4gh.core import GA4GH_IR_REGEXP
+from ga4gh.core.identifiers import GA4GH_IR_REGEXP
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityFunctionalImpactEvidenceLine
 from sqlalchemy import or_, select
