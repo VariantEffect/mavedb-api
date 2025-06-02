@@ -77,14 +77,9 @@ services:
       - mavedb-seqrepo-dev:/usr/local/share/seqrepo
 
   seqrepo:
-    image: biocommons/seqrepo:2021-01-29
+    image: biocommons/seqrepo:2024-12-20
     volumes:
       - mavedb-seqrepo-dev:/usr/local/share/seqrepo
-
-#  rabbitmq:
-#    image: rabbitmq:3.8.3
-#    ports:
-#      - "5673:5672"
 
 volumes:
   mavedb-data-dev:

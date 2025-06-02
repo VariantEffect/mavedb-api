@@ -222,9 +222,7 @@ async def show_score_set(
     save_to_logging_context({"requested_resource": urn})
     item = await fetch_score_set_by_urn(db, urn, user_data, None, False)
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    response_item = score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
-
-    return response_item
+    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.get(
@@ -670,9 +668,7 @@ async def create_score_set(
     save_to_logging_context({"created_resource": item.urn})
 
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    response_item = score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
-
-    return response_item
+    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.post(
@@ -737,9 +733,7 @@ async def upload_score_set_variant_data(
     db.commit()
     db.refresh(item)
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    response_item = score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
-
-    return response_item
+    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.post(
@@ -777,9 +771,7 @@ async def update_score_set_calibration_data(
 
     save_to_logging_context({"updated_resource": item.urn})
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    response_item = score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
-
-    return response_item
+    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.put(
@@ -1037,9 +1029,7 @@ async def update_score_set(
     save_to_logging_context({"updated_resource": item.urn})
 
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    response_item = score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
-
-    return response_item
+    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.delete("/score-sets/{urn}", responses={422: {}})
@@ -1178,9 +1168,7 @@ async def publish_score_set(
         )
 
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    response_item = score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
-
-    return response_item
+    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.get(

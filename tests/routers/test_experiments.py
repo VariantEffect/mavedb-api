@@ -60,8 +60,7 @@ def test_create_minimal_experiment(client, setup_router_db):
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
     expected_response.update({
         "urn": response_data["urn"],
-        "experimentSetUrn": response_data["experimentSetUrn"],
-        "numScoreSets": 0
+        "experimentSetUrn": response_data["experimentSetUrn"]
     })
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -85,8 +84,7 @@ def test_create_experiment_with_contributor(client, setup_router_db):
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
     expected_response.update({
         "urn": response_data["urn"],
-        "experimentSetUrn": response_data["experimentSetUrn"],
-        "numScoreSets": 0
+        "experimentSetUrn": response_data["experimentSetUrn"]
     })
     expected_response["contributors"] = [
         {
@@ -111,8 +109,7 @@ def test_create_experiment_with_keywords(session, client, setup_router_db):
     expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE)
     expected_response.update({
         "urn": response_data["urn"],
-        "experimentSetUrn": response_data["experimentSetUrn"],
-        "numScoreSets": 0
+        "experimentSetUrn": response_data["experimentSetUrn"]
     })
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -408,8 +405,7 @@ def test_create_experiment_that_keywords_have_duplicate_others(client, setup_rou
     expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE)
     expected_response.update({
         "urn": response_data["urn"],
-        "experimentSetUrn": response_data["experimentSetUrn"],
-        "numScoreSets": 0
+        "experimentSetUrn": response_data["experimentSetUrn"]
     })
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -1012,8 +1008,7 @@ def test_get_own_private_experiment(client, setup_router_db):
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
     expected_response.update({
         "urn": experiment["urn"],
-        "experimentSetUrn": experiment["experimentSetUrn"],
-        "numScoreSets": 0
+        "experimentSetUrn": experiment["experimentSetUrn"]
     })
     response = client.get(f"/api/v1/experiments/{experiment['urn']}")
     assert response.status_code == 200
@@ -1049,8 +1044,7 @@ def test_admin_can_get_other_users_private_experiment(client, admin_app_override
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
     expected_response.update({
         "urn": experiment["urn"],
-        "experimentSetUrn": experiment["experimentSetUrn"],
-        "numScoreSets": 0
+        "experimentSetUrn": experiment["experimentSetUrn"]
     })
     with DependencyOverrider(admin_app_overrides):
         response = client.get(f"/api/v1/experiments/{experiment['urn']}")

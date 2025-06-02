@@ -90,12 +90,10 @@ def search_experiments(search: ExperimentsSearch, db: Session = Depends(deps.get
     Search experiments.
     """
     items = _search_experiments(db, None, search)
-    if items:
-        items = [
-            enrich_experiment_with_num_score_sets(exp, None)
-            for exp in items
-        ]
-    return items
+    return [
+        enrich_experiment_with_num_score_sets(exp, None)
+        for exp in items
+    ]
 
 
 @router.post(
@@ -112,12 +110,10 @@ def search_my_experiments(
     Search experiments created by the current user..
     """
     items = _search_experiments(db, user_data.user, search)
-    if items:
-        items = [
+    return [
             enrich_experiment_with_num_score_sets(exp, user_data)
             for exp in items
         ]
-    return items
 
 
 @router.get(
@@ -132,7 +128,7 @@ def fetch_experiment(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
-) -> Experiment:
+) -> experiment.Experiment:
     """
     Fetch a single experiment by URN.
     """
@@ -145,9 +141,7 @@ def fetch_experiment(
         raise HTTPException(status_code=404, detail=f"Experiment with URN {urn} not found")
 
     assert_permission(user_data, item, Action.READ)
-    updated_experiment = enrich_experiment_with_num_score_sets(item, user_data)
-
-    return updated_experiment
+    return enrich_experiment_with_num_score_sets(item, user_data)
 
 
 @router.get(
@@ -450,9 +444,7 @@ async def update_experiment(
     db.refresh(item)
 
     save_to_logging_context({"updated_resource": item.urn})
-    updated_item = enrich_experiment_with_num_score_sets(item, user_data)
-
-    return updated_item
+    return enrich_experiment_with_num_score_sets(item, user_data)
 
 
 @router.delete("/experiments/{urn}", response_model=None, responses={422: {}})

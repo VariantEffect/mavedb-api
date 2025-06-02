@@ -133,7 +133,7 @@ def search_experiments(
 
 def enrich_experiment_with_num_score_sets(
         item_update: Experiment, user_data: Optional[UserData]
-) -> Any:
+) -> experiment.Experiment:
     """
     Validate and update the number of score set in experiment. The superseded score set is excluded.
     Data structure: experiment{score_set_urns, num_score_sets}
@@ -145,11 +145,11 @@ def enrich_experiment_with_num_score_sets(
             user_data
         ) for score_set in item_update.score_sets
     ]
-    filtered_score_sets = [score_set for score_set in filter_superseded_score_set_tails if score_set is not None]
-    filtered_score_set_urns = []
-    if filtered_score_sets:
-        filtered_score_set_urns = list(set([score_set.urn for score_set in filtered_score_sets]))
-        filtered_score_set_urns.sort()
+    filtered_score_set_urns = sorted({
+        score_set.urn
+        for score_set in filter_superseded_score_set_tails
+        if score_set is not None and score_set.urn is not None
+    })
 
     updated_experiment = experiment.Experiment.from_orm(item_update).copy(update={
         "num_score_sets": len(filtered_score_set_urns),
