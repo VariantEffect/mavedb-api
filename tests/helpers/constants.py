@@ -377,7 +377,6 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
     "scoreSetUrns": [],
-    "numScoreSets": 0,  # NOTE: This is context-dependent and may need overriding per test
     "contributors": [],
     "keywords": [],
     "doiIdentifiers": [],
@@ -388,6 +387,7 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     "urn": None,
     "experimentSetUrn": None,
     "officialCollections": [],
+    "numScoreSets": 0,
 }
 
 TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
