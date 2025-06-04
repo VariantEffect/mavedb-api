@@ -832,17 +832,47 @@ TEST_MINIMAL_POST_MAPPED_METADATA = {
     }
 }
 
-TEST_VARIANT_MAPPING_SCAFFOLD = {
+TEST_SEQ_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
     "metadata": {},
-    "computed_genomic_reference_sequence": {
-        "sequence_type": "dna",
-        "sequence_id": "ga4gh:SQ.ref_test",
-        "sequence": "ACGTTT",
+    "reference_sequences": {
+        "TEST1": {
+            "g": {
+                "computed_reference_sequence": {
+                    "sequence_type": "dna",
+                    "sequence_id": "ga4gh:SQ.ref_test",
+                    "sequence": "ACGTTT",
+                },
+                "mapped_reference_sequence": {
+                    "sequence_type": "dna",
+                    "sequence_id": "ga4gh:SQ.map_test",
+                    "sequence_accessions": ["NC_000001.11"],
+                },
+            }
+        }
     },
-    "mapped_genomic_reference_sequence": {
-        "sequence_type": "dna",
-        "sequence_id": "ga4gh:SQ.map_test",
-        "sequence_accessions": ["NC_000001.11"],
+    "mapped_scores": [],
+    "vrs_version": "2.0",
+    "dcd_mapping_version": "pytest.0.0",
+    "mapped_date_utc": datetime.isoformat(datetime.now()),
+}
+
+TEST_ACC_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
+    "metadata": {},
+    "reference_sequences": {
+        "TEST2": {
+            "g": {
+                "computed_reference_sequence": {
+                    "sequence_type": "dna",
+                    "sequence_id": "ga4gh:SQ.ref_test",
+                    "sequence": "ACGTTT",
+                },
+                "mapped_reference_sequence": {
+                    "sequence_type": "dna",
+                    "sequence_id": "ga4gh:SQ.map_test",
+                    "sequence_accessions": ["NC_000001.11"],
+                },
+            }
+        }
     },
     "mapped_scores": [],
     "vrs_version": "2.0",

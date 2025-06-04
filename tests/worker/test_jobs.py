@@ -40,6 +40,7 @@ from mavedb.worker.jobs import (
 
 
 from tests.helpers.constants import (
+    TEST_ACC_SCORESET_VARIANT_MAPPING_SCAFFOLD,
     TEST_CLINGEN_SUBMISSION_RESPONSE,
     TEST_CLINGEN_SUBMISSION_BAD_RESQUEST_RESPONSE,
     TEST_CLINGEN_SUBMISSION_UNAUTHORIZED_RESPONSE,
@@ -48,7 +49,7 @@ from tests.helpers.constants import (
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_SEQ_SCORESET,
-    TEST_VARIANT_MAPPING_SCAFFOLD,
+    TEST_SEQ_SCORESET_VARIANT_MAPPING_SCAFFOLD,
     VALID_NT_ACCESSION,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS1_X,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
@@ -150,10 +151,13 @@ async def sanitize_mapping_queue(standalone_worker_context, score_set):
     assert int(queued_job.decode("utf-8")) == score_set.id
 
 
-async def setup_mapping_output(async_client, session, score_set, empty=False):
+async def setup_mapping_output(async_client, session, score_set, score_set_is_seq_based=True, empty=False):
     score_set_response = await async_client.get(f"/api/v1/score-sets/{score_set.urn}")
 
-    mapping_output = deepcopy(TEST_VARIANT_MAPPING_SCAFFOLD)
+    if score_set_is_seq_based:
+        mapping_output = deepcopy(TEST_SEQ_SCORESET_VARIANT_MAPPING_SCAFFOLD)
+    else:
+        mapping_output = deepcopy(TEST_ACC_SCORESET_VARIANT_MAPPING_SCAFFOLD)
     mapping_output["metadata"] = score_set_response.json()
 
     if empty:
@@ -477,11 +481,12 @@ async def test_create_variants_for_score_set_enqueues_manager_and_successful_map
     arq_worker,
     arq_redis,
 ):
+    score_set_is_seq = all(["targetSequence" in target for target in input_score_set["targetGenes"]])
     score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     async def dummy_mapping_job():
-        return await setup_mapping_output(async_client, session, score_set)
+        return await setup_mapping_output(async_client, session, score_set, score_set_is_seq)
 
     async def dummy_submission_job():
         return [TEST_CLINGEN_SUBMISSION_RESPONSE, None]
@@ -511,7 +516,7 @@ async def test_create_variants_for_score_set_enqueues_manager_and_successful_map
         await arq_worker.run_check()
 
         # Call data provider _get_transcript method if this is an accession based score set, otherwise do not.
-        if all(["targetSequence" in target for target in input_score_set["targetGenes"]]):
+        if score_set_is_seq:
             hdp.assert_not_called()
         else:
             hdp.assert_called_once()
