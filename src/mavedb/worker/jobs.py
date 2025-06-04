@@ -35,6 +35,7 @@ from mavedb.lib.exceptions import (
     NonexistentMappingResultsError,
 )
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
+from mavedb.lib.mapping import ANNOTATION_LAYERS
 from mavedb.lib.score_sets import (
     columns_for_dataset,
     create_variants,
@@ -50,7 +51,6 @@ from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.published_variant import PublishedVariantsMV
-from mavedb.models.target_gene import TargetGene
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
@@ -248,12 +248,6 @@ async def create_variants_for_score_set(
 #  Mapping variants
 ####################################################################################################
 
-ANNOTATION_LAYERS = {
-    "g": "genomic",
-    "p": "protein",
-    "c": "cdna",
-}
-
 
 @asynccontextmanager
 async def mapping_in_execution(redis: ArqRedis, job_id: str):
@@ -397,25 +391,19 @@ async def map_variants_for_score_set(
                     score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {"error_message": mapping_results.get("error_message")}
                 else:
-                    # TODO(VariantEffect/dcd-mapping2#2) after adding multi target mapping support:
-                    # this assumes single-target mapping, will need to be changed to support multi-target mapping
-                    # just in case there are multiple target genes in the db for a score set (this point shouldn't be reached
-                    # while we only support single-target mapping), match up the target sequence with the one in the computed genomic reference sequence.
-                    # TODO(VariantEffect/dcd-mapping2#3) after adding accession-based score set mapping support:
-                    # this also assumes that the score set is based on a target sequence, not a target accession
-
                     reference_metadata = mapping_results.get("reference_sequences")
                     if not reference_metadata:
                         raise NonexistentMappingReferenceError()
 
                     for target_gene_identifier in reference_metadata:
-                        target_gene = db.scalars(
-                            select(
-                                TargetGene.where(
-                                    TargetGene.name == target_gene_identifier, TargetGene.score_set_id == score_set.id
-                                )
-                            )
-                        ).one_or_none()
+                        target_gene = next(
+                            (
+                                target_gene
+                                for target_gene in score_set.target_genes
+                                if target_gene.name == target_gene_identifier
+                            ),
+                            None,
+                        )
                         if not target_gene:
                             raise ValueError(
                                 f"Target gene {target_gene_identifier} not found in database for score set {score_set.urn}."
@@ -431,8 +419,7 @@ async def map_variants_for_score_set(
                             if layer_premapped:
                                 pre_mapped_metadata[ANNOTATION_LAYERS[annotation_layer]] = {
                                     k: layer_premapped[k]
-                                    for k in set(list(layer_premapped.keys()))
-                                    - excluded_pre_mapped_keys  # TODO does this work if no 'sequence' key?
+                                    for k in set(list(layer_premapped.keys())) - excluded_pre_mapped_keys
                                 }
                             layer_postmapped = reference_metadata[target_gene_identifier][annotation_layer].get(
                                 "mapped_reference_sequence"
