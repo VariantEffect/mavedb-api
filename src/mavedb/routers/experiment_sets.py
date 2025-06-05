@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.authentication import UserData, get_current_user
+from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, has_permission
@@ -51,5 +52,13 @@ def fetch_experiment_set(
 
     # Filter experiment sub-resources to only those experiments readable by the requesting user.
     item.experiments[:] = [exp for exp in item.experiments if has_permission(user_data, exp, Action.READ).permitted]
+    enriched_experiments = [
+        enrich_experiment_with_num_score_sets(exp, user_data)
+        for exp in item.experiments
+    ]
+    enriched_item = experiment_set.ExperimentSet.from_orm(item).copy(update={
+        "experiments": enriched_experiments,
+        "numExperiments": len(enriched_experiments)
+    })
 
-    return item
+    return enriched_item

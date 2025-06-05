@@ -23,7 +23,6 @@ services:
       - "8002:8000"
     volumes:
       - .:/code
-      - mavedb-seqrepo-dev:/usr/local/share/seqrepo
 
   worker:
     image: mavedb-api/mavedb-worker:dev
@@ -42,7 +41,6 @@ services:
       LOG_CONFIG: dev
     volumes:
       - .:/code
-      - mavedb-seqrepo-dev:/usr/local/share/seqrepo
     depends_on:
       - db
       - redis

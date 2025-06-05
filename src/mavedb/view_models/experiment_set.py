@@ -45,6 +45,7 @@ class ExperimentSet(SavedExperimentSet):
     created_by: Optional[User]
     modified_by: Optional[User]
     experiments: Sequence[Experiment]
+    num_experiments: Optional[int] = None
 
 
 # Properties to return to admin clients

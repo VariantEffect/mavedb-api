@@ -387,6 +387,7 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     "urn": None,
     "experimentSetUrn": None,
     "officialCollections": [],
+    "numScoreSets": 0,
 }
 
 TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
@@ -426,6 +427,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
     "urn": None,
     "experimentSetUrn": None,
     "officialCollections": [],
+    "numScoreSets": 0,  # NOTE: This is context-dependent and may need overriding per test
 }
 
 TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
@@ -475,6 +477,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
     "urn": None,
     "experimentSetUrn": None,
     "officialCollections": [],
+    "numScoreSets": 0,  # NOTE: This is context-dependent and may need overriding per test
 }
 
 TEST_TAXONOMY = {
