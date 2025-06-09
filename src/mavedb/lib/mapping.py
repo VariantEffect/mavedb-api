@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Optional, TypedDict
+from typing import Optional, TypedDict, Union
 
 import requests
 
@@ -17,10 +17,7 @@ class VRSMap:
         metadata: Optional[dict[str, str]]
         dcd_mapping_version: str
         mapped_date_utc: date
-        computed_genomic_reference_sequence: Optional[dict[str, str]]
-        mapped_genomic_reference_sequence: Optional[dict[str, str]]
-        computed_protein_reference_sequence: Optional[dict[str, str]]
-        mapped_protein_reference_sequence: Optional[dict[str, str]]
+        reference_sequences: Optional[dict[str, dict[str, dict[str, dict[str, Union[str, list[str]]]]]]]
         mapped_scores: Optional[list[dict]]
         error_message: Optional[str]
 
