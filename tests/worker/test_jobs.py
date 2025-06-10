@@ -58,16 +58,17 @@ from tests.helpers.constants import (
 )
 from tests.helpers.util.exceptions import awaitable_exception
 from tests.helpers.util.experiment import create_experiment
-from tests.helpers.util.score_set import create_seq_score_set
+from tests.helpers.util.score_set import create_acc_score_set, create_seq_score_set
 
 
 @pytest.fixture
 def populate_worker_db(data_files, client):
     # create score set via API. In production, the API would invoke this worker job
     experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
+    seq_score_set = create_seq_score_set(client, experiment["urn"])
+    acc_score_set = create_acc_score_set(client, experiment["urn"])
 
-    return score_set["urn"]
+    return [seq_score_set["urn"], acc_score_set["urn"]]
 
 
 async def setup_records_and_files(async_client, data_files, input_score_set):
