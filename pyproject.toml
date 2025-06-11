@@ -54,7 +54,7 @@ orcid = { version = "~1.0.3", optional = true }
 psycopg2 = { version = "~2.9.3", optional = true }
 python-jose = { extras = ["cryptography"], version = "~3.4.0", optional = true }
 python-multipart = { version = "~0.0.5", optional = true }
-requests = { version = "~2.32.0", optional = true }
+requests = { version = "~2.32.2", optional = true }
 starlette = { version = "~0.27.0", optional = true }
 starlette-context = { version = "^0.3.6", optional = true }
 slack-sdk = { version = "~3.21.3", optional = true }
