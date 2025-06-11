@@ -16,6 +16,7 @@ from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET,
+    TEST_MINIMAL_MULTI_TARGET_SCORESET,
     TEST_NT_CDOT_TRANSCRIPT,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_POST_MAPPED_VRS_CIS_PHASED_BLOCK,
@@ -61,6 +62,24 @@ def create_acc_score_set(
         response = client.post("/api/v1/score-sets/", json=score_set_payload)
 
     assert response.status_code == 200, "Could not create accession based score set"
+
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    return response_data
+
+
+def create_multi_target_score_set(
+    client: TestClient, experiment_urn: Optional[str], update: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    score_set_payload = deepcopy(TEST_MINIMAL_MULTI_TARGET_SCORESET)
+    if experiment_urn is not None:
+        score_set_payload["experimentUrn"] = experiment_urn
+    if update is not None:
+        score_set_payload.update(update)
+    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
+
+    response = client.post("/api/v1/score-sets/", json=score_set_payload)
+    assert response.status_code == 200, "Could not create sequence based score set"
 
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=ScoreSet.schema())

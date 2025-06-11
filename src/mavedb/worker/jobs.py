@@ -35,6 +35,7 @@ from mavedb.lib.exceptions import (
     NonexistentMappingResultsError,
 )
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
+from mavedb.lib.mapping import ANNOTATION_LAYERS
 from mavedb.lib.score_sets import (
     columns_for_dataset,
     create_variants,
@@ -390,55 +391,43 @@ async def map_variants_for_score_set(
                     score_set.mapping_state = MappingState.failed
                     score_set.mapping_errors = {"error_message": mapping_results.get("error_message")}
                 else:
-                    # TODO(VariantEffect/dcd-mapping2#2) after adding multi target mapping support:
-                    # this assumes single-target mapping, will need to be changed to support multi-target mapping
-                    # just in case there are multiple target genes in the db for a score set (this point shouldn't be reached
-                    # while we only support single-target mapping), match up the target sequence with the one in the computed genomic reference sequence.
-                    # TODO(VariantEffect/dcd-mapping2#3) after adding accession-based score set mapping support:
-                    # this also assumes that the score set is based on a target sequence, not a target accession
-
-                    computed_genomic_ref = mapping_results.get("computed_genomic_reference_sequence")
-                    mapped_genomic_ref = mapping_results.get("mapped_genomic_reference_sequence")
-                    computed_protein_ref = mapping_results.get("computed_protein_reference_sequence")
-                    mapped_protein_ref = mapping_results.get("mapped_protein_reference_sequence")
-
-                    if computed_genomic_ref:
-                        target_sequence = computed_genomic_ref["sequence"]  # noqa: F841
-                    elif computed_protein_ref:
-                        target_sequence = computed_protein_ref["sequence"]  # noqa: F841
-                    else:
+                    reference_metadata = mapping_results.get("reference_sequences")
+                    if not reference_metadata:
                         raise NonexistentMappingReferenceError()
 
-                    # TODO(VariantEffect/dcd_mapping2#2): Handle variant mappings for score sets with more than 1 target.
-                    target_gene = score_set.target_genes[0]
-
-                    excluded_pre_mapped_keys = {"sequence"}
-                    if computed_genomic_ref and mapped_genomic_ref:
-                        pre_mapped_metadata = computed_genomic_ref
-                        target_gene.pre_mapped_metadata = cast(
-                            {
-                                "genomic": {
-                                    k: pre_mapped_metadata[k]
-                                    for k in set(list(pre_mapped_metadata.keys())) - excluded_pre_mapped_keys
-                                }
-                            },
-                            JSONB,
+                    for target_gene_identifier in reference_metadata:
+                        target_gene = next(
+                            (
+                                target_gene
+                                for target_gene in score_set.target_genes
+                                if target_gene.name == target_gene_identifier
+                            ),
+                            None,
                         )
-                        target_gene.post_mapped_metadata = cast({"genomic": mapped_genomic_ref}, JSONB)
-                    elif computed_protein_ref and mapped_protein_ref:
-                        pre_mapped_metadata = computed_protein_ref
-                        target_gene.pre_mapped_metadata = cast(
-                            {
-                                "protein": {
-                                    k: pre_mapped_metadata[k]
-                                    for k in set(list(pre_mapped_metadata.keys())) - excluded_pre_mapped_keys
+                        if not target_gene:
+                            raise ValueError(
+                                f"Target gene {target_gene_identifier} not found in database for score set {score_set.urn}."
+                            )
+                        # allow for multiple annotation layers
+                        pre_mapped_metadata = {}
+                        post_mapped_metadata = {}
+                        excluded_pre_mapped_keys = {"sequence"}
+                        for annotation_layer in reference_metadata[target_gene_identifier]:
+                            layer_premapped = reference_metadata[target_gene_identifier][annotation_layer].get(
+                                "computed_reference_sequence"
+                            )
+                            if layer_premapped:
+                                pre_mapped_metadata[ANNOTATION_LAYERS[annotation_layer]] = {
+                                    k: layer_premapped[k]
+                                    for k in set(list(layer_premapped.keys())) - excluded_pre_mapped_keys
                                 }
-                            },
-                            JSONB,
-                        )
-                        target_gene.post_mapped_metadata = cast({"protein": mapped_protein_ref}, JSONB)
-                    else:
-                        raise NonexistentMappingReferenceError()
+                            layer_postmapped = reference_metadata[target_gene_identifier][annotation_layer].get(
+                                "mapped_reference_sequence"
+                            )
+                            if layer_postmapped:
+                                post_mapped_metadata[ANNOTATION_LAYERS[annotation_layer]] = layer_postmapped
+                        target_gene.pre_mapped_metadata = cast(pre_mapped_metadata, JSONB)
+                        target_gene.post_mapped_metadata = cast(post_mapped_metadata, JSONB)
 
                     total_variants = 0
                     successful_mapped_variants = 0
