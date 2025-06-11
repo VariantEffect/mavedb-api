@@ -48,7 +48,9 @@ from tests.helpers.constants import (
     TEST_NT_CDOT_TRANSCRIPT,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_EXPERIMENT,
+    TEST_MINIMAL_MULTI_TARGET_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET,
+    TEST_MULTI_TARGET_SCORESET_VARIANT_MAPPING_SCAFFOLD,
     TEST_SEQ_SCORESET_VARIANT_MAPPING_SCAFFOLD,
     VALID_NT_ACCESSION,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS1_X,
@@ -58,7 +60,7 @@ from tests.helpers.constants import (
 )
 from tests.helpers.util.exceptions import awaitable_exception
 from tests.helpers.util.experiment import create_experiment
-from tests.helpers.util.score_set import create_acc_score_set, create_seq_score_set
+from tests.helpers.util.score_set import create_acc_score_set, create_multi_target_score_set, create_seq_score_set
 
 
 @pytest.fixture
@@ -67,8 +69,9 @@ def populate_worker_db(data_files, client):
     experiment = create_experiment(client)
     seq_score_set = create_seq_score_set(client, experiment["urn"])
     acc_score_set = create_acc_score_set(client, experiment["urn"])
+    multi_target_score_set = create_multi_target_score_set(client, experiment["urn"])
 
-    return [seq_score_set["urn"], acc_score_set["urn"]]
+    return [seq_score_set["urn"], acc_score_set["urn"], multi_target_score_set["urn"]]
 
 
 async def setup_records_and_files(async_client, data_files, input_score_set):
@@ -87,8 +90,16 @@ async def setup_records_and_files(async_client, data_files, input_score_set):
     score_set = score_set_response.json()
     jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
 
-    scores_fp = "scores.csv" if "targetSequence" in score_set["targetGenes"][0] else "scores_acc.csv"
-    counts_fp = "counts.csv" if "targetSequence" in score_set["targetGenes"][0] else "counts_acc.csv"
+    scores_fp = (
+        "scores_multi_target.csv"
+        if len(score_set["targetGenes"]) > 1
+        else ("scores.csv" if "targetSequence" in score_set["targetGenes"][0] else "scores_acc.csv")
+    )
+    counts_fp = (
+        "counts_multi_target.csv"
+        if len(score_set["targetGenes"]) > 1
+        else ("counts.csv" if "targetSequence" in score_set["targetGenes"][0] else "counts_acc.csv")
+    )
     with (
         open(data_files / scores_fp, "rb") as score_file,
         open(data_files / counts_fp, "rb") as count_file,
@@ -152,12 +163,19 @@ async def sanitize_mapping_queue(standalone_worker_context, score_set):
     assert int(queued_job.decode("utf-8")) == score_set.id
 
 
-async def setup_mapping_output(async_client, session, score_set, score_set_is_seq_based=True, empty=False):
+async def setup_mapping_output(
+    async_client, session, score_set, score_set_is_seq_based=True, score_set_is_multi_target=False, empty=False
+):
     score_set_response = await async_client.get(f"/api/v1/score-sets/{score_set.urn}")
 
     if score_set_is_seq_based:
-        mapping_output = deepcopy(TEST_SEQ_SCORESET_VARIANT_MAPPING_SCAFFOLD)
+        if score_set_is_multi_target:
+            # If this is a multi-target sequence based score set, use the scaffold for that.
+            mapping_output = deepcopy(TEST_MULTI_TARGET_SCORESET_VARIANT_MAPPING_SCAFFOLD)
+        else:
+            mapping_output = deepcopy(TEST_SEQ_SCORESET_VARIANT_MAPPING_SCAFFOLD)
     else:
+        # there is not currently a multi-target accession-based score set test
         mapping_output = deepcopy(TEST_ACC_SCORESET_VARIANT_MAPPING_SCAFFOLD)
     mapping_output["metadata"] = score_set_response.json()
 
@@ -199,6 +217,13 @@ async def setup_mapping_output(async_client, session, score_set, score_set_is_se
                 ],
             },
         ),
+        (
+            TEST_MINIMAL_MULTI_TARGET_SCORESET,
+            {
+                "exception": "encountered 1 invalid variant strings.",
+                "detail": ["target sequence mismatch for 'n.1T>A' at row 0 for sequence TEST3"],
+            },
+        ),
     ],
 )
 async def test_create_variants_for_score_set_with_validation_error(
@@ -215,8 +240,10 @@ async def test_create_variants_for_score_set_with_validation_error(
 
     if input_score_set == TEST_MINIMAL_SEQ_SCORESET:
         scores.loc[:, HGVS_NT_COLUMN].iloc[0] = "c.1T>A"
-    else:
+    elif input_score_set == TEST_MINIMAL_ACC_SCORESET:
         scores.loc[:, HGVS_NT_COLUMN].iloc[0] = f"{VALID_NT_ACCESSION}:c.1T>A"
+    elif input_score_set == TEST_MINIMAL_MULTI_TARGET_SCORESET:
+        scores.loc[:, HGVS_NT_COLUMN].iloc[0] = "TEST3:n.1T>A"
 
     with (
         patch.object(
@@ -247,7 +274,9 @@ async def test_create_variants_for_score_set_with_validation_error(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET))
+@pytest.mark.parametrize(
+    "input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET, TEST_MINIMAL_MULTI_TARGET_SCORESET)
+)
 async def test_create_variants_for_score_set_with_caught_exception(
     input_score_set,
     setup_worker_db,
@@ -281,7 +310,9 @@ async def test_create_variants_for_score_set_with_caught_exception(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET))
+@pytest.mark.parametrize(
+    "input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET, TEST_MINIMAL_MULTI_TARGET_SCORESET)
+)
 async def test_create_variants_for_score_set_with_caught_base_exception(
     input_score_set,
     setup_worker_db,
@@ -314,7 +345,9 @@ async def test_create_variants_for_score_set_with_caught_base_exception(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET))
+@pytest.mark.parametrize(
+    "input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET, TEST_MINIMAL_MULTI_TARGET_SCORESET)
+)
 async def test_create_variants_for_score_set_with_existing_variants(
     input_score_set,
     setup_worker_db,
@@ -370,7 +403,9 @@ async def test_create_variants_for_score_set_with_existing_variants(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET))
+@pytest.mark.parametrize(
+    "input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET, TEST_MINIMAL_MULTI_TARGET_SCORESET)
+)
 async def test_create_variants_for_score_set_with_existing_exceptions(
     input_score_set,
     setup_worker_db,
@@ -434,7 +469,9 @@ async def test_create_variants_for_score_set_with_existing_exceptions(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET))
+@pytest.mark.parametrize(
+    "input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET, TEST_MINIMAL_MULTI_TARGET_SCORESET)
+)
 async def test_create_variants_for_score_set(
     input_score_set,
     setup_worker_db,
@@ -472,7 +509,9 @@ async def test_create_variants_for_score_set(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET))
+@pytest.mark.parametrize(
+    "input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET, TEST_MINIMAL_MULTI_TARGET_SCORESET)
+)
 async def test_create_variants_for_score_set_enqueues_manager_and_successful_mapping(
     input_score_set,
     setup_worker_db,
@@ -483,11 +522,12 @@ async def test_create_variants_for_score_set_enqueues_manager_and_successful_map
     arq_redis,
 ):
     score_set_is_seq = all(["targetSequence" in target for target in input_score_set["targetGenes"]])
+    score_set_is_multi_target = len(input_score_set["targetGenes"]) > 1
     score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     async def dummy_mapping_job():
-        return await setup_mapping_output(async_client, session, score_set, score_set_is_seq)
+        return await setup_mapping_output(async_client, session, score_set, score_set_is_seq, score_set_is_multi_target)
 
     async def dummy_submission_job():
         return [TEST_CLINGEN_SUBMISSION_RESPONSE, None]
@@ -539,7 +579,9 @@ async def test_create_variants_for_score_set_enqueues_manager_and_successful_map
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET))
+@pytest.mark.parametrize(
+    "input_score_set", (TEST_MINIMAL_SEQ_SCORESET, TEST_MINIMAL_ACC_SCORESET, TEST_MINIMAL_MULTI_TARGET_SCORESET)
+)
 async def test_create_variants_for_score_set_exception_skips_mapping(
     input_score_set,
     setup_worker_db,

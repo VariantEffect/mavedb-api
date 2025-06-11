@@ -773,6 +773,147 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     "officialCollections": [],
 }
 
+TEST_MINIMAL_MULTI_TARGET_SCORESET = {
+    "title": "Test Multi Target Score Set Title",
+    "shortDescription": "Test multi target score set",
+    "abstractText": "Abstract",
+    "methodText": "Methods",
+    "licenseId": 1,
+    "targetGenes": [
+        {
+            "name": "TEST3",
+            "category": "protein_coding",
+            "externalIdentifiers": [],
+            "targetSequence": {
+                "sequenceType": "dna",
+                "sequence": "ACGTTT",
+                "label": "TEST3",
+                "taxonomy": {
+                    "taxId": TEST_TAXONOMY["tax_id"],
+                    "organismName": TEST_TAXONOMY["organism_name"],
+                    "commonName": TEST_TAXONOMY["common_name"],
+                    "rank": TEST_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_TAXONOMY["article_reference"],
+                    "id": TEST_TAXONOMY["id"],
+                    "url": TEST_TAXONOMY["url"],
+                },
+            },
+        },
+        {
+            "name": "TEST4",
+            "category": "protein_coding",
+            "externalIdentifiers": [],
+            "targetSequence": {
+                "sequenceType": "dna",
+                "sequence": "TAATGCC",
+                "label": "TEST4",
+                "taxonomy": {
+                    "taxId": TEST_TAXONOMY["tax_id"],
+                    "organismName": TEST_TAXONOMY["organism_name"],
+                    "commonName": TEST_TAXONOMY["common_name"],
+                    "rank": TEST_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_TAXONOMY["article_reference"],
+                    "id": TEST_TAXONOMY["id"],
+                    "url": TEST_TAXONOMY["url"],
+                },
+            },
+        },
+    ],
+}
+
+TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
+    "recordType": "ScoreSet",
+    "title": "Test Multi Target Score Set Title",
+    "shortDescription": "Test multi target score set",
+    "abstractText": "Abstract",
+    "methodText": "Methods",
+    "createdBy": {
+        "recordType": "User",
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "modifiedBy": {
+        "recordType": "User",
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
+    "license": {
+        "recordType": "ShortLicense",
+        **{camelize(k): v for k, v in TEST_LICENSE.items() if k not in ("text",)},
+    },
+    "numVariants": 0,
+    "targetGenes": [
+        {
+            "recordType": "TargetGene",
+            "name": "TEST3",
+            "category": "protein_coding",
+            "externalIdentifiers": [],
+            "id": 1,
+            "targetSequence": {
+                "recordType": "TargetSequence",
+                "sequenceType": "dna",
+                "sequence": "ACGTTT",
+                "label": "TEST3",
+                "taxonomy": {
+                    "recordType": "Taxonomy",
+                    "taxId": TEST_TAXONOMY["tax_id"],
+                    "organismName": TEST_TAXONOMY["organism_name"],
+                    "commonName": TEST_TAXONOMY["common_name"],
+                    "rank": TEST_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_TAXONOMY["article_reference"],
+                    "id": TEST_TAXONOMY["id"],
+                    "url": TEST_TAXONOMY["url"],
+                },
+            },
+        },
+        {
+            "recordType": "TargetGene",
+            "name": "TEST4",
+            "category": "protein_coding",
+            "externalIdentifiers": [],
+            "id": 1,
+            "targetSequence": {
+                "recordType": "TargetSequence",
+                "sequenceType": "dna",
+                "sequence": "TAATGCC",
+                "label": "TEST4",
+                "taxonomy": {
+                    "recordType": "Taxonomy",
+                    "taxId": TEST_TAXONOMY["tax_id"],
+                    "organismName": TEST_TAXONOMY["organism_name"],
+                    "commonName": TEST_TAXONOMY["common_name"],
+                    "rank": TEST_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_TAXONOMY["article_reference"],
+                    "id": TEST_TAXONOMY["id"],
+                    "url": TEST_TAXONOMY["url"],
+                },
+            },
+        },
+    ],
+    "metaAnalyzesScoreSetUrns": [],
+    "metaAnalyzedByScoreSetUrns": [],
+    "contributors": [],
+    "doiIdentifiers": [],
+    "primaryPublicationIdentifiers": [],
+    "secondaryPublicationIdentifiers": [],
+    "datasetColumns": {},
+    "externalLinks": {},
+    "private": True,
+    "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
+    # keys to be set after receiving response
+    "urn": None,
+    "processingState": ProcessingState.incomplete.name,
+    "officialCollections": [],
+}
+
 TEST_NT_CDOT_TRANSCRIPT = {
     "start_codon": 0,
     "stop_codon": 18,
@@ -880,6 +1021,43 @@ TEST_ACC_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
     "mapped_date_utc": datetime.isoformat(datetime.now()),
 }
 
+TEST_MULTI_TARGET_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
+    "metadata": {},
+    "reference_sequences": {
+        "TEST3": {
+            "g": {
+                "computed_reference_sequence": {
+                    "sequence_type": "dna",
+                    "sequence_id": "ga4gh:SQ.ref_test3",
+                    "sequence": "ACGTTT",
+                },
+                "mapped_reference_sequence": {
+                    "sequence_type": "dna",
+                    "sequence_id": "ga4gh:SQ.map_test",
+                    "sequence_accessions": ["NC_000001.11"],
+                },
+            }
+        },
+        "TEST4": {
+            "g": {
+                "computed_reference_sequence": {
+                    "sequence_type": "dna",
+                    "sequence_id": "ga4gh:SQ.ref_test4",
+                    "sequence": "TAATGCC",
+                },
+                "mapped_reference_sequence": {
+                    "sequence_type": "dna",
+                    "sequence_id": "ga4gh:SQ.map_test",
+                    "sequence_accessions": ["NC_000001.11"],
+                },
+            }
+        },
+    },
+    "mapped_scores": [],
+    "vrs_version": "2.0",
+    "dcd_mapping_version": "pytest.0.0",
+    "mapped_date_utc": datetime.isoformat(datetime.now()),
+}
 
 TEST_MINIMAL_MAPPED_VARIANT = {
     "pre_mapped": {},
