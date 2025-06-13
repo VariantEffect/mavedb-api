@@ -1,6 +1,6 @@
 import logging
 from datetime import date
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Sequence, Union
 
 import pandas as pd
 import pydantic
@@ -23,6 +23,7 @@ from mavedb.lib.authorization import (
 )
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError, ValidationError
+from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
     find_or_create_doi_identifier,
@@ -38,8 +39,7 @@ from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_sets import (
     csv_data_to_df,
     find_meta_analyses_for_experiment_sets,
-    get_score_set_counts_as_csv,
-    get_score_set_scores_as_csv,
+    get_score_set_variants_as_csv,
     variants_to_csv_rows,
 )
 from mavedb.lib.score_sets import (
@@ -53,6 +53,7 @@ from mavedb.lib.urns import (
     generate_experiment_urn,
     generate_score_set_urn,
 )
+from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.user_role import UserRole
@@ -64,7 +65,7 @@ from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
-from mavedb.view_models import mapped_variant, score_set, calibration
+from mavedb.view_models import mapped_variant, score_set, calibration, clinical_control
 from mavedb.view_models.search import ScoreSetsSearch
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ logger = logging.getLogger(__name__)
 
 async def fetch_score_set_by_urn(
     db, urn: str, user: Optional[UserData], owner_or_contributor: Optional[UserData], only_published: bool
-) -> Optional[ScoreSet]:
+) -> ScoreSet:
     """
     Fetch one score set by URN, ensuring that the user has read permission.
 
@@ -135,7 +136,15 @@ def search_score_sets(
     Search score sets.
     """
     score_sets = _search_score_sets(db, None, search)
-    return fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
+    updated_score_sets = fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
+    enriched_score_sets = []
+    if updated_score_sets:
+        for u in updated_score_sets:
+            enriched_experiment = enrich_experiment_with_num_score_sets(u.experiment, user_data)
+            response_item = score_set.ScoreSet.from_orm(u).copy(update={"experiment": enriched_experiment})
+            enriched_score_sets.append(response_item)
+
+    return enriched_score_sets
 
 
 @router.get("/score-sets/mapped-genes", status_code=200, response_model=dict[str, list[str]])
@@ -183,7 +192,15 @@ def search_my_score_sets(
     Search score sets created by the current user..
     """
     score_sets = _search_score_sets(db, user_data.user, search)
-    return fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
+    updated_score_sets = fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
+    enriched_score_sets = []
+    if updated_score_sets:
+        for u in updated_score_sets:
+            enriched_experiment = enrich_experiment_with_num_score_sets(u.experiment, user_data)
+            response_item = score_set.ScoreSet.from_orm(u).copy(update={"experiment": enriched_experiment})
+            enriched_score_sets.append(response_item)
+
+    return enriched_score_sets
 
 
 @router.get(
@@ -203,7 +220,9 @@ async def show_score_set(
     Fetch a single score set by URN.
     """
     save_to_logging_context({"requested_resource": urn})
-    return await fetch_score_set_by_urn(db, urn, user_data, None, False)
+    item = await fetch_score_set_by_urn(db, urn, user_data, None, False)
+    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.get(
@@ -257,7 +276,7 @@ def get_score_set_scores_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_scores_as_csv(db, score_set, start, limit, drop_na_columns)
+    csv_str = get_score_set_variants_as_csv(db, score_set, "scores", start, limit, drop_na_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
@@ -312,7 +331,7 @@ async def get_score_set_counts_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_counts_as_csv(db, score_set, start, limit, drop_na_columns)
+    csv_str = get_score_set_variants_as_csv(db, score_set, "counts", start, limit, drop_na_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
@@ -647,7 +666,9 @@ async def create_score_set(
     db.refresh(item)
 
     save_to_logging_context({"created_resource": item.urn})
-    return item
+
+    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.post(
@@ -711,7 +732,8 @@ async def upload_score_set_variant_data(
     db.add(item)
     db.commit()
     db.refresh(item)
-    return item
+    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.post(
@@ -748,7 +770,8 @@ async def update_score_set_calibration_data(
     db.refresh(item)
 
     save_to_logging_context({"updated_resource": item.urn})
-    return item
+    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.put(
@@ -1004,7 +1027,9 @@ async def update_score_set(
     db.refresh(item)
 
     save_to_logging_context({"updated_resource": item.urn})
-    return item
+
+    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.delete("/score-sets/{urn}", responses={422: {}})
@@ -1142,4 +1167,139 @@ async def publish_score_set(
             msg="Failed to enqueue published variant materialized view refresh job.", extra=logging_context()
         )
 
-    return item
+    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
+
+
+@router.get(
+    "/score-sets/{urn}/clinical-controls",
+    status_code=200,
+    response_model=list[clinical_control.ClinicalControlWithMappedVariants],
+    response_model_exclude_none=True,
+)
+async def get_clinical_controls_for_score_set(
+    *,
+    urn: str,
+    # We'd prefer to reserve `db` as a query parameter.
+    _db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(get_current_user),
+    db: Optional[str] = None,
+    version: Optional[str] = None,
+) -> Sequence[ClinicalControl]:
+    """
+    Fetch relevant clinical controls for a given score set.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "clinical_controls"})
+
+    # Rename user facing kwargs for consistency with code base naming conventions. My-py doesn't care for us redefining db.
+    db_name = db
+    db_version = version
+
+    item: Optional[ScoreSet] = _db.scalars(select(ScoreSet).where(ScoreSet.urn == urn)).one_or_none()
+    if not item:
+        logger.info(
+            msg="Failed to fetch clinical controls for score set; The requested score set does not exist.",
+            extra=logging_context(),
+        )
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
+    assert_permission(user_data, item, Action.READ)
+
+    clinical_controls_query = (
+        select(ClinicalControl)
+        .join(MappedVariant, ClinicalControl.mapped_variants)
+        .join(Variant)
+        .where(Variant.score_set_id == item.id)
+    )
+
+    if db_name is not None:
+        save_to_logging_context({"db_name": db_name})
+        clinical_controls_query = clinical_controls_query.where(ClinicalControl.db_name == db_name)
+
+    if db_version is not None:
+        save_to_logging_context({"db_version": db_version})
+        clinical_controls_query = clinical_controls_query.where(ClinicalControl.db_version == db_version)
+
+    clinical_controls_for_item: Sequence[ClinicalControl] = _db.scalars(clinical_controls_query).all()
+    clinical_controls_with_mapped_variant = []
+    for control_variant in clinical_controls_for_item:
+        control_variant.mapped_variants = [
+            mv for mv in control_variant.mapped_variants if mv.current and mv.variant.score_set_id == item.id
+        ]
+
+        if control_variant.mapped_variants:
+            clinical_controls_with_mapped_variant.append(control_variant)
+
+    if not clinical_controls_with_mapped_variant:
+        logger.info(
+            msg="No clinical control variants matching the provided filters are associated with the requested score set.",
+            extra=logging_context(),
+        )
+        raise HTTPException(
+            status_code=404,
+            detail=f"No clinical control variants matching the provided filters associated with score set URN {urn} were found",
+        )
+
+    save_to_logging_context({"resource_count": len(clinical_controls_for_item)})
+
+    return clinical_controls_for_item
+
+
+@router.get(
+    "/score-sets/{urn}/clinical-controls/options",
+    status_code=200,
+    response_model=list[clinical_control.ClinicalControlOptions],
+    response_model_exclude_none=True,
+)
+async def get_clinical_controls_options_for_score_set(
+    *,
+    urn: str,
+    # We'd prefer to reserve `db` as a query parameter.
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(get_current_user),
+) -> list[dict[str, Union[str, list[str]]]]:
+    """
+    Fetch clinical control options for a given score set.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "clinical_control_options"})
+
+    item: Optional[ScoreSet] = db.scalars(select(ScoreSet).where(ScoreSet.urn == urn)).one_or_none()
+    if not item:
+        logger.info(
+            msg="Failed to fetch clinical control options for score set; The requested score set does not exist.",
+            extra=logging_context(),
+        )
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
+    assert_permission(user_data, item, Action.READ)
+
+    clinical_controls_query = (
+        select(ClinicalControl.db_name, ClinicalControl.db_version)
+        .join(MappedVariant, ClinicalControl.mapped_variants)
+        .join(Variant)
+        .where(Variant.score_set_id == item.id)
+    )
+
+    clinical_controls_for_item = db.execute(clinical_controls_query).unique()
+
+    # NOTE: We return options even for pairwise groupings which may have no associated mapped variants
+    #       and 404 when ultimately requested together.
+    clinical_control_options: dict[str, list[str]] = {}
+    for db_name, db_version in clinical_controls_for_item:
+        clinical_control_options.setdefault(db_name, []).append(db_version)
+
+    if not clinical_control_options:
+        logger.info(
+            msg="Failed to fetch clinical control options for score set; No clinical control variants are associated with this score set.",
+            extra=logging_context(),
+        )
+        raise HTTPException(
+            status_code=404,
+            detail=f"no clinical control variants associated with score set URN {urn} were found",
+        )
+
+    return [
+        dict(zip(("db_name", "available_versions"), (db_name, db_versions)))
+        for db_name, db_versions in clinical_control_options.items()
+    ]
+
