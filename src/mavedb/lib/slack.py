@@ -16,14 +16,7 @@ def find_traceback_locations():
     ]
 
 
-def send_slack_message(err, request=None):
-    text = {"type": err.__class__.__name__, "exception": str(err), "location": find_traceback_locations()}
-
-    if request:
-        text["client"] = str(request.client.host)
-        text["request"] = f"{request.method} {request.url}"
-
-    text = json.dumps(text)
+def send_slack_message(text: str):
     slack_webhook_url = os.getenv("SLACK_WEBHOOK_URL")
     if slack_webhook_url is not None and len(slack_webhook_url) > 0:
         client = WebhookClient(url=slack_webhook_url)
@@ -38,3 +31,14 @@ def send_slack_message(err, request=None):
         )
     else:
         print(f"EXCEPTION_HANDLER: {text}")
+
+
+def send_slack_error(err, request=None):
+    text = {"type": err.__class__.__name__, "exception": str(err), "location": find_traceback_locations()}
+
+    if request:
+        text["client"] = str(request.client.host)
+        text["request"] = f"{request.method} {request.url}"
+
+    text = json.dumps(text)
+    send_slack_message(text)

@@ -1,0 +1,2 @@
+class MappingDataDoesntExistException(ValueError):
+    pass

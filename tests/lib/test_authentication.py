@@ -1,55 +1,49 @@
-from unittest.mock import patch
+# ruff: noqa: E402
 
 import pytest
-from fastapi import HTTPException
+from unittest.mock import patch
+
+arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.authentication import get_current_user, get_current_user_data_from_api_key
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.user import User
 from tests.helpers.constants import ADMIN_USER, ADMIN_USER_DECODED_JWT, TEST_USER, TEST_USER_DECODED_JWT
-from tests.helpers.util import create_api_key_for_current_user, mark_user_inactive
+
+from tests.helpers.util.access_key import create_api_key_for_user
+from tests.helpers.util.user import mark_user_inactive
 
 
 @pytest.mark.asyncio
-async def test_get_current_user_data_from_key_valid_token(session, setup_lib_db, client):
-    access_key = create_api_key_for_current_user(client)
+async def test_get_current_user_data_from_key_valid_token(session, setup_lib_db):
+    access_key = create_api_key_for_user(session, TEST_USER["username"])
     user_data = await get_current_user_data_from_api_key(session, access_key)
     assert user_data.user.username == TEST_USER["username"]
 
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
-
 
 @pytest.mark.asyncio
-async def test_get_current_user_data_from_key_invalid_token(session, setup_lib_db, client):
-    access_key = create_api_key_for_current_user(client)
+async def test_get_current_user_data_from_key_invalid_token(session, setup_lib_db):
+    access_key = create_api_key_for_user(session, TEST_USER["username"])
     user_data = await get_current_user_data_from_api_key(session, f"invalid_{access_key}")
     assert user_data is None
 
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
-
 
 @pytest.mark.asyncio
-async def test_get_current_user_data_from_key_nonetype_token(session, setup_lib_db, client):
-    create_api_key_for_current_user(client)
+async def test_get_current_user_data_from_key_nonetype_token(session, setup_lib_db):
+    create_api_key_for_user(session, TEST_USER["username"])
     user_data = await get_current_user_data_from_api_key(session, None)
     assert user_data is None
 
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
-
 
 @pytest.mark.asyncio
-async def test_get_current_user_via_api_key(session, setup_lib_db, client):
-    access_key = create_api_key_for_current_user(client)
+async def test_get_current_user_via_api_key(session, setup_lib_db):
+    access_key = create_api_key_for_user(session, TEST_USER["username"])
     user_data = await get_current_user_data_from_api_key(session, access_key)
 
     user_data = await get_current_user(user_data, None, session, None)
     assert user_data.user.username == TEST_USER["username"]
-
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
 
 
 @pytest.mark.asyncio
@@ -57,17 +51,11 @@ async def test_get_current_user_via_token_payload(session, setup_lib_db):
     user_data = await get_current_user(None, TEST_USER_DECODED_JWT, session, None)
     assert user_data.user.username == TEST_USER["username"]
 
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
-
 
 @pytest.mark.asyncio
 async def test_get_current_user_no_api_no_jwt(session, setup_lib_db):
     user_data = await get_current_user(None, None, session, None)
     assert user_data is None
-
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
 
 
 @pytest.mark.asyncio
@@ -78,9 +66,6 @@ async def test_get_current_user_no_username(session, setup_lib_db):
 
     user_data = await get_current_user(None, jwt_without_sub, session, None)
     assert user_data is None
-
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
 
 
 @pytest.mark.asyncio
@@ -106,9 +91,6 @@ async def test_get_current_user_nonexistent_user(session, setup_lib_db, with_ema
     # Ensure one user record is in the database
     session.query(User).filter(User.username == new_user_jwt["sub"]).one()
 
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
-
 
 @pytest.mark.asyncio
 async def test_get_current_user_user_is_inactive(session, setup_lib_db):
@@ -116,9 +98,6 @@ async def test_get_current_user_user_is_inactive(session, setup_lib_db):
     user_data = await get_current_user(None, TEST_USER_DECODED_JWT, session, None)
 
     assert user_data is None
-
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
 
 
 @pytest.mark.asyncio
@@ -128,18 +107,12 @@ async def test_get_current_user_set_active_roles(session, setup_lib_db):
     assert user_data.user.username == ADMIN_USER["username"]
     assert UserRole.admin in user_data.active_roles
 
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
-
 
 @pytest.mark.asyncio
 async def test_get_current_user_user_with_invalid_role_membership(session, setup_lib_db):
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(Exception) as exc_info:
         await get_current_user(None, TEST_USER_DECODED_JWT, session, "admin")
     assert "This user is not a member of the requested acting role." in str(exc_info.value.detail)
-
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
 
 
 @pytest.mark.asyncio
@@ -148,6 +121,3 @@ async def test_get_current_user_user_extraneous_roles(session, setup_lib_db):
 
     assert user_data.user.username == TEST_USER["username"]
     assert user_data.active_roles == []
-
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()

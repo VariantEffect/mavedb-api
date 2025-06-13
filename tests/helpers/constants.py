@@ -4,6 +4,12 @@ from humps import camelize
 
 from mavedb.models.enums.processing_state import ProcessingState
 
+
+VALID_EXPERIMENT_SET_URN = "urn:mavedb:01234567"
+VALID_EXPERIMENT_URN = f"{VALID_EXPERIMENT_SET_URN}-abcd"
+VALID_SCORE_SET_URN = f"{VALID_EXPERIMENT_URN}-0123"
+VALID_VARIANT_URN = f"{VALID_SCORE_SET_URN}#1"
+
 TEST_PUBMED_IDENTIFIER = "20711194"
 TEST_PUBMED_URL_IDENTIFIER = "https://pubmed.ncbi.nlm.nih.gov/37162834/"
 TEST_BIORXIV_IDENTIFIER = "2021.06.21.212592"
@@ -11,8 +17,80 @@ TEST_MEDRXIV_IDENTIFIER = "2021.06.22.21259265"
 TEST_CROSSREF_IDENTIFIER = "10.1371/2021.06.22.21259265"
 TEST_ORCID_ID = "1111-1111-1111-1111"
 
+TEST_GA4GH_IDENTIFIER = "ga4gh:SQ.test"
+# ^[0-9A-Za-z_\-]{32}$
+TEST_GA4GH_DIGEST = "ga4ghtest_ga4ghtest_ga4ghtest_dg"
+# ^SQ.[0-9A-Za-z_\-]{32}$
+TEST_REFGET_ACCESSION = "SQ.ga4ghtest_ga4ghtest_ga4ghtest_rg"
+TEST_SEQUENCE_LOCATION_ACCESSION = "ga4gh:SL.test"
+
+TEST_REFSEQ_IDENTIFIER = "NM_003345"
+TEST_HGVS_IDENTIFIER = f"{TEST_REFSEQ_IDENTIFIER}:p.Asp5Phe"
+TEST_UNIPROT_IDENTIFIER = "P63279"
+TEST_ENSEMBL_IDENTIFIER = "ENSG00000103275"
+
+TEST_REFSEQ_EXTERNAL_IDENTIFIER = {"identifier": TEST_REFSEQ_IDENTIFIER, "db_name": "RefSeq"}
+TEST_UNIPROT_EXTERNAL_IDENTIFIER = {"identifier": TEST_UNIPROT_IDENTIFIER, "db_name": "Uniprot"}
+TEST_ENSEMBLE_EXTERNAL_IDENTIFIER = {"identifier": TEST_ENSEMBL_IDENTIFIER, "db_name": "Ensembl"}
+
 VALID_ACCESSION = "NM_001637.3"
+VALID_NT_ACCESSION = "NM_001637.3"
+VALID_PRO_ACCESSION = "NP_001637.4"
 VALID_GENE = "BRCA1"
+
+VALID_CLINGEN_PA_ID = "PA2579908752"
+VALID_CLINGEN_CA_ID = "CA341478553"
+VALID_CLINGEN_LDH_ID = "2786738861"
+
+TEST_VALID_PRE_MAPPED_VRS_ALLELE = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "V"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 2,
+        "type": "SequenceLocation",
+        "start": 1,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "W"}],
+}
+
+TEST_VALID_POST_MAPPED_VRS_ALLELE = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "F"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 6,
+        "type": "SequenceLocation",
+        "start": 5,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "label": TEST_REFSEQ_IDENTIFIER,
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "D"}],
+    "expressions": [{"value": f"{TEST_REFSEQ_IDENTIFIER}:p.Asp5Phe", "syntax": "hgvs.p"}],
+}
+
+TEST_VALID_PRE_MAPPED_VRS_HAPLOTYPE = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_PRE_MAPPED_VRS_ALLELE, TEST_VALID_PRE_MAPPED_VRS_ALLELE],
+}
+
+TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE, TEST_VALID_POST_MAPPED_VRS_ALLELE],
+}
 
 SAVED_PUBMED_PUBLICATION = {
     "recordType": "PublicationIdentifier",
@@ -36,6 +114,114 @@ SAVED_DOI_IDENTIFIER = {
     "id": 1,
 }
 
+# VRS 1.X
+TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS1_X = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "variation": {
+        "state": {"type": "LiteralSequenceExpression", "sequence": "V"},
+        "digest": TEST_GA4GH_DIGEST,
+        "location": {
+            "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+            "end": 2,
+            "type": "SequenceLocation",
+            "start": 1,
+            "digest": TEST_GA4GH_DIGEST,
+            "sequenceReference": {
+                "type": "SequenceReference",
+                "refgetAccession": TEST_REFGET_ACCESSION,
+            },
+        },
+        "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "W"}],
+    },
+}
+
+TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "variation": {
+        "state": {"type": "LiteralSequenceExpression", "sequence": "F"},
+        "digest": TEST_GA4GH_DIGEST,
+        "location": {
+            "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+            "end": 6,
+            "type": "SequenceLocation",
+            "start": 5,
+            "digest": TEST_GA4GH_DIGEST,
+            "sequenceReference": {
+                "type": "SequenceReference",
+                "label": TEST_REFSEQ_IDENTIFIER,
+                "refgetAccession": TEST_REFGET_ACCESSION,
+            },
+        },
+        "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "D"}],
+        "expressions": [{"value": TEST_HGVS_IDENTIFIER, "syntax": "hgvs.p"}],
+    },
+}
+
+# VRS 2.X
+TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "V"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 2,
+        "type": "SequenceLocation",
+        "start": 1,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "W"}],
+}
+
+TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "F"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 6,
+        "type": "SequenceLocation",
+        "start": 5,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "label": TEST_REFSEQ_IDENTIFIER,
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "D"}],
+    "expressions": [{"value": TEST_HGVS_IDENTIFIER, "syntax": "hgvs.p", "type": "Expression", "syntax_version": None}],
+}
+
+# VRS 1.X
+TEST_VALID_PRE_MAPPED_VRS_HAPLOTYPE = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X, TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X],
+}
+
+TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X, TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X],
+}
+
+# VRS 2.X
+TEST_VALID_PRE_MAPPED_VRS_CIS_PHASED_BLOCK = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X, TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X],
+}
+
+TEST_VALID_POST_MAPPED_VRS_CIS_PHASED_BLOCK = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X, TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X],
+}
+
 TEST_USER = {
     "username": "0000-1111-2222-3333",
     "first_name": "First",
@@ -54,7 +240,7 @@ CONTRIBUTOR = {
 }
 
 SAVED_CONTRIBUTOR = {
-    "recordType": "Contributor",
+    "recordType": "SavedContributor",
     "orcidId": TEST_USER["username"],
     "givenName": TEST_USER["first_name"],
     "familyName": TEST_USER["last_name"],
@@ -336,15 +522,23 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
     "officialCollections": [],
 }
 
-TEST_TAXONOMY = {
-    "id": 1,
+TEST_MINIMAL_TAXONOMY = {
     "tax_id": 9606,
+}
+
+TEST_POPULATED_TAXONOMY = {
+    **TEST_MINIMAL_TAXONOMY,
     "organism_name": "Organism name",
     "common_name": "Common name",
     "rank": "Rank",
     "has_described_species_name": True,
     "article_reference": "NCBI:txid9606",
     "genome_identifier_id": None,
+}
+
+TEST_SAVED_TAXONOMY = {
+    **TEST_POPULATED_TAXONOMY,
+    "id": 1,
     "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606",
 }
 
@@ -417,16 +611,16 @@ TEST_SEQ_SCORESET = {
         {
             "name": "TEST1",
             "category": "protein_coding",
-            "external_identifiers": [],
             "target_sequence": {
                 "sequence_type": "dna",
                 "sequence": "ACGTTT",
-                "reference": {
-                    "id": 1,
-                    "short_name": "Name",
-                    "organism_name": "Organism",
-                    "creation_date": date.today().isoformat(),
-                    "modification_date": date.today().isoformat(),
+                "taxonomy": {
+                    "tax_id": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organism_name": TEST_SAVED_TAXONOMY["organism_name"],
+                    "common_name": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         }
@@ -448,14 +642,14 @@ TEST_MINIMAL_SEQ_SCORESET = {
                 "sequenceType": "dna",
                 "sequence": "ACGTTT",
                 "taxonomy": {
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         }
@@ -501,14 +695,14 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
                 "label": "TEST1",
                 "taxonomy": {
                     "recordType": "Taxonomy",
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         }
@@ -540,7 +734,12 @@ TEST_MINIMAL_ACC_SCORESET = {
             "name": "TEST2",
             "category": "protein_coding",
             "externalIdentifiers": [],
-            "targetAccession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
+            "targetAccession": {
+                "accession": VALID_NT_ACCESSION,
+                "assembly": "GRCh37",
+                "gene": VALID_GENE,
+                "isBaseEditor": False,
+            },
         }
     ],
 }
@@ -554,8 +753,31 @@ TEST_ACC_SCORESET = {
         {
             "name": "TEST2",
             "category": "protein_coding",
-            "external_identifiers": [],
-            "target_accession": {"accession": VALID_ACCESSION, "assembly": "GRCh37", "gene": VALID_GENE},
+            "target_accession": {
+                "accession": VALID_NT_ACCESSION,
+                "assembly": "GRCh37",
+                "gene": VALID_GENE,
+                "is_base_editor": False,
+            },
+        }
+    ],
+}
+
+TEST_BASE_EDITOR_SCORESET = {
+    "title": "Test Score Set Acc Title",
+    "short_description": "Test accession score set",
+    "abstract_text": "Abstract",
+    "method_text": "Methods",
+    "target_genes": [
+        {
+            "name": "TEST2",
+            "category": "protein_coding",
+            "target_accession": {
+                "accession": VALID_NT_ACCESSION,
+                "assembly": "GRCh37",
+                "gene": VALID_GENE,
+                "isBaseEditor": False,
+            },
         }
     ],
 }
@@ -594,9 +816,10 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
             "externalIdentifiers": [],
             "targetAccession": {
                 "recordType": "TargetAccession",
-                "accession": VALID_ACCESSION,
+                "accession": VALID_NT_ACCESSION,
                 "assembly": "GRCh37",
                 "gene": VALID_GENE,
+                "isBaseEditor": False,
             },
         }
     ],
@@ -614,10 +837,32 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     "officialCollections": [],
 }
 
-TEST_CDOT_TRANSCRIPT = {
+TEST_NT_CDOT_TRANSCRIPT = {
     "start_codon": 0,
     "stop_codon": 18,
-    "id": VALID_ACCESSION,
+    "id": VALID_NT_ACCESSION,
+    "gene_version": "313",
+    "gene_name": VALID_GENE,
+    "biotype": ["protein_coding"],
+    "protein": "NP_001628.1",
+    "genome_builds": {
+        "GRCh37": {
+            "cds_end": 1,
+            "cds_start": 18,
+            "contig": "NC_000007.13",
+            # The exons are non-sense but it doesn't really matter for the tests.
+            "exons": [[1, 12, 20, 2001, 2440, "M196 I1 M61 I1 M181"], [12, 18, 19, 1924, 2000, None]],
+            "start": 1,
+            "stop": 18,
+            "strand": "+",
+        }
+    },
+}
+
+TEST_PRO_CDOT_TRANSCRIPT = {
+    "start_codon": 0,
+    "stop_codon": 18,
+    "id": VALID_PRO_ACCESSION,
     "gene_version": "313",
     "gene_name": VALID_GENE,
     "biotype": ["protein_coding"],
@@ -646,7 +891,7 @@ TEST_MINIMAL_POST_MAPPED_METADATA = {
     "genomic": {
         "sequence_id": "ga4gh:SQ.em9khDCUYXrVWBfWr9r8fjBUrTjj1aig",
         "sequence_type": "dna",
-        "sequence_accessions": [VALID_ACCESSION],
+        "sequence_accessions": [VALID_NT_ACCESSION],
         "sequence_genes": [VALID_GENE],
     }
 }
@@ -681,20 +926,20 @@ TEST_MINIMAL_MAPPED_VARIANT = {
 }
 
 
-TEST_SCORESET_RANGE = {
+TEST_SCORE_SET_RANGE = {
     "wt_score": 1.0,
     "ranges": [
-        {"label": "test1", "classification": "normal", "range": (0, 2.0)},
-        {"label": "test2", "classification": "abnormal", "range": (-2.0, 0)},
+        {"label": "test1", "classification": "normal", "range": [0.5, 2.0]},
+        {"label": "test2", "classification": "abnormal", "range": [-2.0, -0.5]},
     ],
 }
 
 
-TEST_SAVED_SCORESET_RANGE = {
+TEST_SAVED_SCORE_SET_RANGE = {
     "wtScore": 1.0,
     "ranges": [
-        {"label": "test1", "classification": "normal", "range": [0.0, 2.0]},
-        {"label": "test2", "classification": "abnormal", "range": [-2.0, 0.0]},
+        {"label": "test1", "classification": "normal", "range": [0.5, 2.0]},
+        {"label": "test2", "classification": "abnormal", "range": [-2.0, -0.5]},
     ],
 }
 
@@ -707,9 +952,9 @@ TEST_SCORE_CALIBRATION = {
             "fraction_functionally_altering": 0.20,
         },
     ],
-    "evidence_strengths": [3, 2, 1, -1],
-    "thresholds": [1.25, 2.5, 3, 5.5],
-    "positive_likelihood_ratios": [100, 10, 1, 0.1],
+    "evidence_strengths": [8, 4, 2, 1, -1, -2, -4, -8],
+    "thresholds": [8, 4, 2, 0.1, -0.1, -2, -4, -8],
+    "positive_likelihood_ratios": [1000, 100, 10, 1, 0.1, 0.01, 0.001, 0.0001],
     "prior_probability_pathogenicity": 0.20,
 }
 
@@ -722,9 +967,9 @@ TEST_SAVED_SCORE_CALIBRATION = {
             "fractionFunctionallyAltering": 0.20,
         },
     ],
-    "evidenceStrengths": [3, 2, 1, -1],
-    "thresholds": [1.25, 2.5, 3, 5.5],
-    "positiveLikelihoodRatios": [100, 10, 1, 0.1],
+    "evidenceStrengths": [8, 4, 2, 1, -1, -2, -4, -8],
+    "thresholds": [8, 4, 2, 0.1, -0.1, -2, -4, -8],
+    "positiveLikelihoodRatios": [1000, 100, 10, 1, 0.1, 0.01, 0.001, 0.0001],
     "priorProbabilityPathogenicity": 0.20,
 }
 
@@ -763,4 +1008,218 @@ TEST_COLLECTION_RESPONSE = {
     ],
     "editors": [],
     "viewers": [],
+}
+
+TEST_CLINVAR_CONTROL = {
+    "db_identifier": "183058",
+    "gene_symbol": "PTEN",
+    "clinical_significance": "Likely benign",
+    "clinical_review_status": "criteria provided, multiple submitters, no conflicts",
+    "db_name": "ClinVar",
+    "db_version": "11_2024",
+}
+
+
+TEST_SAVED_CLINVAR_CONTROL = {
+    "recordType": "ClinicalControlWithMappedVariants",
+    "dbIdentifier": "183058",
+    "geneSymbol": "PTEN",
+    "clinicalSignificance": "Likely benign",
+    "clinicalReviewStatus": "criteria provided, multiple submitters, no conflicts",
+    "dbName": "ClinVar",
+    "dbVersion": "11_2024",
+    "mappedVariants": [],
+}
+
+
+TEST_GENERIC_CLINICAL_CONTROL = {
+    "db_identifier": "ABC123",
+    "gene_symbol": "BRCA1",
+    "clinical_significance": "benign",
+    "clinical_review_status": "lots of convincing evidence",
+    "db_name": "GenDB",
+    "db_version": "2024",
+}
+
+
+TEST_SAVED_GENERIC_CLINICAL_CONTROL = {
+    "recordType": "ClinicalControlWithMappedVariants",
+    "dbIdentifier": "ABC123",
+    "geneSymbol": "BRCA1",
+    "clinicalSignificance": "benign",
+    "clinicalReviewStatus": "lots of convincing evidence",
+    "dbName": "GenDB",
+    "dbVersion": "2024",
+    "mappedVariants": [],
+}
+
+
+TEST_CLINGEN_SUBMISSION_RESPONSE = {
+    "data": {"msg": "Data sent successfully", "msgIds": ["(148894,0,-1,0)"]},
+    "metadata": {"rendered": {"by": "https://genboree.org/mq/brdg/srvc", "when": datetime.now().isoformat()}},
+    "status": {"code": 200, "name": "OK"},
+}
+
+
+TEST_CLINGEN_SUBMISSION_UNAUTHORIZED_RESPONSE = {
+    "metadata": {"rendered": {"when": datetime.now().isoformat()}},
+    "status": {"code": 403, "msg": "Bad Auth Info - jwt malformed", "name": "Forbidden"},
+}
+
+TEST_CLINGEN_SUBMISSION_BAD_RESQUEST_RESPONSE = {
+    "metadata": {"rendered": {"when": datetime.now().isoformat()}},
+    "status": {
+        "code": 400,
+        "msg": "Put Failed - Error! Submission was an empty object. Submission must consist of valid, non-Empty JSON objects",
+        "name": "Bad Request",
+    },
+}
+
+
+TEST_CLINGEN_LDH_LINKING_RESPONSE = {
+    "data": {
+        "created": datetime.now().isoformat(),
+        "creator": "brl_clingen",
+        "entContent": {
+            "mapping_api_version": "pytest.mapping.1.0",
+            "mavedb_id": VALID_VARIANT_URN,
+            "post_mapped": TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
+            "pre_mapped": TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
+            "score": 1.0,
+        },
+        "entId": VALID_VARIANT_URN,
+        "entIri": f"https://staging.mavedb.org/score-sets/{VALID_VARIANT_URN}",
+        "entType": "MaveDBMapping",
+        "ldFor": {
+            "Variant": [
+                {
+                    "created": datetime.now().isoformat(),
+                    "creator": "brl_clingen",
+                    "entId": VALID_CLINGEN_PA_ID,
+                    "entIri": f"http://reg.genome.network/allele/{VALID_CLINGEN_PA_ID}",
+                    "entType": "Variant",
+                    "ldhId": VALID_CLINGEN_LDH_ID,
+                    "ldhIri": f"https://10.15.55.128/ldh-stg/Variant/id/{VALID_CLINGEN_LDH_ID}",
+                    "modified": datetime.now().isoformat(),
+                    "modifier": "brl_clingen",
+                    "rev": "_hLpznbC-A-",
+                }
+            ]
+        },
+        "ldhId": VALID_CLINGEN_LDH_ID,
+        "ldhIri": f"https://10.15.55.128/ldh-stg/MaveDBMapping/id/{VALID_CLINGEN_LDH_ID}",
+        "modified": datetime.now().isoformat(),
+        "modifier": "brl_clingen",
+        "rev": "_jj3a99K---",
+    },
+    "metadata": {"rendered": {"by": "https://10.15.55.128/ldh-stg/srvc", "when": datetime.now().isoformat()}},
+    "status": {"code": 200, "name": "OK"},
+}
+
+
+TEST_CLINGEN_LDH_LINKING_RESPONSE_NOT_FOUND = {
+    "metadata": {"rendered": {"by": "https://10.15.55.128/ldh-stg/srvc", "when": datetime.now().isoformat()}},
+    "status": {
+        "code": 404,
+        "msg": f"Bad Entity - No 'MaveDBMapping' entity found with identifier {VALID_VARIANT_URN}",
+        "name": "Not Found",
+    },
+}
+
+
+TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST = {
+    "errCode": 400,
+    "errMsg": "INVALID URL - Your request is invalid. Specifically, the URL path you provided ('/ldh-stg/MaveDBMapping/i/urn%3Amavedb%3A00000050-a-1%231') is not valid for HTTP 'GET' requests to the CG-LDH API service.",
+    "errName": "Bad Request",
+    "errCat": "INVALID URL",
+}
+
+SEQUENCE = (
+    "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCT"
+    "GAAGATCAGTTGGGTGCACGAGTGGGTTACATCGAACTGGATCTCAACAGCGGTAAGATCCTTGAGAGTTTTCGCCCCGAAGAACGTTTTCCAATGATGAGCACTTTTAAAGTTCT"
+    "GCTATGTGGCGCGGTATTATCCCGTGTTGACGCCGGGCAAGAGCAACTCGGTCGCCGCATACACTATTCTCAGAATGACTTGGTTGAGTACTCACCAGTCACAGAAAAGCATCTTA"
+    "CGGATGGCATGACAGTAAGAGAATTATGCAGTGCTGCCATAACCATGAGTGATAACACTGCGGCCAACTTACTTCTGACAACGATCGGAGGACCGAAGGAGCTAACCGCTTTTTTG"
+    "CACAACATGGGGGATCATGTAACTCGCCTTGATCGTTGGGAACCGGAGCTGAATGAAGCCATACCAAACGACGAGCGTGACACCACGATGCCTGCAGCAATGGCAACAACGTTGCG"
+    "CAAACTATTAACTGGCGAACTACTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGT"
+    "TTATTGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGACGGGGAGTCAGGCA"
+    "ACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA"
+)
+
+
+TEST_MINIMAL_MAPPED_VARIANT = {
+    "modification_date": date.today(),
+    "vrs_version": "2.0",
+    "mapped_date": date.today(),
+    "mapping_api_version": "pytest.0.0",
+    "current": True,
+}
+
+
+TEST_MINIMAL_ORCID_AUTH_TOKEN_REQUEST = {
+    "code": "xxx.test.xxx",
+    "redirect_uri": "https://www.fake.orcid.org/redirect_uri",
+}
+
+
+TEST_MINIMAL_ORCID_AUTH_TOKEN_RESPONSE = {
+    "access_token": "yyy.test.yyy",
+    "expires_in": 30,
+    "id_token": "zzz.test.zzz",
+    "token_type": "bearer",
+}
+
+TEST_MINIMAL_ORCID_USER = {"orcid_id": TEST_ORCID_ID}
+
+TEST_MINIMAL_RAW_READ_IDENTIFIER = {"identifier": "test_raw_read"}
+
+TEST_SAVED_MINIMAL_RAW_READ_IDENTIFIER = {
+    **TEST_MINIMAL_RAW_READ_IDENTIFIER,
+    "id": 1,
+    "url": "https://www.test.rawreadidentifiers.org",
+}
+
+TEST_POPULATED_EXPERIMENT_SEARCH = {
+    "published": True,
+    "authors": ["last-name"],
+    "databases": ["uniprot"],
+    "journals": ["biomed"],
+    "publication_identifiers": ["12345678"],
+    "keywords": ["keyword"],
+    "text": "testtesttest",
+}
+
+TEST_POPULATED_SCORE_SET_SEARCH = {
+    "published": True,
+    "targets": ["BRCA1"],
+    "target_organism_names": ["homo sapiens"],
+    "target_types": ["protein_coding"],
+    "target_accessions": ["NC_12345.1"],
+    "authors": ["last-name"],
+    "databases": ["uniprot"],
+    "journals": ["biomed"],
+    "publication_identifiers": ["12345678"],
+    "keywords": ["keyword"],
+    "text": "testtesttest",
+}
+
+TEST_POPULATED_TEXT_SEARCH = {"text": "testtesttest"}
+
+TEST_MINIMAL_VARIANT = {
+    "data": {},
+    "score_set_id": 1,
+    "creation_date": date.today(),
+    "modification_date": date.today(),
+}
+
+TEST_POPULATED_VARIANT = {
+    **TEST_MINIMAL_VARIANT,
+    "urn": f"{VALID_SCORE_SET_URN}#1",
+    "hgvs_nt": "c.1A>T",
+    "hgvs_pro": "p.1M>T",
+    "hgvs_splice": "c.1A>T",
+}
+
+TEST_SAVED_VARIANT = {
+    **TEST_POPULATED_VARIANT,
+    "id": 1,
 }

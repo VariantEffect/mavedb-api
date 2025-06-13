@@ -1,38 +1,56 @@
-import os
 import logging  # noqa: F401
+from datetime import datetime
+from unittest import mock
 import sys
-from concurrent import futures
-from inspect import getsourcefile
-from os.path import abspath
-from unittest.mock import patch
 
-import cdot.hgvs.dataproviders
 import email_validator
 import pytest
-import pytest_asyncio
 import pytest_postgresql
-from arq import ArqRedis
-from arq.worker import Worker
-from fakeredis import FakeServer
-from fakeredis.aioredis import FakeConnection
-from fastapi.testclient import TestClient
-from httpx import AsyncClient
-from redis.asyncio.connection import ConnectionPool
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
 from mavedb.db.base import Base
-from mavedb.deps import get_db, get_worker, hgvs_data_provider
-from mavedb.lib.authentication import UserData, get_current_user
-from mavedb.lib.authorization import require_current_user
-from mavedb.models.user import User
-from mavedb.server_main import app
-from mavedb.worker.jobs import create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager
+from mavedb.models.experiment_set import ExperimentSet
+from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
+from mavedb.models.user import User, UserRole, Role
+from mavedb.models.license import License
+from mavedb.models.taxonomy import Taxonomy
+from mavedb.models.publication_identifier import PublicationIdentifier
+from mavedb.models.experiment import Experiment
+from mavedb.models.variant import Variant
+from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.score_set import ScoreSet
+
+from mavedb.models import *  # noqa: F403
+
+from tests.helpers.constants import (
+    ADMIN_USER,
+    EXTRA_USER,
+    TEST_LICENSE,
+    TEST_INACTIVE_LICENSE,
+    TEST_SAVED_TAXONOMY,
+    TEST_USER,
+    VALID_VARIANT_URN,
+    VALID_SCORE_SET_URN,
+    VALID_EXPERIMENT_URN,
+    VALID_EXPERIMENT_SET_URN,
+    TEST_PUBMED_IDENTIFIER,
+    TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
+    TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
+    TEST_SCORE_SET_RANGE,
+    TEST_SCORE_CALIBRATION,
+)
 
 sys.path.append(".")
 
-from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_USER
+# Attempt to import optional top level fixtures. If the modules they depend on are not installed,
+# we won't have access to our full fixture suite and only a limited subset of tests can be run.
+try:
+    from tests.conftest_optional import *  # noqa: F401, F403
+
+except ModuleNotFoundError:
+    pass
 
 # needs the pytest_postgresql plugin installed
 assert pytest_postgresql.factories
@@ -64,261 +82,104 @@ def session(postgresql):
 
 
 @pytest.fixture
-def data_provider():
+def setup_lib_db(session):
     """
-    To provide the transcript for the FASTA file without a network request, use:
-
-    ```
-    from helpers.utils.constants import TEST_CDOT_TRANSCRIPT
-    from unittest.mock import patch
-    import cdot.hgvs.dataproviders
-    with patch.object(cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_CDOT_TRANSCRIPT):
-        ...
-    ```
+    Sets up the lib test db with a user, reference, and license. Its more straightforward to use
+    the well tested client methods to insert experiments and score sets to the db for testing.
     """
-
-    this_file_dir = os.path.dirname(abspath(getsourcefile(lambda: 0)))
-    test_fasta_file = os.path.join(this_file_dir, "helpers/data/refseq.NM_001637.3.fasta")
-
-    data_provider = cdot.hgvs.dataproviders.RESTDataProvider(
-        seqfetcher=cdot.hgvs.dataproviders.ChainedSeqFetcher(
-            cdot.hgvs.dataproviders.FastaSeqFetcher(test_fasta_file),
-            # Include normal seqfetcher to fall back on mocked requests (or expose test shortcomings via socket connection attempts).
-            cdot.hgvs.dataproviders.SeqFetcher(),
-        )
-    )
-
-    yield data_provider
-
-
-@pytest_asyncio.fixture
-async def arq_redis():
-    """
-    If the `enqueue_job` method of the ArqRedis object is not mocked and you need to run worker
-    processes from within a test client, it can only be run within the `httpx.AsyncClient` object.
-    The `fastapi.testclient.TestClient` object does not provide sufficient support for invocations
-    of asynchronous events. Note that any tests using the worker directly should be marked as async:
-
-    ```
-    @pytest.mark.asyncio
-    async def some_test_with_worker(async_client, arq_redis):
-        ...
-    ```
-
-    You can mock the `enqueue_job` method with:
-
-    ```
-    from unittest.mock import patch
-    def some_test(client, arq_redis):
-        with patch.object(ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-
-            # Enqueue a job directly
-            worker_queue.enqueue_job(some_job)
-
-            # Hit an endpoint which enqueues a job
-            client.post("/some/endpoint/that/invokes/the/worker")
-
-            # Ensure at least one job was queued
-            worker_queue.assert_called()
-    ```
-    """
-    redis_ = ArqRedis(
-        connection_pool=ConnectionPool(
-            server=FakeServer(),
-            connection_class=FakeConnection,
-        )
-    )
-    await redis_.flushall()
-    try:
-        yield redis_
-    finally:
-        await redis_.aclose(close_connection_pool=True)
-
-
-@pytest_asyncio.fixture()
-async def arq_worker(data_provider, session, arq_redis):
-    """
-    Run worker tasks in the test environment by including it as a fixture in a test,
-    enqueueing a job on the ArqRedis object, and then running the worker. See the arq_redis
-    fixture for limitations about running worker jobs from within a TestClient object.
-
-    ```
-    async def worker_test(arq_redis, arq_worker):
-        await arq_redis.enqueue_job('some_job')
-        await arq_worker.async_run()
-        await arq_worker.run_check()
-    ```
-    """
-
-    async def on_startup(ctx):
-        pass
-
-    async def on_job(ctx):
-        ctx["db"] = session
-        ctx["hdp"] = data_provider
-        ctx["state"] = {}
-        ctx["pool"] = futures.ProcessPoolExecutor()
-
-    worker_ = Worker(
-        functions=[create_variants_for_score_set, map_variants_for_score_set, variant_mapper_manager],
-        redis_pool=arq_redis,
-        burst=True,
-        poll_delay=0,
-        on_startup=on_startup,
-        on_job_start=on_job,
-    )
-    # `fakeredis` does not support `INFO`
-    with patch("arq.worker.log_redis_info"):
-        try:
-            yield worker_
-        finally:
-            await worker_.close()
+    db = session
+    db.add(User(**TEST_USER))
+    db.add(User(**EXTRA_USER))
+    db.add(User(**ADMIN_USER, role_objs=[Role(name=UserRole.admin)]))
+    db.add(Taxonomy(**TEST_SAVED_TAXONOMY))
+    db.add(License(**TEST_LICENSE))
+    db.add(License(**TEST_INACTIVE_LICENSE))
+    db.commit()
 
 
 @pytest.fixture
-def standalone_worker_context(session, data_provider, arq_redis):
-    yield {
-        "db": session,
-        "hdp": data_provider,
-        "state": {},
-        "job_id": "test_job",
-        "redis": arq_redis,
-        "pool": futures.ProcessPoolExecutor(),
-    }
-
-
-@pytest.fixture()
-def app_(session, data_provider, arq_redis):
-    def override_get_db():
-        try:
-            yield session
-        finally:
-            session.close()
-
-    async def override_get_worker():
-        yield arq_redis
-
-    def override_current_user():
-        default_user = session.query(User).filter(User.username == TEST_USER["username"]).one_or_none()
-        yield UserData(default_user, default_user.roles)
-
-    def override_require_user():
-        default_user = session.query(User).filter(User.username == TEST_USER["username"]).one_or_none()
-        yield UserData(default_user, default_user.roles)
-
-    def override_hgvs_data_provider():
-        yield data_provider
-
-    app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_worker] = override_get_worker
-    app.dependency_overrides[get_current_user] = override_current_user
-    app.dependency_overrides[require_current_user] = override_require_user
-    app.dependency_overrides[hgvs_data_provider] = override_hgvs_data_provider
-
-    yield app
-
-
-@pytest.fixture()
-def anonymous_app_overrides(session, data_provider, arq_redis):
-    def override_get_db():
-        try:
-            yield session
-        finally:
-            session.close()
-
-    async def override_get_worker():
-        yield arq_redis
-
-    def override_current_user():
-        yield None
-
-    def override_hgvs_data_provider():
-        yield data_provider
-
-    anonymous_overrides = {
-        get_db: override_get_db,
-        get_worker: override_get_worker,
-        get_current_user: override_current_user,
-        require_current_user: require_current_user,
-        hgvs_data_provider: override_hgvs_data_provider,
-    }
-
-    yield anonymous_overrides
-
-
-@pytest.fixture()
-def extra_user_app_overrides(session, data_provider, arq_redis):
-    def override_get_db():
-        try:
-            yield session
-        finally:
-            session.close()
-
-    async def override_get_worker():
-        yield arq_redis
-
-    def override_current_user():
-        default_user = session.query(User).filter(User.username == EXTRA_USER["username"]).one_or_none()
-        yield UserData(default_user, default_user.roles)
-
-    def override_require_user():
-        default_user = session.query(User).filter(User.username == EXTRA_USER["username"]).one_or_none()
-        yield UserData(default_user, default_user.roles)
-
-    def override_hgvs_data_provider():
-        yield data_provider
-
-    anonymous_overrides = {
-        get_db: override_get_db,
-        get_worker: override_get_worker,
-        get_current_user: override_current_user,
-        require_current_user: require_current_user,
-        hgvs_data_provider: override_hgvs_data_provider,
-    }
-
-    yield anonymous_overrides
-
-
-@pytest.fixture()
-def admin_app_overrides(session, data_provider, arq_redis):
-    def override_get_db():
-        try:
-            yield session
-        finally:
-            session.close()
-
-    async def override_get_worker():
-        yield arq_redis
-
-    def override_current_user():
-        admin_user = session.query(User).filter(User.username == ADMIN_USER["username"]).one_or_none()
-        yield UserData(admin_user, admin_user.roles)
-
-    def override_require_user():
-        admin_user = session.query(User).filter(User.username == ADMIN_USER["username"]).one_or_none()
-        yield UserData(admin_user, admin_user.roles)
-
-    def override_hgvs_data_provider():
-        yield data_provider
-
-    admin_overrides = {
-        get_db: override_get_db,
-        get_worker: override_get_worker,
-        get_current_user: override_current_user,
-        require_current_user: override_require_user,
-        hgvs_data_provider: override_hgvs_data_provider,
-    }
-
-    yield admin_overrides
+def mock_user():
+    mv = mock.Mock(spec=User)
+    mv.username = TEST_USER["username"]
+    return mv
 
 
 @pytest.fixture
-def client(app_):
-    with TestClient(app=app_, base_url="http://testserver") as tc:
-        yield tc
+def mock_publication():
+    mv = mock.Mock(spec=PublicationIdentifier)
+    mv.identifier = TEST_PUBMED_IDENTIFIER
+    mv.url = f"http://www.ncbi.nlm.nih.gov/pubmed/{TEST_PUBMED_IDENTIFIER}"
+    return mv
 
 
-@pytest_asyncio.fixture
-async def async_client(app_):
-    async with AsyncClient(app=app_, base_url="http://testserver") as ac:
-        yield ac
+@pytest.fixture
+def mock_publication_associations(mock_publication):
+    mv = mock.Mock(spec=ScoreSetPublicationIdentifierAssociation)
+    mv.publication = mock_publication
+    mv.primary = True
+    return [mv]
+
+
+@pytest.fixture
+def mock_experiment_set():
+    resource = mock.Mock(spec=ExperimentSet)
+    resource.urn = VALID_EXPERIMENT_SET_URN
+    resource.creation_date = datetime(2023, 1, 1)
+    resource.modification_date = datetime(2023, 1, 2)
+    return resource
+
+
+@pytest.fixture
+def mock_experiment():
+    experiment = mock.Mock(spec=Experiment)
+    experiment.title = "Mock Experiment"
+    experiment.short_description = "Mock experiment"
+    experiment.urn = VALID_EXPERIMENT_URN
+    experiment.creation_date = datetime(2023, 1, 1)
+    experiment.modification_date = datetime(2023, 1, 2)
+    experiment.private = False
+    return experiment
+
+
+@pytest.fixture
+def mock_score_set(mock_user, mock_experiment, mock_publication_associations):
+    score_set = mock.Mock(spec=ScoreSet)
+    score_set.urn = VALID_SCORE_SET_URN
+    score_set.score_ranges = TEST_SCORE_SET_RANGE
+    score_set.score_calibrations = {"pillar_project": TEST_SCORE_CALIBRATION}
+    score_set.license.short_name = "MIT"
+    score_set.created_by = mock_user
+    score_set.modified_by = mock_user
+    score_set.published_date = datetime(2023, 1, 1)
+    score_set.title = "Mock score set"
+    score_set.short_description = "Mock score set"
+    score_set.creation_date = datetime(2023, 1, 2)
+    score_set.modification_date = datetime(2023, 1, 3)
+    score_set.private = False
+    score_set.experiment = mock_experiment
+    score_set.publication_identifier_associations = mock_publication_associations
+    return score_set
+
+
+@pytest.fixture
+def mock_variant(mock_score_set):
+    variant = mock.Mock(spec=Variant)
+    variant.urn = VALID_VARIANT_URN
+    variant.score_set = mock_score_set
+    variant.data = {"score_data": {"score": 1.0}}
+    variant.creation_date = datetime(2023, 1, 2)
+    variant.modification_date = datetime(2023, 1, 3)
+    return variant
+
+
+@pytest.fixture
+def mock_mapped_variant(mock_variant):
+    mv = mock.Mock(spec=MappedVariant)
+    mv.mapping_api_version = "pytest.mapping.1.0"
+    mv.mapped_date = datetime(2023, 1, 1)
+    mv.variant = mock_variant
+    mv.pre_mapped = TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X
+    mv.post_mapped = TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X
+    mv.mapped_date = datetime(2023, 1, 2)
+    mv.modification_date = datetime(2023, 1, 3)
+    return mv

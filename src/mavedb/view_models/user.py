@@ -1,38 +1,38 @@
 from typing import Optional
 
 from email_validator import EmailNotValidError, validate_email
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.enums.user_role import UserRole
 from mavedb.view_models import record_type_validator, set_record_type
-from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models.base.base import BaseModel
 
 
 class UserBase(BaseModel):
     """Base class for user view models."""
 
     username: str = Field(..., alias="orcidId")
-    first_name: Optional[str]
-    last_name: Optional[str]
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
 
 
 class CurrentUserUpdate(BaseModel):
     """View model for updating the current user."""
 
     # TODO: Do we allow users to clear their emails?
-    email: Optional[str]
+    email: Optional[str] = None
 
-    @validator("email")
-    def validate_email_syntax_and_deliverability(cls, field_value, values):
-        if not field_value:
+    @field_validator("email")
+    def validate_email_syntax_and_deliverability(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
             return None
 
         try:
-            normalized_email = validate_email(field_value, check_deliverability=True)
+            normalized_email = validate_email(v, check_deliverability=True)
         except EmailNotValidError as exc:
             raise ValidationError(str(exc))
 
@@ -42,10 +42,10 @@ class CurrentUserUpdate(BaseModel):
 class AdminUserUpdate(CurrentUserUpdate):
     """View model for updating current user, for admin clients."""
 
-    first_name: Optional[str]
-    last_name: Optional[str]
-    email: Optional[str]
-    roles: Optional[list[UserRole]]
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    roles: Optional[list[UserRole]] = None
 
 
 class SavedUser(UserBase):
@@ -56,7 +56,7 @@ class SavedUser(UserBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class User(SavedUser):
@@ -68,7 +68,7 @@ class User(SavedUser):
 class CurrentUser(SavedUser):
     """User view model for information about the current user."""
 
-    email: Optional[str]
+    email: Optional[str] = None
     is_first_login: bool
     roles: list[UserRole]
 

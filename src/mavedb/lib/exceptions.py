@@ -176,3 +176,17 @@ class NonexistentMappingReferenceError(ValueError):
 
 class MappingEnqueueError(ValueError):
     """Raised when a mapping job fails to be enqueued despite appearing as if it should have been"""
+
+    pass
+
+
+class SubmissionEnqueueError(ValueError):
+    """Raised when a linking job fails to be enqueued despite appearing as if it should have been"""
+
+    pass
+
+
+class LinkingEnqueueError(ValueError):
+    """Raised when a linking job fails to be enqueued despite appearing as if it should have been"""
+
+    pass

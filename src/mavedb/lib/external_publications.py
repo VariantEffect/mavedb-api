@@ -6,7 +6,8 @@ import datetime
 import json
 import logging
 import re
-from typing import Any, Optional, TypedDict, Union
+from typing import Any, Optional, Union
+from typing_extensions import TypedDict
 
 import requests
 from idutils import is_doi

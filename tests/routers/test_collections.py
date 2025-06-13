@@ -1,12 +1,20 @@
+# ruff: noqa: E402
+
 import re
 from copy import deepcopy
+from unittest.mock import patch
 
 import jsonschema
 import pytest
 
+arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
+
 from mavedb.lib.validation.urn_re import MAVEDB_COLLECTION_URN_RE
 from mavedb.models.enums.contribution_role import ContributionRole
 from mavedb.view_models.collection import Collection
+
 from tests.helpers.constants import (
     EXTRA_USER,
     TEST_USER,
@@ -14,19 +22,17 @@ from tests.helpers.constants import (
     TEST_COLLECTION_RESPONSE,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
-from tests.helpers.util import (
-    create_collection,
-    create_experiment,
-    create_seq_score_set_with_variants,
-    publish_score_set,
-)
+from tests.helpers.util.collection import create_collection
+from tests.helpers.util.experiment import create_experiment
+from tests.helpers.util.score_set import create_seq_score_set, publish_score_set
+from tests.helpers.util.variant import mock_worker_variant_insertion
 
 
 def test_create_private_collection(client, setup_router_db):
     response = client.post("/api/v1/collections/", json=TEST_COLLECTION)
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Collection.schema())
+    jsonschema.validate(instance=response_data, schema=Collection.model_json_schema())
     assert isinstance(MAVEDB_COLLECTION_URN_RE.fullmatch(response_data["urn"]), re.Match)
     expected_response = deepcopy(TEST_COLLECTION_RESPONSE)
     expected_response.update({"urn": response_data["urn"]})
@@ -41,7 +47,7 @@ def test_create_public_collection(client, setup_router_db):
     response = client.post("/api/v1/collections/", json=collection)
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Collection.schema())
+    jsonschema.validate(instance=response_data, schema=Collection.model_json_schema())
     assert isinstance(MAVEDB_COLLECTION_URN_RE.fullmatch(response_data["urn"]), re.Match)
     expected_response = deepcopy(TEST_COLLECTION_RESPONSE)
     expected_response.update({"urn": response_data["urn"], "private": False})
@@ -82,7 +88,7 @@ def test_add_collection_user_to_collection_role(role, client, setup_router_db):
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
-def test_creator_can_read_private_collection(session, client, setup_router_db, anonymous_app_overrides):
+def test_creator_can_read_private_collection(session, client, setup_router_db):
     collection = create_collection(client)
 
     response = client.get(f"/api/v1/collections/{collection['urn']}")
@@ -224,10 +230,14 @@ def test_admin_can_add_experiment_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
-    score_set = publish_score_set(client, unpublished_score_set["urn"])
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
 
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/admins", json={"orcid_id": EXTRA_USER["username"]})
@@ -278,10 +288,14 @@ def test_editor_can_add_experiment_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
-    score_set = publish_score_set(client, unpublished_score_set["urn"])
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
 
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/editors", json={"orcid_id": EXTRA_USER["username"]})
@@ -326,10 +340,14 @@ def test_viewer_cannot_add_experiment_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
-    score_set = publish_score_set(client, unpublished_score_set["urn"])
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
 
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/viewers", json={"orcid_id": EXTRA_USER["username"]})
@@ -349,10 +367,14 @@ def test_unauthorized_user_cannot_add_experiment_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
-    score_set = publish_score_set(client, unpublished_score_set["urn"])
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
 
     collection = create_collection(client)
 
@@ -370,10 +392,14 @@ def test_anonymous_cannot_add_experiment_to_collection(
     session, client, data_provider, data_files, setup_router_db, anonymous_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
-    score_set = publish_score_set(client, unpublished_score_set["urn"])
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
 
     collection = create_collection(client)
 
@@ -391,10 +417,14 @@ def test_admin_can_add_score_set_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
-    score_set = publish_score_set(client, unpublished_score_set["urn"])
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
 
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/admins", json={"orcid_id": EXTRA_USER["username"]})
@@ -444,10 +474,14 @@ def test_editor_can_add_score_set_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
-    score_set = publish_score_set(client, unpublished_score_set["urn"])
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
 
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/editors", json={"orcid_id": EXTRA_USER["username"]})
@@ -491,10 +525,14 @@ def test_viewer_cannot_add_score_set_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
-    score_set = publish_score_set(client, unpublished_score_set["urn"])
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
 
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/viewers", json={"orcid_id": EXTRA_USER["username"]})
@@ -513,10 +551,14 @@ def test_unauthorized_user_cannot_add_score_set_to_collection(
     session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
-    score_set = publish_score_set(client, unpublished_score_set["urn"])
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
 
     collection = create_collection(client)
 
@@ -533,10 +575,14 @@ def test_anonymous_cannot_add_score_set_to_collection(
     session, client, data_provider, data_files, setup_router_db, anonymous_app_overrides
 ):
     experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    unpublished_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
-    score_set = publish_score_set(client, unpublished_score_set["urn"])
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        worker_queue.assert_called_once()
 
     collection = create_collection(client)
 

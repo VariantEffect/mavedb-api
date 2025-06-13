@@ -1,6 +1,5 @@
 from datetime import date
-
-from pydantic.types import Optional
+from typing import Optional
 
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
@@ -8,12 +7,12 @@ from mavedb.view_models.base.base import BaseModel
 
 class TaxonomyBase(BaseModel):
     tax_id: int
-    organism_name: Optional[str]
-    common_name: Optional[str]
-    rank: Optional[str]
-    has_described_species_name: Optional[bool]
-    article_reference: Optional[str]
-    genome_id: Optional[int]
+    organism_name: Optional[str] = None
+    common_name: Optional[str] = None
+    rank: Optional[str] = None
+    has_described_species_name: Optional[bool] = None
+    article_reference: Optional[str] = None
+    genome_identifier_id: Optional[int] = None
 
 
 class TaxonomyCreate(TaxonomyBase):
@@ -33,7 +32,7 @@ class SavedTaxonomy(TaxonomyBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Properties to return to non-admin clients
