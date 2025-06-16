@@ -1154,11 +1154,7 @@ async def publish_score_set(
     db.refresh(item)
 
     # await the insertion of this job into the worker queue, not the job itself.
-    job = await worker.enqueue_job(
-        "refresh_published_variants_view",
-        correlation_id_for_context(),
-        user_data.user.id,
-    )
+    job = await worker.enqueue_job("refresh_published_variants_view", correlation_id_for_context())
     if job is not None:
         save_to_logging_context({"worker_job_id": job.job_id})
         logger.info(msg="Enqueud published variant materialized view refresh job.", extra=logging_context())
@@ -1302,4 +1298,3 @@ async def get_clinical_controls_options_for_score_set(
         dict(zip(("db_name", "available_versions"), (db_name, db_versions)))
         for db_name, db_versions in clinical_control_options.items()
     ]
-
