@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Union
 
 GNOMAD_DB_NAME = "gnomAD"
@@ -30,3 +31,27 @@ def gnomad_table_name() -> str:
         raise ValueError("GNOMAD_DATA_VERSION environment variable is not set.")
 
     return GNOMAD_DATA_VERSION.replace(".", "_")
+
+
+def allele_list_from_list_like_string(alleles_string: str) -> list[str]:
+    """
+    Convert a list-like string representation of alleles into a Python list.
+
+    eg:
+    "[A, T]" -> ["A", "T"]
+    "[A, TG]" -> ["A", "TG"]
+    "" -> []
+    "[A, T, C]" -> ValueError: "Invalid format for alleles string."
+    """
+    if not alleles_string:
+        return []
+
+    if not re.match(r"\[[(AGTC)+\, (AGTC)+]", alleles_string):
+        raise ValueError("Invalid format for alleles string.")
+
+    alleles_string = alleles_string.strip().strip("[]")  # Remove square brackets if present
+
+    # Remove whitespace and split by comma
+    alleles = [allele.strip() for allele in alleles_string.split(",")]
+
+    return alleles
