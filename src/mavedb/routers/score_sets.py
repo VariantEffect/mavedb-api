@@ -58,6 +58,7 @@ from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment import Experiment
+from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
@@ -65,7 +66,7 @@ from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
-from mavedb.view_models import mapped_variant, score_set, calibration, clinical_control
+from mavedb.view_models import mapped_variant, score_set, calibration, clinical_control, gnomad_variant
 from mavedb.view_models.search import ScoreSetsSearch
 
 logger = logging.getLogger(__name__)
@@ -1303,3 +1304,69 @@ async def get_clinical_controls_options_for_score_set(
         for db_name, db_versions in clinical_control_options.items()
     ]
 
+
+@router.get(
+    "/score-sets/{urn}/gnomad-variants",
+    status_code=200,
+    response_model=list[gnomad_variant.GnomADVariantWithMappedVariants],
+    response_model_exclude_none=True,
+)
+async def get_gnomad_variants_for_score_set(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(get_current_user),
+    version: Optional[str] = None,
+) -> Sequence[GnomADVariant]:
+    """
+    Fetch relevant gnomad variants for a given score set.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "gnomad_variants"})
+
+    # Rename user facing kwargs for consistency with code base naming conventions. My-py doesn't care for us redefining db.
+    db_version = version
+
+    item: Optional[ScoreSet] = db.scalars(select(ScoreSet).where(ScoreSet.urn == urn)).one_or_none()
+    if not item:
+        logger.info(
+            msg="Failed to fetch gnomad variants for score set; The requested score set does not exist.",
+            extra=logging_context(),
+        )
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
+    assert_permission(user_data, item, Action.READ)
+
+    gnomad_variants_query = (
+        select(GnomADVariant)
+        .join(MappedVariant, GnomADVariant.mapped_variants)
+        .join(Variant)
+        .where(Variant.score_set_id == item.id)
+    )
+
+    if db_version is not None:
+        save_to_logging_context({"db_version": db_version})
+        gnomad_variants_query = gnomad_variants_query.where(GnomADVariant.db_version == db_version)
+
+    gnomad_variants_for_item: Sequence[GnomADVariant] = db.scalars(gnomad_variants_query).all()
+    gnomad_variants_with_mapped_variant = []
+    for gnomad_variant_in_item in gnomad_variants_for_item:
+        gnomad_variant_in_item.mapped_variants = [
+            mv for mv in gnomad_variant_in_item.mapped_variants if mv.current and mv.variant.score_set_id == item.id
+        ]
+
+        if gnomad_variant_in_item.mapped_variants:
+            gnomad_variants_with_mapped_variant.append(gnomad_variant_in_item)
+
+    if not gnomad_variants_with_mapped_variant:
+        logger.info(
+            msg="No gnomad variants matching the provided filters are associated with the requested score set.",
+            extra=logging_context(),
+        )
+        raise HTTPException(
+            status_code=404,
+            detail=f"No gnomad variants matching the provided filters associated with score set URN {urn} were found",
+        )
+
+    save_to_logging_context({"resource_count": len(gnomad_variants_for_item)})
+
+    return gnomad_variants_for_item

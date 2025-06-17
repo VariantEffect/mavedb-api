@@ -1411,3 +1411,35 @@ TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST = {
     "errName": "Bad Request",
     "errCat": "INVALID URL",
 }
+
+
+TEST_GNOMAD_DATA_VERSION = "v1.pytest"
+
+
+TEST_GNOMAD_VARIANT = {
+    "db_name": "gnomAD",
+    "db_identifier": "10-87961093-A-G",
+    "db_version": TEST_GNOMAD_DATA_VERSION,
+    "allele_count": 3,
+    "allele_number": 1613510,
+    "allele_frequency": 1.859300531140185e-06,
+    "faf95_max": 6.800000000000001e-07,
+    "faf95_max_ancestry": "nfe",
+    "creation_date": datetime.date(datetime.now()).isoformat(),
+    "modification_date": datetime.date(datetime.now()).isoformat(),
+}
+
+TEST_SAVED_GNOMAD_VARIANT = {
+    "dbName": "gnomAD",
+    "dbIdentifier": "10-87961093-A-G",
+    "dbVersion": TEST_GNOMAD_DATA_VERSION,
+    "alleleCount": 3,
+    "alleleNumber": 1613510,
+    "alleleFrequency": 1.859300531140185e-06,
+    "faf95Max": 6.800000000000001e-07,
+    "faf95MaxAncestry": "nfe",
+    "creationDate": datetime.date(datetime.now()).isoformat(),
+    "modificationDate": datetime.date(datetime.now()).isoformat(),
+    "recordType": "GnomADVariantWithMappedVariants",
+    "id": 1,  # Presuming this is the only gnomAD variant in the database
+}
