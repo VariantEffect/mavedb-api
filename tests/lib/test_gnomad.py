@@ -1,6 +1,11 @@
+# ruff: noqa: E402
+
 import pytest
 import importlib
 from unittest.mock import patch
+
+pyathena = pytest.importorskip("pyathena")
+fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.gnomad import (
     gnomad_identifier,

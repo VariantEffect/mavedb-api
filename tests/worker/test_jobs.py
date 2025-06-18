@@ -14,6 +14,7 @@ from sqlalchemy import not_, select
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
+pyathena = pytest.importorskip("pyathena")
 
 from mavedb.data_providers.services import VRSMap
 from mavedb.lib.mave.constants import HGVS_NT_COLUMN
