@@ -336,6 +336,16 @@ TEST_KEYWORDS = [
     },
 ]
 
+TEST_EXPERIMENT_SET = {
+    "extra_metadata": {},
+    "approved": False,
+}
+
+TEST_MINIMAL_EXPERIMENT_SET = {
+    "extraMetadata": {},
+    "approved": False,
+}
+
 TEST_EXPERIMENT_WITH_KEYWORD = {
     "title": "Test Experiment Title",
     "shortDescription": "Test experiment",
@@ -347,6 +357,14 @@ TEST_EXPERIMENT_WITH_KEYWORD = {
             "description": "Details of delivery method",
         },
     ],
+}
+
+TEST_EXPERIMENT = {
+    "title": "Test Experiment Title",
+    "short_description": "Test experiment",
+    "abstract_text": "Abstract",
+    "method_text": "Methods",
+    "extra_metadata": {},
 }
 
 TEST_MINIMAL_EXPERIMENT = {
@@ -557,6 +575,7 @@ TEST_SEQ_SCORESET = {
     "short_description": "Test score set",
     "abstract_text": "Abstract",
     "method_text": "Methods",
+    "extra_metadata": {},
     "target_genes": [
         {
             "name": "TEST1",
@@ -1073,11 +1092,23 @@ TEST_MULTI_TARGET_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
     "mapped_date_utc": datetime.isoformat(datetime.now()),
 }
 
+
+TEST_MINIMAL_VARIANT = {
+    "data": {
+        "count_data": {},
+        "score_data": {"sd": 0.100412839533719, "se": 0.0409933700802629, "score": 0.406972991738182},
+    },
+    "hgvs_nt": "c.[197A>G;472T>C]",
+    "creation_date": datetime.date(datetime.now()).isoformat(),
+    "modification_date": datetime.date(datetime.now()).isoformat(),
+}
+
+
 TEST_MINIMAL_MAPPED_VARIANT = {
     "pre_mapped": {},
     "post_mapped": {},
-    "modification_date": datetime.isoformat(datetime.now()),
-    "mapped_date": datetime.isoformat(datetime.now()),
+    "modification_date": datetime.date(datetime.now()).isoformat(),
+    "mapped_date": datetime.date(datetime.now()).isoformat(),
     "current": True,
     "vrs_version": "2.0",
     "mapping_api_version": "pytest.0.0",
@@ -1413,33 +1444,52 @@ TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST = {
 }
 
 
+TEST_GNOMAD_LOCUS_CONTIG = "chr10"
+TEST_GNOMAD_LOCUS_POSITION = "87961093"
+TEST_GNOMAD_ALLELES = '"[A, G]"'
 TEST_GNOMAD_DATA_VERSION = "v1.pytest"
+TEST_GNOMAD_ALLELE_COUNT = "3"
+TEST_GNOMAD_ALLELE_NUMBER = "1613510"
+TEST_GNOMAD_ALLELE_FREQUENCY = float(float(TEST_GNOMAD_ALLELE_COUNT) / float(TEST_GNOMAD_ALLELE_NUMBER))
+TEST_GNOMAD_FAF95_MAX = "6.800000000000001e-07"
+TEST_GNOMAD_FAF95_MAX_ANCESTRY = "nfe"
 
+
+TEST_MAVEDB_ATHENA_ROW = {
+    "locus.contig": TEST_GNOMAD_LOCUS_CONTIG,
+    "locus.position": TEST_GNOMAD_LOCUS_POSITION,
+    "alleles": TEST_GNOMAD_ALLELES,
+    "caid": VALID_CLINGEN_CA_ID,
+    "joint.freq.all.ac": TEST_GNOMAD_ALLELE_COUNT,
+    "joint.freq.all.an": TEST_GNOMAD_ALLELE_NUMBER,
+    "joint.fafmax.faf95_max_gen_anc": TEST_GNOMAD_FAF95_MAX_ANCESTRY,
+    "joint.fafmax.faf95_max": TEST_GNOMAD_FAF95_MAX,
+}
 
 TEST_GNOMAD_VARIANT = {
     "db_name": "gnomAD",
-    "db_identifier": "10-87961093-A-G",
+    "db_identifier": f"10-{TEST_GNOMAD_LOCUS_POSITION}-A-G",
     "db_version": TEST_GNOMAD_DATA_VERSION,
-    "allele_count": 3,
-    "allele_number": 1613510,
-    "allele_frequency": 1.859300531140185e-06,
-    "faf95_max": 6.800000000000001e-07,
-    "faf95_max_ancestry": "nfe",
-    "creation_date": datetime.date(datetime.now()).isoformat(),
-    "modification_date": datetime.date(datetime.now()).isoformat(),
+    "allele_count": int(TEST_GNOMAD_ALLELE_COUNT),
+    "allele_number": int(TEST_GNOMAD_ALLELE_NUMBER),
+    "allele_frequency": TEST_GNOMAD_ALLELE_FREQUENCY,
+    "faf95_max": float(TEST_GNOMAD_FAF95_MAX),
+    "faf95_max_ancestry": TEST_GNOMAD_FAF95_MAX_ANCESTRY,
+    "creation_date": date.today().isoformat(),
+    "modification_date": date.today().isoformat(),
 }
 
 TEST_SAVED_GNOMAD_VARIANT = {
     "dbName": "gnomAD",
-    "dbIdentifier": "10-87961093-A-G",
+    "dbIdentifier": f"10-{TEST_GNOMAD_LOCUS_POSITION}-A-G",
     "dbVersion": TEST_GNOMAD_DATA_VERSION,
-    "alleleCount": 3,
-    "alleleNumber": 1613510,
-    "alleleFrequency": 1.859300531140185e-06,
-    "faf95Max": 6.800000000000001e-07,
-    "faf95MaxAncestry": "nfe",
-    "creationDate": datetime.date(datetime.now()).isoformat(),
-    "modificationDate": datetime.date(datetime.now()).isoformat(),
+    "alleleCount": int(TEST_GNOMAD_ALLELE_COUNT),
+    "alleleNumber": int(TEST_GNOMAD_ALLELE_NUMBER),
+    "alleleFrequency": TEST_GNOMAD_ALLELE_FREQUENCY,
+    "faf95Max": float(TEST_GNOMAD_FAF95_MAX),
+    "faf95MaxAncestry": TEST_GNOMAD_FAF95_MAX_ANCESTRY,
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
     "recordType": "GnomADVariantWithMappedVariants",
     "id": 1,  # Presuming this is the only gnomAD variant in the database
 }

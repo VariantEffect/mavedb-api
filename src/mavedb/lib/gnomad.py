@@ -13,7 +13,6 @@ from mavedb.models.mapped_variant import MappedVariant
 
 GNOMAD_DB_NAME = "gnomAD"
 GNOMAD_DATA_VERSION = os.getenv("GNOMAD_DATA_VERSION")
-
 logger = logging.getLogger(__name__)
 
 
@@ -24,8 +23,8 @@ def gnomad_identifier(contig: str, position: Union[str, int], alleles: list[str]
     contig = contig.replace("chr", "")
     position = str(position)
 
-    if len(alleles) < 2:
-        raise ValueError("At least two alleles are required to create a gnomAD identifier.")
+    if len(alleles) != 2:
+        raise ValueError("The allele list may only contain two alleles.")
 
     # Create the identifier in the format: contig-position-allele1-allele2
     return f"{contig}-{position}-{'-'.join(alleles)}"
@@ -57,16 +56,16 @@ def allele_list_from_list_like_string(alleles_string: str) -> list[str]:
     if not alleles_string:
         return []
 
-    if not re.match(r"\[[(AGTC)+\, (AGTC)+]", alleles_string):
+    if not re.match(r"^\"\[\s*[AGTC]+(?:\s*,\s*[AGTC]+)\s*\]\"$", alleles_string):
         raise ValueError("Invalid format for alleles string.")
 
-    alleles_string = alleles_string.strip().strip("[]")
+    alleles_string = alleles_string.strip().strip('"[]')
     alleles = [allele.strip() for allele in alleles_string.split(",")]
 
     return alleles
 
 
-def gnomad_variant_data_for_caids(caids: Sequence[str]) -> Sequence[Row[Any]]:
+def gnomad_variant_data_for_caids(caids: Sequence[str]) -> Sequence[Row[Any]]:  # pragma: no cover
     """
     Fetches variant rows from the gnomAD table for a list of CAIDs.
 
@@ -210,7 +209,12 @@ def link_gnomad_variants_to_mapped_variants(
             )
 
         logger.info(
-            f"Linked {len(mapped_variants_with_caids)} mapped variants with CAID {row.caid} to gnomAD variant {gnomad_variant.db_identifier}. ({index}/{len(gnomad_variant_data)})"
+            f"Linked {len(mapped_variants_with_caids)} mapped variants with CAID {row.caid} to gnomAD variant {gnomad_identifier_for_variant}. ({index}/{len(gnomad_variant_data)})"
         )
 
+    save_to_logging_context({"linked_gnomad_variants": linked_gnomad_variants})
+    logger.info(
+        msg=f"Linked a total of {linked_gnomad_variants} gnomAD variants to mapped variants.",
+        extra=logging_context(),
+    )
     return linked_gnomad_variants
