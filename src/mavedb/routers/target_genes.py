@@ -1,14 +1,17 @@
-from typing import Any, List
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from mavedb import deps
-from mavedb.lib.authentication import UserData
+from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.authorization import require_current_user
+from mavedb.lib.permissions import Action, has_permission
+from mavedb.lib.score_sets import find_superseded_score_set_tail
 from mavedb.lib.target_genes import (
     search_target_genes as _search_target_genes,
 )
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
 from mavedb.view_models import target_gene
 from mavedb.view_models.search import TextSearch
@@ -25,20 +28,30 @@ def search_my_target_genes(
     """
     Search my target genes.
     """
-
-    return _search_target_genes(db, user_data.user, search, 50)
+    items = _search_target_genes(db, user_data.user, search, 50)
+    return [i for i in items if i.score_set.superseding_score_set is None]
 
 
 @router.get("/target-genes", status_code=200, response_model=List[target_gene.TargetGene], responses={404: {}})
 def list_target_genes(
     *,
     db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
     """
     List target genes.
+    Selectinload is more efficient if we need more queries search.
     """
-    items = db.query(TargetGene).order_by(TargetGene.name).all()
-    return items
+    items = (
+        db.query(TargetGene)
+        .options(selectinload(TargetGene.score_set).selectinload(ScoreSet.superseding_score_set)).all()
+    )
+    validated_items = []
+    for gene in items:
+        latest_score_set = find_superseded_score_set_tail(gene.score_set, Action.READ, user_data)
+        if latest_score_set and gene.score_set.urn == latest_score_set.urn:
+            validated_items.append(gene)
+    return sorted(validated_items, key=lambda i: i.name)
 
 
 @router.get("/target-genes/names", status_code=200, response_model=List[str], responses={404: {}})
@@ -74,12 +87,13 @@ def fetch_target_gene(
     *,
     item_id: int,
     db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
     """
-    Fetch a single target gene by ID.
+    Fetch a single target gene by ID. Only check the permission
     """
     item = db.query(TargetGene).filter(TargetGene.id == item_id).first()
-    if not item:
+    if not item or not has_permission(user_data, item.score_set, Action.READ).permitted:
         raise HTTPException(status_code=404, detail=f"TargetGene with ID {item_id} not found")
     return item
 
@@ -87,10 +101,16 @@ def fetch_target_gene(
 @router.post("/target-genes/search", status_code=200, response_model=List[target_gene.TargetGene])
 def search_target_genes(
     search: TextSearch,
-    db: Session = Depends(deps.get_db)
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user)
 ) -> Any:
     """
     Search target genes.
     """
-
-    return _search_target_genes(db, None, search, 50)
+    items = _search_target_genes(db, None, search, 50)
+    validated_items = []
+    for gene in items:
+        latest_score_set = find_superseded_score_set_tail(gene.score_set, Action.READ, user_data)
+        if latest_score_set and gene.score_set.urn == latest_score_set.urn:
+            validated_items.append(gene)
+    return sorted(validated_items, key=lambda i: i.name)

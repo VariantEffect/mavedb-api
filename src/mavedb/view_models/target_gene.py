@@ -32,6 +32,9 @@ class ExternalIdentifiersGetter(GetterDict):
             refseq_offset = getattr(self._obj, "refseq_offset")
             uniprot_offset = getattr(self._obj, "uniprot_offset")
             return list(filter(lambda x: x is not None, [ensembl_offset, refseq_offset, uniprot_offset]))
+        elif key == "score_set_urn":
+            score_set = getattr(self._obj, "score_set", None)
+            return score_set.urn if score_set else None
         else:
             return super().get(key, default)
 
@@ -97,6 +100,7 @@ class TargetGene(SavedTargetGene):
     target_sequence: Optional[TargetSequence]
     target_accession: Optional[TargetAccession]
     external_identifiers: Sequence[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
+    score_set_urn: str
 
     class Config:
         getter_dict = ExternalIdentifiersGetter

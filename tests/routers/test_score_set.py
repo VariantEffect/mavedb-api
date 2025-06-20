@@ -99,6 +99,7 @@ def test_create_minimal_score_set(client, setup_router_db):
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
     expected_response["experiment"].update({"numScoreSets": 1})
+    expected_response["targetGenes"][0].update({"scoreSetUrn": response_data["urn"]})
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -138,6 +139,7 @@ def test_create_score_set_with_contributor(client, setup_router_db):
         }
     ]
     expected_response["experiment"].update({"numScoreSets": 1})
+    expected_response["targetGenes"][0].update({"scoreSetUrn": response_data["urn"]})
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -171,6 +173,7 @@ def test_create_score_set_with_score_range(client, setup_router_db, score_ranges
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
     expected_response["experiment"].update({"numScoreSets": 1})
+    expected_response["targetGenes"][0].update({"scoreSetUrn": response_data["urn"]})
     expected_response["scoreRanges"] = saved_score_ranges
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
@@ -208,6 +211,7 @@ def test_create_score_set_with_score_range_and_odds_path_source(
     )
     expected_response[camelize(publication_list)] = [SAVED_PUBMED_PUBLICATION]
     expected_response["experiment"].update({"numScoreSets": 1})
+    expected_response["targetGenes"][0].update({"scoreSetUrn": response_data["urn"]})
     expected_response["scoreRanges"] = TEST_SAVED_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
@@ -253,6 +257,7 @@ def test_remove_score_range_from_score_set(client, setup_router_db):
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
     expected_response["experiment"].update({"numScoreSets": 1})
+    expected_response["targetGenes"][0].update({"scoreSetUrn": response_data["urn"]})
     expected_response["scoreRanges"] = TEST_SAVED_SCORE_SET_RANGE
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
@@ -329,6 +334,7 @@ def test_can_update_score_set_data_before_publication(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
     )
     expected_response["experiment"].update({"numScoreSets": 1})
+    expected_response["targetGenes"][0].update({"scoreSetUrn": score_set["urn"]})
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
     assert response.status_code == 200
@@ -350,7 +356,9 @@ def test_can_update_score_set_data_before_publication(
     # Although the client provides the license id, the response includes the full license.
     if attribute == "license_id":
         attribute = "license"
-
+    if attribute == "target_genes":
+        for tg in expected_response_data:
+            tg["scoreSetUrn"] = score_set["urn"]
     assert expected_response_data == response_data[camelize(attribute)]
 
 
@@ -414,6 +422,7 @@ def test_can_update_score_set_supporting_data_after_publication(
         }
     )
     expected_response["experiment"].update({"numScoreSets": 1})
+    expected_response["targetGenes"][0].update({"scoreSetUrn": published_urn})
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -477,6 +486,7 @@ def test_cannot_update_score_set_target_data_after_publication(
         }
     )
     expected_response["experiment"].update({"numScoreSets": 1})
+    expected_response["targetGenes"][0].update({"scoreSetUrn": published_urn})
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -490,6 +500,10 @@ def test_cannot_update_score_set_target_data_after_publication(
     response = client.get(f"/api/v1/score-sets/{published_urn}")
     assert response.status_code == 200
     response_data = response.json()
+
+    if attribute == "target_genes":
+        for tg in expected_response_data:
+            tg["scoreSetUrn"] = published_urn
 
     if expected_response_data:
         assert expected_response_data == response_data[camelize(attribute)]
@@ -509,6 +523,7 @@ def test_get_own_private_score_set(client, setup_router_db):
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
     )
     expected_response["experiment"].update({"numScoreSets": 1})
+    expected_response["targetGenes"][0].update({"scoreSetUrn": score_set["urn"]})
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
     assert response.status_code == 200
@@ -611,6 +626,7 @@ def test_contributor_can_get_other_users_private_score_set(session, client, setu
         "lastName": EXTRA_USER["last_name"],
     }
     expected_response["experiment"].update({"numScoreSets": 1})
+    expected_response["targetGenes"][0].update({"scoreSetUrn": score_set["urn"]})
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
     assert response.status_code == 200
@@ -628,6 +644,7 @@ def test_admin_can_get_other_user_private_score_set(session, client, admin_app_o
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
     )
     expected_response["experiment"].update({"numScoreSets": 1})
+    expected_response["targetGenes"][0].update({"scoreSetUrn": score_set["urn"]})
     with DependencyOverrider(admin_app_overrides):
         response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
 
@@ -1005,6 +1022,7 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
             "processingState": ProcessingState.success.name,
         }
     )
+    expected_response["targetGenes"][0].update({"scoreSetUrn": published_score_set["urn"]})
     assert sorted(expected_response.keys()) == sorted(published_score_set.keys())
 
     # refresh score set to post worker state
@@ -1160,6 +1178,7 @@ def test_contributor_can_publish_other_users_score_set(session, data_provider, c
         "firstName": EXTRA_USER["first_name"],
         "lastName": EXTRA_USER["last_name"],
     }
+    expected_response["targetGenes"][0].update({"scoreSetUrn": published_score_set["urn"]})
     assert sorted(expected_response.keys()) == sorted(published_score_set.keys())
 
     # refresh score set to post worker state
@@ -2296,6 +2315,7 @@ def test_admin_can_add_score_calibrations_to_score_set(client, setup_router_db, 
     )
     expected_response["scoreCalibrations"] = {"test_calibrations": deepcopy(TEST_SAVED_SCORE_CALIBRATION)}
     expected_response["experiment"].update({"numScoreSets": 1})
+    expected_response["targetGenes"][0].update({"scoreSetUrn": score_set["urn"]})
 
     assert response.status_code == 200
     for key in expected_response:
