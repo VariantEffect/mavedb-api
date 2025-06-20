@@ -1,5 +1,6 @@
 # ruff: noqa: E402
 import pytest
+from unittest.mock import patch
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
@@ -9,7 +10,7 @@ from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.user import change_ownership
-from tests.helpers.util.score_set import create_seq_score_set
+from tests.helpers.util.score_set import create_seq_score_set, publish_score_set
 from tests.helpers.util.variant import mock_worker_variant_insertion
 
 
@@ -75,9 +76,10 @@ def test_search_public_target_genes_match_on_other_user(session, data_provider, 
     experiment = create_experiment(client, {"title": "Experiment 1"})
     score_set = create_seq_score_set(client, experiment["urn"])
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
-    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
-    assert response.status_code == 200
-    published_score_set = response.json()
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
     change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
 
     search_payload = {"text": "TEST1"}
