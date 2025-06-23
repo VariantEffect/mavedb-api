@@ -34,6 +34,10 @@ def lookup_variants(
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(get_current_user),
 ):
+    save_to_logging_context({"requested_resource": "clingen-allele-id-lookups"})
+    save_to_logging_context({"clingen_allele_ids_to_lookup": request.clingen_allele_ids})
+    logger.debug(msg="Looking up variants by Clingen Allele IDs", extra=logging_context())
+
     variants = db.execute(
         select(Variant, MappedVariant.clingen_allele_id)
         .join(MappedVariant)
@@ -42,12 +46,25 @@ def lookup_variants(
     ).all()
 
     variants_by_allele_id: dict[str, list[Variant]] = {allele_id: [] for allele_id in request.clingen_allele_ids}
+    save_to_logging_context({"num_variants_matching_clingen_allele_ids": len(variants)})
+    logger.debug(msg="Found variants with matching ClinGen Allele IDs", extra=logging_context())
 
+    num_variants_matching_clingen_allele_ids_and_permitted = 0
     for variant, allele_id in variants:
         if has_permission(user_data, variant.score_set, Action.READ).permitted:
             variants_by_allele_id[allele_id].append(variant)
+            num_variants_matching_clingen_allele_ids_and_permitted += 1
 
-    return [variants_by_allele_id[allele_id] for allele_id in request.clingen_allele_ids]
+    save_to_logging_context(
+        {"clingen_allele_ids_with_permitted_variants": num_variants_matching_clingen_allele_ids_and_permitted}
+    )
+
+    if not any(matched_variants for matched_variants in variants_by_allele_id.values()):
+        logger.info(msg="No variants found for the provided Clingen Allele IDs.", extra=logging_context())
+        raise HTTPException(status_code=404, detail="No variants found for the provided Clingen Allele IDs.")
+
+    # These dict methods will preserve key ordering.
+    return list(variants_by_allele_id.values())
 
 
 @router.get(
