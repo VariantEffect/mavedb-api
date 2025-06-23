@@ -13,7 +13,7 @@ fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.clingen.constants import LDH_MAVE_ACCESS_ENDPOINT, GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD
 from mavedb.lib.utils import batched
-from mavedb.lib.clingen.linked_data_hub import (
+from mavedb.lib.clingen.services import (
     ClinGenLdhService,
     get_clingen_variation,
     clingen_allele_id_from_ldh_variation,

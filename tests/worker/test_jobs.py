@@ -18,7 +18,7 @@ fastapi = pytest.importorskip("fastapi")
 from mavedb.data_providers.services import VRSMap
 from mavedb.lib.mave.constants import HGVS_NT_COLUMN
 from mavedb.lib.score_sets import csv_data_to_df
-from mavedb.lib.clingen.linked_data_hub import ClinGenLdhService, clingen_allele_id_from_ldh_variation
+from mavedb.lib.clingen.services import ClinGenLdhService, clingen_allele_id_from_ldh_variation
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
