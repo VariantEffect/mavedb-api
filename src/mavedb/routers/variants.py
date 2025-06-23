@@ -63,6 +63,7 @@ def lookup_variants(
         logger.info(msg="No variants found for the provided Clingen Allele IDs.", extra=logging_context())
         raise HTTPException(status_code=404, detail="No variants found for the provided Clingen Allele IDs.")
 
+    # These dict methods will preserve key ordering.
     return list(variants_by_allele_id.values())
 
 
