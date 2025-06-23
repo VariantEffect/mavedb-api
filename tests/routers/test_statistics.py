@@ -12,6 +12,7 @@ from mavedb.models.published_variant import PublishedVariantsMV
 
 from tests.helpers.constants import (
     TEST_BIORXIV_IDENTIFIER,
+    TEST_MINIMAL_MAPPED_VARIANT,
     TEST_NT_CDOT_TRANSCRIPT,
     TEST_KEYWORDS,
     TEST_MEDRXIV_IDENTIFIER,
@@ -64,7 +65,7 @@ def setup_seq_scoreset(setup_router_db, session, data_provider, client, data_fil
     unpublished_score_set = mock_worker_variant_insertion(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
-    create_mapped_variants_for_score_set(session, unpublished_score_set["urn"])
+    create_mapped_variants_for_score_set(session, unpublished_score_set["urn"], TEST_MINIMAL_MAPPED_VARIANT)
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         publish_score_set(client, unpublished_score_set["urn"])
