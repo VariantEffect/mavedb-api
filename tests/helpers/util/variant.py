@@ -17,7 +17,6 @@ from mavedb.models.target_gene import TargetGene
 from mavedb.models.variant import Variant
 
 from tests.helpers.constants import (
-    TEST_MINIMAL_MAPPED_VARIANT,
     TEST_MINIMAL_PRE_MAPPED_METADATA,
     TEST_MINIMAL_POST_MAPPED_METADATA,
 )
@@ -84,13 +83,13 @@ def mock_worker_variant_insertion(
     return client.get(f"api/v1/score-sets/{score_set['urn']}").json()
 
 
-def create_mapped_variants_for_score_set(db, score_set_urn):
+def create_mapped_variants_for_score_set(db, score_set_urn, mapped_variant: dict[str, any]):
     score_set = db.scalar(select(ScoreSet).where(ScoreSet.urn == score_set_urn))
     targets = db.scalars(select(TargetGene).where(TargetGene.score_set_id == score_set.id))
     variants = db.scalars(select(Variant).where(Variant.score_set_id == score_set.id)).all()
 
     for variant in variants:
-        mv = MappedVariant(**TEST_MINIMAL_MAPPED_VARIANT, variant_id=variant.id)
+        mv = MappedVariant(**mapped_variant, variant_id=variant.id)
         db.add(mv)
 
     for target in targets:
