@@ -37,6 +37,7 @@ from mavedb.lib.exceptions import (
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.mapping import ANNOTATION_LAYERS
 from mavedb.lib.score_sets import (
+    get_hgvs_from_post_mapped,
     columns_for_dataset,
     create_variants,
     create_variants_data,
@@ -46,7 +47,6 @@ from mavedb.lib.validation.dataframe.dataframe import (
     validate_and_standardize_dataframe_pair,
 )
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.lib.variants import hgvs_from_mapped_variant
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.mapped_variant import MappedVariant
@@ -813,8 +813,16 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
 
         variant_content = []
         for variant, mapped_variant in variant_objects:
-            for variation in hgvs_from_mapped_variant(mapped_variant):
-                variant_content.append((variation, variant, mapped_variant))
+            variation = get_hgvs_from_post_mapped(mapped_variant.post_mapped)
+
+            if not variation:
+                logger.warning(
+                    msg=f"Could not construct a valid HGVS string for mapped variant {mapped_variant.id}. Skipping submission of this variant.",
+                    extra=logging_context,
+                )
+                continue
+
+            variant_content.append((variation, variant, mapped_variant))
 
         submission_content = construct_ldh_submission(variant_content)
 

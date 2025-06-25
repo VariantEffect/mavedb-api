@@ -1782,7 +1782,7 @@ async def test_submit_score_set_mappings_to_ldh_exception_in_hgvs_generation(
     )
 
     with patch(
-        "mavedb.lib.variants.hgvs_from_mapped_variant",
+        "mavedb.lib.variants.get_hgvs_from_post_mapped",
         side_effect=Exception(),
     ):
         result = await submit_score_set_mappings_to_ldh(standalone_worker_context, uuid4().hex, score_set.id)
