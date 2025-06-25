@@ -19,7 +19,7 @@ from mavedb.view_models.search import TextSearch
 router = APIRouter(prefix="/api/v1", tags=["target-genes"], responses={404: {"description": "Not found"}})
 
 
-@router.post("/me/target-genes/search", status_code=200, response_model=List[target_gene.TargetGene])
+@router.post("/me/target-genes/search", status_code=200, response_model=List[target_gene.TargetGeneWithScoreSetUrn])
 def search_my_target_genes(
     search: TextSearch,
     db: Session = Depends(deps.get_db),
@@ -32,7 +32,7 @@ def search_my_target_genes(
     return [i for i in items if i.score_set.superseding_score_set is None]
 
 
-@router.get("/target-genes", status_code=200, response_model=List[target_gene.TargetGene], responses={404: {}})
+@router.get("/target-genes", status_code=200, response_model=List[target_gene.TargetGeneWithScoreSetUrn], responses={404: {}})
 def list_target_genes(
     *,
     db: Session = Depends(deps.get_db),
@@ -82,7 +82,7 @@ def list_target_gene_categories(
     return sorted(list(set(categories)))
 
 
-@router.get("/target-genes/{item_id}", status_code=200, response_model=target_gene.TargetGene, responses={404: {}})
+@router.get("/target-genes/{item_id}", status_code=200, response_model=target_gene.TargetGeneWithScoreSetUrn, responses={404: {}})
 def fetch_target_gene(
     *,
     item_id: int,
@@ -98,7 +98,7 @@ def fetch_target_gene(
     return item
 
 
-@router.post("/target-genes/search", status_code=200, response_model=List[target_gene.TargetGene])
+@router.post("/target-genes/search", status_code=200, response_model=List[target_gene.TargetGeneWithScoreSetUrn])
 def search_target_genes(
     search: TextSearch,
     db: Session = Depends(deps.get_db),

@@ -100,7 +100,6 @@ class TargetGene(SavedTargetGene):
     target_sequence: Optional[TargetSequence]
     target_accession: Optional[TargetAccession]
     external_identifiers: Sequence[external_gene_identifier_offset.ExternalGeneIdentifierOffset]
-    score_set_urn: str
 
     class Config:
         getter_dict = ExternalIdentifiersGetter
@@ -110,6 +109,11 @@ class TargetGene(SavedTargetGene):
         if "target_sequence" not in values and not target_accession:
             raise ValueError("either a `target_sequence` or `target_accession` is required")
         return target_accession
+
+
+class TargetGeneWithScoreSetUrn(TargetGene):
+    """Target gene view model containing its score set urn."""
+    score_set_urn: str
 
 
 class ShortTargetGene(SavedTargetGene):

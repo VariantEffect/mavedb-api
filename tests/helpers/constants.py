@@ -602,8 +602,6 @@ TEST_MINIMAL_SEQ_SCORESET = {
                     "url": TEST_TAXONOMY["url"],
                 },
             },
-            # keys to be set after receiving response
-            "scoreSetUrn": None,
         }
     ],
 }
@@ -657,8 +655,6 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
                     "url": TEST_TAXONOMY["url"],
                 },
             },
-            # keys to be set after receiving response
-            "scoreSetUrn": None,
         }
     ],
     "metaAnalyzesScoreSetUrns": [],
@@ -694,8 +690,6 @@ TEST_MINIMAL_ACC_SCORESET = {
                 "gene": VALID_GENE,
                 "isBaseEditor": False,
             },
-            # keys to be set after receiving response
-            "scoreSetUrn": None,
         }
     ],
 }
@@ -777,8 +771,6 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
                 "gene": VALID_GENE,
                 "isBaseEditor": False,
             },
-            # keys to be set after receiving response
-            "scoreSetUrn": None,
         }
     ],
     "metaAnalyzesScoreSetUrns": [],
