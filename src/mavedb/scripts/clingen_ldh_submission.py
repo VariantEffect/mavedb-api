@@ -13,7 +13,7 @@ from mavedb.scripts.environment import with_database_session
 from mavedb.lib.clingen.services import ClinGenLdhService
 from mavedb.lib.clingen.constants import DEFAULT_LDH_SUBMISSION_BATCH_SIZE, LDH_SUBMISSION_ENDPOINT
 from mavedb.lib.clingen.content_constructors import construct_ldh_submission
-from mavedb.lib.variants import hgvs_from_mapped_variant
+from mavedb.lib.score_sets import get_hgvs_from_post_mapped
 
 logger = logging.getLogger(__name__)
 
@@ -67,17 +67,17 @@ def submit_urns_to_clingen(
                     if variant.hgvs_nt is not None and intronic_variant_with_reference_regex.search(variant.hgvs_nt):
                         # Use the hgvs_nt string for unmapped intronic variants. This is because our mapper does not yet
                         # support mapping intronic variants.
-                        variation = [variant.hgvs_nt]
+                        variation = variant.hgvs_nt
                         if variation:
                             logger.info(f"Using hgvs_nt for unmapped intronic variant {variant.urn}: {variation}")
                     elif variant.hgvs_nt is not None and variant_with_reference_regex.search(variant.hgvs_nt):
                         # Use the hgvs_nt string for other unmapped NT variants in accession-based score sets.
-                        variation = [variant.hgvs_nt]
+                        variation = variant.hgvs_nt
                         if variation:
                             logger.info(f"Using hgvs_nt for unmapped non-intronic variant {variant.urn}: {variation}")
                     elif variant.hgvs_pro is not None and variant_with_reference_regex.search(variant.hgvs_pro):
                         # Use the hgvs_pro string for unmapped PRO variants in accession-based score sets.
-                        variation = [variant.hgvs_pro]
+                        variation = variant.hgvs_pro
                         if variation:
                             logger.info(f"Using hgvs_pro for unmapped non-intronic variant {variant.urn}: {variation}")
                     else:
@@ -95,7 +95,7 @@ def submit_urns_to_clingen(
                         and variant.hgvs_nt is not None
                         and variant_with_reference_regex.search(variant.hgvs_nt)
                     ):
-                        variation = [variant.hgvs_nt]
+                        variation = variant.hgvs_nt
                         if variation:
                             logger.info(f"Using hgvs_nt for mapped variant {variant.urn}: {variation}")
                     elif (
@@ -103,13 +103,13 @@ def submit_urns_to_clingen(
                         and variant.hgvs_pro is not None
                         and variant_with_reference_regex.search(variant.hgvs_pro)
                     ):
-                        variation = [variant.hgvs_pro]
+                        variation = variant.hgvs_pro
                         if variation:
                             logger.info(
                                 f"Using hgvs_pro for mapped variant {variant.urn}: {variation}"
                             )  # continue  # TEMPORARY. Only submit unmapped variants.
                     else:
-                        variation = hgvs_from_mapped_variant(mapped_variant)
+                        variation = get_hgvs_from_post_mapped(mapped_variant)
                         if variation:
                             logger.info(f"Using mapped variant for {variant.urn}: {variation}")
 
@@ -119,8 +119,7 @@ def submit_urns_to_clingen(
                     )
                     continue
 
-                for allele in variation:
-                    variant_content.append((allele, variant, mapped_variant))
+                variant_content.append((variation, variant, mapped_variant))
 
             if debug:
                 logger.debug("Debug mode enabled. Submitting only one request to ClinGen.")

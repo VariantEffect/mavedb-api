@@ -14,20 +14,27 @@ fastapi = pytest.importorskip("fastapi")
 from mavedb.lib.clingen.constants import LDH_MAVE_ACCESS_ENDPOINT, GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD
 from mavedb.lib.utils import batched
 from mavedb.lib.clingen.services import (
+    ClinGenAlleleRegistryService,
     ClinGenLdhService,
     get_clingen_variation,
     clingen_allele_id_from_ldh_variation,
+    get_allele_registry_associations,
 )
 
 from tests.helpers.constants import VALID_CLINGEN_CA_ID
 
-
 TEST_CLINGEN_URL = "https://pytest.clingen.com"
+TEST_CAR_URL = "https://pytest.car.clingen.com"
 
 
 @pytest.fixture
 def clingen_service():
     yield ClinGenLdhService(url=TEST_CLINGEN_URL)
+
+
+@pytest.fixture
+def car_service():
+    return ClinGenAlleleRegistryService(url=TEST_CAR_URL)
 
 
 class TestClinGenLdhService:
@@ -43,8 +50,8 @@ class TestClinGenLdhService:
         assert jwt == "existing_jwt_token"
         mock_existing_jwt.assert_called_once()
 
-    @patch("mavedb.lib.clingen.linked_data_hub.requests.post")
-    @patch("mavedb.lib.clingen.linked_data_hub.ClinGenLdhService._existing_jwt")
+    @patch("mavedb.lib.clingen.services.requests.post")
+    @patch("mavedb.lib.clingen.services.ClinGenLdhService._existing_jwt")
     def test_authenticate_with_new_jwt(self, mock_existing_jwt, mock_post, clingen_service):
         mock_existing_jwt.return_value = None
 
@@ -61,8 +68,8 @@ class TestClinGenLdhService:
             json={"type": "plain", "val": GENBOREE_ACCOUNT_PASSWORD},
         )
 
-    @patch("mavedb.lib.clingen.linked_data_hub.requests.post")
-    @patch("mavedb.lib.clingen.linked_data_hub.ClinGenLdhService._existing_jwt")
+    @patch("mavedb.lib.clingen.services.requests.post")
+    @patch("mavedb.lib.clingen.services.ClinGenLdhService._existing_jwt")
     def test_authenticate_http_error(self, mock_existing_jwt, mock_post, clingen_service):
         mock_existing_jwt.return_value = None
 
@@ -75,8 +82,8 @@ class TestClinGenLdhService:
 
         mock_post.assert_called_once()
 
-    @patch("mavedb.lib.clingen.linked_data_hub.requests.post")
-    @patch("mavedb.lib.clingen.linked_data_hub.ClinGenLdhService._existing_jwt")
+    @patch("mavedb.lib.clingen.services.requests.post")
+    @patch("mavedb.lib.clingen.services.ClinGenLdhService._existing_jwt")
     def test_authenticate_missing_jwt_in_response(self, mock_existing_jwt, mock_post, clingen_service):
         mock_existing_jwt.return_value = None
 
@@ -92,8 +99,8 @@ class TestClinGenLdhService:
 
     ### Test the _existing_jwt method
 
-    @patch("mavedb.lib.clingen.linked_data_hub.os.getenv")
-    @patch("mavedb.lib.clingen.linked_data_hub.jwt.get_unverified_claims")
+    @patch("mavedb.lib.clingen.services.os.getenv")
+    @patch("mavedb.lib.clingen.services.jwt.get_unverified_claims")
     def test_existing_jwt_valid(self, mock_get_unverified_claims, mock_getenv, clingen_service):
         mock_getenv.return_value = "valid_jwt_token"
         mock_get_unverified_claims.return_value = {"exp": (datetime.now().timestamp() + 3600)}
@@ -104,8 +111,8 @@ class TestClinGenLdhService:
         mock_getenv.assert_called_once_with("GENBOREE_JWT")
         mock_get_unverified_claims.assert_called_once_with("valid_jwt_token")
 
-    @patch("mavedb.lib.clingen.linked_data_hub.os.getenv")
-    @patch("mavedb.lib.clingen.linked_data_hub.jwt.get_unverified_claims")
+    @patch("mavedb.lib.clingen.services.os.getenv")
+    @patch("mavedb.lib.clingen.services.jwt.get_unverified_claims")
     def test_existing_jwt_expired(self, mock_get_unverified_claims, mock_getenv, clingen_service):
         mock_getenv.return_value = "expired_jwt_token"
         mock_get_unverified_claims.return_value = {"exp": (datetime.now().timestamp() - 3600)}
@@ -116,7 +123,7 @@ class TestClinGenLdhService:
         mock_getenv.assert_called_once_with("GENBOREE_JWT")
         mock_get_unverified_claims.assert_called_once_with("expired_jwt_token")
 
-    @patch("mavedb.lib.clingen.linked_data_hub.os.getenv")
+    @patch("mavedb.lib.clingen.services.os.getenv")
     def test_existing_jwt_not_set(self, mock_getenv, clingen_service):
         mock_getenv.return_value = None
 
@@ -127,9 +134,9 @@ class TestClinGenLdhService:
 
     ### Test the dispatch_submissions method
 
-    @patch("mavedb.lib.clingen.linked_data_hub.requests.put")
-    @patch("mavedb.lib.clingen.linked_data_hub.ClinGenLdhService.authenticate")
-    @patch("mavedb.lib.clingen.linked_data_hub.batched")
+    @patch("mavedb.lib.clingen.services.requests.put")
+    @patch("mavedb.lib.clingen.services.ClinGenLdhService.authenticate")
+    @patch("mavedb.lib.clingen.services.batched")
     def test_dispatch_submissions_success(self, mock_batched, mock_authenticate, mock_request, clingen_service):
         mock_authenticate.return_value = "test_jwt_token"
         mock_request.return_value.json.return_value = {"success": True}
@@ -150,8 +157,8 @@ class TestClinGenLdhService:
                 headers={"Authorization": "Bearer test_jwt_token", "Content-Type": "application/json"},
             )
 
-    @patch("mavedb.lib.clingen.linked_data_hub.requests.put")
-    @patch("mavedb.lib.clingen.linked_data_hub.ClinGenLdhService.authenticate")
+    @patch("mavedb.lib.clingen.services.requests.put")
+    @patch("mavedb.lib.clingen.services.ClinGenLdhService.authenticate")
     def test_dispatch_submissions_failure(self, mock_authenticate, mock_request, clingen_service):
         mock_authenticate.return_value = "test_jwt_token"
         mock_request.side_effect = requests.exceptions.RequestException("Request failed")
@@ -169,8 +176,8 @@ class TestClinGenLdhService:
                 headers={"Authorization": "Bearer test_jwt_token", "Content-Type": "application/json"},
             )
 
-    @patch("mavedb.lib.clingen.linked_data_hub.requests.put")
-    @patch("mavedb.lib.clingen.linked_data_hub.ClinGenLdhService.authenticate")
+    @patch("mavedb.lib.clingen.services.requests.put")
+    @patch("mavedb.lib.clingen.services.ClinGenLdhService.authenticate")
     def test_dispatch_submissions_partial_success(self, mock_authenticate, mock_request, clingen_service):
         mock_authenticate.return_value = "test_jwt_token"
 
@@ -189,9 +196,9 @@ class TestClinGenLdhService:
         assert len(failures) == 1
         assert failures[0]["id"] == 2
 
-    @patch("mavedb.lib.clingen.linked_data_hub.requests.put")
-    @patch("mavedb.lib.clingen.linked_data_hub.ClinGenLdhService.authenticate")
-    @patch("mavedb.lib.clingen.linked_data_hub.batched")
+    @patch("mavedb.lib.clingen.services.requests.put")
+    @patch("mavedb.lib.clingen.services.ClinGenLdhService.authenticate")
+    @patch("mavedb.lib.clingen.services.batched")
     def test_dispatch_submissions_no_batching(self, mock_batched, mock_authenticate, mock_request, clingen_service):
         mock_authenticate.return_value = "test_jwt_token"
         mock_request.return_value.json.return_value = {"success": True}
@@ -212,7 +219,7 @@ class TestClinGenLdhService:
             )
 
 
-@patch("mavedb.lib.clingen.linked_data_hub.requests.get")
+@patch("mavedb.lib.clingen.services.requests.get")
 def test_get_clingen_variation_success(mock_get):
     mocked_response_json = {"data": {"ldFor": {"Variant": [{"id": "variant_1", "name": "Test Variant"}]}}}
     mock_response = MagicMock()
@@ -230,7 +237,7 @@ def test_get_clingen_variation_success(mock_get):
     )
 
 
-@patch("mavedb.lib.clingen.linked_data_hub.requests.get")
+@patch("mavedb.lib.clingen.services.requests.get")
 def test_get_clingen_variation_failure(mock_get):
     mock_response = MagicMock()
     mock_response.status_code = 404
@@ -270,3 +277,91 @@ def test_clingen_allele_id_from_ldh_variation_key_error():
 
     result = clingen_allele_id_from_ldh_variation(variation)
     assert result is None
+
+
+class TestClinGenAlleleRegistryService:
+    def test_init(self, car_service):
+        assert car_service.url == TEST_CAR_URL
+
+    @patch("mavedb.lib.clingen.services.GENBOREE_ACCOUNT_NAME", "testuser")
+    @patch("mavedb.lib.clingen.services.GENBOREE_ACCOUNT_PASSWORD", "testpass")
+    def test_construct_auth_url(self, car_service):
+        url = "https://example.com/api?param=1"
+        result = car_service.construct_auth_url(url)
+        assert result.startswith(url)
+        assert "gbLogin=testuser" in result
+        assert "gbTime=" in result
+        assert "gbToken=" in result
+
+    @patch("mavedb.lib.clingen.services.GENBOREE_ACCOUNT_NAME", None)
+    @patch("mavedb.lib.clingen.services.GENBOREE_ACCOUNT_PASSWORD", None)
+    def test_construct_auth_url_missing_env(self, car_service):
+        with pytest.raises(ValueError, match="Genboree account name and password must be set"):
+            car_service.construct_auth_url("https://example.com/api")
+
+    @patch("mavedb.lib.clingen.services.requests.put")
+    @patch("mavedb.lib.clingen.services.ClinGenAlleleRegistryService.construct_auth_url")
+    def test_dispatch_submissions_success(self, mock_auth_url, mock_put, car_service):
+        mock_auth_url.return_value = "https://example.com/api?auth"
+        mock_response = MagicMock()
+        mock_response.json.return_value = [
+            {
+                "@id": "http://reg.test.genome.network/allele/CA123",
+                "genomicAlleles": [{"hgvs": "NM_0001:c.1A>G"}],
+                "transcriptAlleles": [],
+            }
+        ]
+        mock_response.raise_for_status = MagicMock()
+        mock_put.return_value = mock_response
+
+        content_submissions = ["NM_0001:c.1A>G"]
+        result = car_service.dispatch_submissions(content_submissions)
+        assert isinstance(result, list)
+        assert result[0]["@id"].endswith("CA123")
+        mock_put.assert_called_once()
+
+    @patch("mavedb.lib.clingen.services.requests.put")
+    @patch("mavedb.lib.clingen.services.ClinGenAlleleRegistryService.construct_auth_url")
+    def test_dispatch_submissions_failure(self, mock_auth_url, mock_put, car_service):
+        mock_auth_url.return_value = "https://example.com/api?auth"
+        mock_put.side_effect = requests.exceptions.RequestException("Failed")
+
+        content_submissions = ["NM_0001:c.1A>G"]
+        result = car_service.dispatch_submissions(content_submissions)
+        assert result == []
+
+
+def test_get_allele_registry_associations_success():
+    content_submissions = ["NM_0001:c.1A>G", "NM_0002:c.2T>C"]
+    submission_response = [
+        {
+            "@id": "http://reg.test.genome.network/allele/CA123",
+            "genomicAlleles": [{"hgvs": "NM_0001:c.1A>G"}],
+            "transcriptAlleles": [],
+        },
+        {
+            "@id": "http://reg.test.genome.network/allele/CA456",
+            "genomicAlleles": [],
+            "transcriptAlleles": [{"hgvs": "NM_0002:c.2T>C"}],
+        },
+    ]
+    result = get_allele_registry_associations(content_submissions, submission_response)
+    assert result == {"NM_0001:c.1A>G": "CA123", "NM_0002:c.2T>C": "CA456"}
+
+
+def test_get_allele_registry_associations_empty():
+    result = get_allele_registry_associations([], [])
+    assert result == {}
+
+
+def test_get_allele_registry_associations_no_match():
+    content_submissions = ["NM_0001:c.1A>G"]
+    submission_response = [
+        {
+            "@id": "http://reg.test.genome.network/allele/CA123",
+            "genomicAlleles": [{"hgvs": "NM_0002:c.2T>C"}],
+            "transcriptAlleles": [],
+        }
+    ]
+    result = get_allele_registry_associations(content_submissions, submission_response)
+    assert result == {}
