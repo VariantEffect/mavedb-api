@@ -47,6 +47,7 @@ def test_search_my_target_genes_match(session, data_provider, client, setup_rout
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["name"] == "TEST1"
+    assert response.json()[0]["scoreSetUrn"] == score_set["urn"]
 
 
 def test_search_target_genes_no_match(session, data_provider, client, setup_router_db, data_files):
@@ -87,6 +88,7 @@ def test_search_public_target_genes_match_on_other_user(session, data_provider, 
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["name"] == "TEST1"
+    assert response.json()[0]["scoreSetUrn"] == published_score_set["urn"]
 
 
 def test_search_target_genes_match(session, data_provider, client, setup_router_db, data_files):
@@ -99,3 +101,19 @@ def test_search_target_genes_match(session, data_provider, client, setup_router_
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["name"] == "TEST1"
+    assert response.json()[0]["scoreSetUrn"] == score_set["urn"]
+
+
+def test_fetch_target_gene_by_id(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client, {"title": "Experiment 1"})
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    response = client.get("/api/v1/target-genes/1")
+    assert response.status_code == 200
+    assert response.json()["scoreSetUrn"] == score_set["urn"]
+
+
+def test_fetch_target_gene_by_wrong_id(client, setup_router_db):
+    response = client.get("/api/v1/target-genes/1")
+    assert response.status_code == 404
