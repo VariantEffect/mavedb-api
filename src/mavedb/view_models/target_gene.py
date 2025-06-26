@@ -32,6 +32,9 @@ class ExternalIdentifiersGetter(GetterDict):
             refseq_offset = getattr(self._obj, "refseq_offset")
             uniprot_offset = getattr(self._obj, "uniprot_offset")
             return list(filter(lambda x: x is not None, [ensembl_offset, refseq_offset, uniprot_offset]))
+        elif key == "score_set_urn":
+            score_set = getattr(self._obj, "score_set", None)
+            return score_set.urn if score_set else None
         else:
             return super().get(key, default)
 
@@ -106,6 +109,11 @@ class TargetGene(SavedTargetGene):
         if "target_sequence" not in values and not target_accession:
             raise ValueError("either a `target_sequence` or `target_accession` is required")
         return target_accession
+
+
+class TargetGeneWithScoreSetUrn(TargetGene):
+    """Target gene view model containing its score set urn."""
+    score_set_urn: str
 
 
 class ShortTargetGene(SavedTargetGene):
