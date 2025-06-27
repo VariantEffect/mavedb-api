@@ -8,6 +8,7 @@ import jsonschema
 from sqlalchemy import select
 
 from mavedb.models.clinical_control import ClinicalControl as ClinicalControlDbModel
+from mavedb.models.gnomad_variant import GnomADVariant as GnomADVariantDbModel
 from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
@@ -152,6 +153,24 @@ def link_clinical_controls_to_mapped_variants(db, score_set):
     )
     mapped_variants[1].clinical_controls.append(
         db.scalar(select(ClinicalControlDbModel).where(ClinicalControlDbModel.id == 2))
+    )
+
+    db.add(mapped_variants[0])
+    db.add(mapped_variants[1])
+    db.commit()
+
+
+def link_gnomad_variants_to_mapped_variants(db, score_set):
+    mapped_variants = db.scalars(
+        select(MappedVariantDbModel)
+        .join(VariantDbModel)
+        .join(ScoreSetDbModel)
+        .where(ScoreSetDbModel.urn == score_set["urn"])
+    ).all()
+
+    # The first mapped variant gets the gnomAD variant.
+    mapped_variants[0].gnomad_variants.append(
+        db.scalar(select(GnomADVariantDbModel).where(GnomADVariantDbModel.id == 1))
     )
 
     db.add(mapped_variants[0])

@@ -7,9 +7,11 @@ from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
 from mavedb.models.clinical_control_mapped_variant import mapped_variants_clinical_controls_association_table
+from mavedb.models.gnomad_variant_mapped_variant import gnomad_variants_mapped_variants_association_table
 
 if TYPE_CHECKING:
     from .clinical_control import ClinicalControl
+    from .gnomad_variant import GnomADVariant
     from .variant import Variant
 
 
@@ -35,5 +37,10 @@ class MappedVariant(Base):
     clinical_controls: Mapped[list["ClinicalControl"]] = relationship(
         "ClinicalControl",
         secondary=mapped_variants_clinical_controls_association_table,
+        back_populates="mapped_variants",
+    )
+    gnomad_variants: Mapped[list["GnomADVariant"]] = relationship(
+        "GnomADVariant",
+        secondary=gnomad_variants_mapped_variants_association_table,
         back_populates="mapped_variants",
     )

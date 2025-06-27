@@ -27,6 +27,7 @@ class MappedVariantBase(BaseModel):
 
 class MappedVariantUpdate(MappedVariantBase):
     clinical_controls: Sequence[ClinicalControlBase]
+    gnomad_variants: Sequence[GnomADVariantBase]
 
 
 class MappedVariantCreate(MappedVariantUpdate):
@@ -47,6 +48,7 @@ class SavedMappedVariant(MappedVariantBase):
 
 class SavedMappedVariantWithControls(SavedMappedVariant):
     clinical_controls: Sequence[SavedClinicalControl]
+    gnomad_variants: Sequence[SavedGnomADVariant]
 
 
 # Properties to return to non-admin clients
@@ -56,10 +58,12 @@ class MappedVariant(SavedMappedVariant):
 
 class MappedVariantWithControls(SavedMappedVariantWithControls):
     clinical_controls: Sequence[ClinicalControl]
+    gnomad_variants: Sequence[GnomADVariant]
 
 
 # ruff: noqa: E402
 from mavedb.view_models.clinical_control import ClinicalControlBase, ClinicalControl, SavedClinicalControl
+from mavedb.view_models.gnomad_variant import GnomADVariantBase, GnomADVariant, SavedGnomADVariant
 
 MappedVariantCreate.update_forward_refs()
 SavedMappedVariantWithControls.update_forward_refs()
