@@ -22,6 +22,7 @@ from mavedb.worker.jobs import (
     link_clingen_variants,
     submit_score_set_mappings_to_ldh,
     variant_mapper_manager,
+    submit_score_set_mappings_to_car,
 )
 
 from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_USER
@@ -112,6 +113,7 @@ async def arq_worker(data_provider, session, arq_redis):
             variant_mapper_manager,
             submit_score_set_mappings_to_ldh,
             link_clingen_variants,
+            submit_score_set_mappings_to_car,
         ],
         redis_pool=arq_redis,
         burst=True,
