@@ -11,6 +11,7 @@ GENOMIC_FASTA_FILES = [
 ]
 
 DCD_MAP_URL = os.environ.get("DCD_MAPPING_URL", "http://dcd-mapping:8000")
+CDOT_URL = os.environ.get("CDOT_URL", "http://cdot-rest:8000")
 
 
 def seqfetcher() -> ChainedSeqFetcher:
@@ -18,7 +19,7 @@ def seqfetcher() -> ChainedSeqFetcher:
 
 
 def cdot_rest() -> RESTDataProvider:
-    return RESTDataProvider(seqfetcher=seqfetcher())
+    return RESTDataProvider(url=CDOT_URL, seqfetcher=seqfetcher())
 
 
 def vrs_mapper(url: Optional[str] = None) -> VRSMap:
