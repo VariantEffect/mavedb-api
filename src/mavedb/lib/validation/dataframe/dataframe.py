@@ -61,14 +61,15 @@ def validate_and_standardize_dataframe_pair(
     if not targets:
         raise ValueError("Can't validate provided file with no targets.")
 
-    validate_dataframe(scores_df, "scores", targets, hdp)
-    if counts_df is not None:
-        validate_dataframe(counts_df, "counts", targets, hdp)
-        validate_variant_columns_match(scores_df, counts_df)
+    standardized_scores_df = standardize_dataframe(scores_df)
+    standardized_counts_df = standardize_dataframe(counts_df) if counts_df is not None else None
 
-    new_scores_df = standardize_dataframe(scores_df)
-    new_counts_df = standardize_dataframe(counts_df) if counts_df is not None else None
-    return new_scores_df, new_counts_df
+    validate_dataframe(standardized_scores_df, "scores", targets, hdp)
+    if standardized_counts_df is not None:
+        validate_dataframe(standardized_counts_df, "counts", targets, hdp)
+        validate_variant_columns_match(standardized_scores_df, standardized_counts_df)
+
+    return standardized_scores_df, standardized_counts_df
 
 
 def validate_dataframe(
@@ -164,6 +165,7 @@ def validate_dataframe(
 
 def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """Standardize a dataframe by sorting the columns and changing the standard column names to lowercase.
+    Also strips leading and trailing whitespace from column names and removes any quoted strings from column names.
 
     The standard column names are:
     * hgvs_nt
@@ -183,8 +185,19 @@ def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     pandas.DataFrame
         The standardized dataframe
     """
-    column_mapper = {x: x.lower() for x in df.columns if x.lower() in STANDARD_COLUMNS}
 
+    def clean_column(col: str) -> str:
+        col = col.strip()
+        # Only remove quotes if the column name is fully quoted
+        if (col.startswith('"') and col.endswith('"')) or (col.startswith("'") and col.endswith("'")):
+            col = col[1:-1]
+
+        return col.strip()
+
+    cleaned_columns = {c: clean_column(c) for c in df.columns}
+    df.rename(columns=cleaned_columns, inplace=True)
+
+    column_mapper = {x: x.lower() for x in df.columns if x.lower() in STANDARD_COLUMNS}
     df.rename(columns=column_mapper, inplace=True)
 
     return sort_dataframe_columns(df)

@@ -44,5 +44,6 @@ class DfTestCase(TestCase):
                 "extra2": ["pathogenic", "benign"],
                 "mixed_types": ["test", 1.0],
                 "null_col": [None, None],
+                "\"mixed_quotes'": ["value1", "value2"],
             }
         )
