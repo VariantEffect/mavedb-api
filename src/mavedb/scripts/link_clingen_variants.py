@@ -5,7 +5,7 @@ from typing import Sequence
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from mavedb.lib.clingen.linked_data_hub import get_clingen_variation, clingen_allele_id_from_ldh_variation
+from mavedb.lib.clingen.services import get_clingen_variation, clingen_allele_id_from_ldh_variation
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.models.mapped_variant import MappedVariant
@@ -51,7 +51,9 @@ def link_clingen_variants(db: Session, urns: Sequence[str], score_sets: bool, un
             failed_urns.append(urn)
             continue
 
-        mapped_variant = db.scalar(select(MappedVariant).join(Variant).where(and_(Variant.urn == urn, MappedVariant.current.is_(True))))
+        mapped_variant = db.scalar(
+            select(MappedVariant).join(Variant).where(and_(Variant.urn == urn, MappedVariant.current.is_(True)))
+        )
 
         if not mapped_variant:
             logger.warning(f"No mapped variant found for URN {urn}.")
