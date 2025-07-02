@@ -50,6 +50,7 @@ from mavedb.routers import (
     publication_identifiers,
     raw_read_identifiers,
     score_sets,
+    seqrepo,
     statistics,
     target_gene_identifiers,
     target_genes,
@@ -96,6 +97,7 @@ app.include_router(permissions.router)
 app.include_router(publication_identifiers.router)
 app.include_router(raw_read_identifiers.router)
 app.include_router(score_sets.router)
+app.include_router(seqrepo.router)
 app.include_router(statistics.router)
 app.include_router(target_gene_identifiers.router)
 app.include_router(target_genes.router)

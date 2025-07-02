@@ -17,7 +17,8 @@ TEST_MEDRXIV_IDENTIFIER = "2021.06.22.21259265"
 TEST_CROSSREF_IDENTIFIER = "10.1371/2021.06.22.21259265"
 TEST_ORCID_ID = "1111-1111-1111-1111"
 
-TEST_GA4GH_IDENTIFIER = "ga4gh:SQ.test"
+GA4GH_SEQUENCE_DIGEST = "SQ.test"
+TEST_GA4GH_IDENTIFIER = f"ga4gh:{GA4GH_SEQUENCE_DIGEST}"
 # ^[0-9A-Za-z_\-]{32}$
 TEST_GA4GH_DIGEST = "ga4ghtest_ga4ghtest_ga4ghtest_dg"
 # ^SQ.[0-9A-Za-z_\-]{32}$
@@ -32,9 +33,36 @@ VALID_NT_ACCESSION = "NM_001637.3"
 VALID_PRO_ACCESSION = "NP_001637.4"
 VALID_GENE = "BRCA1"
 
+VALID_ENSEMBL_IDENTIFIER = "ENST00000530893.6"
+
 VALID_CLINGEN_PA_ID = "PA2579908752"
 VALID_CLINGEN_CA_ID = "CA341478553"
 VALID_CLINGEN_LDH_ID = "2786738861"
+
+VALID_MD5_DIGEST = "01234abcde%"
+VALID_VMC_DIGEST = "GS_ASNKvN4=%"
+
+TEST_SEQREPO_INITIAL_STATE = [
+    {f"refseq:{VALID_ACCESSION}": {"seq_id": "seq1", "seq": "AAAA", "namespace": "refseq", "alias": VALID_ACCESSION}},
+    {f"MD5:{VALID_MD5_DIGEST}": {"seq_id": "seq2", "seq": "CCCC", "namespace": "MD5", "alias": VALID_MD5_DIGEST}},
+    {
+        f"ensembl:{VALID_ENSEMBL_IDENTIFIER}": {
+            "seq_id": "seq3",
+            "seq": "GGGG",
+            "namespace": "ensembl",
+            "alias": VALID_ENSEMBL_IDENTIFIER,
+        }
+    },
+    {f"VMC:{VALID_VMC_DIGEST}": {"seq_id": "seq4", "seq": "BBBB", "namespace": "VMC", "alias": VALID_VMC_DIGEST}},
+    {
+        f"ga4gh:{GA4GH_SEQUENCE_DIGEST}": {
+            "seq_id": "seq5",
+            "seq": "EEEE",
+            "namespace": "ga4gh",
+            "alias": GA4GH_SEQUENCE_DIGEST,
+        }
+    },
+]
 
 SAVED_PUBMED_PUBLICATION = {
     "recordType": "PublicationIdentifier",

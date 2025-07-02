@@ -2,10 +2,13 @@ import os
 from concurrent import futures
 from inspect import getsourcefile
 from posixpath import abspath
+import shutil
+import tempfile
 
 import cdot.hgvs.dataproviders
 import pytest
 import pytest_asyncio
+from biocommons.seqrepo import SeqRepo
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 from unittest.mock import patch
@@ -14,7 +17,7 @@ from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.authorization import require_current_user
 from mavedb.models.user import User
 from mavedb.server_main import app
-from mavedb.deps import get_db, get_worker, hgvs_data_provider
+from mavedb.deps import get_db, get_worker, hgvs_data_provider, get_seqrepo
 from arq.worker import Worker
 from mavedb.worker.jobs import (
     create_variants_for_score_set,
@@ -24,7 +27,7 @@ from mavedb.worker.jobs import (
     variant_mapper_manager,
 )
 
-from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_USER
+from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_SEQREPO_INITIAL_STATE, TEST_USER
 
 ####################################################################################################
 # REDIS
@@ -175,13 +178,87 @@ def data_provider():
     yield data_provider
 
 
+#####################################################################################################
+# SEQREPO
+#####################################################################################################
+
+
+@pytest.fixture()
+def seqrepo_root_dir():
+    """
+    Provides the root directory for the SeqRepo instance.
+    """
+    tmpdir = tempfile.mkdtemp(prefix="seqrepo_pytest_")
+    try:
+        yield tmpdir
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def _create_seqrepo(root_dir: str) -> SeqRepo:
+    """
+    Provides a SeqRepo instance for testing purposes. The root of this directory is
+    temporary and will be deleted after the test completes.
+
+    Note that running these tests requires htslib on OS X, which can be installed via Homebrew:
+    ```
+    brew install htslib
+    ```
+    or tabix on Ubuntu:
+    ```
+    sudo apt install -y tabix
+    ```
+
+    This internal helper function is necessary to ensure that when this SeqRepo instance is used in tests
+    via FastAPI, it is created from within the FastAPI application. When the SeqRepo instance is created
+    as a fixture, it is always created in a different thread from the FastAPI application prior to the
+    initialization of the client. If created in a different thread, it will raise an error when trying to
+    access the SeqRepo instance due to SQLite's threading limitations. Using SeqRepo in this manner will
+    still generate warnings from SQLite about thread safety, but it will not raise an error. As long as the
+    input to this method is the root directory *provided as a fixture*, the SeqRepo instance will be torn down
+    after the test completes.
+
+    Note that although `check_same_threads` is exposed as a parameter, it will always be set to `True` in the
+    `SeqRepo` constructor if the object is writeable.
+    """
+    sr = SeqRepo(
+        root_dir=root_dir,
+        writeable=True,
+    )
+
+    for entry in TEST_SEQREPO_INITIAL_STATE:
+        state = list(entry.values())[0]
+        sr.sequences.store(state["seq_id"], state["seq"])
+        sr.aliases.store_alias(state["seq_id"], state["namespace"], state["alias"])
+
+    sr.sequences.commit()
+    sr.aliases.commit()
+
+    assert len(sr.sequences) == 5
+    assert sr.aliases.stats()["n_sequences"] == 5
+
+    return sr
+
+
+@pytest.fixture()
+def seqrepo(seqrepo_root_dir):
+    """
+    Provides a SeqRepo instance as a fixture.
+    """
+    sr = _create_seqrepo(seqrepo_root_dir)
+    try:
+        yield sr
+    finally:
+        del sr
+
+
 ####################################################################################################
 # FASTAPI CLIENT
 ####################################################################################################
 
 
 @pytest.fixture()
-def app_(session, data_provider, arq_redis):
+def app_(session, data_provider, arq_redis, seqrepo_root_dir):
     def override_get_db():
         try:
             yield session
@@ -202,17 +279,22 @@ def app_(session, data_provider, arq_redis):
     def override_hgvs_data_provider():
         yield data_provider
 
+    def override_seqrepo():
+        sr = _create_seqrepo(seqrepo_root_dir)
+        yield sr
+
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_worker] = override_get_worker
     app.dependency_overrides[get_current_user] = override_current_user
     app.dependency_overrides[require_current_user] = override_require_user
     app.dependency_overrides[hgvs_data_provider] = override_hgvs_data_provider
+    app.dependency_overrides[get_seqrepo] = override_seqrepo
 
     yield app
 
 
 @pytest.fixture()
-def anonymous_app_overrides(session, data_provider, arq_redis):
+def anonymous_app_overrides(session, data_provider, arq_redis, seqrepo_root_dir):
     def override_get_db():
         try:
             yield session
@@ -228,19 +310,24 @@ def anonymous_app_overrides(session, data_provider, arq_redis):
     def override_hgvs_data_provider():
         yield data_provider
 
+    def override_seqrepo():
+        sr = _create_seqrepo(seqrepo_root_dir)
+        yield sr
+
     anonymous_overrides = {
         get_db: override_get_db,
         get_worker: override_get_worker,
         get_current_user: override_current_user,
         require_current_user: require_current_user,
         hgvs_data_provider: override_hgvs_data_provider,
+        get_seqrepo: override_seqrepo,
     }
 
     yield anonymous_overrides
 
 
 @pytest.fixture()
-def extra_user_app_overrides(session, data_provider, arq_redis):
+def extra_user_app_overrides(session, data_provider, arq_redis, seqrepo_root_dir):
     def override_get_db():
         try:
             yield session
@@ -260,6 +347,10 @@ def extra_user_app_overrides(session, data_provider, arq_redis):
 
     def override_hgvs_data_provider():
         yield data_provider
+
+    def override_seqrepo():
+        sr = _create_seqrepo(seqrepo_root_dir)
+        yield sr
 
     anonymous_overrides = {
         get_db: override_get_db,
@@ -267,13 +358,14 @@ def extra_user_app_overrides(session, data_provider, arq_redis):
         get_current_user: override_current_user,
         require_current_user: override_require_user,
         hgvs_data_provider: override_hgvs_data_provider,
+        get_seqrepo: override_seqrepo,
     }
 
     yield anonymous_overrides
 
 
 @pytest.fixture()
-def admin_app_overrides(session, data_provider, arq_redis):
+def admin_app_overrides(session, data_provider, arq_redis, seqrepo_root_dir):
     def override_get_db():
         try:
             yield session
@@ -293,6 +385,10 @@ def admin_app_overrides(session, data_provider, arq_redis):
 
     def override_hgvs_data_provider():
         yield data_provider
+
+    def override_seqrepo():
+        sr = _create_seqrepo(seqrepo_root_dir)
+        yield sr
 
     admin_overrides = {
         get_db: override_get_db,
@@ -300,6 +396,7 @@ def admin_app_overrides(session, data_provider, arq_redis):
         get_current_user: override_current_user,
         require_current_user: override_require_user,
         hgvs_data_provider: override_hgvs_data_provider,
+        get_seqrepo: override_seqrepo,
     }
 
     yield admin_overrides
