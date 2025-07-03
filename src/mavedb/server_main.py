@@ -49,6 +49,7 @@ from mavedb.routers import (
     permissions,
     publication_identifiers,
     raw_read_identifiers,
+    refget,
     score_sets,
     seqrepo,
     statistics,
@@ -96,6 +97,7 @@ app.include_router(orcid.router)
 app.include_router(permissions.router)
 app.include_router(publication_identifiers.router)
 app.include_router(raw_read_identifiers.router)
+app.include_router(refget.router)
 app.include_router(score_sets.router)
 app.include_router(seqrepo.router)
 app.include_router(statistics.router)

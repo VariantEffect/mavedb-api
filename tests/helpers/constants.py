@@ -53,10 +53,9 @@ TEST_SEQREPO_INITIAL_STATE = [
             "alias": VALID_ENSEMBL_IDENTIFIER,
         }
     },
-    {f"VMC:{VALID_VMC_DIGEST}": {"seq_id": "seq4", "seq": "BBBB", "namespace": "VMC", "alias": VALID_VMC_DIGEST}},
     {
         f"ga4gh:{GA4GH_SEQUENCE_DIGEST}": {
-            "seq_id": "seq5",
+            "seq_id": "seq4",
             "seq": "EEEE",
             "namespace": "ga4gh",
             "alias": GA4GH_SEQUENCE_DIGEST,

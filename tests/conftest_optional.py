@@ -234,8 +234,8 @@ def _create_seqrepo(root_dir: str) -> SeqRepo:
     sr.sequences.commit()
     sr.aliases.commit()
 
-    assert len(sr.sequences) == 5
-    assert sr.aliases.stats()["n_sequences"] == 5
+    assert len(sr.sequences) == len(TEST_SEQREPO_INITIAL_STATE)
+    assert sr.aliases.stats()["n_sequences"] == len(TEST_SEQREPO_INITIAL_STATE)
 
     return sr
 

@@ -6,14 +6,22 @@ See: https://github.com/biocommons/seqrepo-rest-service/blob/main/src/seqrepo_re
 
 import os
 import re
-from base64 import urlsafe_b64encode
-from binascii import unhexlify
+from base64 import urlsafe_b64encode, urlsafe_b64decode
+from binascii import unhexlify, hexlify
+
+# TODO (https://github.com/VariantEffect/mavedb-api/issues/354). We need pydantic upgraded to use this package.
+# from ga4gh.core.identifiers import is_ga4gh_identifier, CURIE_NAMESPACE as ga4gh_namespace
+from typing import Union
 
 from biocommons.seqrepo import SeqRepo, __version__ as seqrepo_dep_version
 from bioutils.accessions import infer_namespaces
 
 
-def hex_to_base64url(s):
+def base64url_to_hex(s: str) -> str:
+    return hexlify(urlsafe_b64decode(s)).decode("ascii")
+
+
+def hex_to_base64url(s: str) -> str:
     return urlsafe_b64encode(unhexlify(s)).decode("ascii")
 
 
@@ -38,7 +46,7 @@ def get_sequence_ids(sr: SeqRepo, query: str) -> list[str]:
     return seq_ids
 
 
-def _generate_nsa_options(query: str):
+def _generate_nsa_options(query: str) -> Union[list[tuple[str, ...]], list[tuple[None, str]]]:
     """
     >>> _generate_nsa_options("NM_000551.3")
     [('refseq', 'NM_000551.3')]
@@ -48,6 +56,9 @@ def _generate_nsa_options(query: str):
 
     >>> _generate_nsa_options("gi:123456789")
     [('gi', '123456789')]
+
+    >> _generate_nsa_options("SQ.test")
+    [('ga4gh', 'test')]
 
     >>> _generate_nsa_options("01234abcde")
     [('MD5', '01234abcde%'), ('VMC', 'GS_ASNKvN4=%')]
@@ -64,7 +75,14 @@ def _generate_nsa_options(query: str):
         nsa_options = [(ns, query) for ns in namespaces]
         return nsa_options
 
-    # if hex, try md5 and TRUNC512
+    # TODO (https://github.com/VariantEffect/mavedb-api/issues/354). We need pydantic upgraded to use this package.
+    # if ga4gh, try ga4gh. GA4GH only accepts identifiers with a namespace prefix,
+    # so we prepend the namespace when not present to test.
+    # if is_ga4gh_identifier(f"{ga4gh_namespace}:{query}"):
+    #     nsa_options = [("ga4gh", query)]
+    #     return nsa_options
+
+    # if hex, try MD5
     if re.match(r"^(?:[0-9A-Fa-f]{8,})$", query):
         nsa_options = [("MD5", query + "%")]
         # TRUNC512 isn't in seqrepo; synthesize equivalent VMC
