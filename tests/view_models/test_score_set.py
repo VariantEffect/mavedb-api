@@ -1,13 +1,16 @@
 import pytest
+from copy import deepcopy
 
 from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
 from mavedb.view_models.score_set import ScoreSetCreate, ScoreSetModify
 from mavedb.view_models.target_gene import TargetGeneCreate
 from tests.helpers.constants import (
+    TEST_PUBMED_IDENTIFIER,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET,
-    TEST_SCORE_SET_RANGE_WITH_ODDS_PATH,
-    TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE,
+    TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+    TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+    TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
 )
 
 
@@ -206,295 +209,50 @@ def test_cannot_create_score_set_with_an_empty_method():
     assert "methodText" in str(exc_info.value)
 
 
-def test_cannot_create_score_set_with_too_many_boundaries():
+def test_can_create_score_set_with_investigator_provided_score_range():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": 0.5,
-        "ranges": [
-            {"label": "range_1", "classification": "normal", "range": (0, 1, 2.0)},
-            {"label": "range_2", "classification": "abnormal", "range": (2.0, 2.1, 2.3)},
-        ],
-    }
-
-    with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(**score_set_test)
-
-    assert "Only a lower and upper bound are allowed." in str(exc_info.value)
-
-
-def test_cannot_create_score_set_with_overlapping_ranges():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": 0.5,
-        "ranges": [
-            {"label": "range_1", "classification": "normal", "range": (0, 1.1)},
-            {"label": "range_2", "classification": "abnormal", "range": (1, 2.1)},
-        ],
-    }
-
-    with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(**score_set_test)
-
-    assert "Score ranges may not overlap; `range_1` overlaps with `range_2`" in str(exc_info.value)
-
-
-def test_can_create_score_set_with_mixed_range_types():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": 0.5,
-        "ranges": [
-            {"label": "range_1", "classification": "normal", "range": (0, 1)},
-            {"label": "range_2", "classification": "abnormal", "range": ("1.1", 2.1)},
-            {"label": "range_3", "classification": "abnormal", "range": (2.2, "3.2")},
-        ],
-    }
+    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)
+    score_set_test["secondary_publication_identifiers"] = [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}]
 
     ScoreSetModify(**score_set_test)
 
 
-def test_can_create_score_set_with_adjacent_ranges():
+def test_cannot_create_score_set_with_investigator_provided_score_range_if_source_not_in_score_set_publications():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": 0.5,
-        "ranges": [
-            {"label": "range_1", "classification": "normal", "range": (0, 1)},
-            {"label": "range_2", "classification": "abnormal", "range": (1, 2.1)},
-        ],
-    }
+    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)
+
+    with pytest.raises(
+        ValueError,
+        match=r".*Score range source publication at index {} is not defined in score set publications.*".format(0),
+    ):
+        ScoreSetModify(**score_set_test)
+
+
+def test_can_create_score_set_with_pillar_project_score_range():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT)
+    score_set_test["secondary_publication_identifiers"] = [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}]
 
     ScoreSetModify(**score_set_test)
 
 
-def test_can_create_score_set_with_flipped_adjacent_ranges():
+def test_cannot_create_score_set_with_pillar_project_score_range_if_source_not_in_score_set_publications():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": 0.5,
-        "ranges": [
-            {"label": "range_2", "classification": "abnormal", "range": (1, 2.1)},
-            {"label": "range_1", "classification": "normal", "range": (0, 1)},
-        ],
-    }
+    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT)
+
+    with pytest.raises(
+        ValueError,
+        match=r".*Score range source publication at index {} is not defined in score set publications.*".format(0),
+    ):
+        ScoreSetModify(**score_set_test)
+
+
+def test_can_create_score_set_with_ranges_and_calibrations():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)
+    score_set_test["secondary_publication_identifiers"] = [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}]
 
     ScoreSetModify(**score_set_test)
-
-
-def test_can_create_score_set_with_adjacent_negative_ranges():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": -0.5,
-        "ranges": [
-            {"label": "range_1", "classification": "normal", "range": (-1, 0)},
-            {"label": "range_2", "classification": "abnormal", "range": (-3, -1)},
-        ],
-    }
-
-    ScoreSetModify(**score_set_test)
-
-
-def test_can_create_score_set_with_flipped_adjacent_negative_ranges():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": -0.5,
-        "ranges": [
-            {"label": "range_2", "classification": "abnormal", "range": (-3, -1)},
-            {"label": "range_1", "classification": "normal", "range": (-1, 0)},
-        ],
-    }
-
-    ScoreSetModify(**score_set_test)
-
-
-def test_cannot_create_score_set_with_overlapping_upper_unbounded_ranges():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": 0.5,
-        "ranges": [
-            {"label": "range_1", "classification": "normal", "range": (0, None)},
-            {"label": "range_2", "classification": "abnormal", "range": (1, None)},
-        ],
-    }
-
-    with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(**score_set_test)
-
-    assert "Score ranges may not overlap; `range_1` overlaps with `range_2`" in str(exc_info.value)
-
-
-def test_cannot_create_score_set_with_overlapping_lower_unbounded_ranges():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": -0.5,
-        "ranges": [
-            {"label": "range_1", "classification": "normal", "range": (None, 0)},
-            {"label": "range_2", "classification": "abnormal", "range": (None, -1)},
-        ],
-    }
-
-    with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(**score_set_test)
-
-    assert "Score ranges may not overlap; `range_1` overlaps with `range_2`" in str(exc_info.value)
-
-
-def test_cannot_create_score_set_with_duplicate_range_labels():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": -0.5,
-        "ranges": [
-            {"label": "range_1", "classification": "normal", "range": (-1, 0)},
-            {"label": "range_1", "classification": "abnormal", "range": (-3, -1)},
-        ],
-    }
-
-    with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(**score_set_test)
-
-    assert "Detected repeated label: `range_1`. Range labels must be unique." in str(exc_info.value)
-
-
-def test_cannot_create_score_set_with_duplicate_range_labels_whitespace():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": -0.5,
-        "ranges": [
-            {"label": "     range_1", "classification": "normal", "range": (-1, 0)},
-            {"label": "range_1       ", "classification": "abnormal", "range": (-3, -1)},
-        ],
-    }
-
-    with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(**score_set_test)
-
-    assert "Detected repeated label: `range_1`. Range labels must be unique." in str(exc_info.value)
-
-
-def test_cannot_create_score_set_with_wild_type_outside_ranges():
-    wt_score = 0.5
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": wt_score,
-        "ranges": [
-            {"label": "range_1", "classification": "normal", "range": (-1, 0)},
-            {"label": "range_2", "classification": "abnormal", "range": (-3, -1)},
-        ],
-    }
-
-    with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(**score_set_test)
-
-    assert (
-        f"The provided wild type score of {wt_score} is not within any of the provided normal ranges. This score should be within a normal range."
-        in str(exc_info.value)
-    )
-
-
-def test_cannot_create_score_set_with_wild_type_outside_normal_range():
-    wt_score = -1.5
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": wt_score,
-        "ranges": [
-            {"label": "range_1", "classification": "normal", "range": (-1, 0)},
-            {"label": "range_2", "classification": "abnormal", "range": (-3, -1)},
-        ],
-    }
-
-    with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(**score_set_test)
-
-    assert (
-        f"The provided wild type score of {wt_score} is not within any of the provided normal ranges. This score should be within a normal range."
-        in str(exc_info.value)
-    )
-
-
-def test_cannot_create_score_set_with_wild_type_score_and_no_normal_range():
-    wt_score = -0.5
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": wt_score,
-        "ranges": [
-            {"label": "range_1", "classification": "abnormal", "range": (-1, 0)},
-        ],
-    }
-
-    with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(**score_set_test)
-
-    assert "A wild type score has been provided, but no normal classification range exists." in str(exc_info.value)
-
-
-def test_cannot_create_score_set_with_normal_range_and_no_wild_type_score():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": None,
-        "ranges": [
-            {"label": "range_1", "classification": "normal", "range": (-1, 0)},
-        ],
-    }
-
-    with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(**score_set_test)
-
-    assert "A normal range has been provided, but no wild type score has been provided." in str(exc_info.value)
-
-
-def test_cannot_create_score_set_without_default_ranges():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": -0.5,
-        "ranges": [
-            {"label": "range_1", "classification": "other", "range": (-1, 0)},
-        ],
-    }
-
-    with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(**score_set_test)
-
-    assert "unexpected value; permitted: 'normal', 'abnormal', 'not_specified'" in str(exc_info.value)
-
-
-@pytest.mark.parametrize("classification", ["normal", "abnormal", "not_specified"])
-def test_can_create_score_set_with_any_range_classification(classification):
-    wt_score = -0.5 if classification == "normal" else None
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = {
-        "wt_score": wt_score,
-        "ranges": [
-            {"label": "range_1", "classification": classification, "range": (-1, 0)},
-        ],
-    }
-
-    ScoreSetModify(**score_set_test)
-
-
-def test_can_create_score_set_with_odds_path_in_score_ranges():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = TEST_SCORE_SET_RANGE_WITH_ODDS_PATH.copy()
-
-    ScoreSetModify(**score_set_test)
-
-
-def test_can_create_score_set_with_odds_path_and_source_in_score_ranges():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["primary_publication_identifiers"] = TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE[
-        "odds_path_source"
-    ]
-    score_set_test["score_ranges"] = TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE.copy()
-
-    ScoreSetModify(**score_set_test)
-
-
-def test_cannot_create_score_set_with_odds_path_and_source_in_score_ranges_if_source_not_in_score_set_publications():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE.copy()
-
-    with pytest.raises(ValueError) as exc_info:
-        ScoreSetModify(**score_set_test)
-
-    assert "Odds path source publication identifier at index 0 is not defined in score set publications." in str(
-        exc_info.value
-    )
 
 
 def test_cannot_create_score_set_with_inconsistent_base_editor_flags():

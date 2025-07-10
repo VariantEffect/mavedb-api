@@ -9,12 +9,11 @@ from pydantic import root_validator
 
 from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.lib.validation.utilities import inf_or_float, is_null
+from mavedb.lib.validation.utilities import is_null
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.view_models import PublicationIdentifiersGetter, record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel, validator
-from mavedb.view_models.calibration import Calibration
 from mavedb.view_models.contributor import Contributor, ContributorCreate
 from mavedb.view_models.doi_identifier import (
     DoiIdentifier,
@@ -167,129 +166,63 @@ class ScoreSetModify(ScoreSetBase):
 
         return field_value
 
-    @validator("score_ranges")
-    def score_range_labels_must_be_unique(cls, field_value: Optional[ScoreSetRangesCreate]):
-        if field_value is None:
-            return None
-
-        existing_labels = []
-        for i, range_model in enumerate(field_value.ranges):
-            range_model.label = range_model.label.strip()
-
-            if range_model.label in existing_labels:
-                raise ValidationError(
-                    f"Detected repeated label: `{range_model.label}`. Range labels must be unique.",
-                    custom_loc=["body", "scoreRanges", "ranges", i, "label"],
-                )
-
-            existing_labels.append(range_model.label)
-
-        return field_value
-
-    @validator("score_ranges")
-    def score_range_normal_classification_exists_if_wild_type_score_provided(
-        cls, field_value: Optional[ScoreSetRangesCreate]
-    ):
-        if field_value is None:
-            return None
-
-        if field_value.wt_score is not None:
-            if not any([range_model.classification == "normal" for range_model in field_value.ranges]):
-                raise ValidationError(
-                    "A wild type score has been provided, but no normal classification range exists.",
-                    custom_loc=["body", "scoreRanges", "wtScore"],
-                )
-
-        return field_value
-
-    @validator("score_ranges")
-    def ranges_do_not_overlap(cls, field_value: Optional[ScoreSetRangesCreate]):
-        def test_overlap(tp1, tp2) -> bool:
-            # Always check the tuple with the lowest lower bound. If we do not check
-            # overlaps in this manner, checking the overlap of (0,1) and (1,2) will
-            # yield different results depending on the ordering of tuples.
-            if min(inf_or_float(tp1[0], True), inf_or_float(tp2[0], True)) == inf_or_float(tp1[0], True):
-                tp_with_min_value = tp1
-                tp_with_non_min_value = tp2
-            else:
-                tp_with_min_value = tp2
-                tp_with_non_min_value = tp1
-
-            if inf_or_float(tp_with_min_value[1], False) > inf_or_float(
-                tp_with_non_min_value[0], True
-            ) and inf_or_float(tp_with_min_value[0], True) <= inf_or_float(tp_with_non_min_value[1], False):
-                return True
-
-            return False
-
-        if field_value is None:
-            return None
-
-        for i, range_test in enumerate(field_value.ranges):
-            for range_check in list(field_value.ranges)[i + 1 :]:
-                if test_overlap(range_test.range, range_check.range):
-                    raise ValidationError(
-                        f"Score ranges may not overlap; `{range_test.label}` overlaps with `{range_check.label}`",
-                        custom_loc=["body", "scoreRanges", "ranges", i, "range"],
-                    )
-
-        return field_value
-
-    @validator("score_ranges")
-    def wild_type_score_in_normal_range(cls, field_value: Optional[ScoreSetRangesCreate]):
-        if field_value is None:
-            return None
-
-        normal_ranges = [
-            range_model.range for range_model in field_value.ranges if range_model.classification == "normal"
-        ]
-
-        if normal_ranges and field_value.wt_score is None:
-            raise ValidationError(
-                "A normal range has been provided, but no wild type score has been provided.",
-                custom_loc=["body", "scoreRanges", "wtScore"],
-            )
-
-        if field_value.wt_score is None:
-            return field_value
-
-        for range in normal_ranges:
-            if field_value.wt_score >= inf_or_float(range[0], lower=True) and field_value.wt_score < inf_or_float(
-                range[1], lower=False
-            ):
-                return field_value
-
-        raise ValidationError(
-            f"The provided wild type score of {field_value.wt_score} is not within any of the provided normal ranges. This score should be within a normal range.",
-            custom_loc=["body", "scoreRanges", "wtScore"],
-        )
-
     @root_validator()
-    def validate_score_range_odds_path_source_in_publication_identifiers(cls, values):
-        score_ranges: Optional[ScoreSetRangesCreate] = values.get("score_ranges")
-        if score_ranges is None or score_ranges.odds_path_source is None:
-            return values
-
-        if not score_ranges.odds_path_source:
-            return values
-
-        for idx, pub in enumerate(score_ranges.odds_path_source):
+    def validate_score_range_sources_exist_in_publication_identifiers(cls, values):
+        def _check_source_in_score_set(source: Any) -> bool:
+            # It looks like you could just do values.get("primary_publication_identifiers", []), but the value of the Pydantic
+            # field is not guaranteed to be a list and could be None, so we need to check if it exists and only then add the list
+            # as the default value.
             primary_publication_identifiers = (
-                values.get("primary_publication_identifiers", [])
-                if values.get("primary_publication_identifiers")
-                else []
+                values.get("primary_publication_identifiers") if values.get("primary_publication_identifiers") else []
             )
             secondary_publication_identifiers = (
-                values.get("secondary_publication_identifiers", [])
+                values.get("secondary_publication_identifiers")
                 if values.get("secondary_publication_identifiers")
                 else []
             )
+
             if pub not in [*primary_publication_identifiers, *secondary_publication_identifiers]:
-                raise ValidationError(
-                    f"Odds path source publication identifier at index {idx} is not defined in score set publications. "
-                    "To use a publication identifier in the odds path source, it must be defined in the primary or secondary publication identifiers.",
-                    custom_loc=["body", "scoreRanges", "oddsPath", "source", idx],
-                )
+                return False
+
+            return True
+
+        score_ranges = values.get("score_ranges")
+        if not score_ranges:
+            return values
+
+        # Use the __fields_set__ attribute to iterate over the defined containers in score_ranges.
+        # This allows us to validate each range definition within the range containers.
+        for container_name in score_ranges.__fields_set__:
+            container_definition = getattr(score_ranges, container_name)
+            for range_name in container_definition.__fields_set__:
+                range_definition = getattr(container_definition, range_name)
+                if not range_definition:
+                    continue
+
+                # investigator_provided score ranges can have an odds path source as well.
+                if range_definition == "investigator_provided" and range_definition.odds_path_source is not None:
+                    for idx, pub in enumerate(range_definition.odds_path_source):
+                        odds_path_source_exists = _check_source_in_score_set(pub)
+
+                        if not odds_path_source_exists:
+                            raise ValidationError(
+                                f"Odds path source publication identifier at index {idx} is not defined in score set publications. "
+                                "To use a publication identifier in the odds path source, it must be defined in the primary or secondary publication identifiers for this score set.",
+                                custom_loc=["body", "scoreRanges", range_name, "oddsPathSource", idx],
+                            )
+
+                if not range_definition.source:
+                    continue
+
+                for idx, pub in enumerate(range_definition.source):
+                    source_exists = _check_source_in_score_set(pub)
+
+                    if not source_exists:
+                        raise ValidationError(
+                            f"Score range source publication at index {idx} is not defined in score set publications. "
+                            "To use a publication identifier in the score range source, it must be defined in the primary or secondary publication identifiers for this score set.",
+                            custom_loc=["body", "scoreRanges", range_name, "source", idx],
+                        )
 
         return values
 
@@ -416,7 +349,6 @@ class SavedScoreSet(ScoreSetBase):
     external_links: Dict[str, ExternalLink]
     contributors: list[Contributor]
     score_ranges: Optional[SavedScoreSetRanges]
-    score_calibrations: Optional[dict[str, Calibration]]
 
     _record_type_factory = record_type_validator()(set_record_type)
 
@@ -453,7 +385,7 @@ class ScoreSet(SavedScoreSet):
     processing_errors: Optional[dict]
     mapping_state: Optional[MappingState]
     mapping_errors: Optional[dict]
-    score_ranges: Optional[ScoreSetRanges]
+    score_ranges: Optional[ScoreSetRanges]  # type: ignore[assignment]
 
 
 class ScoreSetWithVariants(ScoreSet):
@@ -486,7 +418,7 @@ class ScoreSetPublicDump(SavedScoreSet):
     processing_errors: Optional[Dict]
     mapping_state: Optional[MappingState]
     mapping_errors: Optional[Dict]
-    score_ranges: Optional[ScoreSetRanges]
+    score_ranges: Optional[ScoreSetRanges]  # type: ignore[assignment]
 
 
 # ruff: noqa: E402
