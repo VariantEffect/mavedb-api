@@ -330,6 +330,26 @@ def test_score_set_ranges_valid_range(ScoreSetRangesModel, score_set_ranges_data
             assert range_definition.ranges
 
 
+@pytest.mark.parametrize("ScoreSetRangesModel", [ScoreSetRanges, ScoreSetRangesCreate, ScoreSetRangesModify])
+def test_score_set_ranges_valid_when_one_model_is_empty(ScoreSetRangesModel):
+    empty_model = "calibrations"
+    score_set_ranges_data = deepcopy(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)
+    score_set_ranges_data[empty_model] = None
+    score_set_ranges = ScoreSetRangesModel(**score_set_ranges_data)
+    assert isinstance(score_set_ranges, ScoreSetRangesModel), "ScoreSetRangesModel instantiation failed"
+    # Ensure a ranges property exists. Data values are checked elsewhere in more detail.
+    for container_name in score_set_ranges.__fields_set__:
+        container_definition = getattr(score_set_ranges, container_name)
+
+        if not container_definition:
+            assert container_name == empty_model, f"Expected {empty_model} to be None, but got {container_definition}"
+            continue
+
+        for range_name in container_definition.__fields_set__:
+            range_definition = getattr(container_definition, range_name)
+            assert range_definition.ranges
+
+
 @pytest.mark.parametrize(
     "ScoreSetRangesModel",
     [

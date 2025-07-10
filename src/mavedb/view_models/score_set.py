@@ -194,6 +194,10 @@ class ScoreSetModify(ScoreSetBase):
         # This allows us to validate each range definition within the range containers.
         for container_name in score_ranges.__fields_set__:
             container_definition = getattr(score_ranges, container_name)
+
+            if not container_definition:
+                continue
+
             for range_name in container_definition.__fields_set__:
                 range_definition = getattr(container_definition, range_name)
                 if not range_definition:
