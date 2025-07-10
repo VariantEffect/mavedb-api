@@ -43,6 +43,7 @@ from tests.helpers.constants import (
     TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
     TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
     TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    TEST_BASELINE_SCORE,
 )
 
 
@@ -206,7 +207,7 @@ def test_score_ranges_base_valid_range(ScoreRangesModel, score_ranges_data):
 def test_score_ranges_investigator_valid_range(ScoreRangesModel, score_ranges_data):
     score_ranges = ScoreRangesModel(**score_ranges_data)
     assert score_ranges.ranges is not None, "Ranges should not be None"
-    assert score_ranges.wt_score == score_ranges_data.get("wt_score", None), "Wild type score should match"
+    assert score_ranges.baseline_score == TEST_BASELINE_SCORE, "Baseline score should match"
     assert score_ranges.odds_path_source == score_ranges_data.get(
         "odds_path_source", None
     ), "Odds path source should match"
@@ -264,12 +265,12 @@ def test_score_ranges_ranges_may_not_overlap(ScoreRangesModel):
     "ScoreRangesModel",
     [InvestigatorScoreRanges, InvestigatorScoreRangesCreate, InvestigatorScoreRangesModify],
 )
-def test_score_ranges_investigator_normal_classification_exists_if_wild_type_score_provided(ScoreRangesModel):
+def test_score_ranges_investigator_normal_classification_exists_if_baseline_score_provided(ScoreRangesModel):
     invalid_data = deepcopy(TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE)
     invalid_data["ranges"].remove(TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE)
     with pytest.raises(
         ValidationError,
-        match=r".*A wild type score has been provided, but no normal classification range exists.*",
+        match=r".*A baseline score has been provided, but no normal classification range exists.*",
     ):
         ScoreRangesModel(**invalid_data)
 
@@ -278,30 +279,30 @@ def test_score_ranges_investigator_normal_classification_exists_if_wild_type_sco
     "ScoreRangesModel",
     [InvestigatorScoreRanges, InvestigatorScoreRangesCreate, InvestigatorScoreRangesModify],
 )
-def test_score_ranges_investigator_wild_type_score_within_normal_range(ScoreRangesModel):
-    wt_score = 50.0
+def test_score_ranges_investigator_baseline_score_within_normal_range(ScoreRangesModel):
+    baseline_score = 50.0
     invalid_data = deepcopy(TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE)
-    invalid_data["wtScore"] = wt_score
+    invalid_data["baselineScore"] = baseline_score
     with pytest.raises(
         ValidationError,
-        match=r".*The provided wild type score of {} is not within any of the provided normal ranges\. This score should be within a normal range\..*".format(
-            wt_score
+        match=r".*The provided baseline score of {} is not within any of the provided normal ranges\. This score should be within a normal range\..*".format(
+            baseline_score
         ),
     ):
         ScoreRangesModel(**invalid_data)
 
 
-@pytest.mark.skip("Not applicable currently. Wild type score is not required if a normal range exists.")
+@pytest.mark.skip("Not applicable currently. Baseline score is not required if a normal range exists.")
 @pytest.mark.parametrize(
     "ScoreRangesModel",
     [InvestigatorScoreRanges, InvestigatorScoreRangesCreate, InvestigatorScoreRangesModify],
 )
-def test_score_ranges_investigator_wild_type_score_provided_if_normal_range_exists(ScoreRangesModel):
+def test_score_ranges_investigator_baseline_type_score_provided_if_normal_range_exists(ScoreRangesModel):
     invalid_data = deepcopy(TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE)
-    invalid_data["wtScore"] = None
+    invalid_data["baselineScore"] = None
     with pytest.raises(
         ValidationError,
-        match=r".*A normal range has been provided, but no wild type score has been provided.*",
+        match=r".*A normal range has been provided, but no baseline type score has been provided.*",
     ):
         ScoreRangesModel(**invalid_data)
 

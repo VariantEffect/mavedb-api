@@ -153,47 +153,50 @@ class InvestigatorScoreRange(ScoreRange, SavedInvestigatorScoreRange):
 
 
 class InvestigatorScoreRangesBase(ScoreRangesBase):
-    wt_score: Optional[float] = None
+    baseline_score: Optional[float] = None
+    baseline_score_description: Optional[str] = None
     ranges: Sequence[InvestigatorScoreRangeBase]
     odds_path_source: Optional[Sequence[PublicationIdentifierBase]] = None
 
-    @validator("wt_score")
-    def score_range_normal_classification_exists_if_wild_type_score_provided(
+    @validator("baseline_score")
+    def score_range_normal_classification_exists_if_baseline_score_provided(
         cls, field_value: Optional[float], values: dict[str, Any]
     ) -> Optional[float]:
         ranges = values.get("ranges", [])
 
         if field_value is not None:
             if not any([range_model.classification == "normal" for range_model in ranges]):
-                raise ValidationError("A wild type score has been provided, but no normal classification range exists.")
+                raise ValidationError("A baseline score has been provided, but no normal classification range exists.")
 
         return field_value
 
-    @validator("wt_score")
-    def wild_type_score_in_normal_range(cls, field_value: Optional[float], values: dict[str, Any]) -> Optional[float]:
+    @validator("baseline_score")
+    def baseline_score_in_normal_range(cls, field_value: Optional[float], values: dict[str, Any]) -> Optional[float]:
         ranges = values.get("ranges", [])
-        wt_score = field_value
+        baseline_score = field_value
 
         normal_ranges = [range_model.range for range_model in ranges if range_model.classification == "normal"]
 
-        if normal_ranges and wt_score is None:
-            # For now, we do not raise an error if a normal range is provided but no wild type score.
+        if normal_ranges and baseline_score is None:
+            # For now, we do not raise an error if a normal range is provided but no baseline score.
             # raise ValidationError(
-            #     "A normal range has been provided, but no wild type score has been provided.",
-            #     custom_loc=["body", "scoreRanges", "wtScore"],
+            #     "A normal range has been provided, but no baseline type score has been provided.",
+            #     custom_loc=["body", "scoreRanges", "baselineScore"],
             # )
             return field_value
 
-        if wt_score is None:
+        if baseline_score is None:
             return field_value
 
         for range in normal_ranges:
-            if wt_score >= inf_or_float(range[0], lower=True) and wt_score < inf_or_float(range[1], lower=False):
+            if baseline_score >= inf_or_float(range[0], lower=True) and baseline_score < inf_or_float(
+                range[1], lower=False
+            ):
                 return field_value
 
         raise ValidationError(
-            f"The provided wild type score of {wt_score} is not within any of the provided normal ranges. This score should be within a normal range.",
-            custom_loc=["body", "scoreRanges", "wtScore"],
+            f"The provided baseline score of {baseline_score} is not within any of the provided normal ranges. This score should be within a normal range.",
+            custom_loc=["body", "scoreRanges", "baselineScore"],
         )
 
 
