@@ -192,41 +192,35 @@ class ScoreSetModify(ScoreSetBase):
 
         # Use the __fields_set__ attribute to iterate over the defined containers in score_ranges.
         # This allows us to validate each range definition within the range containers.
-        for container_name in score_ranges.__fields_set__:
-            container_definition = getattr(score_ranges, container_name)
-
-            if not container_definition:
+        for range_name in score_ranges.__fields_set__:
+            range_definition = getattr(score_ranges, range_name)
+            if not range_definition:
                 continue
 
-            for range_name in container_definition.__fields_set__:
-                range_definition = getattr(container_definition, range_name)
-                if not range_definition:
-                    continue
+            # investigator_provided score ranges can have an odds path source as well.
+            if range_definition == "investigator_provided" and range_definition.odds_path_source is not None:
+                for idx, pub in enumerate(range_definition.odds_path_source):
+                    odds_path_source_exists = _check_source_in_score_set(pub)
 
-                # investigator_provided score ranges can have an odds path source as well.
-                if range_definition == "investigator_provided" and range_definition.odds_path_source is not None:
-                    for idx, pub in enumerate(range_definition.odds_path_source):
-                        odds_path_source_exists = _check_source_in_score_set(pub)
-
-                        if not odds_path_source_exists:
-                            raise ValidationError(
-                                f"Odds path source publication identifier at index {idx} is not defined in score set publications. "
-                                "To use a publication identifier in the odds path source, it must be defined in the primary or secondary publication identifiers for this score set.",
-                                custom_loc=["body", "scoreRanges", range_name, "oddsPathSource", idx],
-                            )
-
-                if not range_definition.source:
-                    continue
-
-                for idx, pub in enumerate(range_definition.source):
-                    source_exists = _check_source_in_score_set(pub)
-
-                    if not source_exists:
+                    if not odds_path_source_exists:
                         raise ValidationError(
-                            f"Score range source publication at index {idx} is not defined in score set publications. "
-                            "To use a publication identifier in the score range source, it must be defined in the primary or secondary publication identifiers for this score set.",
-                            custom_loc=["body", "scoreRanges", range_name, "source", idx],
+                            f"Odds path source publication identifier at index {idx} is not defined in score set publications. "
+                            "To use a publication identifier in the odds path source, it must be defined in the primary or secondary publication identifiers for this score set.",
+                            custom_loc=["body", "scoreRanges", range_name, "oddsPathSource", idx],
                         )
+
+            if not range_definition.source:
+                continue
+
+            for idx, pub in enumerate(range_definition.source):
+                source_exists = _check_source_in_score_set(pub)
+
+                if not source_exists:
+                    raise ValidationError(
+                        f"Score range source publication at index {idx} is not defined in score set publications. "
+                        "To use a publication identifier in the score range source, it must be defined in the primary or secondary publication identifiers for this score set.",
+                        custom_loc=["body", "scoreRanges", range_name, "source", idx],
+                    )
 
         return values
 

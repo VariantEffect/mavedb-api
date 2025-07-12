@@ -1351,29 +1351,33 @@ TEST_SAVED_PILLAR_PROJECT_PARAMETER_SETS = [
 TEST_PILLAR_PROJECT_SCORE_SET_NORMAL_RANGE = {
     **TEST_SCORE_SET_NORMAL_RANGE,
     "positive_likelihood_ratio": 100.0,
-    "label": "-2",
+    "evidence_strength": -2,
+    "label": "BS3_MODERATE",
 }
 
 
 TEST_PILLAR_PROJECT_SAVED_SCORE_SET_NORMAL_RANGE = {
     **TEST_SAVED_SCORE_SET_NORMAL_RANGE,
     "recordType": "PillarProjectScoreRange",
-    "label": "-2",
+    "label": "BS3_MODERATE",
+    "evidenceStrength": -2,
     "positiveLikelihoodRatio": 100.0,
 }
 
 TEST_PILLAR_PROJECT_SCORE_SET_ABNORMAL_RANGE = {
     **TEST_SCORE_SET_ABNORMAL_RANGE,
-    "label": "2",
     "positive_likelihood_ratio": 10.0,
+    "evidence_strength": 2,
+    "label": "PS3_MODERATE",
 }
 
 
 TEST_PILLAR_PROJECT_SAVED_SCORE_SET_ABNORMAL_RANGE = {
     **TEST_SAVED_SCORE_SET_ABNORMAL_RANGE,
     "recordType": "PillarProjectScoreRange",
-    "label": "2",
+    "label": "PS3_MODERATE",
     "positiveLikelihoodRatio": 10.0,
+    "evidenceStrength": 2,
 }
 
 TEST_PILLAR_PROJECT_SCORE_SET_RANGE = {
@@ -1410,34 +1414,24 @@ TEST_SAVED_PILLAR_PROJECT_SCORE_SET_RANGE_WITH_SOURCE = {
 
 
 TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED = {
-    "ranges": {
-        "investigator_provided": TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE,
-    }
+    "investigator_provided": TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE,
 }
 
 
 TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED = {
     "recordType": "ScoreSetRanges",
-    "ranges": {
-        "recordType": "RangeContainer",
-        "investigatorProvided": TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE,
-    },
+    "investigatorProvided": TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE,
 }
 
 
 TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT = {
-    "calibrations": {
-        "pillar_project": TEST_PILLAR_PROJECT_SCORE_SET_RANGE_WITH_SOURCE,
-    }
+    "pillar_project": TEST_PILLAR_PROJECT_SCORE_SET_RANGE_WITH_SOURCE,
 }
 
 
 TEST_SAVED_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT = {
     "recordType": "ScoreSetRanges",
-    "calibrations": {
-        "recordType": "CalibrationContainer",
-        "pillarProject": TEST_SAVED_PILLAR_PROJECT_SCORE_SET_RANGE_WITH_SOURCE,
-    },
+    "pillarProject": TEST_SAVED_PILLAR_PROJECT_SCORE_SET_RANGE_WITH_SOURCE,
 }
 
 

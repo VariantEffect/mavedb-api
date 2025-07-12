@@ -183,6 +183,40 @@ def test_score_range_base_equal_bounds(ScoreRangeModel):
         ScoreRangeModel(**invalid_data)
 
 
+@pytest.mark.parametrize(
+    "classification,evidence_strength,should_raise",
+    [
+        ("normal", 1, True),  # Should raise: normal with positive evidence_strength
+        ("normal", 0, True),  # Should not raise: normal with zero evidence_strength
+        ("normal", -1, False),  # Should not raise: normal with negative evidence_strength
+        ("abnormal", -1, True),  # Should raise: abnormal with negative evidence_strength
+        ("abnormal", 0, True),  # Should not raise: abnormal with zero evidence_strength
+        ("abnormal", 1, False),  # Should not raise: abnormal with positive evidence_strength
+        ("not_specified", 1, False),  # Should not raise: not_specified with positive evidence_strength
+        ("not_specified", -1, False),  # Should not raise: not_specified with negative evidence_strength
+    ],
+)
+@pytest.mark.parametrize(
+    "ScoreRangeModel", [PillarProjectScoreRange, PillarProjectScoreRangeCreate, PillarProjectScoreRangeModify]
+)
+def test_pillar_project_evidence_strength_cardinality_must_agree_with_classification(
+    classification, evidence_strength, should_raise, ScoreRangeModel
+):
+    invalid_data = deepcopy(TEST_PILLAR_PROJECT_SCORE_SET_NORMAL_RANGE)
+    invalid_data["classification"] = classification
+    invalid_data["evidence_strength"] = evidence_strength
+    if should_raise:
+        with pytest.raises(ValidationError) as excinfo:
+            ScoreRangeModel(**invalid_data)
+        if classification == "normal":
+            assert "The evidence strength for a normal range must be negative." in str(excinfo.value)
+        elif classification == "abnormal":
+            assert "The evidence strength for an abnormal range must be positive." in str(excinfo.value)
+    else:
+        obj = ScoreRangeModel(**invalid_data)
+        assert obj.evidence_strength == evidence_strength
+
+
 ### ScoreRanges Tests ###
 
 
@@ -240,14 +274,39 @@ def test_score_ranges_pillar_project_valid_range(ScoreRangesModel, score_ranges_
         InvestigatorScoreRanges,
         InvestigatorScoreRangesCreate,
         InvestigatorScoreRangesModify,
-        PillarProjectScoreRanges,
-        PillarProjectScoreRangesCreate,
-        PillarProjectScoreRangesModify,
     ],
 )
 def test_score_ranges_ranges_may_not_overlap(ScoreRangesModel):
     range_test = ScoreRange(label="Range 1", classification="abnormal", range=[0.0, 2.0])
     range_check = ScoreRange(label="Range 2", classification="abnormal", range=[1.0, 3.0])
+    invalid_data = {
+        "ranges": [
+            range_test,
+            range_check,
+        ]
+    }
+    with pytest.raises(
+        ValidationError,
+        match=rf".*Score ranges may not overlap; `{range_test.label}` \(\[{range_test.range[0]}, {range_test.range[1]}\]\) overlaps with `{range_check.label}` \(\[{range_check.range[0]}, {range_check.range[1]}\]\).*",
+    ):
+        ScoreRangesModel(**invalid_data)
+
+
+@pytest.mark.parametrize(
+    "ScoreRangesModel",
+    [
+        PillarProjectScoreRanges,
+        PillarProjectScoreRangesCreate,
+        PillarProjectScoreRangesModify,
+    ],
+)
+def test_score_ranges_pillar_project_ranges_may_not_overlap(ScoreRangesModel):
+    range_test = PillarProjectScoreRange(
+        label="Range 1", classification="abnormal", range=[0.0, 2.0], evidence_strength=2
+    )
+    range_check = PillarProjectScoreRange(
+        label="Range 2", classification="abnormal", range=[1.0, 3.0], evidence_strength=3
+    )
     invalid_data = {
         "ranges": [
             range_test,
@@ -323,31 +382,9 @@ def test_score_set_ranges_valid_range(ScoreSetRangesModel, score_set_ranges_data
     score_set_ranges = ScoreSetRangesModel(**score_set_ranges_data)
     assert isinstance(score_set_ranges, ScoreSetRangesModel), "ScoreSetRangesModel instantiation failed"
     # Ensure a ranges property exists. Data values are checked elsewhere in more detail.
-    for container_name in score_set_ranges.__fields_set__:
-        container_definition = getattr(score_set_ranges, container_name)
-        for range_name in container_definition.__fields_set__:
-            range_definition = getattr(container_definition, range_name)
-            assert range_definition.ranges
-
-
-@pytest.mark.parametrize("ScoreSetRangesModel", [ScoreSetRanges, ScoreSetRangesCreate, ScoreSetRangesModify])
-def test_score_set_ranges_valid_when_one_model_is_empty(ScoreSetRangesModel):
-    empty_model = "calibrations"
-    score_set_ranges_data = deepcopy(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)
-    score_set_ranges_data[empty_model] = None
-    score_set_ranges = ScoreSetRangesModel(**score_set_ranges_data)
-    assert isinstance(score_set_ranges, ScoreSetRangesModel), "ScoreSetRangesModel instantiation failed"
-    # Ensure a ranges property exists. Data values are checked elsewhere in more detail.
-    for container_name in score_set_ranges.__fields_set__:
-        container_definition = getattr(score_set_ranges, container_name)
-
-        if not container_definition:
-            assert container_name == empty_model, f"Expected {empty_model} to be None, but got {container_definition}"
-            continue
-
-        for range_name in container_definition.__fields_set__:
-            range_definition = getattr(container_definition, range_name)
-            assert range_definition.ranges
+    for range_name in score_set_ranges.__fields_set__:
+        range_definition = getattr(score_set_ranges, range_name)
+        assert range_definition.ranges
 
 
 @pytest.mark.parametrize(
@@ -368,7 +405,7 @@ def test_score_set_ranges_valid_when_one_model_is_empty(ScoreSetRangesModel):
 def test_score_set_ranges_may_not_include_duplicate_labels(ScoreSetRangesModel, score_set_ranges_data):
     # Add a duplicate label to the ranges
     score_set_ranges_data = deepcopy(score_set_ranges_data)
-    range_values = list(score_set_ranges_data[list(score_set_ranges_data.keys())[0]].values())[0]["ranges"]
+    range_values = score_set_ranges_data[list(score_set_ranges_data.keys())[0]]["ranges"]
     for range_value in range_values:
         range_value["label"] = "duplicated_label"
 
@@ -391,7 +428,7 @@ def test_score_set_ranges_may_include_duplicate_labels_in_different_range_defini
     # Add a duplicate label across all schemas
     score_set_ranges_data = deepcopy(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)
     for key in score_set_ranges_data:
-        for range_schema in score_set_ranges_data[key].values():
-            range_schema["ranges"][0]["label"] = "duplicated_label"
+        range_schema = score_set_ranges_data[key]
+        range_schema["ranges"][0]["label"] = "duplicated_label"
 
     ScoreSetRangesModel(**score_set_ranges_data)

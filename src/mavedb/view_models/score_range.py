@@ -229,8 +229,25 @@ class InvestigatorScoreRanges(ScoreRanges, SavedInvestigatorScoreRanges):
 
 class PillarProjectScoreRangeBase(ScoreRangeBase):
     positive_likelihood_ratio: Optional[float] = None
+    evidence_strength: int
     # path (normal) / benign (abnormal) -> classification
-    # evidence strength -> label
+
+    @validator("evidence_strength")
+    def evidence_strength_cardinality_must_agree_with_classification(
+        cls, field_value: int, values: dict[str, Any]
+    ) -> int:
+        classification = values.get("classification")
+
+        if classification == "normal" and field_value >= 0:
+            raise ValidationError(
+                "The evidence strength for a normal range must be negative.",
+            )
+        elif classification == "abnormal" and field_value <= 0:
+            raise ValidationError(
+                "The evidence strength for an abnormal range must be positive.",
+            )
+
+        return field_value
 
 
 class PillarProjectScoreRangeModify(ScoreRangeModify, PillarProjectScoreRangeBase):
@@ -270,7 +287,6 @@ class PillarProjectScoreRangesBase(ScoreRangesBase):
     prior_probability_pathogenicity: Optional[float] = None
     parameter_sets: list[PillarProjectParameterSet] = []
     ranges: Sequence[PillarProjectScoreRangeBase]
-    source: Optional[Sequence[PublicationIdentifierBase]] = None
 
 
 class PillarProjectScoreRangesModify(ScoreRangesModify, PillarProjectScoreRangesBase):
@@ -297,9 +313,13 @@ class PillarProjectScoreRanges(ScoreRanges, SavedPillarProjectScoreRanges):
 # Score range container objects
 ###############################################################################################################
 
+### Score set range container models
 
-### Range and calibration container schemas
-class SchemaContainerBase(BaseModel):
+
+class ScoreSetRangesBase(BaseModel):
+    investigator_provided: Optional[InvestigatorScoreRangesBase] = None
+    pillar_project: Optional[PillarProjectScoreRangesBase] = None
+
     _fields_to_exclude_for_validatation = {"record_type"}
 
     @validator("*")
@@ -330,77 +350,25 @@ class SchemaContainerBase(BaseModel):
         return field_value
 
 
-class RangeContainerBase(SchemaContainerBase):
-    investigator_provided: Optional[InvestigatorScoreRangesBase] = None
-
-
-class CalibrationContainerBase(SchemaContainerBase):
-    pillar_project: Optional[PillarProjectScoreRangesBase] = None
-
-
-class RangeContainerModify(RangeContainerBase):
+class ScoreSetRangesModify(ScoreSetRangesBase):
     investigator_provided: Optional[InvestigatorScoreRangesModify] = None
-
-
-class CalibrationContainerModify(CalibrationContainerBase):
     pillar_project: Optional[PillarProjectScoreRangesModify] = None
 
 
-class RangeContainerCreate(RangeContainerModify):
-    investigator_provided: Optional[InvestigatorScoreRangesCreate] = None
-
-
-class CalibrationContainerCreate(CalibrationContainerModify):
-    pillar_project: Optional[PillarProjectScoreRangesCreate] = None
-
-
-class SavedRangeContainer(SchemaContainerBase):
-    record_type: str = None  # type: ignore
-    _record_type_factory = record_type_validator()(set_record_type)
-    investigator_provided: Optional[SavedInvestigatorScoreRanges] = None
-
-
-class SavedCalibrationContainer(SchemaContainerBase):
-    record_type: str = None  # type: ignore
-    _record_type_factory = record_type_validator()(set_record_type)
-    pillar_project: Optional[SavedPillarProjectScoreRanges] = None
-
-
-class RangeContainer(SavedRangeContainer):
-    investigator_provided: Optional[InvestigatorScoreRanges] = None
-
-
-class CalibrationContainer(SavedCalibrationContainer):
-    pillar_project: Optional[PillarProjectScoreRanges] = None
-
-
-### Score set range container models
-
-
-class ScoreSetRangesBase(BaseModel):
-    ranges: Optional[RangeContainerBase] = None
-    calibrations: Optional[CalibrationContainerBase] = None
-
-
-class ScoreSetRangesModify(ScoreSetRangesBase):
-    ranges: Optional[RangeContainerModify] = None
-    calibrations: Optional[CalibrationContainerModify] = None
-
-
 class ScoreSetRangesCreate(ScoreSetRangesModify):
-    ranges: Optional[RangeContainerCreate] = None
-    calibrations: Optional[CalibrationContainerCreate] = None
+    investigator_provided: Optional[InvestigatorScoreRangesCreate] = None
+    pillar_project: Optional[PillarProjectScoreRangesCreate] = None
 
 
 class SavedScoreSetRanges(ScoreSetRangesBase):
     record_type: str = None  # type: ignore
 
-    ranges: Optional[SavedRangeContainer] = None
-    calibrations: Optional[SavedCalibrationContainer] = None
+    investigator_provided: Optional[SavedInvestigatorScoreRanges] = None
+    pillar_project: Optional[SavedPillarProjectScoreRanges] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
 
 
 class ScoreSetRanges(SavedScoreSetRanges):
-    ranges: Optional[RangeContainer] = None
-    calibrations: Optional[CalibrationContainer] = None
+    investigator_provided: Optional[InvestigatorScoreRanges] = None
+    pillar_project: Optional[PillarProjectScoreRanges] = None
