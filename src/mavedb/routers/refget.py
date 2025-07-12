@@ -35,6 +35,32 @@ router = APIRouter(
 )
 
 
+@router.get("/sequence/service-info", response_model=RefgetServiceInfo)
+def service_info() -> dict[str, Union[str, dict[str, Union[str, list[str], bool, None]]]]:
+    """
+    Returns information about the refget service.
+    """
+    seqrepo_data_dir = os.getenv("HGVS_SEQREPO_DIR")
+    if not seqrepo_data_dir:
+        seqrepo_data_version = "unknown"
+    else:
+        seqrepo_data_version = seqrepo_data_dir.split(os.sep)[-1]  # last part of the path is the version
+
+    return {
+        "name": "MaveDB API",
+        "version": __version__,
+        "seqrepo_dependency_version": seqrepo_dep_version,
+        "seqrepo_data_version": seqrepo_data_version,
+        "description": "MaveDB API",
+        "refget": {
+            "identifier_types": ["refseq", "ensembl"],
+            "algorithms": ["MD5", "trunc512", "ga4gh"],
+            "circular_supported": False,
+            "subsequence_limit": None,
+        },
+    }
+
+
 @router.get("/sequence/{alias}/metadata", response_model=RefgetMetadataResponse)
 def get_metadata(alias: str, sr: SeqRepo = Depends(deps.get_seqrepo)) -> dict[str, dict]:
     save_to_logging_context({"requested_refget_alias": alias, "requested_resource": "metadata"})
@@ -161,29 +187,3 @@ def get_sequence(
     return StreamingResponse(
         sequence_generator(sr, seq_ids[0], start, end), media_type="text/plain", status_code=status, headers=headers
     )
-
-
-@router.get("/service-info", response_model=RefgetServiceInfo)
-def service_info() -> dict[str, Union[str, dict[str, Union[str, list[str], bool, None]]]]:
-    """
-    Returns information about the refget service.
-    """
-    seqrepo_data_dir = os.getenv("HGVS_SEQREPO_DIR")
-    if not seqrepo_data_dir:
-        seqrepo_data_version = "unknown"
-    else:
-        seqrepo_data_version = seqrepo_data_dir.split(os.sep)[-1]  # last part of the path is the version
-
-    return {
-        "name": "MaveDB API",
-        "version": __version__,
-        "seqrepo_dependency_version": seqrepo_dep_version,
-        "seqrepo_data_version": seqrepo_data_version,
-        "description": "MaveDB API",
-        "refget": {
-            "identifier_types": ["refseq", "ensembl"],
-            "algorithms": ["MD5", "trunc512", "ga4gh"],
-            "circular_supported": False,
-            "subsequence_limit": None,
-        },
-    }
