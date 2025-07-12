@@ -11,13 +11,13 @@ import re
 
 from biocommons.seqrepo import SeqRepo, __version__ as seqrepo_dep_version
 from fastapi import APIRouter, Depends, Query, HTTPException, Header
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import StreamingResponse
 from typing import Optional, Union
 
 from mavedb import deps
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.lib.seqrepo import get_sequence_ids, base64url_to_hex
+from mavedb.lib.seqrepo import get_sequence_ids, base64url_to_hex, sequence_generator
 from mavedb.view_models.refget import RefgetMetadataResponse, RefgetServiceInfo
 
 from mavedb import __version__
@@ -83,7 +83,7 @@ def get_sequence(
     start: Optional[int] = Query(None, description="Request a subsequence of the data (0-based)."),
     end: Optional[int] = Query(None, description="Request a subsequence of the data by specifying the end."),
     sr: SeqRepo = Depends(deps.get_seqrepo),
-) -> PlainTextResponse:
+) -> StreamingResponse:
     save_to_logging_context(
         {
             "requested_refget_alias": alias,
@@ -149,8 +149,7 @@ def get_sequence(
                 headers={"Content-Range": f"bytes */{seqinfo['len']}"},
             )
 
-    sequence = sr.sequences.fetch(seq_id, start, end)
-    headers = {"Content-Length": str(len(sequence))}
+    headers = {"Content-Length": str(seqinfo["len"])}
     if start is not None and end is not None and range_header:
         status = 206
         headers["Content-Range"] = f"bytes {start}-{end - 1}/{seqinfo['len']}"
@@ -159,7 +158,9 @@ def get_sequence(
         status = 200
         headers["Accept-Ranges"] = "none"
 
-    return PlainTextResponse(content=sequence, status_code=status, headers=headers)
+    return StreamingResponse(
+        sequence_generator(sr, seq_ids[0], start, end), media_type="text/plain", status_code=status, headers=headers
+    )
 
 
 @router.get("/service-info", response_model=RefgetServiceInfo)

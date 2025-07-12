@@ -4,7 +4,7 @@ import pytest
 pytest.importorskip("biocommons")
 pytest.importorskip("bioutils")
 
-from mavedb.lib.seqrepo import get_sequence_ids, _generate_nsa_options, seqrepo_versions
+from mavedb.lib.seqrepo import get_sequence_ids, _generate_nsa_options, seqrepo_versions, sequence_generator
 from mavedb.lib import seqrepo as seqrepo_lib
 
 from tests.helpers.constants import TEST_SEQREPO_INITIAL_STATE
@@ -73,3 +73,59 @@ def test_seqrepo_versions(monkeypatch, env_value, expected_data_version):
     result = seqrepo_versions()
     assert result["seqrepo_dependency_version"] == "1.2.3"
     assert result["seqrepo_data_version"] == expected_data_version
+
+
+def test_sequence_generator_basic_chunks(seqrepo):
+    seq = "ACGT" * 10  # 40 bases
+    seqrepo.sequences.store("test_sequence_generator_basic_chunks", seq)
+    seqrepo.sequences.commit()
+
+    chunks = list(sequence_generator(seqrepo, "test_sequence_generator_basic_chunks", 0, 40, 10))
+    assert chunks == ["ACGTACGTAC", "GTACGTACGT", "ACGTACGTAC", "GTACGTACGT"]
+
+
+def test_sequence_generator_partial_final_chunk(seqrepo):
+    seq = "ACGT" * 7 + "A"  # 29 bases
+    seqrepo.sequences.store("test_sequence_generator_partial_final_chunk", seq)
+    seqrepo.sequences.commit()
+
+    chunks = list(sequence_generator(seqrepo, "test_sequence_generator_partial_final_chunk", 0, 29, 10))
+    assert chunks == ["ACGTACGTAC", "GTACGTACGT", "ACGTACGTA"]
+
+
+def test_sequence_generator_start_end_within_bounds(seqrepo):
+    seq = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    seqrepo.sequences.store("test_sequence_generator_start_end_within_bounds", seq)
+    seqrepo.sequences.commit()
+
+    chunks = list(sequence_generator(seqrepo, "test_sequence_generator_start_end_within_bounds", 5, 20, 7))
+    assert chunks == ["FGHIJKL", "MNOPQRS", "T"]
+
+
+def test_sequence_generator_start_none_end_none(seqrepo):
+    seq = "0123456789"
+    seqrepo.sequences.store("test_sequence_generator_start_none_end_none", seq)
+    seqrepo.sequences.commit()
+
+    chunks = list(sequence_generator(seqrepo, "test_sequence_generator_start_none_end_none", None, None, 4))
+    # start=None, end=None should yield the whole sequence in default chunk size
+    assert chunks == ["0123", "4567", "89"]
+
+
+@pytest.mark.skip("You cannot add an empty sequence to SeqRepo")
+def test_sequence_generator_empty_sequence(seqrepo):
+    seq = ""
+    seqrepo.sequences.store("test_sequence_generator_empty_sequence", seq)
+    seqrepo.sequences.commit()
+
+    chunks = list(sequence_generator(seqrepo, "test_sequence_generator_empty_sequence", 0, 0, 5))
+    assert chunks == []
+
+
+def test_sequence_generator_chunk_size_larger_than_sequence(seqrepo):
+    seq = "ACGT"
+    seqrepo.sequences.store("test_sequence_generator_chunk_size_larger_than_sequence", seq)
+    seqrepo.sequences.commit()
+
+    chunks = list(sequence_generator(seqrepo, "test_sequence_generator_chunk_size_larger_than_sequence", 0, 4, 10))
+    assert chunks == ["ACGT"]

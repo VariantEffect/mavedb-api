@@ -11,10 +11,13 @@ from binascii import unhexlify, hexlify
 
 # TODO (https://github.com/VariantEffect/mavedb-api/issues/354). We need pydantic upgraded to use this package.
 # from ga4gh.core.identifiers import is_ga4gh_identifier, CURIE_NAMESPACE as ga4gh_namespace
-from typing import Union
+from typing import Generator, Optional, Union
 
 from biocommons.seqrepo import SeqRepo, __version__ as seqrepo_dep_version
 from bioutils.accessions import infer_namespaces
+
+
+DEFAULT_CHUNK_SIZE = 8192
 
 
 def base64url_to_hex(s: str) -> str:
@@ -91,6 +94,40 @@ def _generate_nsa_options(query: str) -> Union[list[tuple[str, ...]], list[tuple
         return nsa_options
 
     return [(None, query)]
+
+
+def sequence_generator(
+    sr: SeqRepo, seq_id: str, start: Optional[int], end: Optional[int], chunk_size: int = DEFAULT_CHUNK_SIZE
+) -> Generator[str, None, None]:
+    """
+    Generates sequence chunks from a SeqRepo sequence.
+
+    Args:
+        sr (SeqRepo): The SeqRepo instance to fetch sequences from.
+        seq_id (str): The identifier of the sequence to retrieve.
+        start (Optional[int]): The starting position (0-based, inclusive) of the sequence to fetch. If None, starts from 0.
+        end (Optional[int]): The ending position (0-based, exclusive) of the sequence to fetch. If None, goes to the end of the sequence.
+        chunk_size (int, optional): The size of each chunk to yield. Defaults to DEFAULT_CHUNK_SIZE.
+
+    Yields:
+        str: A chunk of the sequence as a string.
+
+    Raises:
+        Any exceptions raised by SeqRepo when fetching sequence information or sequence data.
+
+    Example:
+        for chunk in sequence_generator(sr, "seq1", 0, 1000, 100):
+            process(chunk)
+    """
+    seq_len = sr.sequences.fetch_seqinfo(seq_id)["len"]
+    seq_start = start if start is not None else 0
+    seq_end = end if end is not None else seq_len
+
+    for pos in range(seq_start, seq_end, chunk_size):
+        chunk = sr.sequences.fetch(seq_id, pos, min(pos + chunk_size, seq_end))
+        if not chunk:
+            break
+        yield chunk
 
 
 def seqrepo_versions() -> dict[str, str]:

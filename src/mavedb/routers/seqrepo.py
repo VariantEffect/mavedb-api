@@ -2,7 +2,7 @@ import logging
 
 from biocommons.seqrepo import SeqRepo
 from fastapi import APIRouter, Query, HTTPException, Depends
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import StreamingResponse
 from typing import Optional, Union
 
 from mavedb import deps
@@ -11,7 +11,7 @@ from mavedb.lib.logging.context import (
     logging_context,
     save_to_logging_context,
 )
-from mavedb.lib.seqrepo import get_sequence_ids, seqrepo_versions
+from mavedb.lib.seqrepo import get_sequence_ids, seqrepo_versions, sequence_generator
 
 from mavedb.view_models.seqrepo import SeqRepoMetadata, SeqRepoVersions
 
@@ -26,13 +26,13 @@ router = APIRouter(
 )
 
 
-@router.get("/sequence/{alias}", response_class=PlainTextResponse)
+@router.get("/sequence/{alias}")
 def get_sequence(
     alias: str,
     start: Optional[int] = Query(None),
     end: Optional[int] = Query(None),
     sr: SeqRepo = Depends(deps.get_seqrepo),
-) -> str:
+) -> StreamingResponse:
     save_to_logging_context(
         {
             "requested_seqrepo_alias": alias,
@@ -57,9 +57,7 @@ def get_sequence(
         logger.error(msg="Multiple sequences found for alias", extra=logging_context())
         raise HTTPException(status_code=422, detail=f"Multiple sequences exist for alias '{alias}'")
 
-    seq_id = seq_ids[0]
-    sequence = sr.sequences.fetch(seq_id, start, end)
-    return sequence
+    return StreamingResponse(sequence_generator(sr, seq_ids[0], start, end), media_type="text/plain")
 
 
 @router.get("/metadata/{alias}", response_model=SeqRepoMetadata)
