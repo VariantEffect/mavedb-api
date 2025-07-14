@@ -30,6 +30,36 @@ def test_create_valid_target_sequence():
     assert target_sequence.label == label
 
 
+def test_create_target_sequence_with_carriage_return():
+    sequence_type = "dna"
+    label = "sequence_label"
+    sequence = SEQUENCE + "AGG\rATCG\r"
+    taxonomy = TEST_TAXONOMY
+
+    target_sequence = TargetSequenceCreate(
+        sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label
+    )
+
+    assert target_sequence.sequence_type == sequence_type
+    assert target_sequence.sequence == SEQUENCE + "AGGATCG"
+    assert target_sequence.label == label
+
+
+def test_create_target_sequence_with_new_line():
+    sequence_type = "dna"
+    label = "sequence_label"
+    sequence = SEQUENCE + "\nATCG\n"
+    taxonomy = TEST_TAXONOMY
+
+    target_sequence = TargetSequenceCreate(
+        sequence_type=sequence_type, sequence=sequence, taxonomy=taxonomy, label=label
+    )
+
+    assert target_sequence.sequence_type == sequence_type
+    assert target_sequence.sequence == SEQUENCE + "ATCG"
+    assert target_sequence.label == label
+
+
 def test_target_sequence_label_is_sanitized():
     sequence_type = "dna"
     label = "   sanitize this label      "
