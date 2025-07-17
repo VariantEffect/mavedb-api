@@ -74,7 +74,7 @@ def query_clingen_allele_api(allele_id: str) -> Dict[str, Any]:
     return response.json()
 
 
-def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[str], urns: Sequence[str]) -> None:
+def refresh_clinvar_variants(db: Session, month: Optional[str], year: str, urns: Sequence[str]) -> None:
     tsv_content = fetch_clinvar_variant_summary_tsv(month, year)
     tsv_data = parse_tsv(tsv_content)
     version = f"{month}_{year}" if month and year else f"{date.today().month}_{date.today().year}"
