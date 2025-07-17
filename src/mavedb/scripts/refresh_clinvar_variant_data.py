@@ -8,6 +8,7 @@ import logging
 import gzip
 import random
 import io
+import sys
 
 from typing import Dict, Any, Optional, Sequence
 from datetime import date
@@ -23,11 +24,20 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-def fetch_clinvar_variant_summary_tsv(month: Optional[str], year: Optional[str]) -> bytes:
+# Some older variant summary files have larger field sizes than the default CSV reader can handle.
+csv.field_size_limit(sys.maxsize)
+
+
+def fetch_clinvar_variant_summary_tsv(month: Optional[str], year: str) -> bytes:
     if month is None and year is None:
         url = "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz"
     else:
-        url = f"https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/archive/variant_summary_{year}-{month}.txt.gz"
+        if int(year) <= 2023:
+            url = f"https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/archive/{year}/variant_summary_{year}-{month}.txt.gz"
+        else:
+            url = (
+                f"https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/archive/variant_summary_{year}-{month}.txt.gz"
+            )
 
     response = requests.get(url, stream=True)
     response.raise_for_status()
@@ -73,14 +83,16 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[s
     if urns:
         clingen_ids = db.scalars(
             select(distinct(MappedVariant.clingen_allele_id))
-                .join(Variant)
-                .join(ScoreSet)
-                .where(MappedVariant.current.is_(True), MappedVariant.post_mapped.is_not(None))
-                .where(and_(
+            .join(Variant)
+            .join(ScoreSet)
+            .where(MappedVariant.current.is_(True), MappedVariant.post_mapped.is_not(None))
+            .where(
+                and_(
                     MappedVariant.clingen_allele_id.is_not(None),
                     MappedVariant.current.is_(True),
-                    ScoreSet.urn.in_(urns)
-                ))
+                    ScoreSet.urn.in_(urns),
+                )
+            )
         ).all()
     else:
         clingen_ids = db.scalars(
@@ -146,8 +158,8 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: Optional[s
 @with_database_session
 @click.argument("urns", nargs=-1)
 @click.option("--month", default=None, help="Populate mapped variants for every score set in MaveDB.")
-@click.option("--year", default=None, help="Populate mapped variants for every score set in MaveDB.")
-def refresh_clinvar_variants_command(db: Session, month: Optional[str], year: Optional[str], urns: Sequence[str]) -> None:
+@click.option("--year", required=True, help="Populate mapped variants for every score set in MaveDB.")
+def refresh_clinvar_variants_command(db: Session, month: Optional[str], year: str, urns: Sequence[str]) -> None:
     refresh_clinvar_variants(db, month, year, urns)
 
 
