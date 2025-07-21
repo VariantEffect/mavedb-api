@@ -1,8 +1,8 @@
-# import os
-
+import os
 from typing import Any, AsyncGenerator, Generator
 
 from arq import ArqRedis, create_pool
+from biocommons.seqrepo import SeqRepo
 from cdot.hgvs.dataproviders import RESTDataProvider
 from sqlalchemy.orm import Session
 
@@ -30,3 +30,8 @@ async def get_worker() -> AsyncGenerator[ArqRedis, Any]:
 
 def hgvs_data_provider() -> RESTDataProvider:
     return cdot_rest()
+
+
+def get_seqrepo() -> SeqRepo:
+    seqrepo_dir = os.environ.get("HGVS_SEQREPO_DIR", "/seqrepo")
+    return SeqRepo(seqrepo_dir)
