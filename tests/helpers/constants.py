@@ -27,10 +27,12 @@ TEST_SEQUENCE_LOCATION_ACCESSION = "ga4gh:SL.test"
 TEST_REFSEQ_IDENTIFIER = "NM_003345"
 TEST_HGVS_IDENTIFIER = f"{TEST_REFSEQ_IDENTIFIER}:p.Asp5Phe"
 
+VALID_CHR_ACCESSION = "NC_000001.11"
 VALID_ACCESSION = "NM_001637.3"
 VALID_NT_ACCESSION = "NM_001637.3"
 VALID_PRO_ACCESSION = "NP_001637.4"
 VALID_GENE = "BRCA1"
+VALID_UNIPROT_ACCESSION = "P05067"
 
 VALID_CLINGEN_PA_ID = "PA2579908752"
 VALID_CLINGEN_CA_ID = "CA341478553"
@@ -1009,9 +1011,14 @@ TEST_SEQ_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
                 "mapped_reference_sequence": {
                     "sequence_type": "dna",
                     "sequence_id": "ga4gh:SQ.map_test",
-                    "sequence_accessions": ["NC_000001.11"],
+                    "sequence_accessions": [VALID_CHR_ACCESSION],
                 },
-            }
+            },
+            "c": {
+                "mapped_reference_sequence": {
+                    "sequence_accessions": [VALID_NT_ACCESSION],
+                },
+            },
         }
     },
     "mapped_scores": [],
@@ -1033,9 +1040,14 @@ TEST_ACC_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
                 "mapped_reference_sequence": {
                     "sequence_type": "dna",
                     "sequence_id": "ga4gh:SQ.map_test",
-                    "sequence_accessions": ["NC_000001.11"],
+                    "sequence_accessions": [VALID_CHR_ACCESSION],
                 },
-            }
+            },
+            "c": {
+                "mapped_reference_sequence": {
+                    "sequence_accessions": [VALID_NT_ACCESSION],
+                },
+            },
         }
     },
     "mapped_scores": [],
@@ -1057,9 +1069,14 @@ TEST_MULTI_TARGET_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
                 "mapped_reference_sequence": {
                     "sequence_type": "dna",
                     "sequence_id": "ga4gh:SQ.map_test",
-                    "sequence_accessions": ["NC_000001.11"],
+                    "sequence_accessions": [VALID_CHR_ACCESSION],
                 },
-            }
+            },
+            "c": {
+                "mapped_reference_sequence": {
+                    "sequence_accessions": [VALID_NT_ACCESSION],
+                },
+            },
         },
         "TEST4": {
             "g": {
@@ -1071,9 +1088,14 @@ TEST_MULTI_TARGET_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
                 "mapped_reference_sequence": {
                     "sequence_type": "dna",
                     "sequence_id": "ga4gh:SQ.map_test",
-                    "sequence_accessions": ["NC_000001.11"],
+                    "sequence_accessions": [VALID_CHR_ACCESSION],
                 },
-            }
+            },
+            "c": {
+                "mapped_reference_sequence": {
+                    "sequence_accessions": [VALID_NT_ACCESSION],
+                },
+            },
         },
     },
     "mapped_scores": [],
@@ -1476,4 +1498,66 @@ TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST = {
     "errMsg": "INVALID URL - Your request is invalid. Specifically, the URL path you provided ('/ldh-stg/MaveDBMapping/i/urn%3Amavedb%3A00000050-a-1%231') is not valid for HTTP 'GET' requests to the CG-LDH API service.",
     "errName": "Bad Request",
     "errCat": "INVALID URL",
+}
+
+TEST_UNIPROT_JOB_ID = "1234567890"
+
+TEST_UNIPROT_JOB_SUBMISSION_RESPONSE = {
+    "jobId": TEST_UNIPROT_JOB_ID,
+    "message": "Job submitted successfully",
+}
+
+TEST_UNIPROT_JOB_SUBMISSION_ERROR_RESPONSE = {
+    "url": "http://rest.uniprot.org/idmapping/run",
+    "messages": [
+        "The parameter 'from' has an invalid value '{0}'.",
+        "'to' is a required parameter",
+        "'ids' is a required parameter",
+        "The parameter 'to' has an invalid value '{0}'.",
+        "'from' is a required parameter",
+        "The combination of 'from={0}' and 'to={1}' parameters is invalid",
+    ],
+}
+
+
+TEST_UNIPROT_ID_MAPPING_RESPONSE = {
+    "results": [
+        {"from": f"{VALID_NT_ACCESSION}", "to": {"primaryAccession": f"{VALID_UNIPROT_ACCESSION}"}},
+    ]
+}
+
+
+TEST_UNIPROT_ID_FAILED_ID_MAPPING_RESPONSE = {"failedIds": [VALID_NT_ACCESSION]}
+
+
+TEST_UNIPROT_FINISHED_JOB_STATUS_RESPONSE = {
+    "jobStatus": "FINISHED",
+    "warnings": [{"code": 0, "message": "string"}],
+    "errors": [{"code": 0, "message": "string"}],
+    "start": datetime.now().isoformat(),
+    "totalEntries": 1,
+    "processedEntries": 1,
+    "lastUpdated": datetime.now().isoformat(),
+}
+
+
+TEST_UNIPROT_RUNNING_JOB_STATUS_RESPONSE = {
+    "jobStatus": "RUNNING",
+    "warnings": [{"code": 0, "message": "string"}],
+    "errors": [{"code": 0, "message": "string"}],
+    "start": datetime.now().isoformat(),
+    "totalEntries": 21,
+    "processedEntries": 12,
+    "lastUpdated": datetime.now().isoformat(),
+}
+
+
+TEST_UNIPROT_REDIRECT_RESPONSE = {
+    "from": "Refseq_pro",
+    "to": "UniProtKB",
+    "ids": [VALID_NT_ACCESSION],
+    "taxId": "homo sapiens",
+    "redirectURL": "https://redirect.url",
+    "warnings": [{"code": 0, "message": "string"}],
+    "errors": [{"code": 0, "message": "string"}],
 }
