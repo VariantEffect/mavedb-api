@@ -7,6 +7,7 @@ from mavedb.view_models.base.base import BaseModel, validator
 
 class TargetAccessionBase(BaseModel):
     accession: str
+    is_base_editor: bool
     assembly: Optional[str]
     gene: Optional[str]
 

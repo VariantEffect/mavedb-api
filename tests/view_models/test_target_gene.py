@@ -44,7 +44,7 @@ def test_create_target_gene_with_accession():
     name = "BRCA1"
     category = "regulatory"
     external_identifiers = [{"identifier": {"dbName": "Ensembl", "identifier": "ENSG00000103275"}, "offset": 1}]
-    target_accession = {"accession": "NM_001637.3", "assembly": "GRCh37", "gene": "BRCA1"}
+    target_accession = {"accession": "NM_001637.3", "assembly": "GRCh37", "gene": "BRCA1", "isBaseEditor": False}
     externalIdentifier = TargetGeneCreate(
         name=name,
         category=category,
@@ -206,7 +206,7 @@ def test_cant_create_target_gene_with_both_sequence_and_accession():
     name = "UBE2I"
     category = "regulatory"
     external_identifiers = [{"identifier": {"dbName": "Ensembl", "identifier": "ENSG00000103275"}, "offset": 1}]
-    target_accession = {"accession": "NM_001637.3", "assembly": "GRCh37", "gene": "BRCA1"}
+    target_accession = {"accession": "NM_001637.3", "assembly": "GRCh37", "gene": "BRCA1", "isBaseEditor": False}
     target_sequence = {
         "sequenceType": "dna",
         "sequence": "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGA"

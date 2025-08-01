@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy import Column, Date, Integer, String
+from sqlalchemy import Boolean, Column, Date, Integer, String
 
 from mavedb.db.base import Base
 
@@ -14,3 +14,4 @@ class TargetAccession(Base):
     gene = Column(String, nullable=True)
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
+    is_base_editor = Column(Boolean, nullable=False, default=False)

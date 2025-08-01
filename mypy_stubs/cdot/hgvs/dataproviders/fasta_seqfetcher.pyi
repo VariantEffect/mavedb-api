@@ -1,6 +1,7 @@
 from typing import Union
 
-from hgvs.dataproviders.seqfetcher import SeqFetcher
+class SeqFetcher:
+    def __init__(self, *args) -> None: ...
 
 class FastaSeqFetcher:
     def __init__(self, *args, cache: bool = True) -> None: ...

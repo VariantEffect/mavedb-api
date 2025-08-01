@@ -1,9 +1,15 @@
+# ruff: noqa: E402
+
 import io
 
 import numpy as np
 import pandas as pd
 import pytest
 from sqlalchemy import select
+
+arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.score_sets import (
     HGVSColumns,
@@ -19,10 +25,17 @@ from mavedb.lib.validation.constants.general import (
     null_values_list,
     required_score_column,
 )
+from mavedb.models.experiment import Experiment
+from mavedb.models.license import License
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.target_accession import TargetAccession
+from mavedb.models.target_gene import TargetGene
+from mavedb.models.target_sequence import TargetSequence
+from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.variant import Variant
-from tests.helpers.constants import TEST_SAVED_SCORESET_RANGE
-from tests.helpers.util import create_acc_score_set, create_experiment, create_seq_score_set
+from tests.helpers.constants import TEST_EXPERIMENT, TEST_ACC_SCORESET, TEST_SEQ_SCORESET
+from tests.helpers.util.experiment import create_experiment
+from tests.helpers.util.score_set import create_seq_score_set
 
 
 def test_columns_for_dataset_no_dataset():
@@ -264,12 +277,37 @@ def test_create_variants_data_scores_and_counts_mismatched_lengths():
         create_variants_data(scores_df, counts_df)
 
 
-def test_create_variants_seq_score_set(setup_lib_db, client, session):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = session.scalars(select(ScoreSet)).first()
-    variant_data = create_variants_data(BASE_VARIANTS_SCORE_DF)
+def test_create_variants_seq_score_set(setup_lib_db, session):
+    experiment = Experiment(**TEST_EXPERIMENT, extra_metadata={})
+    session.add(experiment)
+    session.commit()
+    session.refresh(experiment)
 
+    target_sequences = [
+        TargetSequence(**{**seq["target_sequence"], **{"taxonomy": session.scalars(select(Taxonomy)).first()}})
+        for seq in TEST_SEQ_SCORESET["target_genes"]
+    ]
+    target_genes = [
+        TargetGene(**{**gene, **{"target_sequence": target_sequences[idx]}})
+        for idx, gene in enumerate(TEST_SEQ_SCORESET["target_genes"])
+    ]
+
+    score_set = ScoreSet(
+        **{
+            **TEST_SEQ_SCORESET,
+            **{
+                "experiment_id": experiment.id,
+                "target_genes": target_genes,
+                "extra_metadata": {},
+                "license": session.scalars(select(License)).first(),
+            },
+        }
+    )
+    session.add(score_set)
+    session.commit()
+    session.refresh(score_set)
+
+    variant_data = create_variants_data(BASE_VARIANTS_SCORE_DF)
     num_variants = create_variants(
         session,
         score_set,
@@ -287,12 +325,34 @@ def test_create_variants_seq_score_set(setup_lib_db, client, session):
     session.commit()
 
 
-def test_create_variants_acc_score_set(setup_lib_db, client, session):
-    experiment = create_experiment(client)
-    score_set = create_acc_score_set(client, experiment["urn"])
-    score_set = session.scalars(select(ScoreSet)).first()
-    variant_data = create_variants_data(BASE_VARIANTS_SCORE_DF)
+def test_create_variants_acc_score_set(setup_lib_db, session):
+    experiment = Experiment(**TEST_EXPERIMENT, extra_metadata={})
+    session.add(experiment)
+    session.commit()
+    session.refresh(experiment)
 
+    target_accessions = [TargetAccession(**seq["target_accession"]) for seq in TEST_ACC_SCORESET["target_genes"]]
+    target_genes = [
+        TargetGene(**{**gene, **{"target_accession": target_accessions[idx]}})
+        for idx, gene in enumerate(TEST_ACC_SCORESET["target_genes"])
+    ]
+
+    score_set = ScoreSet(
+        **{
+            **TEST_ACC_SCORESET,
+            **{
+                "experiment_id": experiment.id,
+                "target_genes": target_genes,
+                "extra_metadata": {},
+                "license": session.scalars(select(License)).first(),
+            },
+        }
+    )
+    session.add(score_set)
+    session.commit()
+    session.refresh(score_set)
+
+    variant_data = create_variants_data(BASE_VARIANTS_SCORE_DF)
     num_variants = create_variants(
         session,
         score_set,
@@ -316,16 +376,3 @@ def test_create_null_score_range(setup_lib_db, client, session):
     score_set = session.scalar(select(ScoreSet).where(ScoreSet.score_ranges.is_(None)))
 
     assert score_set is not None
-
-
-def test_update_null_score_range(setup_lib_db, client, session):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"], update={"scoreRanges": TEST_SAVED_SCORESET_RANGE})
-    db_score_set = session.scalar(select(ScoreSet).where(ScoreSet.score_ranges.is_(None)))
-    assert db_score_set is None
-
-    score_set.pop("scoreRanges")
-    score_set = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set)
-    db_score_set = session.scalar(select(ScoreSet).where(ScoreSet.score_ranges.is_(None)))
-
-    assert db_score_set is not None

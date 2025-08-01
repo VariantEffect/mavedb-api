@@ -8,11 +8,12 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from mavedb.data_providers.services import vrs_mapper
+from mavedb.lib.exceptions import NonexistentMappingReferenceError
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
+from mavedb.lib.mapping import ANNOTATION_LAYERS
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.mapped_variant import MappedVariant
-from mavedb.models.target_gene import TargetGene
 from mavedb.models.variant import Variant
 
 from mavedb.scripts.environment import script_environment, with_database_session
@@ -91,47 +92,43 @@ def populate_mapped_variant_data(db: Session, urns: Sequence[Optional[str]], all
                 db.commit()
                 logger.info(f"No mapped variants available for {score_set.urn}.")
             else:
-                computed_genomic_ref = mapped_scoreset.get("computed_genomic_reference_sequence")
-                mapped_genomic_ref = mapped_scoreset.get("mapped_genomic_reference_sequence")
-                computed_protein_ref = mapped_scoreset.get("computed_protein_reference_sequence")
-                mapped_protein_ref = mapped_scoreset.get("mapped_protein_reference_sequence")
+                reference_metadata = mapped_scoreset.get("reference_sequences")
+                if not reference_metadata:
+                    raise NonexistentMappingReferenceError()
 
-                # assumes one target gene per score set, which is currently true in mavedb as of sept. 2024.
-                target_gene = db.scalars(
-                    select(TargetGene)
-                    .join(ScoreSet)
-                    .where(
-                        ScoreSet.urn == str(score_set.urn),
+                for target_gene_identifier in reference_metadata:
+                    target_gene = next(
+                        (
+                            target_gene
+                            for target_gene in score_set.target_genes
+                            if target_gene.name == target_gene_identifier
+                        ),
+                        None,
                     )
-                ).one()
-
-                excluded_pre_mapped_keys = {"sequence"}
-                if computed_genomic_ref and mapped_genomic_ref:
-                    pre_mapped_metadata = computed_genomic_ref
-                    target_gene.pre_mapped_metadata = cast(
-                        {
-                            "genomic": {
-                                k: pre_mapped_metadata[k]
-                                for k in set(list(pre_mapped_metadata.keys())) - excluded_pre_mapped_keys
+                    if not target_gene:
+                        raise ValueError(
+                            f"Target gene {target_gene_identifier} not found in database for score set {score_set.urn}."
+                        )
+                    # allow for multiple annotation layers
+                    pre_mapped_metadata = {}
+                    post_mapped_metadata = {}
+                    excluded_pre_mapped_keys = {"sequence"}
+                    for annotation_layer in reference_metadata[target_gene_identifier]:
+                        layer_premapped = reference_metadata[target_gene_identifier][annotation_layer].get(
+                            "computed_reference_sequence"
+                        )
+                        if layer_premapped:
+                            pre_mapped_metadata[ANNOTATION_LAYERS[annotation_layer]] = {
+                                k: layer_premapped[k]
+                                for k in set(list(layer_premapped.keys())) - excluded_pre_mapped_keys
                             }
-                        },
-                        JSONB,
-                    )
-                    target_gene.post_mapped_metadata = cast({"genomic": mapped_genomic_ref}, JSONB)
-                elif computed_protein_ref and mapped_protein_ref:
-                    pre_mapped_metadata = computed_protein_ref
-                    target_gene.pre_mapped_metadata = cast(
-                        {
-                            "protein": {
-                                k: pre_mapped_metadata[k]
-                                for k in set(list(pre_mapped_metadata.keys())) - excluded_pre_mapped_keys
-                            }
-                        },
-                        JSONB,
-                    )
-                    target_gene.post_mapped_metadata = cast({"protein": mapped_protein_ref}, JSONB)
-                else:
-                    raise ValueError(f"incomplete or inconsistent metadata for score set {score_set.urn}")
+                        layer_postmapped = reference_metadata[target_gene_identifier][annotation_layer].get(
+                            "mapped_reference_sequence"
+                        )
+                        if layer_postmapped:
+                            post_mapped_metadata[ANNOTATION_LAYERS[annotation_layer]] = layer_postmapped
+                    target_gene.pre_mapped_metadata = cast(pre_mapped_metadata, JSONB)
+                    target_gene.post_mapped_metadata = cast(post_mapped_metadata, JSONB)
 
                 mapped_variants = [
                     variant_from_mapping(db=db, mapping=mapped_score, dcd_mapping_version=dcd_mapping_version)

@@ -3,12 +3,13 @@ import io
 import logging
 import re
 from operator import attrgetter
-from typing import Any, BinaryIO, Iterable, Optional, TYPE_CHECKING, Sequence
+from typing import Any, BinaryIO, Iterable, Optional, TYPE_CHECKING, Sequence, Literal
 
+from mavedb.models.mapped_variant import MappedVariant
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
-from sqlalchemy import Integer, cast, func, or_, select
+from sqlalchemy import Integer, and_, cast, func, or_, select
 from sqlalchemy.orm import Session, aliased, contains_eager, joinedload, selectinload
 
 from mavedb.lib.exceptions import ValidationError
@@ -17,6 +18,7 @@ from mavedb.lib.mave.constants import (
     HGVS_NT_COLUMN,
     HGVS_PRO_COLUMN,
     HGVS_SPLICE_COLUMN,
+    REQUIRED_SCORE_COLUMN,
     VARIANT_COUNT_DATA,
     VARIANT_SCORE_DATA,
 )
@@ -56,6 +58,9 @@ if TYPE_CHECKING:
 VariantData = dict[str, Optional[dict[str, dict]]]
 
 logger = logging.getLogger(__name__)
+
+HGVS_G_REGEX = re.compile(r"(^|:)g\.")
+HGVS_P_REGEX = re.compile(r"(^|:)p\.")
 
 
 class HGVSColumns:
@@ -266,30 +271,22 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
 
 
 def fetch_superseding_score_set_in_search_result(
-    score_sets: list[ScoreSet],
-    requesting_user: Optional["UserData"],
-    search: ScoreSetsSearch) -> list[ScoreSet]:
+    score_sets: list[ScoreSet], requesting_user: Optional["UserData"], search: ScoreSetsSearch
+) -> list[ScoreSet]:
     """
     Remove superseded score set from search results.
     Check whether all of the score set are correct versions.
     """
     from mavedb.lib.permissions import Action
+
     if search.published:
         filtered_score_sets_tail = [
-            find_publish_or_private_superseded_score_set_tail(
-                score_set,
-                Action.READ,
-                requesting_user,
-                search.published
-            ) for score_set in score_sets
+            find_publish_or_private_superseded_score_set_tail(score_set, Action.READ, requesting_user, search.published)
+            for score_set in score_sets
         ]
     else:
         filtered_score_sets_tail = [
-            find_superseded_score_set_tail(
-                score_set,
-                Action.READ,
-                requesting_user
-            ) for score_set in score_sets
+            find_superseded_score_set_tail(score_set, Action.READ, requesting_user) for score_set in score_sets
         ]
     # Remove None item.
     filtered_score_sets = [score_set for score_set in filtered_score_sets_tail if score_set is not None]
@@ -345,10 +342,10 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
 
 
 def find_superseded_score_set_tail(
-        score_set: ScoreSet,
-        action: Optional["Action"] = None,
-        user_data: Optional["UserData"] = None) -> Optional[ScoreSet]:
+    score_set: ScoreSet, action: Optional["Action"] = None, user_data: Optional["UserData"] = None
+) -> Optional[ScoreSet]:
     from mavedb.lib.permissions import has_permission
+
     while score_set.superseding_score_set is not None:
         next_score_set_in_chain = score_set.superseding_score_set
 
@@ -374,88 +371,126 @@ def find_superseded_score_set_tail(
 
 
 def find_publish_or_private_superseded_score_set_tail(
-        score_set: ScoreSet,
-        action: Optional["Action"] = None,
-        user_data: Optional["UserData"] = None,
-        publish: bool = True) -> Optional[ScoreSet]:
+    score_set: ScoreSet, action: Optional["Action"] = None, user_data: Optional["UserData"] = None, publish: bool = True
+) -> Optional[ScoreSet]:
     from mavedb.lib.permissions import has_permission
+
     if publish:
         while score_set.superseding_score_set is not None:
             next_score_set_in_chain = score_set.superseding_score_set
             # Find the final published one.
-            if action is not None and has_permission(user_data, score_set, action).permitted \
-                    and next_score_set_in_chain.published_date is None:
+            if (
+                action is not None
+                and has_permission(user_data, score_set, action).permitted
+                and next_score_set_in_chain.published_date is None
+            ):
                 return score_set
             score_set = next_score_set_in_chain
     else:
         # Unpublished score set should not be superseded.
         # It should not have superseding score set, but possible have superseded score set.
-        if action is not None and score_set.published_date is None \
-                and has_permission(user_data, score_set, action).permitted:
+        if (
+            action is not None
+            and score_set.published_date is None
+            and has_permission(user_data, score_set, action).permitted
+        ):
             return score_set
         else:
             return None
     return score_set
 
 
-def get_score_set_counts_as_csv(
+def get_score_set_variants_as_csv(
     db: Session,
     score_set: ScoreSet,
+    data_type: Literal["scores", "counts"],
     start: Optional[int] = None,
     limit: Optional[int] = None,
     drop_na_columns: Optional[bool] = None,
+    include_custom_columns: bool = True,
+    include_post_mapped_hgvs: bool = False,
 ) -> str:
+    """
+    Get the variant data from a score set as a CSV string.
+
+    Parameters
+    __________
+    db : Session
+        The database session to use.
+    score_set : ScoreSet
+        The score set to get the variants from.
+    data_type : {'scores', 'counts'}
+        The type of data to get. Either 'scores' or 'counts'.
+    start : int, optional
+        The index to start from. If None, starts from the beginning.
+    limit : int, optional
+        The maximum number of variants to return. If None, returns all variants.
+    drop_na_columns : bool, optional
+        Whether to drop columns that contain only NA values. Defaults to False.
+    include_custom_columns : bool, optional
+        Whether to include custom columns defined in the score set. Defaults to True.
+    include_post_mapped_hgvs : bool, optional
+        Whether to include post-mapped HGVS notations in the output. Defaults to False. If True, the output will include
+        columns for both post-mapped HGVS genomic (g.) and protein (p.) notations.
+
+    Returns
+    _______
+    str
+        The CSV string containing the variant data.
+    """
     assert type(score_set.dataset_columns) is dict
-    count_columns = [str(x) for x in list(score_set.dataset_columns.get("count_columns", []))]
-    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + count_columns
-    type_column = "count_data"
+    custom_columns_set = "score_columns" if data_type == "scores" else "count_columns"
+    type_column = "score_data" if data_type == "scores" else "count_data"
 
-    variants_query = (
-        select(Variant)
-        .where(Variant.score_set_id == score_set.id)
-        .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
-    )
-    if start:
-        variants_query = variants_query.offset(start)
-    if limit:
-        variants_query = variants_query.limit(limit)
-    variants = db.scalars(variants_query).all()
+    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"]
+    if include_post_mapped_hgvs:
+        columns.append("post_mapped_hgvs_g")
+        columns.append("post_mapped_hgvs_p")
 
-    rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column)
-    if drop_na_columns:
-        rows_data, columns = drop_na_columns_from_csv_file_rows(rows_data, columns)
+    if include_custom_columns:
+        custom_columns = [str(x) for x in list(score_set.dataset_columns.get(custom_columns_set, []))]
+        columns += custom_columns
+    elif data_type == "scores":
+        columns.append(REQUIRED_SCORE_COLUMN)
 
-    stream = io.StringIO()
-    writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
-    writer.writeheader()
-    writer.writerows(rows_data)
-    return stream.getvalue()
+    variants: Sequence[Variant] = []
+    mappings: Optional[list[Optional[MappedVariant]]] = None
 
+    if include_post_mapped_hgvs:
+        variants_and_mappings_query = (
+            select(Variant, MappedVariant)
+            .join(
+                MappedVariant,
+                and_(Variant.id == MappedVariant.variant_id, MappedVariant.current.is_(True)),
+                isouter=True,
+            )
+            .where(Variant.score_set_id == score_set.id)
+            .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
+        )
+        if start:
+            variants_and_mappings_query = variants_and_mappings_query.offset(start)
+        if limit:
+            variants_and_mappings_query = variants_and_mappings_query.limit(limit)
+        variants_and_mappings = db.execute(variants_and_mappings_query).all()
 
-def get_score_set_scores_as_csv(
-    db: Session,
-    score_set: ScoreSet,
-    start: Optional[int] = None,
-    limit: Optional[int] = None,
-    drop_na_columns: Optional[bool] = None,
-) -> str:
-    assert type(score_set.dataset_columns) is dict
-    score_columns = [str(x) for x in list(score_set.dataset_columns.get("score_columns", []))]
-    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"] + score_columns
-    type_column = "score_data"
+        variants = []
+        mappings = []
+        for variant, mapping in variants_and_mappings:
+            variants.append(variant)
+            mappings.append(mapping)
+    else:
+        variants_query = (
+            select(Variant)
+            .where(Variant.score_set_id == score_set.id)
+            .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
+        )
+        if start:
+            variants_query = variants_query.offset(start)
+        if limit:
+            variants_query = variants_query.limit(limit)
+        variants = db.scalars(variants_query).all()
 
-    variants_query = (
-        select(Variant)
-        .where(Variant.score_set_id == score_set.id)
-        .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
-    )
-    if start:
-        variants_query = variants_query.offset(start)
-    if limit:
-        variants_query = variants_query.limit(limit)
-    variants = db.scalars(variants_query).all()
-
-    rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column)
+    rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column, mappings=mappings)  # type: ignore
     if drop_na_columns:
         rows_data, columns = drop_na_columns_from_csv_file_rows(rows_data, columns)
 
@@ -467,8 +502,7 @@ def get_score_set_scores_as_csv(
 
 
 def drop_na_columns_from_csv_file_rows(
-    rows_data: Iterable[dict[str, Any]],
-    columns: list[str]
+    rows_data: Iterable[dict[str, Any]], columns: list[str]
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Process rows_data for downloadable CSV by removing empty columns."""
     # Convert map to list.
@@ -497,7 +531,63 @@ def is_null(value):
     return null_values_re.fullmatch(value) or not value
 
 
-def variant_to_csv_row(variant: Variant, columns: list[str], dtype: str, na_rep="NA") -> dict[str, Any]:
+def hgvs_from_vrs_allele(allele: dict) -> str:
+    """
+    Extract the HGVS notation from the VRS allele.
+    """
+    try:
+        # VRS 2.X
+        return allele["expressions"][0]["value"]
+    except KeyError:
+        raise ValueError("VRS 1.X format not supported.")
+        # VRS 1.X. We don't want to allow this.
+        # return allele["variation"]["expressions"][0]["value"]
+
+
+def get_hgvs_from_mapped_variant(post_mapped_vrs: Any) -> Optional[str]:
+    if post_mapped_vrs["type"] == "Haplotype":  # type: ignore
+        variations_hgvs = [hgvs_from_vrs_allele(allele) for allele in post_mapped_vrs["members"]]
+    elif post_mapped_vrs["type"] == "CisPhasedBlock":  # type: ignore
+        variations_hgvs = [hgvs_from_vrs_allele(allele) for allele in post_mapped_vrs["members"]]
+    elif post_mapped_vrs["type"] == "Allele":  # type: ignore
+        variations_hgvs = [hgvs_from_vrs_allele(post_mapped_vrs)]
+    else:
+        return None
+
+    if len(variations_hgvs) == 0:
+        return None
+        # raise ValueError(f"No variations found in variant {variant_urn}.")
+    if len(variations_hgvs) > 1:
+        return None
+        # raise ValueError(f"Multiple variations found in variant {variant_urn}.")
+
+    return variations_hgvs[0]
+
+
+# TODO (https://github.com/VariantEffect/mavedb-api/issues/440) Temporarily, we are using these functions to distinguish
+# genomic and protein HGVS strings produced by the mapper. Using hgvs.parser.Parser is too slow, and we won't need to do
+# this once the mapper extracts separate g., c., and p. post-mapped HGVS strings.
+def is_hgvs_g(hgvs: str) -> bool:
+    """
+    Check if the given HGVS string is a genomic HGVS (g.) string.
+    """
+    return bool(HGVS_G_REGEX.search(hgvs))
+
+
+def is_hgvs_p(hgvs: str) -> bool:
+    """
+    Check if the given HGVS string is a protein HGVS (p.) string.
+    """
+    return bool(HGVS_P_REGEX.search(hgvs))
+
+
+def variant_to_csv_row(
+    variant: Variant,
+    columns: list[str],
+    dtype: str,
+    mapping: Optional[MappedVariant] = None,
+    na_rep="NA",
+) -> dict[str, Any]:
     """
     Format a variant into a containing the keys specified in `columns`.
 
@@ -526,17 +616,34 @@ def variant_to_csv_row(variant: Variant, columns: list[str], dtype: str, na_rep=
             value = str(variant.hgvs_splice)
         elif column_key == "accession":
             value = str(variant.urn)
+        elif column_key == "post_mapped_hgvs_g":
+            hgvs_str = get_hgvs_from_mapped_variant(mapping.post_mapped) if mapping and mapping.post_mapped else None
+            if hgvs_str is not None and is_hgvs_g(hgvs_str):
+                value = hgvs_str
+            else:
+                value = ""
+        elif column_key == "post_mapped_hgvs_p":
+            hgvs_str = get_hgvs_from_mapped_variant(mapping.post_mapped) if mapping and mapping.post_mapped else None
+            if hgvs_str is not None and is_hgvs_p(hgvs_str):
+                value = hgvs_str
+            else:
+                value = ""
         else:
             parent = variant.data.get(dtype) if variant.data else None
             value = str(parent.get(column_key)) if parent else na_rep
         if is_null(value):
             value = na_rep
         row[column_key] = value
+
     return row
 
 
 def variants_to_csv_rows(
-    variants: Sequence[Variant], columns: list[str], dtype: str, na_rep="NA"
+    variants: Sequence[Variant],
+    columns: list[str],
+    dtype: str,
+    mappings: Optional[Sequence[Optional[MappedVariant]]] = None,
+    na_rep="NA",
 ) -> Iterable[dict[str, Any]]:
     """
     Format each variant into a dictionary row containing the keys specified in `columns`.
@@ -556,7 +663,12 @@ def variants_to_csv_rows(
     -------
     list[dict[str, Any]]
     """
-    return map(lambda v: variant_to_csv_row(v, columns, dtype, na_rep), variants)
+    if mappings is not None:
+        return map(
+            lambda pair: variant_to_csv_row(pair[0], columns, dtype, mapping=pair[1], na_rep=na_rep),
+            zip(variants, mappings),
+        )
+    return map(lambda v: variant_to_csv_row(v, columns, dtype, na_rep=na_rep), variants)
 
 
 def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[ScoreSet]:
