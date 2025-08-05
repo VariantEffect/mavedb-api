@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 @click.command()
 @with_database_session
 @click.option("--score-set-urn", type=str, default=None, help="Score set URN to process. If not provided, process all.")
-@click.option("--polling-interval", type=int, default=3, help="Polling interval in seconds for checking job status.")
+@click.option("--polling-interval", type=int, default=30, help="Polling interval in seconds for checking job status.")
 @click.option("--polling-attempts", type=int, default=5, help="Number of tries to poll for job completion.")
 @click.option("--to-db", type=str, default="UniProtKB", help="Target UniProt database for ID mapping.")
 def main(db: Session, score_set_urn: Optional[str], polling_interval: int, polling_attempts: int, to_db: str) -> None:
