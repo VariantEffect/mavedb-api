@@ -29,7 +29,13 @@ logger = logging.getLogger(__name__)
 @click.option("--polling-interval", type=int, default=30, help="Polling interval in seconds for checking job status.")
 @click.option("--polling-attempts", type=int, default=5, help="Number of tries to poll for job completion.")
 @click.option("--to-db", type=str, default="UniProtKB", help="Target UniProt database for ID mapping.")
-def main(db: Session, score_set_urn: Optional[str], polling_interval: int, polling_attempts: int, to_db: str) -> None:
+def main(
+    db: Session,
+    score_set_urn: Optional[str],
+    polling_interval: int,
+    polling_attempts: int,
+    to_db: str,
+) -> None:
     if to_db not in VALID_UNIPROT_DBS:
         raise ValueError(f"Invalid target database: {to_db}. Must be one of {VALID_UNIPROT_DBS}.")
     if score_set_urn:
@@ -41,6 +47,8 @@ def main(db: Session, score_set_urn: Optional[str], polling_interval: int, polli
 
     logger.info(f"Processing {len(score_sets)} score sets.")
     for score_set in score_sets:
+        logger.info(f"Processing score set: {score_set.urn}")
+
         if not score_set.target_genes:
             logger.warning(f"No target gene for score set {score_set.urn}. Skipped mapping this score set.")
             continue
@@ -54,7 +62,9 @@ def main(db: Session, score_set_urn: Optional[str], polling_interval: int, polli
 
             ids = extract_ids_from_post_mapped_metadata(target_gene.post_mapped_metadata)  # type: ignore
             if not ids:
-                logger.warning(f"No IDs found in post_mapped_metadata for target gene {target_gene.id}")
+                logger.warning(
+                    f"No IDs found in post_mapped_metadata for target gene {target_gene.id}. Skipped mapping this target."
+                )
                 continue
 
             # Formalize the assumption that we expect exactly one ID in post_mapped_metadata for UniProt ID mapping.
@@ -66,29 +76,29 @@ def main(db: Session, score_set_urn: Optional[str], polling_interval: int, polli
             from_db = infer_db_name_from_sequence_accession(id_to_map)
             job_id = api.submit_id_mapping(from_db, to_db=to_db, ids=[id_to_map])
             if not job_id:
-                logger.warning(f"Failed to submit job for target gene {target_gene.id}")
+                logger.warning(f"Failed to submit job for target gene {target_gene.id}. Skipped mapping this target.")
                 continue
 
             if not api.check_id_mapping_results_ready(job_id):
-                logger.warning(f"Job {job_id} not ready for target gene {target_gene.id}")
+                logger.warning(f"Job {job_id} not ready for target gene {target_gene.id}. Skipped mapping this target.")
                 continue
 
             results = api.get_id_mapping_results(job_id)
-            uniprot_id = api.extract_uniprot_id_from_results(results)
-            if not uniprot_id:
-                logger.warning(f"No UniProt ID found for target gene {target_gene.id}")
+            mapped_results = api.extract_uniprot_id_from_results(results)
+            if not mapped_results:
+                logger.warning(f"No UniProt ID found for target gene {target_gene.id}. Skipped mapping this target.")
                 continue
 
             # Same assumption as above.
-            assert len(uniprot_id) == 1, "Expected exactly one UniProt ID from mapping results."
-            mapping_results = uniprot_id[0]
+            assert len(mapped_results) == 1, "Expected exactly one UniProt ID from mapping results."
+            uniprot_id = mapped_results[0][id_to_map]["uniprot_id"]
 
-            target_gene.uniprot_id_from_mapped_metadata = mapping_results[id_to_map]
+            target_gene.uniprot_id_from_mapped_metadata = uniprot_id
             db.add(target_gene)
 
-            logger.info(f"Updated target gene {target_gene.id} with UniProt ID {mapping_results[id_to_map]}")
+            logger.info(f"Updated target gene {target_gene.id} with UniProt ID {uniprot_id}.")
 
-        logger.info(f"Processed score set {score_set.id} with {len(score_set.target_genes)} target genes.")
+        logger.info(f"Processed score set {score_set.urn} with {len(score_set.target_genes)} target genes.")
 
     logger.info(f"Done processing {len(score_sets)} score sets.")
 
