@@ -43,7 +43,7 @@ from mavedb.lib.score_sets import (
     create_variants,
     create_variants_data,
 )
-from mavedb.lib.slack import send_slack_error, send_slack_message
+from mavedb.lib.slack import send_slack_error, send_slack_message, log_and_send_slack_message
 from mavedb.lib.uniprot.id_mapping import UniProtIDMappingAPI
 from mavedb.lib.uniprot.utils import infer_db_name_from_sequence_accession
 from mavedb.lib.uniprot.constants import UNIPROT_ID_MAPPING_ENABLED
@@ -1214,24 +1214,20 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx, score_set_id: int, corr
         logger.info(msg="Started UniProt mapping job", extra=logging_context)
 
         if not score_set or not score_set.target_genes:
-            logger.warning(
-                msg=f"No target genes for score set {score_set_id}. Skipped mapping targets to UniProt.",
-                extra=logging_context,
-            )
+            msg = f"No target genes for score set {score_set_id}. Skipped mapping targets to UniProt."
+            log_and_send_slack_message(msg=msg, ctx=logging_context, level=logging.WARNING)
+
             return {"success": True, "retried": False, "enqueued_jobs": []}
 
     except Exception as e:
         send_slack_error(e)
         if score_set:
-            send_slack_message(text=text % score_set.urn)
+            msg = text % score_set.urn
         else:
-            send_slack_message(text=text % score_set_id)
+            msg = text % score_set_id
 
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
-        logger.error(
-            msg="UniProt mapping job encountered an unexpected error during setup. This job will not be retried.",
-            extra=logging_context,
-        )
+        log_and_send_slack_message(msg=msg, ctx=logging_context, level=logging.ERROR)
 
         return {"success": False, "retried": False, "enqueued_jobs": []}
 
@@ -1241,19 +1237,14 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx, score_set_id: int, corr
         for target_gene in score_set.target_genes:
             acs = extract_ids_from_post_mapped_metadata(target_gene.post_mapped_metadata)  # type: ignore
             if not acs:
-                logger.debug(
-                    msg=f"No accession IDs found in post_mapped_metadata for target gene {target_gene.id}",
-                    extra=logging_context,
-                )
-                spawned_mapping_jobs[target_gene.id] = None  # type: ignore
+                msg = f"No accession IDs found in post_mapped_metadata for target gene {target_gene.id} in score set {score_set.urn}. This target will be skipped."
+                log_and_send_slack_message(msg, logging_context, logging.WARNING)
                 continue
 
-            # This might be possible in future versions of this software, but for now we expect exactly one sequence accession.
-            # Fail loudly if this assumption is ever violated.
             if len(acs) != 1:
-                raise ValueError(
-                    f"Expected exactly one sequence accession to map to UniProt in post_mapped_metadata for target gene {target_gene.id}, found {len(acs)}"
-                )
+                msg = f"More than one accession ID is associated with target gene {target_gene.id} in score set {score_set.urn}. This target will be skipped."
+                log_and_send_slack_message(msg, logging_context, logging.WARNING)
+                continue
 
             ac_to_map = acs[0]
             from_db = infer_db_name_from_sequence_accession(ac_to_map)
@@ -1262,20 +1253,19 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx, score_set_id: int, corr
                 spawned_mapping_jobs[target_gene.id] = uniprot_api.submit_id_mapping(from_db, "UniProtKB", [ac_to_map])  # type: ignore
             except Exception as e:
                 spawned_mapping_jobs[target_gene.id] = None  # type: ignore
-                logger.warning(
+                log_and_send_slack_message(
                     msg=f"Failed to submit UniProt mapping job for target gene {target_gene.id}: {e}. This target will be skipped.",
-                    extra=logging_context,
+                    ctx=logging_context,
+                    level=logging.WARNING,
                 )
 
     except Exception as e:
         send_slack_error(e)
-        send_slack_message(
-            "UniProt mapping job encountered an unexpected error while attempting to submit mapping jobs. This job will not be retried."
-        )
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
-        logger.error(
-            msg="UniProt mapping job encountered an unexpected error while attempting to submit mapping jobs. This job will not be retried.",
-            extra=logging_context,
+        log_and_send_slack_message(
+            msg=f"UniProt mapping job encountered an unexpected error while attempting to submit mapping jobs for score set {score_set.urn}. This job will not be retried.",
+            ctx=logging_context,
+            level=logging.ERROR,
         )
 
         return {"success": False, "retried": False, "enqueued_jobs": []}
@@ -1286,10 +1276,8 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx, score_set_id: int, corr
         logging_context["successfully_spawned_mapping_jobs"] = successfully_spawned_mapping_jobs
 
         if not successfully_spawned_mapping_jobs:
-            logger.debug(
-                msg="No UniProt mapping jobs were successfully spawned for this score set. Skipped enqueuing polling job.",
-                extra=logging_context,
-            )
+            msg = f"No UniProt mapping jobs were successfully spawned for score set {score_set.urn}. Skipped enqueuing polling job."
+            log_and_send_slack_message(msg, logging_context, logging.WARNING)
             return {"success": True, "retried": False, "enqueued_jobs": []}
 
         new_job = await redis.enqueue_job(
@@ -1310,13 +1298,11 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx, score_set_id: int, corr
 
     except Exception as e:
         send_slack_error(e)
-        send_slack_message(
-            "UniProt mapping job encountered an unexpected error while attempting to enqueue polling jobs for mapping jobs. This job will not be retried."
-        )
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
-        logger.error(
+        log_and_send_slack_message(
             msg="UniProt mapping job encountered an unexpected error while attempting to enqueue polling jobs for mapping jobs. This job will not be retried.",
-            extra=logging_context,
+            ctx=logging_context,
+            level=logging.ERROR,
         )
 
         return {"success": False, "retried": False, "enqueued_jobs": [job for job in [new_job_id] if job]}
@@ -1343,15 +1329,12 @@ async def poll_uniprot_mapping_jobs_for_score_set(
     except Exception as e:
         send_slack_error(e)
         if score_set:
-            send_slack_message(text=text % score_set.urn)
+            msg = text % score_set.urn
         else:
-            send_slack_message(text=text % score_set_id)
+            msg = text % score_set_id
 
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
-        logger.error(
-            msg="UniProt mapping job encountered an unexpected error during setup. This job will not be retried.",
-            extra=logging_context,
-        )
+        log_and_send_slack_message(msg=msg, ctx=logging_context, level=logging.ERROR)
 
         return {"success": False, "retried": False, "enqueued_jobs": []}
 
@@ -1360,44 +1343,41 @@ async def poll_uniprot_mapping_jobs_for_score_set(
         for target_gene in score_set.target_genes:
             acs = extract_ids_from_post_mapped_metadata(target_gene.post_mapped_metadata)  # type: ignore
             if not acs:
-                logger.warning(
-                    msg=f"No accession IDs found in post_mapped_metadata for target gene {target_gene.id}",
-                    extra=logging_context,
-                )
+                msg = f"No accession IDs found in post_mapped_metadata for target gene {target_gene.id} in score set {score_set.urn}. Skipped polling this target."
+                log_and_send_slack_message(msg, logging_context, logging.WARNING)
                 continue
 
-            # This might be possible in future versions of this software, but for now we expect exactly one sequence accession.
-            # Fail loudly if this assumption is ever violated.
             if len(acs) != 1:
-                raise ValueError(
-                    f"Expected exactly one sequence accession to map to UniProt in post_mapped_metadata for target gene {target_gene.id}, found {len(acs)}"
-                )
+                msg = f"More than one accession ID is associated with target gene {target_gene.id} in score set {score_set.urn}. Skipped polling this target."
+                log_and_send_slack_message(msg, logging_context, logging.WARNING)
+                continue
 
             mapped_ac = acs[0]
             job_id = mapping_jobs.get(target_gene.id)  # type: ignore
 
             if not job_id:
-                logger.warning(
-                    msg=f"No job ID found for target gene {target_gene.id}. Skipped polling this target.",
-                    extra=logging_context,
-                )
+                msg = f"No job ID found for target gene {target_gene.id} in score set {score_set.urn}. Skipped polling this target."
+                # This issue has already been sent to Slack in the job submission function, so we just log it here.
+                logger.debug(msg=msg, extra=logging_context)
                 continue
 
             if not uniprot_api.check_id_mapping_results_ready(job_id):
-                logger.debug(msg=f"Job {job_id} not ready for target gene {target_gene.id}", extra=logging_context)
+                msg = f"Job {job_id} not ready for target gene {target_gene.id} in score set {score_set.urn}. Skipped polling this target"
+                log_and_send_slack_message(msg, logging_context, logging.WARNING)
                 continue
 
             results = uniprot_api.get_id_mapping_results(job_id)
             mapped_ids = uniprot_api.extract_uniprot_id_from_results(results)
+
             if not mapped_ids:
-                logger.debug(msg=f"No UniProt ID found for target gene {target_gene.id}", extra=logging_context)
+                msg = f"No UniProt ID found for target gene {target_gene.id} in score set {score_set.urn}. Cannot add UniProt ID for this target."
+                log_and_send_slack_message(msg, logging_context, logging.WARNING)
                 continue
 
-            # Like the above, we assume there is exactly one UniProt ID returned.
             if len(mapped_ids) != 1:
-                raise ValueError(
-                    f"Expected exactly one UniProt ID from mapping results for target gene {target_gene.id}, found {len(mapped_ids)}"
-                )
+                msg = f"Found ambiguous Uniprot ID mapping results for target gene {target_gene.id} in score set {score_set.urn}. Cannot add UniProt ID for this target."
+                log_and_send_slack_message(msg, logging_context, logging.WARNING)
+                continue
 
             mapped_uniprot_id = mapped_ids[0][mapped_ac]["uniprot_id"]
             target_gene.uniprot_id_from_mapped_metadata = mapped_uniprot_id
@@ -1408,13 +1388,11 @@ async def poll_uniprot_mapping_jobs_for_score_set(
 
     except Exception as e:
         send_slack_error(e)
-        send_slack_message(
-            text="UniProt mapping job encountered an unexpected error while attempting to poll mapping jobs. This job will not be retried."
-        )
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
-        logger.error(
+        log_and_send_slack_message(
             msg="UniProt mapping job encountered an unexpected error while attempting to poll mapping jobs. This job will not be retried.",
-            extra=logging_context,
+            ctx=logging_context,
+            level=logging.ERROR,
         )
 
         return {"success": False, "retried": False, "enqueued_jobs": []}

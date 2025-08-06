@@ -70,33 +70,36 @@ def main(
                     f"No IDs found in post_mapped_metadata for target gene {target_gene.id}. Skipped mapping this target."
                 )
                 continue
+            if len(ids) > 1:
+                logger.warning(
+                    f"More than one accession ID found in post_mapped_metadata for target gene {target_gene.id}. Skipped mapping this target."
+                )
+                continue
 
-            # Formalize the assumption that we expect exactly one ID in post_mapped_metadata for UniProt ID mapping.
-            # It isn't necessarily imply a problem if there are multiple IDs at some later point, but this script assumes
-            # there will be only one ID to map.
-            assert len(ids) == 1, "Expected exactly one ID in post_mapped_metadata for UniProt ID mapping."
             id_to_map = ids[0]
-
             from_db = infer_db_name_from_sequence_accession(id_to_map)
             job_id = api.submit_id_mapping(from_db, to_db=to_db, ids=[id_to_map])
+
             if not job_id:
                 logger.warning(f"Failed to submit job for target gene {target_gene.id}. Skipped mapping this target.")
                 continue
-
             if not api.check_id_mapping_results_ready(job_id):
                 logger.warning(f"Job {job_id} not ready for target gene {target_gene.id}. Skipped mapping this target.")
                 continue
 
             results = api.get_id_mapping_results(job_id)
             mapped_results = api.extract_uniprot_id_from_results(results, prefer_swiss_prot=prefer_swiss_prot)
+
             if not mapped_results:
                 logger.warning(f"No UniProt ID found for target gene {target_gene.id}. Skipped mapping this target.")
                 continue
+            if len(mapped_results) > 1:
+                logger.warning(
+                    f"Could not unambiguously map target gene {target_gene.id}. Found multiple UniProt IDs ({len(mapped_results)})."
+                )
+                continue
 
-            # Same assumption as above.
-            assert len(mapped_results) == 1, "Expected exactly one UniProt ID from mapping results."
             uniprot_id = mapped_results[0][id_to_map]["uniprot_id"]
-
             target_gene.uniprot_id_from_mapped_metadata = uniprot_id
             db.add(target_gene)
 

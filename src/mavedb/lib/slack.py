@@ -1,9 +1,14 @@
 import json
+import logging
 import os
 import sys
 import traceback
+from typing import Any
 
 from slack_sdk.webhook import WebhookClient
+
+
+logger = logging.getLogger(__name__)
 
 
 def find_traceback_locations():
@@ -42,3 +47,15 @@ def send_slack_error(err, request=None):
 
     text = json.dumps(text)
     send_slack_message(text)
+
+
+def log_and_send_slack_message(msg: str, ctx: dict[str, Any], level: int):
+    """
+    Log a message and send it to Slack if the SLACK_WEBHOOK_URL environment variable is set.
+    """
+    logger.log(level, msg, extra=ctx)
+
+    if os.getenv("SLACK_WEBHOOK_URL"):
+        send_slack_message(msg)
+    else:
+        print(f"SLACK_WEBHOOK_URL not set, not sending message: {msg}.")
