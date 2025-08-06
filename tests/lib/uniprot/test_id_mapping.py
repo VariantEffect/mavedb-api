@@ -9,6 +9,7 @@ cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.uniprot.id_mapping import UniProtIDMappingAPI
+from mavedb.lib.uniprot.constants import SWISS_PROT_ENTRY_TYPE
 
 from tests.helpers.constants import (
     TEST_UNIPROT_JOB_ID,
@@ -186,29 +187,71 @@ def test_get_id_mapping_results_http_error(uniprot_id_mapping_api: UniProtIDMapp
 def test_extract_uniprot_id_from_result():
     results = {
         "results": [
-            {"from": "A", "to": {"primaryAccession": "P1"}},
+            {"from": "A", "to": {"primaryAccession": "P1", "entryType": SWISS_PROT_ENTRY_TYPE}},
         ]
     }
     mappings = UniProtIDMappingAPI.extract_uniprot_id_from_results(results)
-    assert mappings == [{"A": "P1"}]
+    assert mappings == [{"A": {"uniprot_id": "P1", "entry_type": SWISS_PROT_ENTRY_TYPE}}]
 
 
 def test_extract_uniprot_id_from_results():
     results = {
         "results": [
-            {"from": "A", "to": {"primaryAccession": "P1"}},
-            {"from": "B", "to": {"primaryAccession": "P2"}},
+            {"from": "A", "to": {"primaryAccession": "P1", "entryType": SWISS_PROT_ENTRY_TYPE}},
+            {"from": "B", "to": {"primaryAccession": "P2", "entryType": SWISS_PROT_ENTRY_TYPE}},
         ]
     }
     mappings = UniProtIDMappingAPI.extract_uniprot_id_from_results(results)
-    assert mappings == [{"A": "P1"}, {"B": "P2"}]
+    assert mappings == [
+        {"A": {"uniprot_id": "P1", "entry_type": SWISS_PROT_ENTRY_TYPE}},
+        {"B": {"uniprot_id": "P2", "entry_type": SWISS_PROT_ENTRY_TYPE}},
+    ]
+
+
+def test_extract_uniprot_id_from_results_prefer_swiss_prot():
+    results = {
+        "results": [
+            {"from": "A", "to": {"primaryAccession": "P1", "entryType": SWISS_PROT_ENTRY_TYPE}},
+            {"from": "B", "to": {"primaryAccession": "P2", "entryType": "TrEMBL"}},
+        ]
+    }
+    mappings = UniProtIDMappingAPI.extract_uniprot_id_from_results(results, prefer_swiss_prot=True)
+    assert mappings == [{"A": {"uniprot_id": "P1", "entry_type": SWISS_PROT_ENTRY_TYPE}}]
+
+
+def test_extract_uniprot_id_from_results_no_swiss_prot():
+    results = {
+        "results": [
+            {"from": "A", "to": {"primaryAccession": "P1", "entryType": "TrEMBL"}},
+            {"from": "B", "to": {"primaryAccession": "P2", "entryType": "TrEMBL"}},
+        ]
+    }
+    mappings = UniProtIDMappingAPI.extract_uniprot_id_from_results(results, prefer_swiss_prot=True)
+    assert mappings == [
+        {"A": {"uniprot_id": "P1", "entry_type": "TrEMBL"}},
+        {"B": {"uniprot_id": "P2", "entry_type": "TrEMBL"}},
+    ]
+
+
+def test_extract_uniprot_id_no_swiss_prot_preference():
+    results = {
+        "results": [
+            {"from": "A", "to": {"primaryAccession": "P1", "entryType": SWISS_PROT_ENTRY_TYPE}},
+            {"from": "B", "to": {"primaryAccession": "P2", "entryType": "TrEMBL"}},
+        ]
+    }
+    mappings = UniProtIDMappingAPI.extract_uniprot_id_from_results(results, prefer_swiss_prot=False)
+    assert mappings == [
+        {"A": {"uniprot_id": "P1", "entry_type": SWISS_PROT_ENTRY_TYPE}},
+        {"B": {"uniprot_id": "P2", "entry_type": "TrEMBL"}},
+    ]
 
 
 def test_extract_uniprot_id_results_not_present():
     results = {
         "not_results": [
-            {"from": "A", "to": {"primaryAccession": "P1"}},
-            {"from": "B", "to": {"primaryAccession": "P2"}},
+            {"from": "A", "to": {"primaryAccession": "P1", "entryType": SWISS_PROT_ENTRY_TYPE}},
+            {"from": "B", "to": {"primaryAccession": "P2", "entryType": SWISS_PROT_ENTRY_TYPE}},
         ]
     }
     mappings = UniProtIDMappingAPI.extract_uniprot_id_from_results(results)
@@ -218,11 +261,31 @@ def test_extract_uniprot_id_results_not_present():
 def test_extract_uniprot_id_invalid_result_structure():
     results = {
         "results": [
-            {"not_from": "A", "to": {"primaryAccession": "P1"}},
-            {"from": "B", "not_to": {"primaryAccession": "P2"}},
-            {"from": "B", "to": {"notPrimaryAccession": "P2"}},
+            {"not_from": "A", "to": {"primaryAccession": "P1", "entryType": SWISS_PROT_ENTRY_TYPE}},
+            {"from": "B", "not_to": {"primaryAccession": "P2", "entryType": SWISS_PROT_ENTRY_TYPE}},
+            {"from": "B", "to": {"notPrimaryAccession": "P2", "entryType": SWISS_PROT_ENTRY_TYPE}},
         ]
     }
+    mappings = UniProtIDMappingAPI.extract_uniprot_id_from_results(results)
+    assert mappings == []
+
+
+def test_extract_uniprot_id_from_results_no_entry_type():
+    results = {
+        "results": [
+            {"from": "A", "to": {"primaryAccession": "P1"}},
+            {"from": "B", "to": {"primaryAccession": "P2", "entryType": SWISS_PROT_ENTRY_TYPE}},
+        ]
+    }
+    mappings = UniProtIDMappingAPI.extract_uniprot_id_from_results(results, prefer_swiss_prot=False)
+    assert mappings == [
+        {"A": {"uniprot_id": "P1", "entry_type": None}},
+        {"B": {"uniprot_id": "P2", "entry_type": SWISS_PROT_ENTRY_TYPE}},
+    ]
+
+
+def test_extract_uniprot_id_from_results_empty_list():
+    results = {"results": []}
     mappings = UniProtIDMappingAPI.extract_uniprot_id_from_results(results)
     assert mappings == []
 

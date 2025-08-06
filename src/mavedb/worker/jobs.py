@@ -1399,7 +1399,7 @@ async def poll_uniprot_mapping_jobs_for_score_set(
                     f"Expected exactly one UniProt ID from mapping results for target gene {target_gene.id}, found {len(mapped_ids)}"
                 )
 
-            mapped_uniprot_id = mapped_ids[0][mapped_ac]
+            mapped_uniprot_id = mapped_ids[0][mapped_ac]["uniprot_id"]
             target_gene.uniprot_id_from_mapped_metadata = mapped_uniprot_id
             db.add(target_gene)
             logger.info(

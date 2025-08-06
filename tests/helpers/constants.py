@@ -1500,6 +1500,8 @@ TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST = {
     "errCat": "INVALID URL",
 }
 
+TEST_UNIPROT_SWISS_PROT_TYPE = "UniProtKB reviewed (Swiss-Prot)"
+TEST_UNIPROT_TREMBL_TYPE = "UniProtKB unreviewed (TrEMBL)"
 TEST_UNIPROT_JOB_ID = "1234567890"
 
 TEST_UNIPROT_JOB_SUBMISSION_RESPONSE = {
@@ -1520,12 +1522,32 @@ TEST_UNIPROT_JOB_SUBMISSION_ERROR_RESPONSE = {
 }
 
 
-TEST_UNIPROT_ID_MAPPING_RESPONSE = {
+TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE = {
     "results": [
-        {"from": f"{VALID_NT_ACCESSION}", "to": {"primaryAccession": f"{VALID_UNIPROT_ACCESSION}"}},
+        {
+            "from": f"{VALID_NT_ACCESSION}",
+            "to": {"primaryAccession": f"{VALID_UNIPROT_ACCESSION}", "entryType": TEST_UNIPROT_SWISS_PROT_TYPE},
+        },
     ]
 }
 
+
+TEST_UNIPROT_ID_MAPPING_TREMBL_RESPONSE = {
+    "results": [
+        {
+            "from": f"{VALID_NT_ACCESSION}",
+            "to": {"primaryAccession": f"{VALID_UNIPROT_ACCESSION}", "entryType": TEST_UNIPROT_TREMBL_TYPE},
+        },
+    ]
+}
+
+
+TEST_UNIPROT_ID_MAPPING_COMBINED_RESPONSE = {
+    "results": [
+        TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE["results"][0],
+        TEST_UNIPROT_ID_MAPPING_TREMBL_RESPONSE["results"][0],
+    ]
+}
 
 TEST_UNIPROT_ID_FAILED_ID_MAPPING_RESPONSE = {"failedIds": [VALID_NT_ACCESSION]}
 

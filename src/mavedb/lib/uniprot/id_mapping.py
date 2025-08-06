@@ -6,7 +6,8 @@ from requests.adapters import HTTPAdapter, Retry
 from typing import List, Optional, Dict, Any
 
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.lib.uniprot.constants import UNIPROT_ID_MAPPING_API_URL
+from mavedb.lib.uniprot.constants import UNIPROT_ID_MAPPING_API_URL, SWISS_PROT_ENTRY_TYPE
+from mavedb.lib.types import uniprot
 
 logger = logging.getLogger(__name__)
 
@@ -151,9 +152,11 @@ class UniProtIDMappingAPI:
         return results_resp.json()
 
     @staticmethod
-    def extract_uniprot_id_from_results(results: Dict[str, Any]) -> list[dict[str, str]]:
+    def extract_uniprot_id_from_results(
+        results: Dict[str, Any], prefer_swiss_prot: bool = True
+    ) -> uniprot.MappingEntries:
         """
-        Extracts UniProt ID mappings from a results dictionary.
+        Extracts UniProt ID mappings from a results dictionary. Retains only mappings with a 5/5 annotation score from
 
         Args:
             results (Dict[str, Any]): A dictionary containing a "results" key, which is a list of mapping result dictionaries. Each mapping result should contain a "from" key (source ID) and a "to" key (a dictionary with a "primaryAccession" key for the UniProt ID).
@@ -161,18 +164,51 @@ class UniProtIDMappingAPI:
         Returns:
             list[dict[str, str]]: A list of dictionaries, each mapping a source ID to its corresponding UniProt primary accession ID.
         """
-        uniprot_mappings = []
-        for r in results.get("results", []):
+        uniprot_mappings: uniprot.MappingEntries = []
+        swiss_prot_mappings: uniprot.MappingEntries = []
+        uniprot_results = results.get("results", [])
+
+        save_to_logging_context({"total_uniprot_results": len(uniprot_results), "prefer_swiss_prot": prefer_swiss_prot})
+        logger.debug(msg="Extracting UniProt ID mappings from results.", extra=logging_context())
+
+        for r in uniprot_results:
             from_id = r.get("from")
             to_id = r.get("to", {}).get("primaryAccession")
+            entry_type = r.get("to", {}).get("entryType")
 
             if from_id and to_id:
-                uniprot_mappings.append({from_id: to_id})
+                uniprot_mappings.append({from_id: {"uniprot_id": to_id, "entry_type": entry_type}})
             else:
                 save_to_logging_context({"skipped_uniprot_mapping_result": r})
                 logger.warning(
-                    msg="Skipping mapping for result due to missing 'from' or 'to' ID.",
-                    extra=logging_context(),
+                    msg="Skipping mapping for result due to missing 'from' or 'to' ID.", extra=logging_context()
                 )
 
-        return uniprot_mappings
+        save_to_logging_context({"total_uniprot_mappings": len(uniprot_mappings)})
+
+        if prefer_swiss_prot:
+            swiss_prot_mappings = [
+                mapping
+                for mapping in uniprot_mappings
+                if mapping[next(iter(mapping))]["entry_type"] == SWISS_PROT_ENTRY_TYPE
+            ]
+
+            save_to_logging_context({"total_swiss_prot_mappings": len(swiss_prot_mappings)})
+            logger.debug(
+                msg="Swiss-Prot mappings were preferred. Done extracting Swiss-Prot mappings.", extra=logging_context()
+            )
+
+        if prefer_swiss_prot and not swiss_prot_mappings and uniprot_mappings:
+            logger.warning(
+                msg="No Swiss-Prot mappings found when Swiss-Prot was preferred, falling back to all UniProt mappings.",
+                extra=logging_context(),
+            )
+            return uniprot_mappings
+        elif not prefer_swiss_prot:
+            logger.debug(
+                msg="Swiss-Prot preference is disabled. Returning all UniProt mappings.", extra=logging_context()
+            )
+            return uniprot_mappings
+
+        logger.debug(msg="Returning Swiss-Prot mappings.", extra=logging_context())
+        return swiss_prot_mappings

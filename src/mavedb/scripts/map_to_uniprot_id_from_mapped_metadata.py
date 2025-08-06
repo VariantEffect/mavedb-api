@@ -29,12 +29,16 @@ logger = logging.getLogger(__name__)
 @click.option("--polling-interval", type=int, default=30, help="Polling interval in seconds for checking job status.")
 @click.option("--polling-attempts", type=int, default=5, help="Number of tries to poll for job completion.")
 @click.option("--to-db", type=str, default="UniProtKB", help="Target UniProt database for ID mapping.")
+@click.option(
+    "--prefer-swiss-prot", is_flag=True, default=True, help="Prefer Swiss-Prot entries in the mapping results."
+)
 def main(
     db: Session,
     score_set_urn: Optional[str],
     polling_interval: int,
     polling_attempts: int,
     to_db: str,
+    prefer_swiss_prot: bool = True,
 ) -> None:
     if to_db not in VALID_UNIPROT_DBS:
         raise ValueError(f"Invalid target database: {to_db}. Must be one of {VALID_UNIPROT_DBS}.")
@@ -84,7 +88,7 @@ def main(
                 continue
 
             results = api.get_id_mapping_results(job_id)
-            mapped_results = api.extract_uniprot_id_from_results(results)
+            mapped_results = api.extract_uniprot_id_from_results(results, prefer_swiss_prot=prefer_swiss_prot)
             if not mapped_results:
                 logger.warning(f"No UniProt ID found for target gene {target_gene.id}. Skipped mapping this target.")
                 continue

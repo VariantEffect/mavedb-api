@@ -60,7 +60,8 @@ from tests.helpers.constants import (
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_UNIPROT_JOB_SUBMISSION_RESPONSE,
-    TEST_UNIPROT_ID_MAPPING_RESPONSE,
+    TEST_UNIPROT_SWISS_PROT_TYPE,
+    TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE,
     VALID_UNIPROT_ACCESSION,
     VALID_CHR_ACCESSION,
 )
@@ -1509,7 +1510,9 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping(
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
         patch.object(UniProtIDMappingAPI, "submit_id_mapping", return_value=TEST_UNIPROT_JOB_SUBMISSION_RESPONSE),
         patch.object(UniProtIDMappingAPI, "check_id_mapping_results_ready", return_value=True),
-        patch.object(UniProtIDMappingAPI, "get_id_mapping_results", return_value=TEST_UNIPROT_ID_MAPPING_RESPONSE),
+        patch.object(
+            UniProtIDMappingAPI, "get_id_mapping_results", return_value=TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE
+        ),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.UNIPROT_ID_MAPPING_ENABLED", True),
@@ -1606,7 +1609,9 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping_
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
         patch.object(UniProtIDMappingAPI, "submit_id_mapping", return_value=TEST_UNIPROT_JOB_SUBMISSION_RESPONSE),
         patch.object(UniProtIDMappingAPI, "check_id_mapping_results_ready", return_value=True),
-        patch.object(UniProtIDMappingAPI, "get_id_mapping_results", return_value=TEST_UNIPROT_ID_MAPPING_RESPONSE),
+        patch.object(
+            UniProtIDMappingAPI, "get_id_mapping_results", return_value=TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE
+        ),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.UNIPROT_ID_MAPPING_ENABLED", True),
@@ -2593,7 +2598,9 @@ async def test_poll_uniprot_id_mapping_success(
 
     with (
         patch.object(UniProtIDMappingAPI, "check_id_mapping_results_ready", return_value=True),
-        patch.object(UniProtIDMappingAPI, "get_id_mapping_results", return_value=TEST_UNIPROT_ID_MAPPING_RESPONSE),
+        patch.object(
+            UniProtIDMappingAPI, "get_id_mapping_results", return_value=TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE
+        ),
     ):
         result = await poll_uniprot_mapping_jobs_for_score_set(
             standalone_worker_context,
@@ -2822,8 +2829,10 @@ async def test_poll_uniprot_id_mapping_too_many_mapped_accessions(
     )
 
     # Simulate a response with too many mapped IDs
-    too_many_mapped_ids_response = TEST_UNIPROT_ID_MAPPING_RESPONSE.copy()
-    too_many_mapped_ids_response["results"].append({"from": "AC3", "to": {"primaryAccession": "AC3"}})
+    too_many_mapped_ids_response = TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE.copy()
+    too_many_mapped_ids_response["results"].append(
+        {"from": "AC3", "to": {"primaryAccession": "AC3", "entryType": TEST_UNIPROT_SWISS_PROT_TYPE}}
+    )
 
     with (
         patch.object(UniProtIDMappingAPI, "check_id_mapping_results_ready", return_value=True),
