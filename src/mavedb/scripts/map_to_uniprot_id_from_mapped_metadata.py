@@ -32,6 +32,12 @@ logger = logging.getLogger(__name__)
 @click.option(
     "--prefer-swiss-prot", is_flag=True, default=True, help="Prefer Swiss-Prot entries in the mapping results."
 )
+@click.option(
+    "--refresh-mapped-identifier",
+    is_flag=True,
+    default=False,
+    help="Refresh the existing mapped identifier, if one exists.",
+)
 def main(
     db: Session,
     score_set_urn: Optional[str],
@@ -39,6 +45,7 @@ def main(
     polling_attempts: int,
     to_db: str,
     prefer_swiss_prot: bool = True,
+    refresh_mapped_identifier: bool = False,
 ) -> None:
     if to_db not in VALID_UNIPROT_DBS:
         raise ValueError(f"Invalid target database: {to_db}. Must be one of {VALID_UNIPROT_DBS}.")
@@ -58,6 +65,12 @@ def main(
             continue
 
         for target_gene in score_set.target_genes:
+            if target_gene.uniprot_id_from_mapped_metadata and not refresh_mapped_identifier:
+                logger.debug(
+                    f"Target gene {target_gene.id} already has UniProt ID {target_gene.uniprot_id_from_mapped_metadata} and refresh_mapped_identifier is False. Skipped mapping this target."
+                )
+                continue
+
             if not target_gene.post_mapped_metadata:
                 logger.warning(
                     f"No post-mapped metadata for target gene {target_gene.id}. Skipped mapping this target."
