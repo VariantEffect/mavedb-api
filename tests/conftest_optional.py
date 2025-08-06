@@ -24,6 +24,7 @@ from mavedb.worker.jobs import (
     variant_mapper_manager,
     poll_uniprot_mapping_jobs_for_score_set,
     submit_uniprot_mapping_jobs_for_score_set,
+    link_gnomad_variants,
 )
 
 from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_USER
@@ -116,6 +117,7 @@ async def arq_worker(data_provider, session, arq_redis):
             link_clingen_variants,
             poll_uniprot_mapping_jobs_for_score_set,
             submit_uniprot_mapping_jobs_for_score_set,
+            link_gnomad_variants,
         ],
         redis_pool=arq_redis,
         burst=True,

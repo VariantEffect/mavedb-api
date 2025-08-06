@@ -51,6 +51,7 @@ cdot = { version = "~0.2.21", optional = true }
 fastapi = { version = "~0.95.0", optional = true }
 hgvs = { version = "~1.5.4", optional = true }
 orcid = { version = "~1.0.3", optional = true }
+pyathena = { version = "~3.14.1", optional = true }
 psycopg2 = { version = "~2.9.3", optional = true }
 python-jose = { extras = ["cryptography"], version = "~3.4.0", optional = true }
 python-multipart = { version = "~0.0.5", optional = true }
@@ -86,7 +87,7 @@ SQLAlchemy = { extras = ["mypy"], version = "~2.0.0" }
 
 
 [tool.poetry.extras]
-server = ["alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "psycopg2", "python-jose", "python-multipart", "requests", "starlette", "starlette-context", "slack-sdk", "uvicorn", "watchtower"]
+server = ["alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "pyathena", "psycopg2", "python-jose", "python-multipart", "requests", "starlette", "starlette-context", "slack-sdk", "uvicorn", "watchtower"]
 
 
 [tool.mypy]

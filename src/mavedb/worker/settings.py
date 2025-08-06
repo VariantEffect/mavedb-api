@@ -19,6 +19,7 @@ from mavedb.worker.jobs import (
     link_clingen_variants,
     poll_uniprot_mapping_jobs_for_score_set,
     submit_uniprot_mapping_jobs_for_score_set,
+    link_gnomad_variants,
 )
 
 # ARQ requires at least one task on startup.
@@ -31,6 +32,7 @@ BACKGROUND_FUNCTIONS: list[Callable] = [
     link_clingen_variants,
     poll_uniprot_mapping_jobs_for_score_set,
     submit_uniprot_mapping_jobs_for_score_set,
+    link_gnomad_variants,
 ]
 # In UTC time. Depending on daylight savings time, this will bounce around by an hour but should always be very early in the morning
 # for all of the USA.

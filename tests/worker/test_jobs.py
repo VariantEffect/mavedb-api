@@ -15,6 +15,7 @@ from sqlalchemy import not_, select
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
+pyathena = pytest.importorskip("pyathena")
 
 from mavedb.data_providers.services import VRSMap
 from mavedb.lib.mave.constants import HGVS_NT_COLUMN
@@ -34,6 +35,7 @@ from mavedb.worker.jobs import (
     MAPPING_CURRENT_ID_NAME,
     MAPPING_QUEUE_NAME,
     create_variants_for_score_set,
+    link_gnomad_variants,
     map_variants_for_score_set,
     variant_mapper_manager,
     submit_score_set_mappings_to_ldh,
@@ -47,6 +49,7 @@ from tests.helpers.constants import (
     TEST_CLINGEN_SUBMISSION_BAD_RESQUEST_RESPONSE,
     TEST_CLINGEN_SUBMISSION_UNAUTHORIZED_RESPONSE,
     TEST_CLINGEN_LDH_LINKING_RESPONSE,
+    TEST_GNOMAD_DATA_VERSION,
     TEST_NT_CDOT_TRANSCRIPT,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_EXPERIMENT,
@@ -64,6 +67,7 @@ from tests.helpers.constants import (
     TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE,
     VALID_UNIPROT_ACCESSION,
     VALID_CHR_ACCESSION,
+    VALID_CLINGEN_CA_ID,
 )
 from tests.helpers.util.exceptions import awaitable_exception
 from tests.helpers.util.experiment import create_experiment
@@ -1522,7 +1526,7 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping(
         num_completed_jobs = await arq_worker.run_check()
 
     # We should have completed all jobs exactly once.
-    assert num_completed_jobs == 6
+    assert num_completed_jobs == 7
 
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
@@ -1739,8 +1743,8 @@ async def test_mapping_manager_enqueues_mapping_process_with_retried_mapping_suc
         await arq_worker.async_run()
         num_completed_jobs = await arq_worker.run_check()
 
-    # We should have completed the mapping manager job twice, the mapping job twice, the submission job, and the linking job.
-    assert num_completed_jobs == 6
+    # We should have completed the mapping manager job twice, the mapping job twice, the submission job, and both linking jobs.
+    assert num_completed_jobs == 7
 
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
@@ -2115,7 +2119,7 @@ async def test_link_score_set_mappings_to_ldh_objects_success(
 
     assert result["success"]
     assert not result["retried"]
-    assert not result["enqueued_job"]
+    assert result["enqueued_job"]
 
     for variant in session.scalars(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
@@ -2273,7 +2277,7 @@ async def test_link_score_set_mappings_to_ldh_objects_failures_exist_but_do_not_
 
     assert result["success"]
     assert not result["retried"]
-    assert not result["enqueued_job"]
+    assert result["enqueued_job"]
 
 
 @pytest.mark.asyncio
@@ -2408,6 +2412,35 @@ async def test_link_score_set_mappings_to_ldh_objects_failures_exist_and_eclipse
     assert not result["retried"]
     assert not result["enqueued_job"]
 
+    
+@pytest.mark.asyncio
+async def test_link_score_set_mappings_to_ldh_objects_error_in_gnomad_job_enqueue(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    async def dummy_linking_job():
+        return [
+            (variant_urn, TEST_CLINGEN_LDH_LINKING_RESPONSE)
+            for variant_urn in session.scalars(
+                select(Variant.urn).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
+            ).all()
+        ]
+
+    # We are unable to mock requests via requests_mock that occur inside another event loop. Instead, patch the return
+    # value of the EventLoop itself, which would have made the request.
+    with (
+        patch.object(
+            _UnixSelectorEventLoop,
+            "run_in_executor",
+            return_value=dummy_linking_job(),
+        ),
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=awaitable_exception()),
+    ):
+        result = await link_clingen_variants(standalone_worker_context, uuid4().hex, score_set.id, 1)
+
+    assert not result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_job"]
+
 
 ##################################################################################################################################################
 # UniProt ID mapping
@@ -2534,7 +2567,7 @@ async def test_submit_uniprot_id_mapping_no_accessions(
 async def test_submit_uniprot_id_mapping_error_in_setup(
     setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
 ):
-    score_set = await setup_records_files_and_variants_with_mapping(
+    score_set = await setup_records_files_and_variants(
         session,
         async_client,
         data_files,
@@ -2613,7 +2646,7 @@ async def test_submit_uniprot_id_mapping_exception_during_enqueue(
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-
+  
     with (
         patch.object(UniProtIDMappingAPI, "submit_id_mapping", return_value=TEST_UNIPROT_JOB_SUBMISSION_RESPONSE),
         patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception()),
@@ -2626,7 +2659,7 @@ async def test_submit_uniprot_id_mapping_exception_during_enqueue(
     assert not result["retried"]
     assert not result["enqueued_jobs"]
 
-
+    
 ### Test Polling
 
 
@@ -2709,7 +2742,7 @@ async def test_poll_uniprot_id_mapping_too_many_accessions(
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-
+    
     with (
         patch("mavedb.worker.jobs.extract_ids_from_post_mapped_metadata", return_value=["AC1", "AC2"]),
         patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
@@ -2754,8 +2787,7 @@ async def test_poll_uniprot_id_mapping_no_accessions(
     assert result["success"]
     assert not result["retried"]
     assert not result["enqueued_jobs"]
-
-
+    
 @pytest.mark.asyncio
 async def test_poll_uniprot_id_mapping_jobs_not_ready(
     setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
@@ -2864,7 +2896,7 @@ async def test_poll_uniprot_id_mapping_too_many_mapped_accessions(
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-
+    
     # Simulate a response with too many mapped IDs
     too_many_mapped_ids_response = TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE.copy()
     too_many_mapped_ids_response["results"].append(
@@ -2945,3 +2977,180 @@ async def test_poll_uniprot_id_mapping_exception_during_polling(
     assert not result["success"]
     assert not result["retried"]
     assert not result["enqueued_jobs"]
+    
+
+##################################################################################################################################################
+# gnomAD Linking
+##################################################################################################################################################
+
+
+@pytest.mark.asyncio
+async def test_link_score_set_mappings_to_gnomad_variants_success(
+    setup_worker_db,
+    standalone_worker_context,
+    session,
+    async_client,
+    data_files,
+    arq_worker,
+    arq_redis,
+    mocked_gnomad_variant_row,
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    # We need to set the ClinGen Allele ID for the Mapped Variants, so that the gnomAD job can link them.
+    mapped_variants = session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
+    ).all()
+
+    for mapped_variant in mapped_variants:
+        mapped_variant.clingen_allele_id = VALID_CLINGEN_CA_ID
+    session.commit()
+
+    # Patch Athena connection with mock object which returns a mocked gnomAD variant row w/ CAID=VALID_CLINGEN_CA_ID.
+    with (
+        patch("mavedb.worker.jobs.gnomad_variant_data_for_caids", return_value=[mocked_gnomad_variant_row]),
+        patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION),
+    ):
+        result = await link_gnomad_variants(standalone_worker_context, uuid4().hex, score_set.id)
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_job"]
+
+    for variant in session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
+    ):
+        assert variant.gnomad_variants
+
+
+@pytest.mark.asyncio
+async def test_link_score_set_mappings_to_gnomad_variants_exception_in_setup(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with patch(
+        "mavedb.worker.jobs.setup_job_state",
+        side_effect=Exception(),
+    ):
+        result = await link_gnomad_variants(standalone_worker_context, uuid4().hex, score_set.id)
+
+    assert not result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_job"]
+
+    for variant in session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
+    ):
+        assert not variant.gnomad_variants
+
+
+@pytest.mark.asyncio
+async def test_link_score_set_mappings_to_gnomad_variants_no_variants_to_link(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    result = await link_gnomad_variants(standalone_worker_context, uuid4().hex, score_set.id)
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_job"]
+
+    for variant in session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
+    ):
+        assert not variant.gnomad_variants
+
+
+@pytest.mark.asyncio
+async def test_link_score_set_mappings_to_gnomad_variants_exception_while_fetching_variant_data(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch(
+            "mavedb.worker.jobs.setup_job_state",
+            side_effect=Exception(),
+        ),
+        patch("mavedb.worker.jobs.gnomad_variant_data_for_caids", side_effect=Exception()),
+    ):
+        result = await link_gnomad_variants(standalone_worker_context, uuid4().hex, score_set.id)
+
+    assert not result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_job"]
+
+    for variant in session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
+    ):
+        assert not variant.gnomad_variants
+
+
+@pytest.mark.asyncio
+async def test_link_score_set_mappings_to_gnomad_variants_exception_while_linking_variants(
+    setup_worker_db,
+    standalone_worker_context,
+    session,
+    async_client,
+    data_files,
+    arq_worker,
+    arq_redis,
+    mocked_gnomad_variant_row,
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    # We need to set the ClinGen Allele ID for the Mapped Variants, so that the gnomAD job can link them.
+    mapped_variants = session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
+    ).all()
+
+    for mapped_variant in mapped_variants:
+        mapped_variant.clingen_allele_id = VALID_CLINGEN_CA_ID
+    session.commit()
+
+    with (
+        patch("mavedb.worker.jobs.gnomad_variant_data_for_caids", return_value=[mocked_gnomad_variant_row]),
+        patch("mavedb.worker.jobs.link_gnomad_variants_to_mapped_variants", side_effect=Exception()),
+    ):
+        result = await link_gnomad_variants(standalone_worker_context, uuid4().hex, score_set.id)
+
+    assert not result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_job"]
+
+    for variant in session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
+    ):
+        assert not variant.gnomad_variants

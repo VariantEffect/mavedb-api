@@ -3,7 +3,7 @@ import functools
 import logging
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import pandas as pd
 from arq import ArqRedis
@@ -36,6 +36,7 @@ from mavedb.lib.exceptions import (
     UniProtIDMappingEnqueueError,
     UniProtPollingEnqueueError,
 )
+from mavedb.lib.gnomad import gnomad_variant_data_for_caids, link_gnomad_variants_to_mapped_variants
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.mapping import ANNOTATION_LAYERS
 from mavedb.lib.score_sets import (
@@ -964,6 +965,7 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
     text = "Could not link mappings to LDH for score set %s. Mappings for this score set should be linked manually."
     try:
         db: Session = ctx["db"]
+        redis: ArqRedis = ctx["redis"]
         score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one()
 
         logging_context = setup_job_state(ctx, None, score_set.urn, correlation_id)
@@ -1004,11 +1006,11 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
         ).all()
         num_variant_urns = len(variant_urns)
 
-        logging_context["variants_to_link_ldh"] = submission_urn
+        logging_context["variants_to_link_ldh"] = num_variant_urns
 
         if not variant_urns:
             logger.warning(
-                msg="No current mapped variants with post mapped metadata were found for this score set. Skipping LDH linkage (nothing to do).",
+                msg="No current mapped variants with post mapped metadata were found for this score set. Skipping LDH linkage (nothing to do). A gnomAD linkage job will not be enqueued, as no variants will have a CAID.",
                 extra=logging_context,
             )
 
@@ -1110,14 +1112,16 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
             len(linked_allele_ids) == num_variant_urns
         ), f"{num_variant_urns - len(linked_allele_ids)} appear to not have been attempted to be linked."
 
+        job_succeeded = False
         if not linkage_failures:
             logger.info(
                 msg="Successfully linked all mapped variants to LDH submissions.",
                 extra=logging_context,
             )
-            return {"success": True, "retried": False, "enqueued_job": None}
 
-        if ratio_failed_linking < LINKED_DATA_RETRY_THRESHOLD:
+            job_succeeded = True
+
+        elif ratio_failed_linking < LINKED_DATA_RETRY_THRESHOLD:
             logger.warning(
                 msg="Linkage failures exist, but did not exceed the retry threshold.",
                 extra=logging_context,
@@ -1126,7 +1130,8 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
                 text=f"Failed to link {len(linkage_failures)} mapped variants to LDH submissions for score set {score_set.urn}."
                 f"The retry threshold was not exceeded and this job will not be retried. URNs failed to link: {', '.join(linkage_failures)}."
             )
-            return {"success": True, "retried": False, "enqueued_job": None}
+
+            job_succeeded = True
 
     except Exception as e:
         send_slack_error(e)
@@ -1138,6 +1143,37 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
         )
 
         return {"success": False, "retried": False, "enqueued_job": None}
+
+    if job_succeeded:
+        gnomad_linking_job_id = None
+        try:
+            new_job = await redis.enqueue_job(
+                "link_gnomad_variants",
+                correlation_id,
+                score_set.id,
+            )
+
+            if new_job:
+                gnomad_linking_job_id = new_job.job_id
+
+                logging_context["link_gnomad_variants_job_id"] = gnomad_linking_job_id
+                logger.info(msg="Queued a new gnomAD linking job.", extra=logging_context)
+
+            else:
+                raise LinkingEnqueueError()
+
+        except Exception as e:
+            job_succeeded = False
+
+            send_slack_error(e)
+            send_slack_message(text=text % score_set.urn)
+            logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+            logger.error(
+                msg="LDH mapped resource linkage encountered an unexpected error while attempting to enqueue a gnomAD linking job. GnomAD variants should be linked manually for this score set. This job will not be retried.",
+                extra=logging_context,
+            )
+        finally:
+            return {"success": job_succeeded, "retried": False, "enqueued_job": gnomad_linking_job_id}
 
     # If we reach this point, we should consider the job failed (there were failures which exceeded our retry threshold).
     new_job_id = None
@@ -1218,7 +1254,7 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx, score_set_id: int, corr
             log_and_send_slack_message(msg=msg, ctx=logging_context, level=logging.WARNING)
 
             return {"success": True, "retried": False, "enqueued_jobs": []}
-
+          
     except Exception as e:
         send_slack_error(e)
         if score_set:
@@ -1399,3 +1435,124 @@ async def poll_uniprot_mapping_jobs_for_score_set(
 
     db.commit()
     return {"success": True, "retried": False, "enqueued_jobs": []}
+
+####################################################################################################
+# gnomAD Variant Linkage
+####################################################################################################
+
+
+async def link_gnomad_variants(ctx: dict, correlation_id: str, score_set_id: int) -> dict:
+    logging_context = {}
+    score_set = None
+    text = "Could not link mappings to gnomAD variants for score set %s. Mappings for this score set should be linked manually."
+    try:
+        db: Session = ctx["db"]
+        score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one()
+
+        logging_context = setup_job_state(ctx, None, score_set.urn, correlation_id)
+        logger.info(msg="Started gnomAD variant linkage", extra=logging_context)
+
+        submission_urn = score_set.urn
+        assert submission_urn, "A valid URN is needed to link gnomAD objects for this score set."
+
+        logging_context["current_gnomad_linking_resource"] = submission_urn
+        logger.debug(msg="Fetched score set metadata for gnomAD mapped resource linkage.", extra=logging_context)
+
+    except Exception as e:
+        send_slack_error(e)
+        if score_set:
+            send_slack_message(text=text % score_set.urn)
+        else:
+            send_slack_message(text=text % score_set_id)
+
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="LDH mapped resource linkage encountered an unexpected error during setup. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False, "enqueued_job": None}
+
+    try:
+        # We filter out mapped variants that do not have a CAID, so this query is typed # as a Sequence[str]. Ignore MyPy's type checking here.
+        variant_caids: Sequence[str] = db.scalars(
+            select(MappedVariant.clingen_allele_id)
+            .join(Variant)
+            .join(ScoreSet)
+            .where(
+                ScoreSet.urn == score_set.urn,
+                MappedVariant.current.is_(True),
+                MappedVariant.clingen_allele_id.is_not(None),
+            )
+        ).all()  # type: ignore
+        num_variant_caids = len(variant_caids)
+
+        logging_context["num_variants_to_link_gnomad"] = num_variant_caids
+
+        if not variant_caids:
+            logger.warning(
+                msg="No current mapped variants with CAIDs were found for this score set. Skipping gnomAD linkage (nothing to do).",
+                extra=logging_context,
+            )
+
+            return {"success": True, "retried": False, "enqueued_job": None}
+
+        logger.info(
+            msg="Found current mapped variants with CAIDs for this score set. Attempting to link them to gnomAD variants.",
+            extra=logging_context,
+        )
+
+    except Exception as e:
+        send_slack_error(e)
+        send_slack_message(text=text % score_set.urn)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="gnomAD mapped resource linkage encountered an unexpected error while attempting to build linkage urn list. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False, "enqueued_job": None}
+
+    try:
+        gnomad_variant_data = gnomad_variant_data_for_caids(variant_caids)
+        num_gnomad_variants_with_caid_match = len(gnomad_variant_data)
+        logging_context["num_gnomad_variants_with_caid_match"] = num_gnomad_variants_with_caid_match
+
+        if not gnomad_variant_data:
+            logger.warning(
+                msg="No gnomAD variants with CAID matches were found for this score set. Skipping gnomAD linkage (nothing to do).",
+                extra=logging_context,
+            )
+
+            return {"success": True, "retried": False, "enqueued_job": None}
+
+    except Exception as e:
+        send_slack_error(e)
+        send_slack_message(text=text % score_set.urn)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="gnomAD mapped resource linkage encountered an unexpected error while attempting to fetch gnomAD variant data from S3 via Athena. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False, "enqueued_job": None}
+
+    try:
+        logger.info(msg="Attempting to link mapped variants to gnomAD variants.", extra=logging_context)
+        num_linked_gnomad_variants = link_gnomad_variants_to_mapped_variants(db, gnomad_variant_data)
+        db.commit()
+        logging_context["num_mapped_variants_linked_to_gnomad_variants"] = num_linked_gnomad_variants
+
+    except Exception as e:
+        send_slack_error(e)
+        send_slack_message(text=text % score_set.urn)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="LDH mapped resource linkage encountered an unexpected error while attempting to link LDH submissions. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False, "enqueued_job": None}
+
+    logger.info(msg="Done linking gnomAD variants to mapped variants.", extra=logging_context)
+    return {"success": True, "retried": False, "enqueued_job": None}
