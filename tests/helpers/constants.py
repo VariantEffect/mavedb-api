@@ -1613,6 +1613,7 @@ TEST_UNIPROT_REDIRECT_RESPONSE = {
     "redirectURL": "https://redirect.url",
     "warnings": [{"code": 0, "message": "string"}],
     "errors": [{"code": 0, "message": "string"}],
+}
 
 TEST_GNOMAD_LOCUS_CONTIG = "chr10"
 TEST_GNOMAD_LOCUS_POSITION = "87961093"

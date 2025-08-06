@@ -1683,7 +1683,7 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping_
         num_completed_jobs = await arq_worker.run_check()
 
     # We should have completed the manager, mapping, and linking jobs, but not the submission or uniprot jobs.
-    assert num_completed_jobs == 4
+    assert num_completed_jobs == 5
 
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
@@ -2412,11 +2412,19 @@ async def test_link_score_set_mappings_to_ldh_objects_failures_exist_and_eclipse
     assert not result["retried"]
     assert not result["enqueued_job"]
 
-    
+
 @pytest.mark.asyncio
 async def test_link_score_set_mappings_to_ldh_objects_error_in_gnomad_job_enqueue(
     setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
 ):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
     async def dummy_linking_job():
         return [
             (variant_urn, TEST_CLINGEN_LDH_LINKING_RESPONSE)
@@ -2531,7 +2539,7 @@ async def test_submit_uniprot_id_mapping_too_many_accessions(
     )
 
     with (
-        patch("mavedb.worker.jobs.extract_ids_from_post_mapped_metadata", ["AC1", "AC2"]),
+        patch("mavedb.worker.jobs.extract_ids_from_post_mapped_metadata", return_value=["AC1", "AC2"]),
         patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
     ):
         result = await submit_uniprot_mapping_jobs_for_score_set(standalone_worker_context, score_set.id, uuid4().hex)
@@ -2646,7 +2654,7 @@ async def test_submit_uniprot_id_mapping_exception_during_enqueue(
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-  
+
     with (
         patch.object(UniProtIDMappingAPI, "submit_id_mapping", return_value=TEST_UNIPROT_JOB_SUBMISSION_RESPONSE),
         patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception()),
@@ -2659,7 +2667,7 @@ async def test_submit_uniprot_id_mapping_exception_during_enqueue(
     assert not result["retried"]
     assert not result["enqueued_jobs"]
 
-    
+
 ### Test Polling
 
 
@@ -2742,7 +2750,7 @@ async def test_poll_uniprot_id_mapping_too_many_accessions(
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-    
+
     with (
         patch("mavedb.worker.jobs.extract_ids_from_post_mapped_metadata", return_value=["AC1", "AC2"]),
         patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
@@ -2787,7 +2795,8 @@ async def test_poll_uniprot_id_mapping_no_accessions(
     assert result["success"]
     assert not result["retried"]
     assert not result["enqueued_jobs"]
-    
+
+
 @pytest.mark.asyncio
 async def test_poll_uniprot_id_mapping_jobs_not_ready(
     setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
@@ -2833,14 +2842,13 @@ async def test_poll_uniprot_id_mapping_no_jobs(
         standalone_worker_context,
     )
 
-    with patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message:
-        result = await poll_uniprot_mapping_jobs_for_score_set(
-            standalone_worker_context,
-            {},
-            score_set.id,
-            uuid4().hex,
-        )
-        mock_slack_message.assert_called()
+    # This case does not get sent to slack
+    result = await poll_uniprot_mapping_jobs_for_score_set(
+        standalone_worker_context,
+        {},
+        score_set.id,
+        uuid4().hex,
+    )
 
     assert result["success"]
     assert not result["retried"]
@@ -2896,7 +2904,7 @@ async def test_poll_uniprot_id_mapping_too_many_mapped_accessions(
         TEST_MINIMAL_SEQ_SCORESET,
         standalone_worker_context,
     )
-    
+
     # Simulate a response with too many mapped IDs
     too_many_mapped_ids_response = TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE.copy()
     too_many_mapped_ids_response["results"].append(
@@ -2977,7 +2985,7 @@ async def test_poll_uniprot_id_mapping_exception_during_polling(
     assert not result["success"]
     assert not result["retried"]
     assert not result["enqueued_jobs"]
-    
+
 
 ##################################################################################################################################################
 # gnomAD Linking

@@ -1254,7 +1254,7 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx, score_set_id: int, corr
             log_and_send_slack_message(msg=msg, ctx=logging_context, level=logging.WARNING)
 
             return {"success": True, "retried": False, "enqueued_jobs": []}
-          
+
     except Exception as e:
         send_slack_error(e)
         if score_set:
@@ -1271,6 +1271,8 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx, score_set_id: int, corr
         uniprot_api = UniProtIDMappingAPI()
         logging_context["total_target_genes_to_map_to_uniprot"] = len(score_set.target_genes)
         for target_gene in score_set.target_genes:
+            spawned_mapping_jobs[target_gene.id] = None  # type: ignore
+
             acs = extract_ids_from_post_mapped_metadata(target_gene.post_mapped_metadata)  # type: ignore
             if not acs:
                 msg = f"No accession IDs found in post_mapped_metadata for target gene {target_gene.id} in score set {score_set.urn}. This target will be skipped."
@@ -1288,7 +1290,6 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx, score_set_id: int, corr
             try:
                 spawned_mapping_jobs[target_gene.id] = uniprot_api.submit_id_mapping(from_db, "UniProtKB", [ac_to_map])  # type: ignore
             except Exception as e:
-                spawned_mapping_jobs[target_gene.id] = None  # type: ignore
                 log_and_send_slack_message(
                     msg=f"Failed to submit UniProt mapping job for target gene {target_gene.id}: {e}. This target will be skipped.",
                     ctx=logging_context,
@@ -1359,7 +1360,9 @@ async def poll_uniprot_mapping_jobs_for_score_set(
         logger.info(msg="Started UniProt polling job", extra=logging_context)
 
         if not score_set or not score_set.target_genes:
-            logger.warning(f"No target genes for score set {score_set_id}")
+            msg = f"No target genes for score set {score_set_id}. Skipped polling targets for UniProt mapping results."
+            log_and_send_slack_message(msg=msg, ctx=logging_context, level=logging.WARNING)
+
             return {"success": True, "retried": False, "enqueued_jobs": []}
 
     except Exception as e:
@@ -1435,6 +1438,7 @@ async def poll_uniprot_mapping_jobs_for_score_set(
 
     db.commit()
     return {"success": True, "retried": False, "enqueued_jobs": []}
+
 
 ####################################################################################################
 # gnomAD Variant Linkage
