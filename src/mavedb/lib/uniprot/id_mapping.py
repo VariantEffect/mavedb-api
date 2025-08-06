@@ -23,7 +23,7 @@ class UniProtIDMappingAPI:
     polling_interval: int
     polling_tries: int
 
-    def __init__(self, polling_interval: int = 3, polling_tries: int = 5):
+    def __init__(self, polling_interval: int = 15, polling_tries: int = 5):
         self.polling_interval = polling_interval
         self.polling_tries = polling_tries
 
