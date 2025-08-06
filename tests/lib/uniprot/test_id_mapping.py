@@ -19,7 +19,7 @@ from tests.helpers.constants import (
     VALID_NT_ACCESSION,
     TEST_UNIPROT_FINISHED_JOB_STATUS_RESPONSE,
     TEST_UNIPROT_RUNNING_JOB_STATUS_RESPONSE,
-    TEST_UNIPROT_ID_MAPPING_RESPONSE,
+    TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE,
     TEST_UNIPROT_ID_FAILED_ID_MAPPING_RESPONSE,
 )
 
@@ -85,7 +85,7 @@ def test_check_id_mapping_results_ready_not_finished(uniprot_id_mapping_api: Uni
 
 def test_check_id_mapping_results_ready_results_key(uniprot_id_mapping_api: UniProtIDMappingAPI):
     with mock.patch.object(uniprot_id_mapping_api.session, "get") as mock_get:
-        mock_get.return_value.json.return_value = TEST_UNIPROT_ID_MAPPING_RESPONSE
+        mock_get.return_value.json.return_value = TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE
         mock_get.return_value.raise_for_status = mock.Mock()
         assert uniprot_id_mapping_api.check_id_mapping_results_ready(VALID_NT_ACCESSION) is True
 
@@ -155,7 +155,7 @@ def test_get_id_mapping_results_success(uniprot_id_mapping_api: UniProtIDMapping
         mock_get.side_effect = [
             mock.Mock(json=mock.Mock(return_value=TEST_UNIPROT_REDIRECT_RESPONSE), raise_for_status=mock.Mock()),
             mock.Mock(
-                json=mock.Mock(return_value=TEST_UNIPROT_ID_MAPPING_RESPONSE),
+                json=mock.Mock(return_value=TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE),
                 raise_for_status=mock.Mock(),
             ),
         ]
