@@ -43,6 +43,8 @@ from tests.helpers.constants import (
     TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
     TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
     TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    TEST_SCORE_SET_NEGATIVE_INFINITY_RANGE,
+    TEST_SCORE_SET_POSITIVE_INFINITY_RANGE,
     TEST_BASELINE_SCORE,
 )
 
@@ -52,7 +54,13 @@ from tests.helpers.constants import (
 
 @pytest.mark.parametrize(
     "score_range_data",
-    [TEST_SCORE_SET_NORMAL_RANGE, TEST_SCORE_SET_ABNORMAL_RANGE, TEST_SCORE_SET_NOT_SPECIFIED_RANGE],
+    [
+        TEST_SCORE_SET_NORMAL_RANGE,
+        TEST_SCORE_SET_ABNORMAL_RANGE,
+        TEST_SCORE_SET_NOT_SPECIFIED_RANGE,
+        TEST_SCORE_SET_POSITIVE_INFINITY_RANGE,
+        TEST_SCORE_SET_NEGATIVE_INFINITY_RANGE,
+    ],
 )
 @pytest.mark.parametrize("ScoreRangeModel", [ScoreRange, ScoreRangeModify, ScoreRangeCreate])
 def test_score_range_base_valid_range(ScoreRangeModel, score_range_data):
@@ -62,6 +70,12 @@ def test_score_range_base_valid_range(ScoreRangeModel, score_range_data):
     assert score_range.range[0] == score_range_data["range"][0], "Range should match"
     assert score_range.range[1] == score_range_data["range"][1], "Range should match"
     assert score_range.description == score_range_data.get("description", None), "Description should match"
+    assert score_range.inclusive_lower_bound == score_range_data.get(
+        "inclusive_lower_bound"
+    ), "Inclusive lower bound should match"
+    assert score_range.inclusive_upper_bound == score_range_data.get(
+        "inclusive_upper_bound"
+    ), "Inclusive upper bound should match"
 
 
 @pytest.mark.parametrize(
@@ -184,6 +198,42 @@ def test_score_range_base_equal_bounds(ScoreRangeModel):
 
 
 @pytest.mark.parametrize(
+    "ScoreRangeModel",
+    [
+        ScoreRange,
+        ScoreRangeModify,
+        ScoreRangeCreate,
+        InvestigatorScoreRange,
+        InvestigatorScoreRangeCreate,
+        InvestigatorScoreRangeModify,
+        PillarProjectScoreRange,
+        PillarProjectScoreRangeCreate,
+        PillarProjectScoreRangeModify,
+    ],
+)
+@pytest.mark.parametrize(
+    "range_value",
+    [
+        [None, 1.0],
+        [1.0, None],
+    ],
+)
+def test_score_range_may_not_include_infinity(ScoreRangeModel, range_value):
+    invalid_data = {
+        "label": "Test Range",
+        "classification": "normal",
+        "range": range_value,
+        "inclusive_lower_bound": True,
+        "inclusive_upper_bound": True,
+    }
+    with pytest.raises(
+        ValidationError,
+        match=r".*An inclusive lower bound may not include negative infinity\..*|An inclusive upper bound may not include positive infinity\..*",
+    ):
+        ScoreRangeModel(**invalid_data)
+
+
+@pytest.mark.parametrize(
     "classification,evidence_strength,should_raise",
     [
         ("normal", 1, True),  # Should raise: normal with positive evidence_strength
@@ -295,6 +345,81 @@ def test_score_ranges_ranges_may_not_overlap(ScoreRangesModel):
 @pytest.mark.parametrize(
     "ScoreRangesModel",
     [
+        ScoreRanges,
+        ScoreRangesCreate,
+        ScoreRangesModify,
+        InvestigatorScoreRanges,
+        InvestigatorScoreRangesCreate,
+        InvestigatorScoreRangesModify,
+    ],
+)
+def test_score_ranges_ranges_may_not_overlap_via_inclusive_bounds(ScoreRangesModel):
+    range_test = ScoreRange(
+        label="Range 1",
+        classification="abnormal",
+        range=[0.0, 2.0],
+        inclusive_lower_bound=True,
+        inclusive_upper_bound=True,
+    )
+    range_check = ScoreRange(
+        label="Range 2",
+        classification="abnormal",
+        range=[2.0, 3.0],
+        inclusive_lower_bound=True,
+        inclusive_upper_bound=True,
+    )
+    invalid_data = {
+        "ranges": [
+            range_test,
+            range_check,
+        ]
+    }
+    with pytest.raises(
+        ValidationError,
+        match=rf".*Score ranges may not overlap; `{range_test.label}` \(\[{range_test.range[0]}, {range_test.range[1]}\]\) overlaps with `{range_check.label}` \(\[{range_check.range[0]}, {range_check.range[1]}\]\).*",
+    ):
+        ScoreRangesModel(**invalid_data)
+
+
+@pytest.mark.parametrize(
+    "ScoreRangesModel",
+    [
+        ScoreRanges,
+        ScoreRangesCreate,
+        ScoreRangesModify,
+        InvestigatorScoreRanges,
+        InvestigatorScoreRangesCreate,
+        InvestigatorScoreRangesModify,
+    ],
+)
+def test_score_ranges_ranges_boundaries_may_be_adjacent(ScoreRangesModel):
+    range_test = ScoreRange(
+        label="Range 1",
+        classification="abnormal",
+        range=[0.0, 2.0],
+        inclusive_lower_bound=True,
+        inclusive_upper_bound=False,
+    )
+    range_check = ScoreRange(
+        label="Range 2",
+        classification="abnormal",
+        range=[2.0, 3.0],
+        inclusive_lower_bound=True,
+        inclusive_upper_bound=False,
+    )
+    invalid_data = {
+        "ranges": [
+            range_test,
+            range_check,
+        ]
+    }
+
+    ScoreRangesModel(**invalid_data)
+
+
+@pytest.mark.parametrize(
+    "ScoreRangesModel",
+    [
         PillarProjectScoreRanges,
         PillarProjectScoreRangesCreate,
         PillarProjectScoreRangesModify,
@@ -318,6 +443,79 @@ def test_score_ranges_pillar_project_ranges_may_not_overlap(ScoreRangesModel):
         match=rf".*Score ranges may not overlap; `{range_test.label}` \(\[{range_test.range[0]}, {range_test.range[1]}\]\) overlaps with `{range_check.label}` \(\[{range_check.range[0]}, {range_check.range[1]}\]\).*",
     ):
         ScoreRangesModel(**invalid_data)
+
+
+@pytest.mark.parametrize(
+    "ScoreRangesModel",
+    [
+        PillarProjectScoreRanges,
+        PillarProjectScoreRangesCreate,
+        PillarProjectScoreRangesModify,
+    ],
+)
+def test_score_ranges_pillar_project_ranges_may_not_overlap_via_inclusive_bounds(ScoreRangesModel):
+    range_test = PillarProjectScoreRange(
+        label="Range 1",
+        classification="abnormal",
+        range=[0.0, 2.0],
+        evidence_strength=2,
+        inclusive_lower_bound=True,
+        inclusive_upper_bound=True,
+    )
+    range_check = PillarProjectScoreRange(
+        label="Range 2",
+        classification="abnormal",
+        range=[2.0, 3.0],
+        evidence_strength=3,
+        inclusive_lower_bound=True,
+        inclusive_upper_bound=True,
+    )
+    invalid_data = {
+        "ranges": [
+            range_test,
+            range_check,
+        ]
+    }
+    with pytest.raises(
+        ValidationError,
+        match=rf".*Score ranges may not overlap; `{range_test.label}` \(\[{range_test.range[0]}, {range_test.range[1]}\]\) overlaps with `{range_check.label}` \(\[{range_check.range[0]}, {range_check.range[1]}\]\).*",
+    ):
+        ScoreRangesModel(**invalid_data)
+
+
+@pytest.mark.parametrize(
+    "ScoreRangesModel",
+    [
+        PillarProjectScoreRanges,
+        PillarProjectScoreRangesCreate,
+        PillarProjectScoreRangesModify,
+    ],
+)
+def test_score_ranges_pillar_project_ranges_boundaries_may_be_adjacent(ScoreRangesModel):
+    range_test = PillarProjectScoreRange(
+        label="Range 1",
+        classification="abnormal",
+        range=[0.0, 2.0],
+        evidence_strength=2,
+        inclusive_lower_bound=True,
+        inclusive_upper_bound=False,
+    )
+    range_check = PillarProjectScoreRange(
+        label="Range 2",
+        classification="abnormal",
+        range=[2.0, 3.0],
+        evidence_strength=3,
+        inclusive_lower_bound=True,
+        inclusive_upper_bound=False,
+    )
+    invalid_data = {
+        "ranges": [
+            range_test,
+            range_check,
+        ]
+    }
+
+    ScoreRangesModel(**invalid_data)
 
 
 @pytest.mark.parametrize(
