@@ -100,7 +100,7 @@ def search_experiments(
         query = query.filter(
             Experiment.keyword_objs.any(
                 ExperimentControlledKeywordAssociation.controlled_keyword.has(
-                    ControlledKeyword.value.in_(search.keywords)
+                    ControlledKeyword.label.in_(search.keywords)
                 )
             )
         )
