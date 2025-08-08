@@ -109,6 +109,17 @@ class ScoreRangesBase(BaseModel):
                 else operator.ge
             )
 
+            # If both ranges have inclusive bounds and their bounds intersect, we consider them overlapping.
+            if (
+                range_with_min_value.inclusive_upper_bound
+                and range_with_non_min_value.inclusive_lower_bound
+                and (
+                    inf_or_float(range_with_min_value.range[1], False)
+                    == inf_or_float(range_with_non_min_value.range[0], True)
+                )
+            ):
+                return True
+
             # Since we have ordered the ranges, it's a guarantee that the lower bound of the first range is less
             # than or equal to the lower bound of the second range. If the upper bound of the first range is greater
             # than or equal to the lower bound of the second range, then the two ranges overlap. Note that if either
