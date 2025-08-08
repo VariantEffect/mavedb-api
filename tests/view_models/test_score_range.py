@@ -392,29 +392,36 @@ def test_score_ranges_ranges_may_not_overlap_via_inclusive_bounds(ScoreRangesMod
         InvestigatorScoreRangesModify,
     ],
 )
-def test_score_ranges_ranges_boundaries_may_be_adjacent(ScoreRangesModel):
+@pytest.mark.parametrize(
+    "range_value1, range_value2, orientation",
+    [
+        ([0.0, 2.0], [2.0, 3.0], True),
+        ([0.0, 2.0], [2.0, 3.0], False),
+    ],
+)
+def test_score_ranges_ranges_boundaries_may_be_adjacent(ScoreRangesModel, range_value1, range_value2, orientation):
     range_test = ScoreRange(
         label="Range 1",
         classification="abnormal",
-        range=[0.0, 2.0],
-        inclusive_lower_bound=True,
-        inclusive_upper_bound=False,
+        range=range_value1,
+        inclusive_lower_bound=orientation,
+        inclusive_upper_bound=not orientation,
     )
     range_check = ScoreRange(
         label="Range 2",
         classification="abnormal",
-        range=[2.0, 3.0],
-        inclusive_lower_bound=True,
-        inclusive_upper_bound=False,
+        range=range_value2,
+        inclusive_lower_bound=orientation,
+        inclusive_upper_bound=not orientation,
     )
-    invalid_data = {
+    valid_data = {
         "ranges": [
             range_test,
             range_check,
         ]
     }
 
-    ScoreRangesModel(**invalid_data)
+    ScoreRangesModel(**valid_data)
 
 
 @pytest.mark.parametrize(
@@ -491,31 +498,40 @@ def test_score_ranges_pillar_project_ranges_may_not_overlap_via_inclusive_bounds
         PillarProjectScoreRangesModify,
     ],
 )
-def test_score_ranges_pillar_project_ranges_boundaries_may_be_adjacent(ScoreRangesModel):
+@pytest.mark.parametrize(
+    "range_value1, range_value2, orientation",
+    [
+        ([0.0, 2.0], [2.0, 3.0], True),
+        ([0.0, 2.0], [2.0, 3.0], False),
+    ],
+)
+def test_score_ranges_pillar_project_ranges_boundaries_may_be_adjacent(
+    ScoreRangesModel, range_value1, range_value2, orientation
+):
     range_test = PillarProjectScoreRange(
         label="Range 1",
         classification="abnormal",
-        range=[0.0, 2.0],
+        range=range_value1,
         evidence_strength=2,
-        inclusive_lower_bound=True,
-        inclusive_upper_bound=False,
+        inclusive_lower_bound=orientation,
+        inclusive_upper_bound=not orientation,
     )
     range_check = PillarProjectScoreRange(
         label="Range 2",
         classification="abnormal",
-        range=[2.0, 3.0],
+        range=range_value2,
         evidence_strength=3,
-        inclusive_lower_bound=True,
-        inclusive_upper_bound=False,
+        inclusive_lower_bound=orientation,
+        inclusive_upper_bound=not orientation,
     )
-    invalid_data = {
+    valid_data = {
         "ranges": [
             range_test,
             range_check,
         ]
     }
 
-    ScoreRangesModel(**invalid_data)
+    ScoreRangesModel(**valid_data)
 
 
 @pytest.mark.parametrize(

@@ -103,15 +103,19 @@ class ScoreRangesBase(BaseModel):
                 range_with_min_value = range_check
                 range_with_non_min_value = range_test
 
-            lower_bound_comparator = operator.le if range_with_min_value.inclusive_lower_bound else operator.lt
-            upper_bound_comparator = operator.ge if range_with_non_min_value.inclusive_upper_bound else operator.gt
+            adjacent_boundary_comparator = (
+                operator.gt
+                if range_with_min_value.inclusive_upper_bound or range_with_non_min_value.inclusive_lower_bound
+                else operator.ge
+            )
 
-            if upper_bound_comparator(
+            # Since we have ordered the ranges, it's a guarantee that the lower bound of the first range is less
+            # than or equal to the lower bound of the second range. If the upper bound of the first range is greater
+            # than or equal to the lower bound of the second range, then the two ranges overlap. Note that if either
+            # of these ranges has an inclusive upper or lower bound, we should compare them without the equality operator.
+            if adjacent_boundary_comparator(
                 inf_or_float(range_with_min_value.range[1], False),
                 inf_or_float(range_with_non_min_value.range[0], True),
-            ) and lower_bound_comparator(
-                inf_or_float(range_with_min_value.range[0], True),
-                inf_or_float(range_with_non_min_value.range[1], False),
             ):
                 return True
 
