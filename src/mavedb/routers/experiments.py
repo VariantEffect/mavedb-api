@@ -283,14 +283,14 @@ async def create_experiment(
     for publication in publication_identifiers:
         setattr(publication, "primary", publication.identifier in primary_identifiers)
 
-    # TODO: Controlled keywords currently is allowed none value.
+    # TODO: Controlled keywords currently is allowed none label.
     #  Will be changed in the future when we get the final list.
     keywords: list[ExperimentControlledKeywordAssociation] = []
     if item_create.keywords:
-        all_values_none = all(k.keyword.value is None for k in item_create.keywords)
-        if all_values_none is False:
+        all_labels_none = all(k.keyword.label is None for k in item_create.keywords)
+        if all_labels_none is False:
             # Users may choose part of keywords from dropdown menu. Remove not chosen keywords from the list.
-            filtered_keywords = list(filter(lambda k: k.keyword.value is not None, item_create.keywords))
+            filtered_keywords = list(filter(lambda k: k.keyword.label is not None, item_create.keywords))
             try:
                 validate_keyword_list(filtered_keywords)
             except ValidationError as e:
@@ -298,7 +298,7 @@ async def create_experiment(
             for upload_keyword in filtered_keywords:
                 try:
                     description = upload_keyword.description
-                    controlled_keyword = search_keyword(db, upload_keyword.keyword.key, upload_keyword.keyword.value)
+                    controlled_keyword = search_keyword(db, upload_keyword.keyword.key, upload_keyword.keyword.label)
                     experiment_controlled_keyword = ExperimentControlledKeywordAssociation(
                         controlled_keyword=controlled_keyword,
                         description=description,
@@ -424,10 +424,10 @@ async def update_experiment(
     item.raw_read_identifiers = raw_read_identifiers
 
     if item_update.keywords:
-        all_values_none = all(k.keyword.value is None for k in item_update.keywords)
-        if all_values_none is False:
+        all_labels_none = all(k.keyword.label is None for k in item_update.keywords)
+        if all_labels_none is False:
             # Users may choose part of keywords from dropdown menu. Remove not chosen keywords from the list.
-            filtered_keywords = list(filter(lambda k: k.keyword.value is not None, item_update.keywords))
+            filtered_keywords = list(filter(lambda k: k.keyword.label is not None, item_update.keywords))
             try:
                 validate_keyword_list(filtered_keywords)
             except ValidationError as e:

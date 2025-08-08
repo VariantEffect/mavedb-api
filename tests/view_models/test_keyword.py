@@ -8,46 +8,46 @@ def test_create_keyword_with_description():
     # Test valid keyword with description
     keyword = {
         "key": "Variant Library Creation Method",
-        "value": "Endogenous locus library method",
+        "label": "Endogenous locus library method",
         "special": False,
         "description": TEST_DESCRIPTION,
     }
     keyword_obj = ExperimentControlledKeywordCreate(keyword=keyword, description=TEST_DESCRIPTION)
     assert keyword_obj.keyword.key == "Variant Library Creation Method"
-    assert keyword_obj.keyword.value == "Endogenous locus library method"
+    assert keyword_obj.keyword.label == "Endogenous locus library method"
 
 
 def test_create_keyword_without_description():
     # Test valid keyword without description
     keyword = {
         "key": "Variant Library Creation Method",
-        "value": "Endogenous locus library method",
+        "label": "Endogenous locus library method",
         "special": False,
         "description": TEST_DESCRIPTION,
     }
     keyword_obj = ExperimentControlledKeywordCreate(keyword=keyword, description=None)
     assert keyword_obj.keyword.key == "Variant Library Creation Method"
-    assert keyword_obj.keyword.value == "Endogenous locus library method"
+    assert keyword_obj.keyword.label == "Endogenous locus library method"
 
 
 def test_create_keyword_value_is_other():
     # Keyword must have description if its value is Other.
     keyword = {
         "key": "Variant Library Creation Method",
-        "value": "Other",
+        "label": "Other",
         "special": False,
         "description": TEST_DESCRIPTION,
     }
     keyword_obj = ExperimentControlledKeywordCreate(keyword=keyword, description=TEST_DESCRIPTION)
     assert keyword_obj.keyword.key == "Variant Library Creation Method"
-    assert keyword_obj.keyword.value == "Other"
+    assert keyword_obj.keyword.label == "Other"
 
 
 def test_create_keyword_value_is_other_without_description():
     # Keyword must have description if its value is Other.
     keyword = {
         "key": "Variant Library Creation Method",
-        "value": "Other",
+        "label": "Other",
         "special": False,
         "description": TEST_DESCRIPTION,
     }

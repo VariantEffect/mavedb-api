@@ -161,9 +161,10 @@ class Experiment(Base):
                 {
                     "keyword": {
                         "key": controlled_keyword.key,
-                        "value": controlled_keyword.value,
-                        "vocabulary": controlled_keyword.vocabulary,
-                        "accession": controlled_keyword.accession,
+                        "label": controlled_keyword.label,
+                        "system": controlled_keyword.system,
+                        "code": controlled_keyword.code,
+                        "version": controlled_keyword.version,
                         "special": controlled_keyword.special,
                         "description": controlled_keyword.description,
                     },
@@ -191,8 +192,8 @@ class Experiment(Base):
                     controlled_keyword=await self._find_keyword(
                         db,
                         keyword_obj.keyword.key,
-                        keyword_obj.keyword.value,
-                        keyword_obj.keyword.vocabulary,
+                        keyword_obj.keyword.label,
+                        keyword_obj.keyword.code,
                     ),
                     description=keyword_obj.description,
                 )
@@ -212,15 +213,15 @@ class Experiment(Base):
             keyword_obj = LegacyKeyword(text=keyword_text)
         return keyword_obj
 
-    async def _find_keyword(self, db, key: str, value: str, vocabulary: Optional[str]):
+    async def _find_keyword(self, db, key: str, label: str, code: Optional[str]):
         query = (
-            db.query(ControlledKeyword).filter(ControlledKeyword.key == key).filter(ControlledKeyword.value == value)
+            db.query(ControlledKeyword).filter(ControlledKeyword.key == key).filter(ControlledKeyword.label == label)
         )
-        if vocabulary:
-            query = query.filter(ControlledKeyword.vocabulary == vocabulary)
+        if code:
+            query = query.filter(ControlledKeyword.code == code)
         controlled_keyword_obj = query.one_or_none()
         if controlled_keyword_obj is None:
-            raise ValueError(f"Unknown keyword {key}:{value}")
+            raise ValueError(f"Unknown keyword {key}:{label}")
         return controlled_keyword_obj
 
 

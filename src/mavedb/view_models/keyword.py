@@ -15,9 +15,10 @@ class KeywordBase(BaseModel):
     """
 
     key: str
-    value: Optional[str]
-    vocabulary: Optional[str]
-    accession: Optional[str]
+    label: Optional[str]
+    system: Optional[str]
+    code: Optional[str]
+    version: Optional[str]
     special: Optional[bool]
     description: Optional[str]
 
@@ -26,16 +27,16 @@ class KeywordBase(BaseModel):
         keywords.validate_keyword(v)
         return v
 
-    @validator("accession")
-    def validate_accession(cls, accession, values):
+    @validator("code")
+    def validate_code(cls, value, values):
         key = values.get("key")
-        value = values.get("value")
-        keywords.validate_accession(key, value, accession)
-        return accession
+        label = values.get("label")
+        keywords.validate_code(key, label, value)
+        return value
 
-    # validator("value") blocks creating a new experiment without controlled keywords so comment it first.
-    # @validator("value")
-    # def validate_value(cls, v):
+    # validator("label") blocks creating a new experiment without controlled keywords so comment it first.
+    # @validator("label")
+    # def validate_label(cls, v):
     #     keywords.validate_keyword(v)
     #     return v
 

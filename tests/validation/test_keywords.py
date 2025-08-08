@@ -2,7 +2,7 @@ from unittest import TestCase
 
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import (
-    validate_accession,
+    validate_code,
     validate_description,
     validate_duplicates,
     validate_keyword,
@@ -28,42 +28,42 @@ class TestKeywordValidators(TestCase):
 
     def test_other_with_extra_description(self):
         key = "Key"
-        value = "Other"
+        label = "Other"
         description = "testing"
-        validate_description(value, key, description)
+        validate_description(label, key, description)
 
     def test_other_without_extra_description(self):
         # Value is Other, but not provide extra description
         key = "Key"
-        value = "Other"
+        label = "Other"
         description = None
         with self.assertRaises(ValidationError):
-            validate_description(value, key, description)
+            validate_description(label, key, description)
 
     def test_Gene_Ontology_valid_accession(self):
         key = "Phenotypic Assay Mechanism"
-        value = "value"
-        accession = "GO:1234567"
-        validate_accession(key, value, accession)
+        label = "label"
+        code = "GO:1234567"
+        validate_code(key, label, code)
 
     def test_Gene_Ontology_invalid_accession(self):
         key = "Phenotypic Assay Mechanism"
-        value = "value"
-        accession = "GO:123"
+        label = "label"
+        code = "GO:123"
         with self.assertRaises(ValidationError):
-            validate_accession(key, value, accession)
+            validate_code(key, label, code)
 
     def test_Gene_Ontoloty_term_is_other(self):
         key = "Phenotypic Assay Mechanism"
-        value = "Other"
-        accession = None
-        validate_accession(key, value, accession)
+        label = "Other"
+        code = None
+        validate_code(key, label, code)
 
     def test_duplicate_keys(self):
         # Invalid keywords list.
         keyword1 = {
             "key": "Variant Library Creation Method",
-            "value": "Endogenous locus library method",
+            "label": "Endogenous locus library method",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -71,7 +71,7 @@ class TestKeywordValidators(TestCase):
 
         keyword2 = {
             "key": "Variant Library Creation Method",
-            "value": "SaCas9",
+            "label": "SaCas9",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -80,11 +80,11 @@ class TestKeywordValidators(TestCase):
         with self.assertRaises(ValidationError):
             validate_duplicates(keyword_list)
 
-    def test_duplicate_values(self):
+    def test_duplicate_labels(self):
         # Invalid keywords list.
         keyword1 = {
             "key": "Variant Library Creation Method",
-            "value": "Endogenous locus library method",
+            "label": "Endogenous locus library method",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -92,7 +92,7 @@ class TestKeywordValidators(TestCase):
 
         keyword2 = {
             "key": "Endogenous Locus Library Method System",
-            "value": "Endogenous locus library method",
+            "label": "Endogenous locus library method",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -101,11 +101,11 @@ class TestKeywordValidators(TestCase):
         with self.assertRaises(ValidationError):
             validate_duplicates(keyword_list)
 
-    def test_duplicate_values_but_they_are_other(self):
+    def test_duplicate_labels_but_they_are_other(self):
         # Valid keyword list
         keyword1 = {
             "key": "Variant Library Creation Method",
-            "value": "Other",
+            "label": "Other",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -113,7 +113,7 @@ class TestKeywordValidators(TestCase):
 
         keyword2 = {
             "key": "Endogenous Locus Library Method System",
-            "value": "Other",
+            "label": "Other",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -121,11 +121,11 @@ class TestKeywordValidators(TestCase):
         keyword_list = [keyword_obj1, keyword_obj2]
         validate_duplicates(keyword_list)
 
-    def test_variant_library_value_is_endogenous_and_another_keywords_keys_are_endogenous(self):
+    def test_variant_library_label_is_endogenous_and_another_keywords_keys_are_endogenous(self):
         # Valid keyword list
         keyword1 = {
             "key": "Variant Library Creation Method",
-            "value": "Endogenous locus library method",
+            "label": "Endogenous locus library method",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -133,7 +133,7 @@ class TestKeywordValidators(TestCase):
 
         keyword2 = {
             "key": "Endogenous Locus Library Method System",
-            "value": "Other",
+            "label": "Other",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -141,7 +141,7 @@ class TestKeywordValidators(TestCase):
 
         keyword3 = {
             "key": "Endogenous Locus Library Method Mechanism",
-            "value": "Nuclease",
+            "label": "Nuclease",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -149,11 +149,11 @@ class TestKeywordValidators(TestCase):
         keyword_list = [keyword_obj1, keyword_obj2, keyword_obj3]
         validate_keyword_keys(keyword_list)
 
-    def test_variant_library_value_is_endogenous_but_another_keywords_keys_are_in_vitro(self):
+    def test_variant_library_label_is_endogenous_but_another_keywords_keys_are_in_vitro(self):
         # Invalid keyword list
         keyword1 = {
             "key": "Variant Library Creation Method",
-            "value": "Endogenous locus library method",
+            "label": "Endogenous locus library method",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -161,7 +161,7 @@ class TestKeywordValidators(TestCase):
 
         keyword2 = {
             "key": "In Vitro Construct Library Method System",
-            "value": "Oligo-directed mutagenic PCR",
+            "label": "Oligo-directed mutagenic PCR",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -169,7 +169,7 @@ class TestKeywordValidators(TestCase):
 
         keyword3 = {
             "key": "In Vitro Construct Library Method Mechanism",
-            "value": "Native locus replacement",
+            "label": "Native locus replacement",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -178,11 +178,11 @@ class TestKeywordValidators(TestCase):
         with self.assertRaises(ValidationError):
             validate_keyword_keys(keyword_list)
 
-    def test_variant_library_value_is_in_vitro_and_another_keywords_keys_are_both_in_vitro(self):
+    def test_variant_library_label_is_in_vitro_and_another_keywords_keys_are_both_in_vitro(self):
         # Valid keyword list
         keyword1 = {
             "key": "Variant Library Creation Method",
-            "value": "In vitro construct library method",
+            "label": "In vitro construct library method",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -190,7 +190,7 @@ class TestKeywordValidators(TestCase):
 
         keyword2 = {
             "key": "In Vitro Construct Library Method System",
-            "value": "Oligo-directed mutagenic PCR",
+            "label": "Oligo-directed mutagenic PCR",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -198,7 +198,7 @@ class TestKeywordValidators(TestCase):
 
         keyword3 = {
             "key": "In Vitro Construct Library Method Mechanism",
-            "value": "Native locus replacement",
+            "label": "Native locus replacement",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -206,11 +206,11 @@ class TestKeywordValidators(TestCase):
         keyword_list = [keyword_obj1, keyword_obj2, keyword_obj3]
         validate_keyword_keys(keyword_list)
 
-    def test_variant_library_value_is_in_vitro_but_another_keywords_keys_are_endogenous(self):
+    def test_variant_library_label_is_in_vitro_but_another_keywords_keys_are_endogenous(self):
         # Invalid keyword list
         keyword1 = {
             "key": "Variant Library Creation Method",
-            "value": "In vitro construct library method",
+            "label": "In vitro construct library method",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -218,7 +218,7 @@ class TestKeywordValidators(TestCase):
 
         keyword2 = {
             "key": "Endogenous Locus Library Method System",
-            "value": "Other",
+            "label": "Other",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -226,7 +226,7 @@ class TestKeywordValidators(TestCase):
 
         keyword3 = {
             "key": "Endogenous Locus Library Method Mechanism",
-            "value": "Nuclease",
+            "label": "Nuclease",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -235,11 +235,11 @@ class TestKeywordValidators(TestCase):
         with self.assertRaises(ValidationError):
             validate_keyword_keys(keyword_list)
 
-    def test_variant_library_value_is_other(self):
+    def test_variant_library_label_is_other(self):
         # Valid keyword
         keyword1 = {
             "key": "Variant Library Creation Method",
-            "value": "Other",
+            "label": "Other",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -247,11 +247,11 @@ class TestKeywordValidators(TestCase):
         keyword_list = [keyword_obj1]
         validate_keyword_keys(keyword_list)
 
-    def test_variant_library_value_is_other_but_another_keyword_key_is_endogenous(self):
+    def test_variant_library_label_is_other_but_another_keyword_key_is_endogenous(self):
         # Invalid keyword list
         keyword1 = {
             "key": "Variant Library Creation Method",
-            "value": "Other",
+            "label": "Other",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -259,7 +259,7 @@ class TestKeywordValidators(TestCase):
 
         keyword2 = {
             "key": "Endogenous Locus Library Method System",
-            "value": "Other",
+            "label": "Other",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -269,14 +269,14 @@ class TestKeywordValidators(TestCase):
         with self.assertRaises(ValidationError):
             validate_keyword_keys(keyword_list)
 
-    def test_variant_library_value_is_other_but_another_keyword_key_is_in_vitro(self):
+    def test_variant_library_label_is_other_but_another_keyword_key_is_in_vitro(self):
         """
         Invalid keyword list.
         If Variant Library Creation Method is Other, none of the rest keywords' keys is endogenous or in vitro method.
         """
         keyword1 = {
             "key": "Variant Library Creation Method",
-            "value": "Other",
+            "label": "Other",
             "special": False,
             "description": TEST_DESCRIPTION,
         }
@@ -284,7 +284,7 @@ class TestKeywordValidators(TestCase):
 
         keyword2 = {
             "key": "In Vitro Construct Library Method System",
-            "value": "Oligo-directed mutagenic PCR",
+            "label": "Oligo-directed mutagenic PCR",
             "special": False,
             "description": TEST_DESCRIPTION,
         }

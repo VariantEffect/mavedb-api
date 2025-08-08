@@ -18,10 +18,10 @@ class ExperimentControlledKeywordBase(BaseModel):
         validated_keyword = values.get("keyword")
         validated_description = values.get("description")
 
-        # validated_keyword possible value: {'key': 'Delivery method', 'value': None}
-        # Validate if keyword value is other, whether description is None.
-        if validated_keyword and validated_keyword["value"]:
-            keywords.validate_description(validated_keyword["value"], validated_keyword["key"], validated_description)
+        # validated_keyword possible value: {'key': 'Delivery method', 'label': None}
+        # Validate if keyword label is other, whether description is None.
+        if validated_keyword and validated_keyword["label"]:
+            keywords.validate_description(validated_keyword["label"], validated_keyword["key"], validated_description)
         return values
 
 
