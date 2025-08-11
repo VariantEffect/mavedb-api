@@ -900,7 +900,7 @@ async def create_score_set(
         processing_state=ProcessingState.incomplete,
         created_by=user_data.user,
         modified_by=user_data.user,
-        score_ranges=item_create.score_ranges.dict() if item_create.score_ranges else null(),
+        score_ranges=item_create.score_ranges.model_dump() if item_create.score_ranges else null(),
     )  # type: ignore
 
     db.add(item)
@@ -1103,7 +1103,7 @@ async def update_score_set(
     # Score set has not been published and attributes affecting scores may still be edited.
     if item.private:
         if item_update.score_ranges:
-            item.score_ranges = item_update.score_ranges.dict()
+            item.score_ranges = item_update.score_ranges.model_dump()
         else:
             item.score_ranges = null()
 

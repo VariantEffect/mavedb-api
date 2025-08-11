@@ -1,5 +1,8 @@
+from datetime import datetime
 from pathlib import Path
+import pytest
 from shutil import copytree
+from unittest import mock
 
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment_set import ExperimentSet
@@ -149,6 +152,9 @@ def mock_experiment_set():
 def mock_experiment():
     experiment = mock.Mock(spec=Experiment)
     experiment.title = "Test Experiment"
+    experiment.short_description = "Short description"
+    experiment.abstract_text = "Abstract"
+    experiment.method_text = "Method"
     experiment.urn = VALID_EXPERIMENT_URN
     experiment.creation_date = datetime(2023, 1, 1)
     experiment.modification_date = datetime(2023, 1, 2)
@@ -165,6 +171,9 @@ def mock_score_set(mock_user, mock_experiment, mock_publication_associations):
     score_set.modified_by = mock_user
     score_set.published_date = datetime(2023, 1, 1)
     score_set.title = "Mock score set"
+    score_set.short_description = "Short description"
+    score_set.abstract_text = "Abstract"
+    score_set.method_text = "Method"
     score_set.creation_date = datetime(2023, 1, 2)
     score_set.modification_date = datetime(2023, 1, 3)
     score_set.experiment = mock_experiment

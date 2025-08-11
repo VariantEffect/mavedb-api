@@ -7,8 +7,6 @@ from tests.helpers.constants import TEST_MINIMAL_MAPPED_VARIANT, TEST_MINIMAL_MA
 def test_minimal_mapped_variant_create():
     mapped_variant_create = MappedVariantCreate(**TEST_MINIMAL_MAPPED_VARIANT_CREATE)
 
-    print(mapped_variant_create)
-    print(TEST_MINIMAL_MAPPED_VARIANT_CREATE)
     assert all(mapped_variant_create.__getattribute__(k) == v for k, v in TEST_MINIMAL_MAPPED_VARIANT_CREATE.items())
 
 

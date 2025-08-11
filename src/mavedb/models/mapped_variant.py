@@ -43,6 +43,7 @@ class MappedVariant(Base):
         "GnomADVariant",
         secondary=gnomad_variants_mapped_variants_association_table,
         back_populates="mapped_variants",
+    )
 
     __table_args__ = (
         Index("ix_mapped_variants_pre_mapped_id", text("(pre_mapped->>'id')")),

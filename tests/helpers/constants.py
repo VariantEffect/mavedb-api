@@ -1240,7 +1240,6 @@ TEST_MINIMAL_MAPPED_VARIANT = {
 
 TEST_MINIMAL_MAPPED_VARIANT_CREATE = {
     **TEST_MINIMAL_MAPPED_VARIANT,
-    "variant_urn": VALID_VARIANT_URN,
     "clinical_controls": [],
     "gnomad_variants": []
 }

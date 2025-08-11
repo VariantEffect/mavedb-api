@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 def search_experiments(
     db: Session, owner_or_contributor: Optional[User], search: ExperimentsSearch
 ) -> list[Experiment]:
-    save_to_logging_context({"experiment_search_criteria": search.dict()})
+    save_to_logging_context({"experiment_search_criteria": search.model_dump()})
 
     query = db.query(Experiment)
     # .filter(ScoreSet.private.is_(False))

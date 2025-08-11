@@ -7,8 +7,8 @@ from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
 
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.lib.validation.utilities import inf_or_float
-from mavedb.view_models.score_set import ScoreRanges
 from mavedb.view_models.calibration import PillarProjectCalibration
+from mavedb.view_models.score_range import ScoreSetRanges
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ def functional_classification_of_variant(
         )
 
     # This view model object is much simpler to work with.
-    score_ranges = ScoreRanges(**mapped_variant.variant.score_set.score_ranges)
+    score_ranges = ScoreSetRanges(**mapped_variant.variant.score_set.score_ranges)
 
     # This property of this column is guaranteed to be defined.
     functional_score: float = mapped_variant.variant.data["score_data"]["score"]  # type: ignore
