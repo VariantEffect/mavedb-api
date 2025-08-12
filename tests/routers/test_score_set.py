@@ -294,8 +294,15 @@ def test_remove_score_range_from_score_set(
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
 
-    response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
+    score_set.pop("score_ranges")
+    response = client.put(f"/api/v1/score-sets/{response_data['urn']}", json=score_set)
     assert response.status_code == 200
+    response_data = response.json()
+
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
+    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
+
+    assert "scoreRanges" not in response_data.keys()
 
 
 def test_cannot_create_score_set_without_email(client, setup_router_db):

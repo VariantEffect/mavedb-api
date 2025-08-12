@@ -15,23 +15,21 @@ from sqlalchemy.orm.session import make_transient
 from urllib.parse import quote_plus
 
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
-from ga4gh.va_spec.acmg_2015 import VariantPathogenicityFunctionalImpactEvidenceLine
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant
 from mavedb.view_models.mapped_variant import SavedMappedVariant
 
-from tests.helpers.constants import TEST_SCORE_CALIBRATION, TEST_SCORE_SET_RANGE
-from tests.helpers.dependency_overrider import DependencyOverrider
+from tests.helpers.constants import TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED, TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT, TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import (
-    add_thresholds_to_score_set,
     create_seq_score_set_with_mapped_variants,
     create_seq_score_set_with_variants,
 )
 
 
-def test_show_mapped_variant(client, session, data_provider, data_files, setup_router_db, admin_app_overrides):
+def test_show_mapped_variant(client, session, data_provider, data_files, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
         client,
@@ -39,11 +37,8 @@ def test_show_mapped_variant(client, session, data_provider, data_files, setup_r
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
-
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}")
     response_data = response.json()
@@ -55,7 +50,7 @@ def test_show_mapped_variant(client, session, data_provider, data_files, setup_r
 
 
 def test_cannot_show_mapped_variant_when_multiple_exist(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -64,7 +59,7 @@ def test_cannot_show_mapped_variant_when_multiple_exist(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
@@ -76,11 +71,6 @@ def test_cannot_show_mapped_variant_when_multiple_exist(
     session.add(item)
     session.commit()
 
-    print([mv.variant.urn for mv in session.scalars(select(MappedVariant)).all()])
-
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
-
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}")
     response_data = response.json()
 
@@ -89,7 +79,7 @@ def test_cannot_show_mapped_variant_when_multiple_exist(
 
 
 def test_cannot_show_mapped_variant_when_none_exists(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -98,11 +88,8 @@ def test_cannot_show_mapped_variant_when_none_exists(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
-
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}")
     response_data = response.json()
@@ -112,7 +99,7 @@ def test_cannot_show_mapped_variant_when_none_exists(
 
 
 def test_show_mapped_variant_study_result(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -121,11 +108,8 @@ def test_show_mapped_variant_study_result(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
-
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/study-result")
     response_data = response.json()
@@ -137,7 +121,7 @@ def test_show_mapped_variant_study_result(
 
 
 def test_cannot_show_mapped_variant_study_result_when_multiple_exist(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -146,7 +130,7 @@ def test_cannot_show_mapped_variant_study_result_when_multiple_exist(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
@@ -158,9 +142,6 @@ def test_cannot_show_mapped_variant_study_result_when_multiple_exist(
     session.add(item)
     session.commit()
 
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
-
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/study-result")
     response_data = response.json()
 
@@ -169,7 +150,7 @@ def test_cannot_show_mapped_variant_study_result_when_multiple_exist(
 
 
 def test_cannot_show_mapped_variant_study_result_when_none_exists(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -178,11 +159,8 @@ def test_cannot_show_mapped_variant_study_result_when_none_exists(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
-
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/study-result")
     response_data = response.json()
@@ -192,7 +170,7 @@ def test_cannot_show_mapped_variant_study_result_when_none_exists(
 
 
 def test_cannot_show_mapped_variant_study_result_when_no_mapping_data_exists(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -201,7 +179,7 @@ def test_cannot_show_mapped_variant_study_result_when_no_mapping_data_exists(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
@@ -210,9 +188,6 @@ def test_cannot_show_mapped_variant_study_result_when_no_mapping_data_exists(
     item.post_mapped = None
     session.add(item)
     session.commit()
-
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/study-result")
     response_data = response.json()
@@ -225,7 +200,7 @@ def test_cannot_show_mapped_variant_study_result_when_no_mapping_data_exists(
 
 
 def test_show_mapped_variant_functional_impact_statement(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -234,11 +209,8 @@ def test_show_mapped_variant_functional_impact_statement(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
-
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-impact")
     response_data = response.json()
@@ -250,7 +222,7 @@ def test_show_mapped_variant_functional_impact_statement(
 
 
 def test_cannot_show_mapped_variant_functional_impact_statement_when_multiple_exist(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -259,7 +231,7 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_multiple_ex
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
@@ -271,9 +243,6 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_multiple_ex
     session.add(item)
     session.commit()
 
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
-
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-impact")
     response_data = response.json()
 
@@ -282,7 +251,7 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_multiple_ex
 
 
 def test_cannot_show_mapped_variant_functional_impact_statement_when_none_exists(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -291,11 +260,8 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_none_exists
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
-
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-impact")
     response_data = response.json()
@@ -305,7 +271,7 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_none_exists
 
 
 def test_cannot_show_mapped_variant_functional_impact_statement_when_no_mapping_data_exists(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -314,7 +280,7 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_no_mapping_
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
@@ -323,9 +289,6 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_no_mapping_
     item.post_mapped = None
     session.add(item)
     session.commit()
-
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-impact")
     response_data = response.json()
@@ -338,7 +301,7 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_no_mapping_
 
 
 def test_cannot_show_mapped_variant_functional_impact_statement_when_no_score_ranges(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -347,11 +310,8 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_no_score_ra
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": None},
+        update={"scoreRanges": TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT},
     )
-
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-impact")
     response_data = response.json()
@@ -364,7 +324,7 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_no_score_ra
 
 
 def test_show_mapped_variant_clinical_evidence_line(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -373,11 +333,8 @@ def test_show_mapped_variant_clinical_evidence_line(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
-
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#2')}/va/clinical-evidence")
     response_data = response.json()
@@ -385,11 +342,11 @@ def test_show_mapped_variant_clinical_evidence_line(
     assert response.status_code == 200
     assert response_data["description"] == f"Pathogenicity evidence line {score_set['urn']}#2."
 
-    VariantPathogenicityFunctionalImpactEvidenceLine.model_validate_json(json.dumps(response_data))
+    VariantPathogenicityEvidenceLine.model_validate_json(json.dumps(response_data))
 
 
 def test_cannot_show_mapped_variant_clinical_evidence_line_when_multiple_exist(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -398,7 +355,7 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_multiple_exist(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
@@ -410,9 +367,6 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_multiple_exist(
     session.add(item)
     session.commit()
 
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
-
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/clinical-evidence")
     response_data = response.json()
 
@@ -421,7 +375,7 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_multiple_exist(
 
 
 def test_cannot_show_mapped_variant_clinical_evidence_line_when_none_exists(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -430,11 +384,8 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_none_exists(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
-
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/clinical-evidence")
     response_data = response.json()
@@ -444,7 +395,7 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_none_exists(
 
 
 def test_cannot_show_mapped_variant_clinical_evidence_line_when_no_mapping_data_exists(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -453,7 +404,7 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_no_mapping_data_
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
     )
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
@@ -462,9 +413,6 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_no_mapping_data_
     item.post_mapped = None
     session.add(item)
     session.commit()
-
-    with DependencyOverrider(admin_app_overrides):
-        add_thresholds_to_score_set(client, score_set["urn"], TEST_SCORE_CALIBRATION)
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/clinical-evidence")
     response_data = response.json()
@@ -486,7 +434,7 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_no_score_calibra
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGE)},
+        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)},
     )
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/clinical-evidence")

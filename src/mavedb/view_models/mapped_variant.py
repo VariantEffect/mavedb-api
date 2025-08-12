@@ -6,6 +6,7 @@ from typing import Any, Optional, Sequence
 
 from pydantic import model_validator
 
+from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 
@@ -27,7 +28,7 @@ class MappedVariantUpdate(MappedVariantBase):
 
     @model_validator(mode="before")
     def generate_score_set_urn_list(cls, data: Any):
-        if not "variant_urn" in data and "variant" in data:
+        if "variant_urn" not in data and "variant" in data:
             try:
                 data.__setattr__("variant_urn", None if not data["variant"] else data["variant"]["urn"])
             except AttributeError as exc:

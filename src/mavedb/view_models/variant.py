@@ -3,6 +3,7 @@ from typing import Any, Optional
 
 from pydantic import model_validator
 
+from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models.mapped_variant import MappedVariant, SavedMappedVariant
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel

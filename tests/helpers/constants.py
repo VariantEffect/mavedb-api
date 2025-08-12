@@ -1451,36 +1451,6 @@ TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE = {
 }
 
 
-TEST_SCORE_SET_RANGE = {
-    "ranges": [
-        TEST_SCORE_SET_NORMAL_RANGE,
-        TEST_SCORE_SET_ABNORMAL_RANGE,
-    ],
-    "source": None,
-}
-
-
-TEST_SAVED_SCORE_SET_RANGE = {
-    "recordType": "ScoreRanges",
-    "ranges": [
-        TEST_SAVED_SCORE_SET_NORMAL_RANGE,
-        TEST_SAVED_SCORE_SET_ABNORMAL_RANGE,
-    ],
-}
-
-
-TEST_SCORE_SET_RANGE_WITH_SOURCE = {
-    **TEST_SCORE_SET_RANGE,
-    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
-}
-
-
-TEST_SAVED_SCORE_SET_RANGE_WITH_SOURCE = {
-    **TEST_SAVED_SCORE_SET_RANGE,
-    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
-}
-
-
 TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE = {
     "baseline_score": TEST_BASELINE_SCORE,
     "ranges": [
