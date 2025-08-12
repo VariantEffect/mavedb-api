@@ -26,17 +26,6 @@ class TargetSequenceModify(TargetSequenceBase):
         target.validate_sequence_category(v)
         return v
 
-    @field_validator("label")
-    def label_does_not_include_colon(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return None
-
-        if ":" in v:
-            raise ValidationError(f"Target sequence label `{v}` may not contain a colon.")
-
-        # Fully qualified variants should never contain whitespace.
-        return sanitize_target_sequence_label(v)
-
     # Validate the target sequence, inferring its type if necessary.
     @model_validator(mode="after")
     def validate_target_sequence(self) -> Self:
@@ -56,7 +45,7 @@ class TargetSequenceModify(TargetSequenceBase):
     @field_validator("sequence")
     def validate_identifier(cls, field_value: str, info: ValidationInfo) -> str:
         # If sequence_type is invalid, values["sequence_type"] doesn't exist.
-        field_value = field_value.replace('\r', '').replace('\n', '').strip().upper()
+        field_value = field_value.replace("\r", "").replace("\n", "").strip().upper()
         if "sequence_type" in info.data:
             sequence_type = info.data["sequence_type"]
             # field_value is sequence
