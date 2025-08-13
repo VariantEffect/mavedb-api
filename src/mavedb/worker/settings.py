@@ -17,6 +17,8 @@ from mavedb.worker.jobs import (
     refresh_published_variants_view,
     submit_score_set_mappings_to_ldh,
     link_clingen_variants,
+    poll_uniprot_mapping_jobs_for_score_set,
+    submit_uniprot_mapping_jobs_for_score_set,
     link_gnomad_variants,
 )
 
@@ -28,6 +30,8 @@ BACKGROUND_FUNCTIONS: list[Callable] = [
     refresh_published_variants_view,
     submit_score_set_mappings_to_ldh,
     link_clingen_variants,
+    poll_uniprot_mapping_jobs_for_score_set,
+    submit_uniprot_mapping_jobs_for_score_set,
     link_gnomad_variants,
 ]
 # In UTC time. Depending on daylight savings time, this will bounce around by an hour but should always be very early in the morning

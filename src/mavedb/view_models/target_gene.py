@@ -86,6 +86,7 @@ class SavedTargetGene(TargetGeneBase):
     target_sequence: Optional[SavedTargetSequence]
     target_accession: Optional[SavedTargetAccession]
     external_identifiers: Sequence[external_gene_identifier_offset.SavedExternalGeneIdentifierOffset]
+    uniprot_id_from_mapped_metadata: Optional[str] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
 
@@ -113,6 +114,7 @@ class TargetGene(SavedTargetGene):
 
 class TargetGeneWithScoreSetUrn(TargetGene):
     """Target gene view model containing its score set urn."""
+
     score_set_urn: str
 
 

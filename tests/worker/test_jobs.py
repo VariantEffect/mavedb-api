@@ -9,6 +9,7 @@ from uuid import uuid4
 import jsonschema
 import pandas as pd
 import pytest
+from requests import HTTPError
 from sqlalchemy import not_, select
 
 arq = pytest.importorskip("arq")
@@ -20,6 +21,7 @@ from mavedb.data_providers.services import VRSMap
 from mavedb.lib.mave.constants import HGVS_NT_COLUMN
 from mavedb.lib.score_sets import csv_data_to_df
 from mavedb.lib.clingen.linked_data_hub import ClinGenLdhService, clingen_allele_id_from_ldh_variation
+from mavedb.lib.uniprot.id_mapping import UniProtIDMappingAPI
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
@@ -38,9 +40,9 @@ from mavedb.worker.jobs import (
     variant_mapper_manager,
     submit_score_set_mappings_to_ldh,
     link_clingen_variants,
+    submit_uniprot_mapping_jobs_for_score_set,
+    poll_uniprot_mapping_jobs_for_score_set,
 )
-
-
 from tests.helpers.constants import (
     TEST_ACC_SCORESET_VARIANT_MAPPING_SCAFFOLD,
     TEST_CLINGEN_SUBMISSION_RESPONSE,
@@ -60,6 +62,11 @@ from tests.helpers.constants import (
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
+    TEST_UNIPROT_JOB_SUBMISSION_RESPONSE,
+    TEST_UNIPROT_SWISS_PROT_TYPE,
+    TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE,
+    VALID_UNIPROT_ACCESSION,
+    VALID_CHR_ACCESSION,
     VALID_CLINGEN_CA_ID,
 )
 from tests.helpers.util.exceptions import awaitable_exception
@@ -158,7 +165,7 @@ async def setup_records_files_and_variants_with_mapping(
 
     assert result["success"]
     assert not result["retried"]
-    assert result["enqueued_job"] is None
+    assert not result["enqueued_jobs"]
     return session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
 
 
@@ -669,7 +676,7 @@ async def test_create_mapped_variants_for_scoreset(
     assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert result["success"]
     assert not result["retried"]
-    assert result["enqueued_job"] is not None
+    assert result["enqueued_jobs"]
     assert len(mapped_variants_for_score_set) == score_set.num_variants
     assert score_set.mapping_state == MappingState.complete
     assert score_set.mapping_errors is None
@@ -746,7 +753,7 @@ async def test_create_mapped_variants_for_scoreset_with_existing_mapped_variants
     assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert result["success"]
     assert not result["retried"]
-    assert result["enqueued_job"] is not None
+    assert result["enqueued_jobs"]
     assert len(mapped_variants_for_score_set) == score_set.num_variants + 1
     assert len(preexisting_variants) == 1
     assert len(new_variants) == score_set.num_variants
@@ -789,6 +796,7 @@ async def test_create_mapped_variants_for_scoreset_exception_in_mapping_setup_sc
     assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert not result["retried"]
+    assert not result["enqueued_jobs"]
     assert len(mapped_variants_for_score_set) == 0
     # When we cannot fetch a score set, these fields are unable to be updated.
     assert score_set.mapping_state == MappingState.queued
@@ -827,6 +835,7 @@ async def test_create_mapped_variants_for_scoreset_exception_in_mapping_setup_vr
     assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert not result["retried"]
+    assert not result["enqueued_jobs"]
     assert len(mapped_variants_for_score_set) == 0
     assert score_set.mapping_state == MappingState.failed
     assert score_set.mapping_errors is not None
@@ -867,6 +876,7 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception(
     assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert result["retried"]
+    assert result["enqueued_jobs"]
     assert len(mapped_variants_for_score_set) == 0
     assert score_set.mapping_state == MappingState.queued
     assert score_set.mapping_errors is not None
@@ -909,6 +919,7 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception_retry_limit
     assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert not result["retried"]
+    assert not result["enqueued_jobs"]
     assert len(mapped_variants_for_score_set) == 0
     assert score_set.mapping_state == MappingState.failed
     assert score_set.mapping_errors is not None
@@ -952,6 +963,7 @@ async def test_create_mapped_variants_for_scoreset_mapping_exception_retry_faile
     assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert not result["retried"]
+    assert not result["enqueued_jobs"]
     assert len(mapped_variants_for_score_set) == 0
     # Behavior for exception in mapping is retried job
     assert score_set.mapping_state == MappingState.failed
@@ -998,6 +1010,7 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_with_retry(
     assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert result["retried"]
+    assert result["enqueued_jobs"]
     assert len(mapped_variants_for_score_set) == 0
     assert score_set.mapping_state == MappingState.queued
     assert score_set.mapping_errors is not None
@@ -1046,6 +1059,7 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_retry_faile
     assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert not result["retried"]
+    assert not result["enqueued_jobs"]
     assert len(mapped_variants_for_score_set) == 0
     # Behavior for exception outside mapping is failed job
     assert score_set.mapping_state == MappingState.failed
@@ -1094,6 +1108,7 @@ async def test_create_mapped_variants_for_scoreset_parsing_exception_retry_limit
     assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert not result["success"]
     assert not result["retried"]
+    assert not result["enqueued_jobs"]
     assert len(mapped_variants_for_score_set) == 0
     # Behavior for exception outside mapping is failed job
     assert score_set.mapping_state == MappingState.failed
@@ -1142,7 +1157,7 @@ async def test_create_mapped_variants_for_scoreset_no_mapping_output(
     assert (await standalone_worker_context["redis"].get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
     assert result["success"]
     assert not result["retried"]
-    assert result["enqueued_job"] is not None
+    assert result["enqueued_jobs"]
     assert len(mapped_variants_for_score_set) == 0
     assert score_set.mapping_state == MappingState.failed
 
@@ -1497,15 +1512,21 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping(
             side_effect=[dummy_mapping_job(), dummy_submission_job(), dummy_linking_job()],
         ),
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
+        patch.object(UniProtIDMappingAPI, "submit_id_mapping", return_value=TEST_UNIPROT_JOB_SUBMISSION_RESPONSE),
+        patch.object(UniProtIDMappingAPI, "check_id_mapping_results_ready", return_value=True),
+        patch.object(
+            UniProtIDMappingAPI, "get_id_mapping_results", return_value=TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE
+        ),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
+        patch("mavedb.worker.jobs.UNIPROT_ID_MAPPING_ENABLED", True),
         patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", True),
     ):
         await arq_worker.async_run()
         num_completed_jobs = await arq_worker.run_check()
 
     # We should have completed all jobs exactly once.
-    assert num_completed_jobs == 5
+    assert num_completed_jobs == 7
 
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
@@ -1519,7 +1540,7 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping(
 
 
 @pytest.mark.asyncio
-async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping_linking_disabled(
+async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping_linking_disabled_uniprot_disabled(
     setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
 ):
     score_set = await setup_records_files_and_variants(
@@ -1545,13 +1566,124 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping_
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
+        patch("mavedb.worker.jobs.UNIPROT_ID_MAPPING_ENABLED", False),
         patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", False),
     ):
         await arq_worker.async_run()
         num_completed_jobs = await arq_worker.run_check()
 
-    # We should have completed the manager and mapping jobs, but not the submission or linking jobs.
+    # We should have completed the manager and mapping jobs, but not the submission, linking, or uniprot mapping jobs.
     assert num_completed_jobs == 2
+
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
+    mapped_variants_for_score_set = session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
+    ).all()
+    assert (await arq_redis.llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await arq_redis.get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
+    assert len(mapped_variants_for_score_set) == score_set.num_variants
+    assert score_set.mapping_state == MappingState.complete
+    assert score_set.mapping_errors is None
+
+
+@pytest.mark.asyncio
+async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping_linking_disabled_uniprot_enabled(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    async def dummy_mapping_job():
+        return await setup_mapping_output(async_client, session, score_set)
+
+    # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
+    # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
+    # object that sets up test mappingn output.
+    with (
+        patch.object(
+            _UnixSelectorEventLoop,
+            "run_in_executor",
+            side_effect=[dummy_mapping_job()],
+        ),
+        patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
+        patch.object(UniProtIDMappingAPI, "submit_id_mapping", return_value=TEST_UNIPROT_JOB_SUBMISSION_RESPONSE),
+        patch.object(UniProtIDMappingAPI, "check_id_mapping_results_ready", return_value=True),
+        patch.object(
+            UniProtIDMappingAPI, "get_id_mapping_results", return_value=TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE
+        ),
+        patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
+        patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
+        patch("mavedb.worker.jobs.UNIPROT_ID_MAPPING_ENABLED", True),
+        patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", False),
+    ):
+        await arq_worker.async_run()
+        num_completed_jobs = await arq_worker.run_check()
+
+    # We should have completed the manager, mapping, and uniprot jobs, but not the submission or linking jobs.
+    assert num_completed_jobs == 4
+
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
+    mapped_variants_for_score_set = session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set.urn)
+    ).all()
+    assert (await arq_redis.llen(MAPPING_QUEUE_NAME)) == 0
+    assert (await arq_redis.get(MAPPING_CURRENT_ID_NAME)).decode("utf-8") == ""
+    assert len(mapped_variants_for_score_set) == score_set.num_variants
+    assert score_set.mapping_state == MappingState.complete
+    assert score_set.mapping_errors is None
+
+
+@pytest.mark.asyncio
+async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping_linking_enabled_uniprot_disabled(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    async def dummy_mapping_job():
+        return await setup_mapping_output(async_client, session, score_set)
+
+    async def dummy_submission_job():
+        return [TEST_CLINGEN_SUBMISSION_RESPONSE, None]
+
+    async def dummy_linking_job():
+        return [
+            (variant_urn, TEST_CLINGEN_LDH_LINKING_RESPONSE)
+            for variant_urn in session.scalars(
+                select(Variant.urn).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
+            ).all()
+        ]
+
+    # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
+    # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
+    # object that sets up test mappingn output.
+    with (
+        patch.object(
+            _UnixSelectorEventLoop,
+            "run_in_executor",
+            side_effect=[dummy_mapping_job(), dummy_submission_job(), dummy_linking_job()],
+        ),
+        patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
+        patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
+        patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
+        patch("mavedb.worker.jobs.UNIPROT_ID_MAPPING_ENABLED", False),
+        patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", True),
+    ):
+        await arq_worker.async_run()
+        num_completed_jobs = await arq_worker.run_check()
+
+    # We should have completed the manager, mapping, and linking jobs, but not the submission or uniprot jobs.
+    assert num_completed_jobs == 5
 
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
@@ -1605,6 +1737,7 @@ async def test_mapping_manager_enqueues_mapping_process_with_retried_mapping_suc
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
+        patch("mavedb.worker.jobs.UNIPROT_ID_MAPPING_ENABLED", False),
         patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", True),
     ):
         await arq_worker.async_run()
@@ -2315,6 +2448,543 @@ async def test_link_score_set_mappings_to_ldh_objects_error_in_gnomad_job_enqueu
     assert not result["success"]
     assert not result["retried"]
     assert not result["enqueued_job"]
+
+
+##################################################################################################################################################
+# UniProt ID mapping
+##################################################################################################################################################
+
+### Test Submission
+
+
+@pytest.mark.asyncio
+async def test_submit_uniprot_id_mapping_success(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with patch.object(UniProtIDMappingAPI, "submit_id_mapping", return_value=TEST_UNIPROT_JOB_SUBMISSION_RESPONSE):
+        result = await submit_uniprot_mapping_jobs_for_score_set(standalone_worker_context, score_set.id, uuid4().hex)
+
+    assert result["success"]
+    assert not result["retried"]
+    assert result["enqueued_jobs"] is not None
+
+
+@pytest.mark.asyncio
+async def test_submit_uniprot_id_mapping_no_targets(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    score_set.target_genes = []
+    session.add(score_set)
+    session.commit()
+
+    with patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message:
+        result = await submit_uniprot_mapping_jobs_for_score_set(standalone_worker_context, score_set.id, uuid4().hex)
+        mock_slack_message.assert_called_once()
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+
+@pytest.mark.asyncio
+async def test_submit_uniprot_id_mapping_exception_while_spawning_jobs(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch.object(UniProtIDMappingAPI, "submit_id_mapping", side_effect=HTTPError()),
+        patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
+    ):
+        result = await submit_uniprot_mapping_jobs_for_score_set(standalone_worker_context, score_set.id, uuid4().hex)
+        mock_slack_message.assert_called()
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+
+@pytest.mark.asyncio
+async def test_submit_uniprot_id_mapping_too_many_accessions(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch("mavedb.worker.jobs.extract_ids_from_post_mapped_metadata", return_value=["AC1", "AC2"]),
+        patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
+    ):
+        result = await submit_uniprot_mapping_jobs_for_score_set(standalone_worker_context, score_set.id, uuid4().hex)
+        mock_slack_message.assert_called()
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+
+@pytest.mark.asyncio
+async def test_submit_uniprot_id_mapping_no_accessions(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message:
+        result = await submit_uniprot_mapping_jobs_for_score_set(standalone_worker_context, score_set.id, uuid4().hex)
+        mock_slack_message.assert_called()
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+
+@pytest.mark.asyncio
+async def test_submit_uniprot_id_mapping_error_in_setup(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch("mavedb.worker.jobs.setup_job_state", side_effect=Exception()),
+        patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
+    ):
+        result = await submit_uniprot_mapping_jobs_for_score_set(standalone_worker_context, score_set.id, uuid4().hex)
+        mock_slack_message.assert_called()
+
+    assert not result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+
+@pytest.mark.asyncio
+async def test_submit_uniprot_id_mapping_exception_during_submission_generation(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch("mavedb.worker.jobs.extract_ids_from_post_mapped_metadata", side_effect=Exception()),
+        patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
+    ):
+        result = await submit_uniprot_mapping_jobs_for_score_set(standalone_worker_context, score_set.id, uuid4().hex)
+        mock_slack_message.assert_called()
+
+    assert not result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+
+@pytest.mark.asyncio
+async def test_submit_uniprot_id_mapping_no_spawned_jobs(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch.object(UniProtIDMappingAPI, "submit_id_mapping", return_value=None),
+        patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
+    ):
+        result = await submit_uniprot_mapping_jobs_for_score_set(standalone_worker_context, score_set.id, uuid4().hex)
+        mock_slack_message.assert_called()
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+
+@pytest.mark.asyncio
+async def test_submit_uniprot_id_mapping_exception_during_enqueue(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch.object(UniProtIDMappingAPI, "submit_id_mapping", return_value=TEST_UNIPROT_JOB_SUBMISSION_RESPONSE),
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception()),
+        patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
+    ):
+        result = await submit_uniprot_mapping_jobs_for_score_set(standalone_worker_context, score_set.id, uuid4().hex)
+        mock_slack_message.assert_called()
+
+    assert not result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+
+### Test Polling
+
+
+@pytest.mark.asyncio
+async def test_poll_uniprot_id_mapping_success(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch.object(UniProtIDMappingAPI, "check_id_mapping_results_ready", return_value=True),
+        patch.object(
+            UniProtIDMappingAPI, "get_id_mapping_results", return_value=TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE
+        ),
+    ):
+        result = await poll_uniprot_mapping_jobs_for_score_set(
+            standalone_worker_context,
+            {tg.id: f"job_{idx}" for idx, tg in enumerate(score_set.target_genes)},
+            score_set.id,
+            uuid4().hex,
+        )
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
+    for target_gene in score_set.target_genes:
+        assert target_gene.uniprot_id_from_mapped_metadata == VALID_UNIPROT_ACCESSION
+
+
+@pytest.mark.asyncio
+async def test_poll_uniprot_id_mapping_no_targets(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    score_set.target_genes = []
+    session.add(score_set)
+    session.commit()
+
+    with patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message:
+        result = await poll_uniprot_mapping_jobs_for_score_set(
+            standalone_worker_context,
+            {tg.id: f"job_{idx}" for idx, tg in enumerate(score_set.target_genes)},
+            score_set.id,
+            uuid4().hex,
+        )
+        mock_slack_message.assert_called_once()
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
+    for target_gene in score_set.target_genes:
+        assert target_gene.uniprot_id_from_mapped_metadata is None
+
+
+@pytest.mark.asyncio
+async def test_poll_uniprot_id_mapping_too_many_accessions(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch("mavedb.worker.jobs.extract_ids_from_post_mapped_metadata", return_value=["AC1", "AC2"]),
+        patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
+    ):
+        result = await poll_uniprot_mapping_jobs_for_score_set(
+            standalone_worker_context,
+            {tg.id: f"job_{idx}" for idx, tg in enumerate(score_set.target_genes)},
+            score_set.id,
+            uuid4().hex,
+        )
+        mock_slack_message.assert_called()
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+
+@pytest.mark.asyncio
+async def test_poll_uniprot_id_mapping_no_accessions(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch("mavedb.worker.jobs.extract_ids_from_post_mapped_metadata", return_value=[]),
+        patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
+    ):
+        result = await poll_uniprot_mapping_jobs_for_score_set(
+            standalone_worker_context,
+            {tg.id: f"job_{idx}" for idx, tg in enumerate(score_set.target_genes)},
+            score_set.id,
+            uuid4().hex,
+        )
+        mock_slack_message.assert_called()
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+
+@pytest.mark.asyncio
+async def test_poll_uniprot_id_mapping_jobs_not_ready(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch.object(UniProtIDMappingAPI, "check_id_mapping_results_ready", return_value=False),
+        patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
+    ):
+        result = await poll_uniprot_mapping_jobs_for_score_set(
+            standalone_worker_context,
+            {tg.id: f"job_{idx}" for idx, tg in enumerate(score_set.target_genes)},
+            score_set.id,
+            uuid4().hex,
+        )
+        mock_slack_message.assert_called()
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
+    for target_gene in score_set.target_genes:
+        assert target_gene.uniprot_id_from_mapped_metadata is None
+
+
+@pytest.mark.asyncio
+async def test_poll_uniprot_id_mapping_no_jobs(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    # This case does not get sent to slack
+    result = await poll_uniprot_mapping_jobs_for_score_set(
+        standalone_worker_context,
+        {},
+        score_set.id,
+        uuid4().hex,
+    )
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
+    for target_gene in score_set.target_genes:
+        assert target_gene.uniprot_id_from_mapped_metadata is None
+
+
+@pytest.mark.asyncio
+async def test_poll_uniprot_id_mapping_no_ids_mapped(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch.object(UniProtIDMappingAPI, "check_id_mapping_results_ready", return_value=True),
+        patch.object(UniProtIDMappingAPI, "get_id_mapping_results", return_value={"failedIDs": [VALID_CHR_ACCESSION]}),
+        patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
+    ):
+        result = await poll_uniprot_mapping_jobs_for_score_set(
+            standalone_worker_context,
+            {tg.id: f"job_{idx}" for idx, tg in enumerate(score_set.target_genes)},
+            score_set.id,
+            uuid4().hex,
+        )
+        mock_slack_message.assert_called()
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
+    for target_gene in score_set.target_genes:
+        assert target_gene.uniprot_id_from_mapped_metadata is None
+
+
+@pytest.mark.asyncio
+async def test_poll_uniprot_id_mapping_too_many_mapped_accessions(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    # Simulate a response with too many mapped IDs
+    too_many_mapped_ids_response = TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE.copy()
+    too_many_mapped_ids_response["results"].append(
+        {"from": "AC3", "to": {"primaryAccession": "AC3", "entryType": TEST_UNIPROT_SWISS_PROT_TYPE}}
+    )
+
+    with (
+        patch.object(UniProtIDMappingAPI, "check_id_mapping_results_ready", return_value=True),
+        patch.object(UniProtIDMappingAPI, "get_id_mapping_results", return_value=too_many_mapped_ids_response),
+        patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
+    ):
+        result = await poll_uniprot_mapping_jobs_for_score_set(
+            standalone_worker_context,
+            {tg.id: f"job_{idx}" for idx, tg in enumerate(score_set.target_genes)},
+            score_set.id,
+            uuid4().hex,
+        )
+        mock_slack_message.assert_called()
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+
+@pytest.mark.asyncio
+async def test_poll_uniprot_id_mapping_error_in_setup(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch("mavedb.worker.jobs.setup_job_state", side_effect=Exception()),
+        patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
+    ):
+        result = await poll_uniprot_mapping_jobs_for_score_set(
+            standalone_worker_context,
+            {tg.id: f"job_{idx}" for idx, tg in enumerate(score_set.target_genes)},
+            score_set.id,
+            uuid4().hex,
+        )
+        mock_slack_message.assert_called_once()
+
+    assert not result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
+
+
+@pytest.mark.asyncio
+async def test_poll_uniprot_id_mapping_exception_during_polling(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch.object(UniProtIDMappingAPI, "check_id_mapping_results_ready", side_effect=Exception()),
+        patch("mavedb.worker.jobs.log_and_send_slack_message", return_value=None) as mock_slack_message,
+    ):
+        result = await poll_uniprot_mapping_jobs_for_score_set(
+            standalone_worker_context,
+            {tg.id: f"job_{idx}" for idx, tg in enumerate(score_set.target_genes)},
+            score_set.id,
+            uuid4().hex,
+        )
+        mock_slack_message.assert_called_once()
+
+    assert not result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_jobs"]
 
 
 ##################################################################################################################################################
