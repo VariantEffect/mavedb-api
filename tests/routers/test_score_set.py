@@ -36,25 +36,23 @@ from tests.helpers.constants import (
     TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
     TEST_PUBMED_IDENTIFIER,
     TEST_ORCID_ID,
-    TEST_SAVED_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE,
-    TEST_SCORE_SET_RANGE,
-    TEST_SAVED_SCORE_SET_RANGE,
     TEST_MINIMAL_ACC_SCORESET_RESPONSE,
-    TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE,
     TEST_USER,
     TEST_INACTIVE_LICENSE,
     SAVED_DOI_IDENTIFIER,
     SAVED_EXTRA_CONTRIBUTOR,
     SAVED_PUBMED_PUBLICATION,
     SAVED_SHORT_EXTRA_LICENSE,
-    TEST_SCORE_CALIBRATION,
-    TEST_SAVED_SCORE_CALIBRATION,
     TEST_SAVED_CLINVAR_CONTROL,
     TEST_SAVED_GENERIC_CLINICAL_CONTROL,
+    TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+    TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+    TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+    TEST_SAVED_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+    TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     TEST_GNOMAD_DATA_VERSION,
     TEST_SAVED_GNOMAD_VARIANT,
-    TEST_SCORE_SET_RANGE_WITH_ODDS_PATH,
-    TEST_SAVED_SCORE_SET_RANGE_WITH_ODDS_PATH,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.common import update_expected_response_for_created_resources
@@ -157,15 +155,28 @@ def test_create_score_set_with_contributor(client, setup_router_db):
 @pytest.mark.parametrize(
     "score_ranges,saved_score_ranges",
     [
-        (TEST_SCORE_SET_RANGE, TEST_SAVED_SCORE_SET_RANGE),
-        (TEST_SCORE_SET_RANGE_WITH_ODDS_PATH, TEST_SAVED_SCORE_SET_RANGE_WITH_ODDS_PATH),
+        (TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED, TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
+        (TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT, TEST_SAVED_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        (TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT, TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
     ],
 )
-def test_create_score_set_with_score_range(client, setup_router_db, score_ranges, saved_score_ranges):
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_create_score_set_with_score_range(
+    client, mock_publication_fetch, setup_router_db, score_ranges, saved_score_ranges
+):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set["experimentUrn"] = experiment["urn"]
-    score_set.update({"score_ranges": score_ranges})
+    score_set.update(
+        {
+            "score_ranges": score_ranges,
+            "secondary_publication_identifiers": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+        }
+    )
 
     response = client.post("/api/v1/score-sets/", json=score_set)
     assert response.status_code == 200
@@ -179,6 +190,7 @@ def test_create_score_set_with_score_range(client, setup_router_db, score_ranges
     )
     expected_response["experiment"].update({"numScoreSets": 1})
     expected_response["scoreRanges"] = saved_score_ranges
+    expected_response["secondaryPublicationIdentifiers"] = [SAVED_PUBMED_PUBLICATION]
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -188,66 +200,62 @@ def test_create_score_set_with_score_range(client, setup_router_db, score_ranges
     assert response.status_code == 200
 
 
-@pytest.mark.parametrize("publication_list", ["primary_publication_identifiers", "secondary_publication_identifiers"])
+@pytest.mark.parametrize(
+    "score_ranges",
+    [
+        TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+        TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+        TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    ],
+)
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
     indirect=["mock_publication_fetch"],
 )
-def test_create_score_set_with_score_range_and_odds_path_source(
-    client, setup_router_db, publication_list, mock_publication_fetch
+def test_cannot_create_score_set_with_score_range_and_source_when_publication_not_in_publications(
+    client, setup_router_db, score_ranges, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set["experimentUrn"] = experiment["urn"]
-    score_set[publication_list] = TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE["odds_path_source"]
-    score_set.update({"score_ranges": TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE})
-
-    response = client.post("/api/v1/score-sets/", json=score_set)
-    assert response.status_code == 200
-    response_data = response.json()
-
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
-    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
-
-    expected_response = update_expected_response_for_created_resources(
-        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
-    )
-    expected_response[camelize(publication_list)] = [SAVED_PUBMED_PUBLICATION]
-    expected_response["experiment"].update({"numScoreSets": 1})
-    expected_response["scoreRanges"] = TEST_SAVED_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE
-
-    assert sorted(expected_response.keys()) == sorted(response_data.keys())
-    for key in expected_response:
-        assert (key, expected_response[key]) == (key, response_data[key])
-
-    response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
-    assert response.status_code == 200
-
-
-def test_cannot_create_score_set_with_score_range_and_odds_path_source_when_publication_not_in_publications(
-    client, setup_router_db
-):
-    experiment = create_experiment(client)
-    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
-    score_set["experimentUrn"] = experiment["urn"]
-    score_set.update({"score_ranges": TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE})
+    score_set.update({"score_ranges": score_ranges})
 
     response = client.post("/api/v1/score-sets/", json=score_set)
     assert response.status_code == 422
 
     response_data = response.json()
     assert (
-        "Odds path source publication identifier at index 0 is not defined in score set publications."
+        "Score range source publication at index 0 is not defined in score set publications."
         in response_data["detail"][0]["msg"]
     )
 
 
-def test_remove_score_range_from_score_set(client, setup_router_db):
+@pytest.mark.parametrize(
+    "score_ranges,saved_score_ranges",
+    [
+        (TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED, TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
+        (TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT, TEST_SAVED_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        (TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT, TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
+    ],
+)
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_remove_score_range_from_score_set(
+    client, setup_router_db, score_ranges, saved_score_ranges, mock_publication_fetch
+):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set["experimentUrn"] = experiment["urn"]
-    score_set.update({"score_ranges": TEST_SCORE_SET_RANGE})
+    score_set.update(
+        {
+            "score_ranges": score_ranges,
+            "secondary_publication_identifiers": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+        }
+    )
 
     response = client.post("/api/v1/score-sets/", json=score_set)
     assert response.status_code == 200
@@ -260,7 +268,8 @@ def test_remove_score_range_from_score_set(client, setup_router_db):
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
     expected_response["experiment"].update({"numScoreSets": 1})
-    expected_response["scoreRanges"] = TEST_SAVED_SCORE_SET_RANGE
+    expected_response["scoreRanges"] = saved_score_ranges
+    expected_response["secondaryPublicationIdentifiers"] = [SAVED_PUBMED_PUBLICATION]
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -319,7 +328,7 @@ def test_cannot_create_score_set_with_invalid_target_gene_category(client, setup
         ("doi_identifiers", [{"identifier": TEST_CROSSREF_IDENTIFIER}], [SAVED_DOI_IDENTIFIER]),
         ("license_id", EXTRA_LICENSE["id"], SAVED_SHORT_EXTRA_LICENSE),
         ("target_genes", TEST_MINIMAL_ACC_SCORESET["targetGenes"], TEST_MINIMAL_ACC_SCORESET_RESPONSE["targetGenes"]),
-        ("score_ranges", TEST_SCORE_SET_RANGE, TEST_SAVED_SCORE_SET_RANGE),
+        ("score_ranges", TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT, TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
     ],
 )
 @pytest.mark.parametrize(
@@ -347,6 +356,13 @@ def test_can_update_score_set_data_before_publication(
 
     score_set_update_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_update_payload.update({camelize(attribute): updated_data})
+
+    # The score ranges attribute requires a publication identifier source
+    if attribute == "score_ranges":
+        score_set_update_payload.update(
+            {"secondaryPublicationIdentifiers": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}]}
+        )
+
     response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_update_payload)
     assert response.status_code == 200
 
@@ -448,13 +464,26 @@ def test_can_update_score_set_supporting_data_after_publication(
         ("target_genes", TEST_MINIMAL_ACC_SCORESET["targetGenes"], TEST_MINIMAL_SEQ_SCORESET_RESPONSE["targetGenes"]),
         (
             "score_ranges",
-            TEST_SCORE_SET_RANGE,
+            TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
             None,
         ),
     ],
 )
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
 def test_cannot_update_score_set_target_data_after_publication(
-    client, setup_router_db, attribute, expected_response_data, updated_data, session, data_provider, data_files
+    client,
+    setup_router_db,
+    attribute,
+    expected_response_data,
+    updated_data,
+    session,
+    data_provider,
+    data_files,
+    mock_publication_fetch,
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -490,7 +519,12 @@ def test_cannot_update_score_set_target_data_after_publication(
         assert (key, expected_response[key]) == (key, response_data[key])
 
     score_set_update_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
-    score_set_update_payload.update({camelize(attribute): updated_data})
+    score_set_update_payload.update(
+        {
+            camelize(attribute): updated_data,
+            "secondaryPublicationIdentifiers": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+        }
+    )
     response = client.put(f"/api/v1/score-sets/{published_urn}", json=score_set_update_payload)
     assert response.status_code == 200
 
@@ -2254,54 +2288,76 @@ def test_show_correct_score_set_version_with_superseded_score_set_to_its_owner(
 
 
 ########################################################################################################################
-# Score Calibrations
+# Score Ranges
 ########################################################################################################################
 
 
-def test_anonymous_user_cannot_add_score_calibrations_to_score_set(client, setup_router_db, anonymous_app_overrides):
+@pytest.mark.parametrize(
+    "score_ranges",
+    [
+        TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+        TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+        TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    ],
+)
+def test_anonymous_user_cannot_add_score_ranges_to_score_set(
+    client, setup_router_db, anonymous_app_overrides, score_ranges
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
-    calibration_payload = deepcopy(TEST_SCORE_CALIBRATION)
+    range_payload = deepcopy(score_ranges)
 
     with DependencyOverrider(anonymous_app_overrides):
-        response = client.post(
-            f"/api/v1/score-sets/{score_set['urn']}/calibration/data", json={"test_calibrations": calibration_payload}
-        )
+        response = client.post(f"/api/v1/score-sets/{score_set['urn']}/ranges/data", json=range_payload)
         response_data = response.json()
 
     assert response.status_code == 401
     assert "score_calibrations" not in response_data
 
 
-def test_user_cannot_add_score_calibrations_to_own_score_set(client, setup_router_db, anonymous_app_overrides):
+@pytest.mark.parametrize(
+    "score_ranges",
+    [
+        TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+        TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+        TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    ],
+)
+def test_user_cannot_add_score_ranges_to_own_score_set(client, setup_router_db, anonymous_app_overrides, score_ranges):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
-    calibration_payload = deepcopy(TEST_SCORE_CALIBRATION)
+    range_payload = deepcopy(score_ranges)
 
-    response = client.post(
-        f"/api/v1/score-sets/{score_set['urn']}/calibration/data", json={"test_calibrations": calibration_payload}
-    )
+    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/ranges/data", json=range_payload)
     response_data = response.json()
 
     assert response.status_code == 401
     assert "score_calibrations" not in response_data
 
 
-def test_admin_can_add_score_calibrations_to_score_set(client, setup_router_db, admin_app_overrides):
+@pytest.mark.parametrize(
+    "score_ranges,saved_score_ranges",
+    [
+        (TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED, TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
+        (TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT, TEST_SAVED_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        (TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT, TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
+    ],
+)
+def test_admin_can_add_score_ranges_to_score_set(
+    client, setup_router_db, admin_app_overrides, score_ranges, saved_score_ranges
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
-    calibration_payload = deepcopy(TEST_SCORE_CALIBRATION)
+    range_payload = deepcopy(score_ranges)
 
     with DependencyOverrider(admin_app_overrides):
-        response = client.post(
-            f"/api/v1/score-sets/{score_set['urn']}/calibration/data", json={"test_calibrations": calibration_payload}
-        )
+        response = client.post(f"/api/v1/score-sets/{score_set['urn']}/ranges/data", json=range_payload)
         response_data = response.json()
 
     expected_response = update_expected_response_for_created_resources(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
     )
-    expected_response["scoreCalibrations"] = {"test_calibrations": deepcopy(TEST_SAVED_SCORE_CALIBRATION)}
+    expected_response["scoreRanges"] = deepcopy(saved_score_ranges)
     expected_response["experiment"].update({"numScoreSets": 1})
 
     assert response.status_code == 200
@@ -2314,12 +2370,12 @@ def test_score_set_not_found_for_non_existent_score_set_when_adding_score_calibr
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
-    calibration_payload = deepcopy(TEST_SCORE_CALIBRATION)
+    range_payload = deepcopy(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)
 
     with DependencyOverrider(admin_app_overrides):
         response = client.post(
-            f"/api/v1/score-sets/{score_set['urn']+'xxx'}/calibration/data",
-            json={"test_calibrations": calibration_payload},
+            f"/api/v1/score-sets/{score_set['urn']+'xxx'}/ranges/data",
+            json=range_payload,
         )
         response_data = response.json()
 

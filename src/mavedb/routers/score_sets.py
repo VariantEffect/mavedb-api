@@ -16,10 +16,10 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import (
+    RoleRequirer,
     get_current_user,
     require_current_user,
     require_current_user_with_email,
-    RoleRequirer,
 )
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError, ValidationError
@@ -66,7 +66,7 @@ from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
-from mavedb.view_models import mapped_variant, score_set, calibration, clinical_control, gnomad_variant
+from mavedb.view_models import mapped_variant, score_set, clinical_control, score_range, gnomad_variant
 from mavedb.view_models.search import ScoreSetsSearch
 
 logger = logging.getLogger(__name__)
@@ -827,34 +827,32 @@ async def upload_score_set_variant_data(
 
 
 @router.post(
-    "/score-sets/{urn}/calibration/data",
+    "/score-sets/{urn}/ranges/data",
     response_model=score_set.ScoreSet,
     responses={422: {}},
     response_model_exclude_none=True,
 )
-async def update_score_set_calibration_data(
+async def update_score_set_range_data(
     *,
     urn: str,
-    calibration_update: dict[str, calibration.Calibration],
+    range_update: score_range.ScoreSetRangesModify,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(RoleRequirer([UserRole.admin])),
 ):
     """
-    Update thresholds / score calibrations for a score set.
+    Update score ranges / calibrations for a score set.
     """
-    save_to_logging_context({"requested_resource": urn, "resource_property": "score_thresholds"})
+    save_to_logging_context({"requested_resource": urn, "resource_property": "score_ranges"})
 
     try:
         item = db.scalars(select(ScoreSet).where(ScoreSet.urn == urn)).one()
     except NoResultFound:
-        logger.info(
-            msg="Failed to add score thresholds; The requested score set does not exist.", extra=logging_context()
-        )
+        logger.info(msg="Failed to add score ranges; The requested score set does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user_data, item, Action.UPDATE)
 
-    item.score_calibrations = {k: v.dict() for k, v in calibration_update.items()}
+    item.score_ranges = range_update.dict()
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -1244,11 +1242,7 @@ async def publish_score_set(
     db.refresh(item)
 
     # await the insertion of this job into the worker queue, not the job itself.
-    job = await worker.enqueue_job(
-        "refresh_published_variants_view",
-        correlation_id_for_context(),
-        user_data.user.id,
-    )
+    job = await worker.enqueue_job("refresh_published_variants_view", correlation_id_for_context())
     if job is not None:
         save_to_logging_context({"worker_job_id": job.job_id})
         logger.info(msg="Enqueud published variant materialized view refresh job.", extra=logging_context())
