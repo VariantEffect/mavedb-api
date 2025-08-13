@@ -19,6 +19,9 @@ from tests.helpers.constants import (
     EXTRA_USER,
     TEST_LICENSE,
     TEST_INACTIVE_LICENSE,
+    TEST_MAVEDB_ATHENA_ROW,
+    TEST_MINIMAL_MAPPED_VARIANT,
+    TEST_MINIMAL_VARIANT,
     TEST_TAXONOMY,
     TEST_USER,
     VALID_VARIANT_URN,
@@ -29,6 +32,9 @@ from tests.helpers.constants import (
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    TEST_SEQ_SCORESET,
+    TEST_EXPERIMENT,
+    TEST_EXPERIMENT_SET,
 )
 
 
@@ -46,6 +52,67 @@ def setup_lib_db(session):
     db.add(License(**TEST_LICENSE))
     db.add(License(**TEST_INACTIVE_LICENSE))
     db.commit()
+
+
+@pytest.fixture
+def setup_lib_db_with_score_set(session, setup_lib_db):
+    """
+    Sets up the lib test db with a user, reference, license, and a score set.
+    """
+
+    experiment_set = ExperimentSet(**TEST_EXPERIMENT_SET, urn=VALID_EXPERIMENT_SET_URN)
+    session.add(experiment_set)
+    session.commit()
+    session.refresh(experiment_set)
+
+    experiment = Experiment(**TEST_EXPERIMENT, urn=VALID_EXPERIMENT_URN, experiment_set_id=experiment_set.id)
+    session.add(experiment)
+    session.commit()
+    session.refresh(experiment)
+
+    score_set_scaffold = TEST_SEQ_SCORESET.copy()
+    score_set_scaffold.pop("target_genes")
+    score_set = ScoreSet(
+        **score_set_scaffold, urn=VALID_SCORE_SET_URN, experiment_id=experiment.id, licence_id=TEST_LICENSE["id"]
+    )
+
+    session.add(score_set)
+    session.commit()
+    session.refresh(score_set)
+
+    return score_set
+
+
+@pytest.fixture
+def setup_lib_db_with_variant(session, setup_lib_db_with_score_set):
+    """
+    Sets up the lib test db with a user, reference, license, and a score set.
+    """
+
+    variant = Variant(
+        **TEST_MINIMAL_VARIANT, urn=f"{setup_lib_db_with_score_set.urn}#1", score_set_id=setup_lib_db_with_score_set.id
+    )
+
+    session.add(variant)
+    session.commit()
+    session.refresh(variant)
+
+    return variant
+
+
+@pytest.fixture
+def setup_lib_db_with_mapped_variant(session, setup_lib_db_with_variant):
+    """
+    Sets up the lib test db with a user, reference, license, and a score set.
+    """
+
+    mapped_variant = MappedVariant(**TEST_MINIMAL_MAPPED_VARIANT, variant_id=setup_lib_db_with_variant.id)
+
+    session.add(mapped_variant)
+    session.commit()
+    session.refresh(mapped_variant)
+
+    return mapped_variant
 
 
 @pytest.fixture
@@ -129,3 +196,13 @@ def mock_mapped_variant(mock_variant):
     mv.mapped_date = datetime(2023, 1, 2)
     mv.modification_date = datetime(2023, 1, 3)
     return mv
+
+
+@pytest.fixture
+def mocked_gnomad_variant_row():
+    gnomad_variant = mock.Mock()
+
+    for key, value in TEST_MAVEDB_ATHENA_ROW.items():
+        setattr(gnomad_variant, key, value)
+
+    return gnomad_variant

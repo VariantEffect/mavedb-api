@@ -35,7 +35,7 @@ class TargetSequenceModify(TargetSequenceBase):
     @validator("sequence")
     def validate_identifier(cls, field_value, values, field, config):
         # If sequence_type is invalid, values["sequence_type"] doesn't exist.
-        field_value = field_value.upper()
+        field_value = field_value.replace('\r', '').replace('\n', '').strip().upper()
         if "sequence_type" in values.keys():
             sequence_type = values["sequence_type"]
             # field_value is sequence

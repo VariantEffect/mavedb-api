@@ -51,6 +51,8 @@ from tests.helpers.constants import (
     TEST_SAVED_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
     TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    TEST_GNOMAD_DATA_VERSION,
+    TEST_SAVED_GNOMAD_VARIANT,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.common import update_expected_response_for_created_resources
@@ -61,6 +63,7 @@ from tests.helpers.util.score_set import (
     create_seq_score_set,
     create_seq_score_set_with_mapped_variants,
     link_clinical_controls_to_mapped_variants,
+    link_gnomad_variants_to_mapped_variants,
     publish_score_set,
 )
 from tests.helpers.util.user import change_ownership
@@ -2649,11 +2652,109 @@ def test_cannot_fetch_clinical_control_options_for_score_set_when_none_exist(
     session.commit()
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
-    print(response.json())
 
     assert response.status_code == 404
     response_data = response.json()
     assert (
         f"no clinical control variants associated with score set URN {score_set['urn']} were found"
+        in response_data["detail"]
+    )
+
+
+########################################################################################################################
+# Fetching gnomad variants for a score set
+########################################################################################################################
+
+
+def test_can_fetch_current_gnomad_variants_for_score_set(client, setup_router_db, session, data_provider, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_gnomad_variants_to_mapped_variants(session, score_set)
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/gnomad-variants")
+    assert response.status_code == 200
+
+    response_data = response.json()
+    assert len(response_data) == 1
+    for gnomad_variant in response_data:
+        mapped_variants = gnomad_variant.pop("mappedVariants")
+        assert len(mapped_variants) == 1
+        gnomad_variant_items = sorted(gnomad_variant.items())
+        assert gnomad_variant_items == sorted(TEST_SAVED_GNOMAD_VARIANT.items())
+
+
+def test_can_fetch_current_gnomad_variants_for_score_set_with_version(
+    client, setup_router_db, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_gnomad_variants_to_mapped_variants(session, score_set)
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/gnomad-variants?version={TEST_GNOMAD_DATA_VERSION}")
+    assert response.status_code == 200
+
+    response_data = response.json()
+    assert len(response_data) == 1
+    for gnomad_variant in response_data:
+        mapped_variants = gnomad_variant.pop("mappedVariants")
+        assert len(mapped_variants) == 1
+        gnomad_variant_items = sorted(gnomad_variant.items())
+        assert gnomad_variant_items == sorted(TEST_SAVED_GNOMAD_VARIANT.items())
+
+
+def test_cannot_fetch_current_gnomad_variants_for_score_set_with_nonexistent_version(
+    client, setup_router_db, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_gnomad_variants_to_mapped_variants(session, score_set)
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/gnomad-variants?version=nonexistent_version")
+    assert response.status_code == 404
+
+    response_data = response.json()
+    assert "detail" in response_data
+    assert (
+        response_data["detail"]
+        == f"No gnomad variants matching the provided filters associated with score set URN {score_set['urn']} were found"
+    )
+
+
+def test_cannot_fetch_gnomad_variants_for_nonexistent_score_set(
+    client, setup_router_db, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_gnomad_variants_to_mapped_variants(session, score_set)
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/gnomad-variants")
+
+    assert response.status_code == 404
+    response_data = response.json()
+    assert f"score set with URN '{score_set['urn']+'xxx'}' not found" in response_data["detail"]
+
+
+def test_cannot_fetch_gnomad_variants_for_score_set_when_none_exist(
+    client, setup_router_db, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/gnomad-variants")
+
+    assert response.status_code == 404
+    response_data = response.json()
+    assert (
+        f"No gnomad variants matching the provided filters associated with score set URN {score_set['urn']} were found"
         in response_data["detail"]
     )
