@@ -1262,6 +1262,8 @@ TEST_SCORE_SET_NORMAL_RANGE = {
     "label": "test1",
     "classification": "normal",
     "range": (0, 2.0),
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
 }
 
 
@@ -1270,6 +1272,8 @@ TEST_SAVED_SCORE_SET_NORMAL_RANGE = {
     "label": "test1",
     "classification": "normal",
     "range": [0.0, 2.0],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
 }
 
 
@@ -1277,6 +1281,8 @@ TEST_SCORE_SET_ABNORMAL_RANGE = {
     "label": "test2",
     "classification": "abnormal",
     "range": (-2.0, 0),
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
 }
 
 
@@ -1285,13 +1291,17 @@ TEST_SAVED_SCORE_SET_ABNORMAL_RANGE = {
     "label": "test2",
     "classification": "abnormal",
     "range": [-2.0, 0.0],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
 }
 
 
 TEST_SCORE_SET_NOT_SPECIFIED_RANGE = {
     "label": "test3",
     "classification": "not_specified",
-    "range": (None, -2.0),
+    "range": (-8.0, -2.0),
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
 }
 
 
@@ -1299,7 +1309,47 @@ TEST_SAVED_SCORE_SET_NOT_SPECIFIED_RANGE = {
     "recordType": "ScoreRange",
     "label": "test3",
     "classification": "not_specified",
-    "range": [None, -2.0],
+    "range": [-8.0, -2.0],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
+
+
+TEST_SCORE_SET_NEGATIVE_INFINITY_RANGE = {
+    "label": "test4",
+    "classification": "not_specified",
+    "range": (None, 0.0),
+    "inclusive_lower_bound": False,
+    "inclusive_upper_bound": False,
+}
+
+
+TEST_SAVED_SCORE_SET_NEGATIVE_INFINITY_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test4",
+    "classification": "not_specified",
+    "range": [None, 0.0],
+    "inclusiveLowerBound": False,
+    "inclusiveUpperBound": False,
+}
+
+
+TEST_SCORE_SET_POSITIVE_INFINITY_RANGE = {
+    "label": "test5",
+    "classification": "not_specified",
+    "range": [0.0, None],
+    "inclusive_lower_bound": False,
+    "inclusive_upper_bound": False,
+}
+
+
+TEST_SAVED_SCORE_SET_POSITIVE_INFINITY_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test5",
+    "classification": "not_specified",
+    "range": [0.0, None],
+    "inclusiveLowerBound": False,
+    "inclusiveUpperBound": False,
 }
 
 

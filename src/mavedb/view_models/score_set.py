@@ -181,7 +181,7 @@ class ScoreSetModify(ScoreSetBase):
                 else []
             )
 
-            if pub not in [*primary_publication_identifiers, *secondary_publication_identifiers]:
+            if source not in [*primary_publication_identifiers, *secondary_publication_identifiers]:
                 return False
 
             return True
