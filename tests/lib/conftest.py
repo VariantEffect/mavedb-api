@@ -202,6 +202,7 @@ def mock_mapped_variant(mock_variant):
     mv.post_mapped = TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X
     mv.mapped_date = datetime(2023, 1, 2)
     mv.modification_date = datetime(2023, 1, 3)
+    mv.clingen_allele_id = "CA123456"
     return mv
 
 

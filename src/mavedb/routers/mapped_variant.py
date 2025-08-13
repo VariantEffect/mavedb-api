@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Path
 from fastapi.exceptions import HTTPException
 from ga4gh.core.identifiers import GA4GH_IR_REGEXP
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
-from ga4gh.va_spec.acmg_2015 import VariantPathogenicityFunctionalImpactEvidenceLine
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from sqlalchemy import or_, select
 from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import Session
@@ -154,12 +154,12 @@ async def show_mapped_variant_functional_impact_statement(
 @router.get(
     "/{urn}/va/clinical-evidence",
     status_code=200,
-    response_model=VariantPathogenicityFunctionalImpactEvidenceLine,
+    response_model=VariantPathogenicityEvidenceLine,
     responses={404: {}, 500: {}},
 )
 async def show_mapped_variant_acmg_evidence_line(
     *, urn: str, db: Session = Depends(deps.get_db), user: Optional[UserData] = Depends(get_current_user)
-) -> VariantPathogenicityFunctionalImpactEvidenceLine:
+) -> VariantPathogenicityEvidenceLine:
     """
     Construct a list of VA-Spec EvidenceLine(s) from a mapped variant.
     """

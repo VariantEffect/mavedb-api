@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch
-from ga4gh.va_spec.base import Statement
+from ga4gh.va_spec.base.core import Statement, Direction
 
 from mavedb.lib.annotation.annotate import variant_study_result
 from mavedb.lib.annotation.classification import ExperimentalVariantFunctionalImpactClassification
@@ -9,10 +9,18 @@ from mavedb.lib.annotation.proposition import mapped_variant_to_experimental_var
 from mavedb.lib.annotation.statement import mapped_variant_to_functional_statement
 
 
-def test_mapped_variant_to_functional_statement(mock_mapped_variant):
+@pytest.mark.parametrize(
+    "classification, expected_direction",
+    [
+        (ExperimentalVariantFunctionalImpactClassification.NORMAL, Direction.DISPUTES),
+        (ExperimentalVariantFunctionalImpactClassification.ABNORMAL, Direction.SUPPORTS),
+        (ExperimentalVariantFunctionalImpactClassification.INDETERMINATE, Direction.NEUTRAL),
+    ],
+)
+def test_mapped_variant_to_functional_statement(mock_mapped_variant, classification, expected_direction):
     with patch(
         "mavedb.lib.annotation.statement.functional_classification_of_variant",
-        return_value=ExperimentalVariantFunctionalImpactClassification.NORMAL,
+        return_value=classification,
     ):
         proposition = mapped_variant_to_experimental_variant_functional_impact_proposition(mock_mapped_variant)
         evidence = functional_evidence_line(mock_mapped_variant, [variant_study_result(mock_mapped_variant)])
@@ -23,10 +31,8 @@ def test_mapped_variant_to_functional_statement(mock_mapped_variant):
     assert result.specifiedBy
     assert result.contributions
     assert result.proposition == proposition
-    assert result.direction == "supports"
-    assert (
-        result.classification.primaryCoding.code.root == ExperimentalVariantFunctionalImpactClassification.NORMAL.value
-    )
+    assert result.direction == expected_direction
+    assert result.classification.primaryCoding.code.root == classification.value
     assert result.classification.primaryCoding.system == "ga4gh-gks-term:experimental-var-func-impact-classification"
     assert result.hasEvidenceLines
     assert len(result.hasEvidenceLines) == 1

@@ -47,7 +47,7 @@ def test_variant_pathogenicity_evidence_no_score_ranges_with_thresholds(mock_map
     assert result is not None
     assert result.targetProposition.type == "VariantPathogenicityProposition"
     assert all(
-        evidence_item.type == "ExperimentalVariantFunctionalImpactStudyResult"
+        evidence_item.root.type == "ExperimentalVariantFunctionalImpactStudyResult"
         for evidence_item in result.hasEvidenceItems
     )
 

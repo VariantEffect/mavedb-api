@@ -1,11 +1,11 @@
 import logging
-from typing import Optional, Sequence, Union
+from typing import Optional
 
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import Method, iriReference as IRI
 
 from mavedb.models.publication_identifier import PublicationIdentifier
-from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
-from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
+from mavedb.lib.types.annotation import PublicationIdentifierAssociations
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +29,6 @@ def publication_identifier_to_method(publication: PublicationIdentifier, subtype
         name=subtype,
         reportedIn=reporter if reporter else None,
     )
-
-
-PublicationIdentifierAssociations = Union[
-    Sequence[ScoreSetPublicationIdentifierAssociation],
-    Sequence[ExperimentPublicationIdentifierAssociation],
-]
 
 
 def publication_identifiers_to_method(publications: PublicationIdentifierAssociations) -> Optional[Method]:
@@ -68,7 +62,7 @@ def mavedb_api_releases_as_iri() -> IRI:
     return IRI("https://github.com/VariantEffect/mavedb-api/releases")
 
 
-def mavedb_api_as_method():
+def mavedb_api_as_method() -> Method:
     """
     Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
     object for the MaveDB API software distribution.
@@ -84,7 +78,7 @@ def mavedb_vrs_releases_as_iri() -> IRI:
     return IRI("https://github.com/VariantEffect/dcd_mapping2/releases")
 
 
-def mavedb_vrs_as_method():
+def mavedb_vrs_as_method() -> Method:
     """
     Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
     object for the MaveDB VRS mapping software distribution.
@@ -100,12 +94,16 @@ def pillar_project_calibrations_as_iri() -> IRI:
     return IRI("https://github.com/Dzeiberg/mave_calibration")
 
 
-def pillar_project_calibration_method():
+def pillar_project_calibration_method(method: Optional[VariantPathogenicityEvidenceLine.Criterion]) -> Method:
     """
     Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
     object for the pillar project calibration software distribution.
     """
-    return Method(name="Software version", reportedIn=pillar_project_calibrations_as_iri())
+    return Method(
+        name="Software version",
+        reportedIn=pillar_project_calibrations_as_iri(),
+        methodType=method.value if method else None,
+    )
 
 
 def variant_interpretation_functional_guideline_as_iri() -> IRI:
@@ -117,32 +115,13 @@ def variant_interpretation_functional_guideline_as_iri() -> IRI:
     return IRI("https://pubmed.ncbi.nlm.nih.gov/29785012/")
 
 
-def variant_interpretation_functional_guideline_method():
+def variant_interpretation_functional_guideline_method() -> Method:
     """
     Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
     object for the functional variant interpretation guideline.
     """
     # TODO#418
     return Method(
-        name="Variant interpretation guideline", reportedIn=variant_interpretation_functional_guideline_as_iri()
-    )
-
-
-def variant_interpretation_clinical_guideline_as_iri() -> IRI:
-    """
-    Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for clinical variant interpretation guidelines. Within
-    the context of VA-Spec, this IRI can be used interchangeably with an equivalent method object for brevity.
-    """
-    # TODO#418
-    return IRI("https://pubmed.ncbi.nlm.nih.gov/29785012/")
-
-
-def variant_interpretation_clinical_guideline_method():
-    """
-    Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
-    object for the clinical variant interpretation guideline.
-    """
-    # TODO#418
-    return Method(
-        name="Variant interpretation guideline", reportedIn=variant_interpretation_clinical_guideline_as_iri()
+        name="Variant interpretation guideline",
+        reportedIn=variant_interpretation_functional_guideline_as_iri(),
     )

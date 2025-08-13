@@ -38,7 +38,7 @@ pydantic = "~2.10.0"
 python-dotenv = "~0.20.0"
 python-json-logger = "~2.0.7"
 SQLAlchemy = "~2.0.0"
-ga4gh-va-spec = "~0.2.0"
+ga4gh-va-spec = "~0.4.2"
 
 # Optional dependencies for running this application as a server
 alembic = { version = "~1.7.6", optional = true }

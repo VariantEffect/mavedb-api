@@ -10,7 +10,7 @@ This module supports the construction of three main VA-Spec data structures base
 
 from typing import Optional
 
-from ga4gh.va_spec.acmg_2015 import VariantPathogenicityFunctionalImpactEvidenceLine
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 
 from mavedb.lib.annotation.evidence_line import acmg_evidence_line, functional_evidence_line
@@ -42,7 +42,7 @@ def variant_functional_impact_statement(mapped_variant: MappedVariant) -> Option
 
 def variant_pathogenicity_evidence(
     mapped_variant: MappedVariant,
-) -> Optional[VariantPathogenicityFunctionalImpactEvidenceLine]:
+) -> Optional[VariantPathogenicityEvidenceLine]:
     if mapped_variant.variant.score_set.score_calibrations is None:
         return None
 
@@ -54,6 +54,6 @@ def variant_pathogenicity_evidence(
     # TODO#416: Add support for multiple clinical evidence lines. If a score set has multiple calibrations
     #           associated with it, we should create one evidence line for each calibration.
     clinical_proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mapped_variant)
-    clinical_evidence = acmg_evidence_line(mapped_variant, clinical_proposition, [supporting_evidence])
+    clinical_evidence = acmg_evidence_line(mapped_variant, clinical_proposition, [supporting_evidence.model_dump()])
 
     return clinical_evidence

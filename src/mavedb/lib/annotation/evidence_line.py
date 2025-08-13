@@ -1,8 +1,10 @@
 from typing import Optional, Union
 
 from ga4gh.core.models import Coding, MappableConcept, iriReference
-from ga4gh.va_spec.acmg_2015 import VariantPathogenicityFunctionalImpactEvidenceLine
+from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import (
+    Direction,
     EvidenceLine,
     StudyResult,
     EvidenceLineType,
@@ -30,29 +32,43 @@ def acmg_evidence_line(
     mapped_variant: MappedVariant,
     proposition: VariantPathogenicityProposition,
     evidence: list[Union[StudyResult, EvidenceLineType, StatementType, iriReference]],
-) -> Optional[VariantPathogenicityFunctionalImpactEvidenceLine]:
+) -> Optional[VariantPathogenicityEvidenceLine]:
     evidence_outcome, evidence_strength = pillar_project_clinical_classification_of_variant(mapped_variant)
 
-    if not evidence_outcome or not evidence_strength:
-        return None
-
-    return VariantPathogenicityFunctionalImpactEvidenceLine(
-        description=f"Pathogenicity evidence line {mapped_variant.variant.urn}.",
-        specifiedBy=pillar_project_calibration_method(),
-        evidenceOutcome={
-            "primaryCoding": Coding(
-                code=evidence_outcome,
-                system="ACMG Guidelines, 2015",
-            ),
-            "name": f"ACMG 2015 {evidence_outcome.name} Criterion Met",
-        },
-        strengthOfEvidenceProvided=MappableConcept(
+    if not evidence_strength:
+        evidence_outcome_code = f"{evidence_outcome.value}_not_met"
+        direction_of_evidence = Direction.NEUTRAL
+        strength_of_evidence = None
+    else:
+        evidence_outcome_code = (
+            f"{evidence_outcome.value}_{evidence_strength.name.lower()}"
+            if evidence_strength != StrengthOfEvidenceProvided.STRONG
+            else evidence_outcome.value
+        )
+        direction_of_evidence = (
+            Direction.SUPPORTS
+            if evidence_outcome == VariantPathogenicityEvidenceLine.Criterion.PS3
+            else Direction.DISPUTES
+        )
+        strength_of_evidence = MappableConcept(
             primaryCoding=Coding(
                 code=evidence_strength,
                 system="ACMG Guidelines, 2015",
             ),
-        ),
-        directionOfEvidenceProvided="supports",
+        )
+
+    return VariantPathogenicityEvidenceLine(
+        description=f"Pathogenicity evidence line {mapped_variant.variant.urn}.",
+        specifiedBy=pillar_project_calibration_method(evidence_outcome),
+        evidenceOutcome={
+            "primaryCoding": Coding(
+                code=evidence_outcome_code,
+                system="ACMG Guidelines, 2015",
+            ),
+            "name": f"ACMG 2015 {evidence_outcome.name} Criterion {'Met' if strength_of_evidence else 'Not Met'}",
+        },
+        strengthOfEvidenceProvided=strength_of_evidence,
+        directionOfEvidenceProvided=direction_of_evidence,
         contributions=[
             mavedb_api_contribution(),
             mavedb_vrs_contribution(mapped_variant),
@@ -72,7 +88,7 @@ def functional_evidence_line(
         description=f"Functional evidence line for {mapped_variant.variant.urn}",
         # Pydantic validates the provided dictionary meets the expected structure of possible models, but
         # chokes if you provide the model directly. It probably isn't surprising MyPy doesn't love this method
-        # of validation, so we just ignore it.
+        # of validation, so just ignore the error.
         hasEvidenceItems=[evidence_item.model_dump(exclude_none=True) for evidence_item in evidence],  # type: ignore
         directionOfEvidenceProvided="supports",
         specifiedBy=publication_identifiers_to_method(

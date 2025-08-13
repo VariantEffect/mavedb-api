@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
-from ga4gh.va_spec.acmg_2015 import VariantPathogenicityFunctionalImpactEvidenceLine
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import Statement, ExperimentalVariantFunctionalImpactStudyResult
 from sqlalchemy import null, or_, select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
@@ -477,7 +477,7 @@ def get_score_set_mapped_variants(
 @router.get(
     "/score-sets/{urn}/annotated-variants/pathogenicity-evidence-line",
     status_code=200,
-    response_model=dict[str, Optional[VariantPathogenicityFunctionalImpactEvidenceLine]],
+    response_model=dict[str, Optional[VariantPathogenicityEvidenceLine]],
     response_model_exclude_none=True,
 )
 def get_score_set_annotated_variants(

@@ -2,41 +2,16 @@ import logging
 from enum import StrEnum
 from typing import Optional
 
-from ga4gh.va_spec.acmg_2015 import EvidenceOutcome
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
 
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.lib.annotation.constants import PILLAR_PROJECT_CALIBRATION_STRENGTH_OF_EVIDENCE_MAP
 from mavedb.lib.validation.utilities import inf_or_float
 from mavedb.view_models.calibration import PillarProjectCalibration
 from mavedb.view_models.score_range import ScoreSetRanges
 
 logger = logging.getLogger(__name__)
-
-
-PILLAR_PROJECT_CALIBRATION_STRENGTH_OF_EVIDENCE_MAP = {
-    # No evidence
-    0: (None, None),
-    # Supporting evidence
-    -1: (EvidenceOutcome.BS3_SUPPORTING, StrengthOfEvidenceProvided.SUPPORTING),
-    1: (EvidenceOutcome.PS3_SUPPORTING, StrengthOfEvidenceProvided.SUPPORTING),
-    # Moderate evidence
-    -2: (EvidenceOutcome.BS3_MODERATE, StrengthOfEvidenceProvided.MODERATE),
-    2: (EvidenceOutcome.PS3_MODERATE, StrengthOfEvidenceProvided.MODERATE),
-    -3: (EvidenceOutcome.BS3_MODERATE, StrengthOfEvidenceProvided.MODERATE),
-    3: (EvidenceOutcome.PS3_MODERATE, StrengthOfEvidenceProvided.MODERATE),
-    # Strong evidence
-    -4: (EvidenceOutcome.BS3, StrengthOfEvidenceProvided.STRONG),
-    4: (EvidenceOutcome.PS3, StrengthOfEvidenceProvided.STRONG),
-    -5: (EvidenceOutcome.BS3, StrengthOfEvidenceProvided.STRONG),
-    5: (EvidenceOutcome.PS3, StrengthOfEvidenceProvided.STRONG),
-    -6: (EvidenceOutcome.BS3, StrengthOfEvidenceProvided.STRONG),
-    6: (EvidenceOutcome.PS3, StrengthOfEvidenceProvided.STRONG),
-    -7: (EvidenceOutcome.BS3, StrengthOfEvidenceProvided.STRONG),
-    7: (EvidenceOutcome.PS3, StrengthOfEvidenceProvided.STRONG),
-    # Very Strong evidence
-    -8: (EvidenceOutcome.BS3, StrengthOfEvidenceProvided.VERY_STRONG),
-    8: (EvidenceOutcome.PS3, StrengthOfEvidenceProvided.VERY_STRONG),
-}
 
 
 class ExperimentalVariantFunctionalImpactClassification(StrEnum):
@@ -49,7 +24,7 @@ class ExperimentalVariantFunctionalImpactClassification(StrEnum):
 
 def functional_classification_of_variant(
     mapped_variant: MappedVariant,
-) -> Optional[ExperimentalVariantFunctionalImpactClassification]:
+) -> ExperimentalVariantFunctionalImpactClassification:
     if mapped_variant.variant.score_set.score_ranges is None:
         raise ValueError(
             f"Variant {mapped_variant.variant.urn} does not have a score set with score ranges."
@@ -64,18 +39,17 @@ def functional_classification_of_variant(
     for range in score_ranges.ranges:
         lower_bound, upper_bound = inf_or_float(range.range[0], lower=True), inf_or_float(range.range[1], lower=False)
         if functional_score > lower_bound and functional_score <= upper_bound:
-            return (
-                ExperimentalVariantFunctionalImpactClassification.NORMAL
-                if range.classification == "normal"
-                else ExperimentalVariantFunctionalImpactClassification.ABNORMAL
-            )
+            if range.classification == "normal":
+                return ExperimentalVariantFunctionalImpactClassification.NORMAL
+            else:
+                return ExperimentalVariantFunctionalImpactClassification.ABNORMAL
 
     return ExperimentalVariantFunctionalImpactClassification.INDETERMINATE
 
 
 def pillar_project_clinical_classification_of_variant(
     mapped_variant: MappedVariant,
-) -> tuple[Optional[EvidenceOutcome], Optional[StrengthOfEvidenceProvided]]:
+) -> tuple[VariantPathogenicityEvidenceLine.Criterion, Optional[StrengthOfEvidenceProvided]]:
     if mapped_variant.variant.score_set.score_calibrations is None:
         raise ValueError(
             f"Variant {mapped_variant.variant.urn} does not have a score set with score thresholds."

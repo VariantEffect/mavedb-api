@@ -1,4 +1,6 @@
 from unittest.mock import Mock
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
+import pytest
 
 from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.lib.annotation.method import (
@@ -13,8 +15,6 @@ from mavedb.lib.annotation.method import (
     pillar_project_calibration_method,
     variant_interpretation_functional_guideline_as_iri,
     variant_interpretation_functional_guideline_method,
-    variant_interpretation_clinical_guideline_as_iri,
-    variant_interpretation_clinical_guideline_method,
 )
 
 MAVEDB_API_RELEASES_URL = "https://github.com/VariantEffect/mavedb-api/releases"
@@ -97,10 +97,14 @@ def test_pillar_project_calibrations_as_iri():
     assert pillar_project_calibrations_as_iri().root == MAVEDB_CALIBRATION_URL
 
 
-def test_pillar_project_calibration_method():
-    method = pillar_project_calibration_method()
+@pytest.mark.parametrize(
+    "evidence_outcome", [VariantPathogenicityEvidenceLine.Criterion.BS3, VariantPathogenicityEvidenceLine.Criterion.PS3]
+)
+def test_pillar_project_calibration_method(evidence_outcome):
+    method = pillar_project_calibration_method(evidence_outcome)
     assert method.name == "Software version"
     assert method.reportedIn.root == MAVEDB_CALIBRATION_URL
+    assert method.methodType == evidence_outcome.value
 
 
 def test_variant_interpretation_functional_guideline_as_iri():
@@ -111,13 +115,3 @@ def test_variant_interpretation_functional_guideline_method():
     method = variant_interpretation_functional_guideline_method()
     assert method.name == "Variant interpretation guideline"
     assert method.reportedIn.root == FUNCITONAL_GUIDELINES_URL
-
-
-def test_variant_interpretation_clinical_guideline_as_iri():
-    assert variant_interpretation_clinical_guideline_as_iri().root == CLINICAL_GUIDELINES_URL
-
-
-def test_variant_interpretation_clinical_guideline_method():
-    method = variant_interpretation_clinical_guideline_method()
-    assert method.name == "Variant interpretation guideline"
-    assert method.reportedIn.root == CLINICAL_GUIDELINES_URL
