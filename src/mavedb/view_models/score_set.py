@@ -437,7 +437,7 @@ class ScoreSetWithVariants(ScoreSet):
     are requested.
     """
 
-    variants: list["SavedVariant"]
+    variants: list[SavedVariantEffectMeasurement]
 
 
 class AdminScoreSet(ScoreSet):
@@ -467,7 +467,7 @@ class ScoreSetPublicDump(SavedScoreSet):
 
 # ruff: noqa: E402
 from mavedb.view_models.experiment import Experiment
-from mavedb.view_models.variant import SavedVariant
+from mavedb.view_models.variant import SavedVariantEffectMeasurement
 
 ScoreSetWithVariants.model_rebuild()
 ShortScoreSet.model_rebuild()

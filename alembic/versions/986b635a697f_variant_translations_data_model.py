@@ -1,7 +1,7 @@
 """Variant translations data model
 
 Revision ID: 986b635a697f
-Revises: d6e5a9fde3c9
+Revises: f69b4049bc3b
 Create Date: 2025-03-24 14:00:18.063245
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "986b635a697f"
-down_revision = "d6e5a9fde3c9"
+down_revision = "f69b4049bc3b"
 branch_labels = None
 depends_on = None
 
@@ -23,6 +23,8 @@ def upgrade():
         "variant_translations",
         sa.Column("aa_clingen_id", sa.String(), nullable=False),
         sa.Column("nt_clingen_id", sa.String(), nullable=False),
+        sa.Column("creation_date", sa.Date(), nullable=False),
+        sa.Column("modification_date", sa.Date(), nullable=False),
         sa.PrimaryKeyConstraint("aa_clingen_id", "nt_clingen_id"),
     )
     # ### end Alembic commands ###
