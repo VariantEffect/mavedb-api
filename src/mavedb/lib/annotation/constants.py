@@ -1,4 +1,4 @@
-from ga4gh.va_spec.acmg_2015.models import VariantPathogenicityEvidenceLine
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
 
 GENERIC_DISEASE_MEDGEN_CODE = "C0012634"
