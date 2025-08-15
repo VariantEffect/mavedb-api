@@ -91,6 +91,8 @@ jobs:
       with:
         python-version: "3.12"
         cache: 'pip'
+    - run: sudo apt-get update
+    - run: sudo apt-get install -y tabix
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev --extras server
