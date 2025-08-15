@@ -171,7 +171,7 @@ class ScoreSetModify(ScoreSetBase):
             primary_publication_identifiers = self.primary_publication_identifiers or []
             secondary_publication_identifiers = self.secondary_publication_identifiers or []
 
-            if source not in primary_publication_identifiers or source not in secondary_publication_identifiers:
+            if source not in primary_publication_identifiers and source not in secondary_publication_identifiers:
                 return False
 
             return True
@@ -188,7 +188,7 @@ class ScoreSetModify(ScoreSetBase):
                 continue
 
             # investigator_provided score ranges can have an odds path source as well.
-            if range_definition == "investigator_provided" and range_definition.odds_path_source is not None:
+            if range_name == "investigator_provided" and range_definition.odds_path_source is not None:
                 for idx, pub in enumerate(range_definition.odds_path_source):
                     odds_path_source_exists = _check_source_in_score_set(pub)
 

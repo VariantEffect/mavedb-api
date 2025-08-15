@@ -6,7 +6,10 @@ from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import inf_or_float
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
-from mavedb.view_models.publication_identifier import PublicationIdentifierBase
+from mavedb.view_models.publication_identifier import (
+    PublicationIdentifierBase,
+    PublicationIdentifierCreate,
+)
 from mavedb.view_models.odds_path import OddsPathCreate, OddsPathBase, OddsPathModify, SavedOddsPath, OddsPath
 
 
@@ -144,12 +147,11 @@ class ScoreRangesBase(BaseModel):
 
 class ScoreRangesModify(ScoreRangesBase):
     ranges: Sequence[ScoreRangeModify]
-    odds_path_source: Optional[Sequence[PublicationIdentifierBase]] = None
+    source: Optional[Sequence[PublicationIdentifierCreate]] = None
 
 
 class ScoreRangesCreate(ScoreRangesModify):
     ranges: Sequence[ScoreRangeCreate]
-    odds_path_source: Optional[Sequence[PublicationIdentifierBase]] = None
 
 
 class SavedScoreRanges(ScoreRangesBase):
@@ -234,6 +236,7 @@ class InvestigatorScoreRangesBase(ScoreRangesBase):
 
 class InvestigatorScoreRangesModify(ScoreRangesModify, InvestigatorScoreRangesBase):
     ranges: Sequence[InvestigatorScoreRangeModify]
+    odds_path_source: Optional[Sequence[PublicationIdentifierCreate]] = None
 
 
 class InvestigatorScoreRangesCreate(ScoreRangesCreate, InvestigatorScoreRangesModify):
@@ -265,7 +268,9 @@ class PillarProjectScoreRangeBase(ScoreRangeBase):
     # path (normal) / benign (abnormal) -> classification
 
     @model_validator(mode="after")
-    def evidence_strength_cardinality_must_agree_with_classification(self: "PillarProjectScoreRangeBase") -> "PillarProjectScoreRangeBase":
+    def evidence_strength_cardinality_must_agree_with_classification(
+        self: "PillarProjectScoreRangeBase",
+    ) -> "PillarProjectScoreRangeBase":
         classification = getattr(self, "classification")
         field_value = getattr(self, "evidence_strength")
 

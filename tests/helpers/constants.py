@@ -1238,11 +1238,7 @@ TEST_MINIMAL_MAPPED_VARIANT = {
 }
 
 
-TEST_MINIMAL_MAPPED_VARIANT_CREATE = {
-    **TEST_MINIMAL_MAPPED_VARIANT,
-    "clinical_controls": [],
-    "gnomad_variants": []
-}
+TEST_MINIMAL_MAPPED_VARIANT_CREATE = {**TEST_MINIMAL_MAPPED_VARIANT, "clinical_controls": [], "gnomad_variants": []}
 
 TEST_POST_MAPPED_VRS_WITH_HGVS_G_EXPRESSION = {
     "id": "ga4gh:VA.fRW7u-kBQnAKitu1PoDMLvlECWZTHCos",
@@ -1422,6 +1418,26 @@ TEST_SAVED_SCORE_SET_POSITIVE_INFINITY_RANGE = {
     "range": [0.0, None],
     "inclusiveLowerBound": False,
     "inclusiveUpperBound": False,
+}
+
+
+TEST_SCORE_SET_RANGE = {
+    "baseline_score": TEST_BASELINE_SCORE,
+    "ranges": [
+        TEST_SCORE_SET_NORMAL_RANGE,
+        TEST_SCORE_SET_ABNORMAL_RANGE,
+    ],
+    "source": None,
+}
+
+
+TEST_SCORE_SET_RANGE_WITH_SOURCE = {
+    "baseline_score": TEST_BASELINE_SCORE,
+    "ranges": [
+        TEST_SCORE_SET_NORMAL_RANGE,
+        TEST_SCORE_SET_ABNORMAL_RANGE,
+    ],
+    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
 }
 
 

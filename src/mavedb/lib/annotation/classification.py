@@ -8,7 +8,6 @@ from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.lib.annotation.constants import PILLAR_PROJECT_CALIBRATION_STRENGTH_OF_EVIDENCE_MAP
 from mavedb.lib.validation.utilities import inf_or_float
-from mavedb.view_models.calibration import PillarProjectCalibration
 from mavedb.view_models.score_range import ScoreSetRanges
 
 logger = logging.getLogger(__name__)
@@ -32,7 +31,13 @@ def functional_classification_of_variant(
         )
 
     # This view model object is much simpler to work with.
-    score_ranges = ScoreSetRanges(**mapped_variant.variant.score_set.score_ranges)
+    score_ranges = ScoreSetRanges(**mapped_variant.variant.score_set.score_ranges).investigator_provided
+
+    if not score_ranges:
+        raise ValueError(
+            f"Variant {mapped_variant.variant.urn} does not have investigator-provided score ranges."
+            " Unable to classify functional impact."
+        )
 
     # This property of this column is guaranteed to be defined.
     functional_score: float = mapped_variant.variant.data["score_data"]["score"]  # type: ignore
@@ -41,8 +46,10 @@ def functional_classification_of_variant(
         if functional_score > lower_bound and functional_score <= upper_bound:
             if range.classification == "normal":
                 return ExperimentalVariantFunctionalImpactClassification.NORMAL
-            else:
+            elif range.classification == "abnormal":
                 return ExperimentalVariantFunctionalImpactClassification.ABNORMAL
+            else:
+                return ExperimentalVariantFunctionalImpactClassification.INDETERMINATE
 
     return ExperimentalVariantFunctionalImpactClassification.INDETERMINATE
 
@@ -50,41 +57,26 @@ def functional_classification_of_variant(
 def pillar_project_clinical_classification_of_variant(
     mapped_variant: MappedVariant,
 ) -> tuple[VariantPathogenicityEvidenceLine.Criterion, Optional[StrengthOfEvidenceProvided]]:
-    if mapped_variant.variant.score_set.score_calibrations is None:
+    if mapped_variant.variant.score_set.score_ranges is None:
         raise ValueError(
             f"Variant {mapped_variant.variant.urn} does not have a score set with score thresholds."
             " Unable to classify clinical impact."
         )
 
-    score_calibration = PillarProjectCalibration(
-        **mapped_variant.variant.score_set.score_calibrations["pillar_project"]
-    )
+    score_ranges = ScoreSetRanges(**mapped_variant.variant.score_set.score_ranges).pillar_project
 
-    # NOTE: It is presumed these thresholds are ordered.
+    if not score_ranges:
+        raise ValueError(
+            f"Variant {mapped_variant.variant.urn} does not have pillar project score ranges."
+            " Unable to classify clinical impact."
+        )
 
     # This property of this column is guaranteed to be defined.
     functional_score: float = mapped_variant.variant.data["score_data"]["score"]  # type: ignore
 
-    most_extreme_evidence_strength = 0
-    for idx, threshold in enumerate(score_calibration.thresholds):
-        if idx == 0:
-            # If the first threshold is larger than the final threshold, the initial cardinality is positive.
-            current_cardinality = 1 if score_calibration.thresholds[0] > score_calibration.thresholds[-1] else -1
-        else:
-            # After setting the initial cardinality, the cardinality will change only once the signs of the evidence strengths flip.
-            current_cardinality = (
-                current_cardinality * -1
-                if score_calibration.evidence_strengths[idx - 1] * score_calibration.evidence_strengths[idx] < 0
-                else current_cardinality
-            )
+    for range in score_ranges.ranges:
+        lower_bound, upper_bound = inf_or_float(range.range[0], lower=True), inf_or_float(range.range[1], lower=False)
+        if functional_score > lower_bound and functional_score <= upper_bound:
+            return PILLAR_PROJECT_CALIBRATION_STRENGTH_OF_EVIDENCE_MAP[range.evidence_strength]
 
-        # If the cardinality is positive, we ensure the score is greater than the threshold. If the cardinality is negative,
-        # check the threshold is greater than the score.
-        score_threshold_pair = (
-            (functional_score, threshold) if current_cardinality > 0 else (threshold, functional_score)
-        )
-        if score_threshold_pair[0] >= score_threshold_pair[1]:
-            if abs(score_calibration.evidence_strengths[idx]) > abs(most_extreme_evidence_strength):
-                most_extreme_evidence_strength = score_calibration.evidence_strengths[idx]
-
-    return PILLAR_PROJECT_CALIBRATION_STRENGTH_OF_EVIDENCE_MAP[most_extreme_evidence_strength]
+    return PILLAR_PROJECT_CALIBRATION_STRENGTH_OF_EVIDENCE_MAP[0]
