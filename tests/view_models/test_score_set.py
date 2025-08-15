@@ -243,9 +243,7 @@ def test_cannot_create_score_set_with_investigator_provided_score_range_if_odds_
 
     with pytest.raises(
         ValueError,
-        match=r".*Odds path source publication identifier at index {} is not defined in score set publications.*".format(
-            0
-        ),
+        match=r".*Odds path source publication at index {} is not defined in score set publications.*".format(0),
     ):
         ScoreSetModify(**score_set_test)
 

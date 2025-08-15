@@ -14,7 +14,7 @@ from mavedb.lib.annotation.classification import (
     "score,expected_classification",
     [
         (
-            0,
+            -4,
             ExperimentalVariantFunctionalImpactClassification.INDETERMINATE,
         ),
         (
@@ -68,7 +68,7 @@ def test_clinical_classification_of_variant_with_thresholds(
 
 
 def test_clinical_classification_of_variant_without_thresholds(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_calibrations = None
+    mock_mapped_variant.variant.score_set.score_ranges = None
 
     with pytest.raises(ValueError) as exc:
         pillar_project_clinical_classification_of_variant(mock_mapped_variant)

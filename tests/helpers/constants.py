@@ -1329,7 +1329,7 @@ TEST_SAVED_PS3_ODDS_PATH = {
 TEST_SCORE_SET_NORMAL_RANGE = {
     "label": "test1",
     "classification": "normal",
-    "range": (0, 2.0),
+    "range": [0, 2.0],
     "inclusive_lower_bound": True,
     "inclusive_upper_bound": False,
 }
@@ -1348,7 +1348,7 @@ TEST_SAVED_SCORE_SET_NORMAL_RANGE = {
 TEST_SCORE_SET_ABNORMAL_RANGE = {
     "label": "test2",
     "classification": "abnormal",
-    "range": (-2.0, 0),
+    "range": [-2.0, 0.0],
     "inclusive_lower_bound": True,
     "inclusive_upper_bound": False,
 }
@@ -1367,7 +1367,7 @@ TEST_SAVED_SCORE_SET_ABNORMAL_RANGE = {
 TEST_SCORE_SET_NOT_SPECIFIED_RANGE = {
     "label": "test3",
     "classification": "not_specified",
-    "range": (-8.0, -2.0),
+    "range": [-8.0, -2.0],
     "inclusive_lower_bound": True,
     "inclusive_upper_bound": False,
 }
@@ -1386,7 +1386,7 @@ TEST_SAVED_SCORE_SET_NOT_SPECIFIED_RANGE = {
 TEST_SCORE_SET_NEGATIVE_INFINITY_RANGE = {
     "label": "test4",
     "classification": "not_specified",
-    "range": (None, 0.0),
+    "range": [None, 0.0],
     "inclusive_lower_bound": False,
     "inclusive_upper_bound": False,
 }
@@ -1420,6 +1420,150 @@ TEST_SAVED_SCORE_SET_POSITIVE_INFINITY_RANGE = {
     "inclusiveUpperBound": False,
 }
 
+TEST_SAVED_SCORE_SET_NO_SUPPORTING_EVIDENCE_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "not_specified",
+    "range": [-0.5, 0.5],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_BS3_SUPPORTING_RANGE = {
+    "label": "test1",
+    "classification": "normal",
+    "range": [-1.5, -0.5],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "normal",
+    "range": [-1.5, -0.5],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_BS3_MODERATE_RANGE = {
+    "label": "test1",
+    "classification": "normal",
+    "range": [-3.5, -1.5],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_BS3_MODERATE_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "normal",
+    "range": [-3.5, -1.5],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_BS3_STRONG_RANGE = {
+    "label": "test1",
+    "classification": "normal",
+    "range": [-7.5, -3.5],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_BS3_STRONG_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "normal",
+    "range": [-7.5, -3.5],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_BS3_VERY_STRONG_RANGE = {
+    "label": "test1",
+    "classification": "normal",
+    "range": [None, -7.5],
+    "inclusive_lower_bound": False,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "normal",
+    "range": [None, -7.5],
+    "inclusiveLowerBound": False,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_PS3_SUPPORTING_RANGE = {
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [0.5, 1.5],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [0.5, 1.5],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_PS3_MODERATE_RANGE = {
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [1.5, 3.5],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_PS3_MODERATE_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [1.5, 3.5],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_PS3_STRONG_RANGE = {
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [3.5, 7.5],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_PS3_STRONG_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [3.5, 7.5],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_PS3_VERY_STRONG_RANGE = {
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [7.5, None],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [7.5, None],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
 
 TEST_SCORE_SET_RANGE = {
     "baseline_score": TEST_BASELINE_SCORE,
@@ -1467,11 +1611,25 @@ TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE = {
 }
 
 
+TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE = {
+    **TEST_SCORE_SET_NOT_SPECIFIED_RANGE,
+    "odds_path": TEST_PS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE = {
+    **TEST_SAVED_SCORE_SET_NOT_SPECIFIED_RANGE,
+    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
+    "recordType": "InvestigatorScoreRange",
+}
+
+
 TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE = {
     "baseline_score": TEST_BASELINE_SCORE,
     "ranges": [
         TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE,
         TEST_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE,
+        TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE,
     ],
     "odds_path_source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
     "source": None,
@@ -1484,6 +1642,7 @@ TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE = {
     "ranges": [
         TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE,
         TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE,
+        TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE,
     ],
     "oddsPathSource": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
     "source": None,
@@ -1536,42 +1695,148 @@ TEST_SAVED_PILLAR_PROJECT_PARAMETER_SETS = [
 ]
 
 
-TEST_PILLAR_PROJECT_SCORE_SET_NORMAL_RANGE = {
-    **TEST_SCORE_SET_NORMAL_RANGE,
+TEST_PILLAR_PROJECT_SCORE_SET_BS3_SUPPORTING_RANGE = {
+    **TEST_SCORE_SET_BS3_SUPPORTING_RANGE,
+    "positive_likelihood_ratio": 100.0,
+    "evidence_strength": -1,
+    "label": "BS3_SUPPORTING",
+}
+
+
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE = {
+    **TEST_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE,
+    "recordType": "PillarProjectScoreRange",
+    "label": "BS3_SUPPORTING",
+    "evidenceStrength": -1,
+    "positiveLikelihoodRatio": 100.0,
+}
+
+TEST_PILLAR_PROJECT_SCORE_SET_PS3_SUPPORTING_RANGE = {
+    **TEST_SCORE_SET_PS3_SUPPORTING_RANGE,
+    "positive_likelihood_ratio": 10.0,
+    "evidence_strength": 1,
+    "label": "PS3_SUPPORTING",
+}
+
+
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE = {
+    **TEST_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE,
+    "recordType": "PillarProjectScoreRange",
+    "label": "PS3_SUPPORTING",
+    "positiveLikelihoodRatio": 10.0,
+    "evidenceStrength": 1,
+}
+
+
+TEST_PILLAR_PROJECT_SCORE_SET_BS3_MODERATE_RANGE = {
+    **TEST_SCORE_SET_BS3_MODERATE_RANGE,
     "positive_likelihood_ratio": 100.0,
     "evidence_strength": -2,
     "label": "BS3_MODERATE",
 }
 
 
-TEST_PILLAR_PROJECT_SAVED_SCORE_SET_NORMAL_RANGE = {
-    **TEST_SAVED_SCORE_SET_NORMAL_RANGE,
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_MODERATE_RANGE = {
+    **TEST_SAVED_SCORE_SET_BS3_MODERATE_RANGE,
     "recordType": "PillarProjectScoreRange",
     "label": "BS3_MODERATE",
     "evidenceStrength": -2,
     "positiveLikelihoodRatio": 100.0,
 }
 
-TEST_PILLAR_PROJECT_SCORE_SET_ABNORMAL_RANGE = {
-    **TEST_SCORE_SET_ABNORMAL_RANGE,
+TEST_PILLAR_PROJECT_SCORE_SET_PS3_MODERATE_RANGE = {
+    **TEST_SCORE_SET_PS3_MODERATE_RANGE,
     "positive_likelihood_ratio": 10.0,
     "evidence_strength": 2,
     "label": "PS3_MODERATE",
 }
 
 
-TEST_PILLAR_PROJECT_SAVED_SCORE_SET_ABNORMAL_RANGE = {
-    **TEST_SAVED_SCORE_SET_ABNORMAL_RANGE,
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_MODERATE_RANGE = {
+    **TEST_SAVED_SCORE_SET_PS3_MODERATE_RANGE,
     "recordType": "PillarProjectScoreRange",
     "label": "PS3_MODERATE",
     "positiveLikelihoodRatio": 10.0,
     "evidenceStrength": 2,
 }
 
+
+TEST_PILLAR_PROJECT_SCORE_SET_BS3_STRONG_RANGE = {
+    **TEST_SCORE_SET_BS3_STRONG_RANGE,
+    "positive_likelihood_ratio": 100.0,
+    "evidence_strength": -4,
+    "label": "BS3_STRONG",
+}
+
+
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_STRONG_RANGE = {
+    **TEST_SAVED_SCORE_SET_BS3_STRONG_RANGE,
+    "recordType": "PillarProjectScoreRange",
+    "label": "BS3_STRONG",
+    "evidenceStrength": -4,
+    "positiveLikelihoodRatio": 100.0,
+}
+
+TEST_PILLAR_PROJECT_SCORE_SET_PS3_STRONG_RANGE = {
+    **TEST_SCORE_SET_PS3_STRONG_RANGE,
+    "positive_likelihood_ratio": 10.0,
+    "evidence_strength": 4,
+    "label": "PS3_STRONG",
+}
+
+
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_STRONG_RANGE = {
+    **TEST_SAVED_SCORE_SET_PS3_STRONG_RANGE,
+    "recordType": "PillarProjectScoreRange",
+    "label": "PS3_STRONG",
+    "positiveLikelihoodRatio": 10.0,
+    "evidenceStrength": 4,
+}
+
+
+TEST_PILLAR_PROJECT_SCORE_SET_BS3_VERY_STRONG_RANGE = {
+    **TEST_SCORE_SET_BS3_VERY_STRONG_RANGE,
+    "positive_likelihood_ratio": 100.0,
+    "evidence_strength": -8,
+    "label": "BS3_VERY_STRONG",
+}
+
+
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE = {
+    **TEST_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE,
+    "recordType": "PillarProjectScoreRange",
+    "label": "BS3_VERY_STRONG",
+    "evidenceStrength": -8,
+    "positiveLikelihoodRatio": 100.0,
+}
+
+TEST_PILLAR_PROJECT_SCORE_SET_PS3_VERY_STRONG_RANGE = {
+    **TEST_SCORE_SET_PS3_VERY_STRONG_RANGE,
+    "positive_likelihood_ratio": 10.0,
+    "evidence_strength": 8,
+    "label": "PS3_VERY_STRONG",
+}
+
+
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE = {
+    **TEST_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE,
+    "recordType": "PillarProjectScoreRange",
+    "label": "PS3_VERY_STRONG",
+    "positiveLikelihoodRatio": 10.0,
+    "evidenceStrength": 8,
+}
+
+
 TEST_PILLAR_PROJECT_SCORE_SET_RANGE = {
     "ranges": [
-        TEST_PILLAR_PROJECT_SCORE_SET_NORMAL_RANGE,
-        TEST_PILLAR_PROJECT_SCORE_SET_ABNORMAL_RANGE,
+        TEST_PILLAR_PROJECT_SCORE_SET_BS3_SUPPORTING_RANGE,
+        TEST_PILLAR_PROJECT_SCORE_SET_BS3_MODERATE_RANGE,
+        TEST_PILLAR_PROJECT_SCORE_SET_BS3_STRONG_RANGE,
+        TEST_PILLAR_PROJECT_SCORE_SET_BS3_VERY_STRONG_RANGE,
+        TEST_PILLAR_PROJECT_SCORE_SET_PS3_SUPPORTING_RANGE,
+        TEST_PILLAR_PROJECT_SCORE_SET_PS3_MODERATE_RANGE,
+        TEST_PILLAR_PROJECT_SCORE_SET_PS3_STRONG_RANGE,
+        TEST_PILLAR_PROJECT_SCORE_SET_PS3_VERY_STRONG_RANGE,
     ],
     "parameter_sets": TEST_PILLAR_PROJECT_PARAMETER_SETS,
     "prior_probability_pathogenicity": 0.20,
@@ -1582,8 +1847,14 @@ TEST_PILLAR_PROJECT_SCORE_SET_RANGE = {
 TEST_PILLAR_PROJECT_SAVED_SCORE_SET_RANGE = {
     "recordType": "PillarProjectScoreRanges",
     "ranges": [
-        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_NORMAL_RANGE,
-        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_ABNORMAL_RANGE,
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE,
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_MODERATE_RANGE,
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_STRONG_RANGE,
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE,
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE,
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_MODERATE_RANGE,
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_STRONG_RANGE,
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE,
     ],
     "parameterSets": TEST_SAVED_PILLAR_PROJECT_PARAMETER_SETS,
     "priorProbabilityPathogenicity": 0.20,

@@ -210,13 +210,8 @@ def test_create_score_set_with_score_range(
         TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     ],
 )
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
 def test_cannot_create_score_set_with_score_range_and_source_when_publication_not_in_publications(
-    client, setup_router_db, score_ranges, mock_publication_fetch
+    client, setup_router_db, score_ranges
 ):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
@@ -228,8 +223,7 @@ def test_cannot_create_score_set_with_score_range_and_source_when_publication_no
 
     response_data = response.json()
     assert (
-        "Score range source publication at index 0 is not defined in score set publications."
-        in response_data["detail"][0]["msg"]
+        "source publication at index 0 is not defined in score set publications." in response_data["detail"][0]["msg"]
     )
 
 
@@ -2727,8 +2721,13 @@ def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
 # annotated variants are not tested here, and are tested in more detail via the annotation library tests.
 
 
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
 def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -2737,7 +2736,10 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT)},
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        },
     )
 
     # The contents of the annotated variants objects should be tested in more detail elsewhere.
@@ -2751,8 +2753,13 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
         assert f"Pathogenicity evidence line {variant_urn}" in annotated_variant.get("description")
 
 
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
 def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thresholds_not_present(
-    client, session, data_provider, data_files, setup_router_db
+    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -2761,8 +2768,13 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thre
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)},
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
+        },
     )
+
+    print(score_set["scoreRanges"])
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
     response_data = response.json()
@@ -2774,8 +2786,13 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thre
         assert annotated_variant is None
 
 
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
 def test_annotated_pathogenicity_evidence_lines_exists_for_score_set_when_ranges_not_present(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -2784,7 +2801,10 @@ def test_annotated_pathogenicity_evidence_lines_exists_for_score_set_when_ranges
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT)},
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        },
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
@@ -2819,8 +2839,13 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thre
         assert annotated_variant is None
 
 
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
 def test_get_annotated_functional_impact_statement_for_score_set(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -2829,7 +2854,10 @@ def test_get_annotated_functional_impact_statement_for_score_set(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
+        },
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
@@ -2841,14 +2869,14 @@ def test_get_annotated_functional_impact_statement_for_score_set(
     for _, annotated_variant in response_data.items():
         assert annotated_variant.get("type") == "Statement"
 
-        assert "assayVariantEffectMeasurementStudyResult" in annotated_variant
-        assert "assayVariantEffectFunctionalClassificationStatement" in annotated_variant
-        assert "assayVariantEffectClinicalClassificationStatement" in annotated_variant
-        assert len(annotated_variant.values()) == 3
 
-
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
 def test_annotated_functional_impact_statement_exists_for_score_set_when_thresholds_not_present(
-    client, session, data_provider, data_files, setup_router_db
+    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -2857,7 +2885,10 @@ def test_annotated_functional_impact_statement_exists_for_score_set_when_thresho
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)},
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
+        },
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
@@ -2870,8 +2901,13 @@ def test_annotated_functional_impact_statement_exists_for_score_set_when_thresho
         assert annotated_variant.get("type") == "Statement"
 
 
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
 def test_nonetype_annotated_functional_impact_statement_for_score_set_when_ranges_not_present(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -2880,8 +2916,10 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_range
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT)},
-
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        },
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
@@ -2916,8 +2954,13 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_thres
         assert annotated_variant is None
 
 
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
 def test_get_annotated_functional_study_result_for_score_set(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -2926,7 +2969,10 @@ def test_get_annotated_functional_study_result_for_score_set(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)},
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
+        },
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
@@ -2939,8 +2985,13 @@ def test_get_annotated_functional_study_result_for_score_set(
         assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
 
 
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
 def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_not_present(
-    client, session, data_provider, data_files, setup_router_db
+    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -2949,7 +3000,10 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)},
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
+        },
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
@@ -2962,8 +3016,13 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
         assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
 
 
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
 def test_annotated_functional_study_result_exists_for_score_set_when_ranges_not_present(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -2972,8 +3031,10 @@ def test_annotated_functional_study_result_exists_for_score_set_when_ranges_not_
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={"scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT)},
-
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        },
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")

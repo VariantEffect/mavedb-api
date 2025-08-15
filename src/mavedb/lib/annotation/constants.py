@@ -28,3 +28,7 @@ PILLAR_PROJECT_CALIBRATION_STRENGTH_OF_EVIDENCE_MAP = {
     -8: (VariantPathogenicityEvidenceLine.Criterion.BS3, StrengthOfEvidenceProvided.VERY_STRONG),
     8: (VariantPathogenicityEvidenceLine.Criterion.PS3, StrengthOfEvidenceProvided.VERY_STRONG),
 }
+
+# TODO#493
+FUNCTIONAL_RANGES = ["investigator_provided"]
+CLINICAL_RANGES = ["pillar_project"]

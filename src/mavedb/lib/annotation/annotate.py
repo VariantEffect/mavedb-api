@@ -13,6 +13,7 @@ from typing import Optional
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 
+from mavedb.lib.annotation.constants import FUNCTIONAL_RANGES, CLINICAL_RANGES
 from mavedb.lib.annotation.evidence_line import acmg_evidence_line, functional_evidence_line
 from mavedb.lib.annotation.proposition import (
     mapped_variant_to_experimental_variant_clinical_impact_proposition,
@@ -31,7 +32,14 @@ def variant_functional_impact_statement(mapped_variant: MappedVariant) -> Option
     if mapped_variant.variant.score_set.score_ranges is None:
         return None
 
-    # TODO#416: Add support for multiple functional evidence lines. If a score set has multiple ranges
+    if not any(
+        range_key in mapped_variant.variant.score_set.score_ranges
+        and mapped_variant.variant.score_set.score_ranges[range_key] is not None
+        for range_key in FUNCTIONAL_RANGES
+    ):
+        return None
+
+    # TODO#494: Add support for multiple functional evidence lines. If a score set has multiple ranges
     #           associated with it, we should create one evidence line for each range.
     study_result = mapped_variant_to_experimental_variant_impact_study_result(mapped_variant)
     functional_evidence = functional_evidence_line(mapped_variant, [study_result])
@@ -43,7 +51,14 @@ def variant_functional_impact_statement(mapped_variant: MappedVariant) -> Option
 def variant_pathogenicity_evidence(
     mapped_variant: MappedVariant,
 ) -> Optional[VariantPathogenicityEvidenceLine]:
-    if mapped_variant.variant.score_set.score_calibrations is None:
+    if mapped_variant.variant.score_set.score_ranges is None:
+        return None
+
+    if not any(
+        range_key in mapped_variant.variant.score_set.score_ranges
+        and mapped_variant.variant.score_set.score_ranges[range_key] is not None
+        for range_key in CLINICAL_RANGES
+    ):
         return None
 
     study_result = mapped_variant_to_experimental_variant_impact_study_result(mapped_variant)
@@ -51,7 +66,7 @@ def variant_pathogenicity_evidence(
 
     supporting_evidence = functional_impact if functional_impact else study_result
 
-    # TODO#416: Add support for multiple clinical evidence lines. If a score set has multiple calibrations
+    # TODO#494: Add support for multiple clinical evidence lines. If a score set has multiple calibrations
     #           associated with it, we should create one evidence line for each calibration.
     clinical_proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mapped_variant)
     clinical_evidence = acmg_evidence_line(mapped_variant, clinical_proposition, [supporting_evidence.model_dump()])

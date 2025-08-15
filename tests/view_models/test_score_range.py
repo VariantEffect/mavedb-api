@@ -32,8 +32,8 @@ from tests.helpers.constants import (
     TEST_SCORE_SET_NOT_SPECIFIED_RANGE,
     TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE,
     TEST_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE,
-    TEST_PILLAR_PROJECT_SCORE_SET_NORMAL_RANGE,
-    TEST_PILLAR_PROJECT_SCORE_SET_ABNORMAL_RANGE,
+    TEST_PILLAR_PROJECT_SCORE_SET_BS3_STRONG_RANGE,
+    TEST_PILLAR_PROJECT_SCORE_SET_PS3_STRONG_RANGE,
     TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE,
     TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE,
     TEST_PILLAR_PROJECT_SCORE_SET_RANGE,
@@ -102,7 +102,7 @@ def test_score_range_investigator_valid_range(ScoreRangeModel, score_range_data)
 
 @pytest.mark.parametrize(
     "score_range_data",
-    [TEST_PILLAR_PROJECT_SCORE_SET_NORMAL_RANGE, TEST_PILLAR_PROJECT_SCORE_SET_ABNORMAL_RANGE],
+    [TEST_PILLAR_PROJECT_SCORE_SET_BS3_STRONG_RANGE, TEST_PILLAR_PROJECT_SCORE_SET_PS3_STRONG_RANGE],
 )
 @pytest.mark.parametrize(
     "ScoreRangeModel", [PillarProjectScoreRange, PillarProjectScoreRangeCreate, PillarProjectScoreRangeModify]
@@ -302,7 +302,7 @@ def test_pillar_project_score_range_may_not_include_infinity(ScoreRangeModel, ra
 def test_pillar_project_evidence_strength_cardinality_must_agree_with_classification(
     classification, evidence_strength, should_raise, ScoreRangeModel
 ):
-    invalid_data = deepcopy(TEST_PILLAR_PROJECT_SCORE_SET_NORMAL_RANGE)
+    invalid_data = deepcopy(TEST_PILLAR_PROJECT_SCORE_SET_BS3_STRONG_RANGE)
     invalid_data["classification"] = classification
     invalid_data["evidence_strength"] = evidence_strength
     if should_raise:

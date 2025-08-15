@@ -84,7 +84,7 @@ def test_acmg_evidence_line_with_not_met_clinical_classification(mock_mapped_var
 
 
 def test_acmg_evidence_line_with_no_score_thresholds(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_calibrations = None
+    mock_mapped_variant.variant.score_set.score_ranges = None
 
     with pytest.raises(ValueError) as exc:
         proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mock_mapped_variant)

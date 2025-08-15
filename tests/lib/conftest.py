@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 import pytest
@@ -165,7 +166,7 @@ def mock_experiment():
 def mock_score_set(mock_user, mock_experiment, mock_publication_associations):
     score_set = mock.Mock(spec=ScoreSet)
     score_set.urn = VALID_SCORE_SET_URN
-    score_set.score_ranges = TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT
+    score_set.score_ranges = deepcopy(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)
     score_set.license.short_name = "MIT"
     score_set.created_by = mock_user
     score_set.modified_by = mock_user
@@ -198,8 +199,8 @@ def mock_mapped_variant(mock_variant):
     mv.mapping_api_version = "pytest.mapping.1.0"
     mv.mapped_date = datetime(2023, 1, 1)
     mv.variant = mock_variant
-    mv.pre_mapped = TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X
-    mv.post_mapped = TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X
+    mv.pre_mapped = deepcopy(TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X)
+    mv.post_mapped = deepcopy(TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X)
     mv.mapped_date = datetime(2023, 1, 2)
     mv.modification_date = datetime(2023, 1, 3)
     mv.clingen_allele_id = "CA123456"

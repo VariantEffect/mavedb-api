@@ -194,7 +194,7 @@ class ScoreSetModify(ScoreSetBase):
 
                     if not odds_path_source_exists:
                         raise ValidationError(
-                            f"Odds path source publication identifier at index {idx} is not defined in score set publications. "
+                            f"Odds path source publication at index {idx} is not defined in score set publications. "
                             "To use a publication identifier in the odds path source, it must be defined in the primary or secondary publication identifiers for this score set.",
                             custom_loc=["body", "scoreRanges", range_name, "oddsPathSource", idx],
                         )
