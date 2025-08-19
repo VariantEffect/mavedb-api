@@ -23,6 +23,7 @@ services:
       - "8002:8000"
     volumes:
       - .:/code
+      - mavedb-seqrepo-dev:/usr/local/share/seqrepo
 
   worker:
     image: mavedb-api/mavedb-worker:dev
@@ -41,9 +42,33 @@ services:
       LOG_CONFIG: dev
     volumes:
       - .:/code
+      - mavedb-seqrepo-dev:/usr/local/share/seqrepo
     depends_on:
       - db
       - redis
+
+  dcd-mapping:
+    image: dcd-mapping:dev
+    command: bash -c "uvicorn api.server_main:app --host 0.0.0.0 --port 8000 --reload"
+    depends_on:
+      - db
+      - seqrepo
+    env_file:
+      - settings/.env.dev
+    ports:
+      - "8004:8000"
+    volumes:
+      - mavedb-seqrepo-dev:/usr/local/share/seqrepo
+
+  cdot-rest:
+    image: cdot-rest:dev
+    command: bash -c "gunicorn cdot_rest.wsgi:application --bind 0.0.0.0:8000"
+    env_file:
+      - settings/.env.dev
+    depends_on:
+      - redis
+    ports:
+      - "8006:8000"
 
   db:
     image: postgres:14
@@ -62,19 +87,6 @@ services:
       - "6381:6379"
     volumes:
       - mavedb-redis-dev:/data
-
-  dcd-mapping:
-    image: dcd-mapping:dev
-    command: bash -c "uvicorn api.server_main:app --host 0.0.0.0 --port 8000 --reload"
-    depends_on:
-      - db
-      - seqrepo
-    env_file:
-      - settings/.env.dev
-    ports:
-      - "8004:8000"
-    volumes:
-      - mavedb-seqrepo-dev:/usr/local/share/seqrepo
 
   seqrepo:
     image: biocommons/seqrepo:2024-12-20

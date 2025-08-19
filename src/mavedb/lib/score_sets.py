@@ -72,7 +72,7 @@ class HGVSColumns:
 
 
 def search_score_sets(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
-    save_to_logging_context({"score_set_search_criteria": search.dict()})
+    save_to_logging_context({"score_set_search_criteria": search.model_dump()})
 
     query = db.query(ScoreSet)  # \
     # .filter(ScoreSet.private.is_(False))

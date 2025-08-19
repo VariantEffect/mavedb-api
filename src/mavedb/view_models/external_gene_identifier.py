@@ -1,8 +1,11 @@
 from typing import Optional
+from typing_extensions import Self
+
+from pydantic import field_validator, model_validator
 
 from mavedb.lib.validation import identifier as identifier_validator
 from mavedb.view_models import record_type_validator, set_record_type
-from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models.base.base import BaseModel
 
 
 class ExternalGeneIdentifierBase(BaseModel):
@@ -11,32 +14,28 @@ class ExternalGeneIdentifierBase(BaseModel):
 
 
 class ExternalGeneIdentifierCreate(ExternalGeneIdentifierBase):
-    @validator("db_name")
-    def validate_db_name(cls, value):
+    @field_validator("db_name")
+    def validate_db_name(cls, value: str) -> str:
         identifier_validator.validate_db_name(value)
         return value
 
-    @validator("identifier")
-    def validate_identifier(cls, field_value, values, field, config):
-        # if db_name is none, values["db_name"] will raise an error.
-        if "db_name" in values.keys():
-            db_name = values["db_name"]
-            # field_value is identifier
-            identifier_validator.validate_identifier(db_name, field_value)
-        return field_value
+    @model_validator(mode="after")
+    def validate_identifier(self) -> Self:
+        identifier_validator.validate_identifier(self.db_name, self.identifier)
+        return self
 
 
 # Properties shared by models stored in DB
 class SavedExternalGeneIdentifier(ExternalGeneIdentifierBase):
     record_type: str = None  # type: ignore
-    db_version: Optional[str]
-    url: Optional[str]
-    reference_html: Optional[str]
+    db_version: Optional[str] = None
+    url: Optional[str] = None
+    reference_html: Optional[str] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Properties to return to non-admin clients

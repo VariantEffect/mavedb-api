@@ -76,6 +76,7 @@ class ScoreSet(Base):
 
     id = Column(Integer, primary_key=True)
 
+    # TODO(#372)
     urn = Column(String(64), default=generate_temp_urn, index=True, nullable=True, unique=True)
     title = Column(String, nullable=False)
     method_text = Column(String, nullable=False)
@@ -182,7 +183,6 @@ class ScoreSet(Base):
 
     target_genes: Mapped[List["TargetGene"]] = relationship(back_populates="score_set", cascade="all, delete-orphan")
     score_ranges = Column(JSONB, nullable=True)
-    score_calibrations = Column(JSONB, nullable=True)
 
     collections: Mapped[list["Collection"]] = relationship(
         "Collection",

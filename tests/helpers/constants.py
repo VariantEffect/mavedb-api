@@ -17,7 +17,9 @@ TEST_MEDRXIV_IDENTIFIER = "2021.06.22.21259265"
 TEST_CROSSREF_IDENTIFIER = "10.1371/2021.06.22.21259265"
 TEST_ORCID_ID = "1111-1111-1111-1111"
 
-TEST_GA4GH_IDENTIFIER = "ga4gh:SQ.test"
+GA4GH_SEQUENCE_DIGEST = "SQ.TestTestTestTestTestTestTestTest"
+# "^ga4gh:([^.]+)\.([0-9A-Za-z_\-]{32})$"
+TEST_GA4GH_IDENTIFIER = f"ga4gh:{GA4GH_SEQUENCE_DIGEST}"
 # ^[0-9A-Za-z_\-]{32}$
 TEST_GA4GH_DIGEST = "ga4ghtest_ga4ghtest_ga4ghtest_dg"
 # ^SQ.[0-9A-Za-z_\-]{32}$
@@ -26,15 +28,99 @@ TEST_SEQUENCE_LOCATION_ACCESSION = "ga4gh:SL.test"
 
 TEST_REFSEQ_IDENTIFIER = "NM_003345"
 TEST_HGVS_IDENTIFIER = f"{TEST_REFSEQ_IDENTIFIER}:p.Asp5Phe"
+TEST_UNIPROT_IDENTIFIER = "P63279"
+TEST_ENSEMBL_IDENTIFIER = "ENSG00000103275"
 
+TEST_REFSEQ_EXTERNAL_IDENTIFIER = {"identifier": TEST_REFSEQ_IDENTIFIER, "db_name": "RefSeq"}
+TEST_UNIPROT_EXTERNAL_IDENTIFIER = {"identifier": TEST_UNIPROT_IDENTIFIER, "db_name": "Uniprot"}
+TEST_ENSEMBLE_EXTERNAL_IDENTIFIER = {"identifier": TEST_ENSEMBL_IDENTIFIER, "db_name": "Ensembl"}
+
+VALID_CHR_ACCESSION = "NC_000001.11"
 VALID_ACCESSION = "NM_001637.3"
 VALID_NT_ACCESSION = "NM_001637.3"
 VALID_PRO_ACCESSION = "NP_001637.4"
 VALID_GENE = "BRCA1"
+VALID_UNIPROT_ACCESSION = "P05067"
+
+VALID_ENSEMBL_IDENTIFIER = "ENST00000530893.6"
 
 VALID_CLINGEN_PA_ID = "PA2579908752"
 VALID_CLINGEN_CA_ID = "CA341478553"
 VALID_CLINGEN_LDH_ID = "2786738861"
+
+VALID_MD5_DIGEST = "01234abcde%"
+VALID_VMC_DIGEST = "GS_ASNKvN4=%"
+
+TEST_SEQREPO_INITIAL_STATE = [
+    {f"refseq:{VALID_ACCESSION}": {"seq_id": "seq1", "seq": "AAAA", "namespace": "refseq", "alias": VALID_ACCESSION}},
+    {f"MD5:{VALID_MD5_DIGEST}": {"seq_id": "seq2", "seq": "CCCC", "namespace": "MD5", "alias": VALID_MD5_DIGEST}},
+    {
+        f"ensembl:{VALID_ENSEMBL_IDENTIFIER}": {
+            "seq_id": "seq3",
+            "seq": "GGGG",
+            "namespace": "ensembl",
+            "alias": VALID_ENSEMBL_IDENTIFIER,
+        }
+    },
+    {
+        f"ga4gh:{GA4GH_SEQUENCE_DIGEST}": {
+            "seq_id": "seq4",
+            "seq": "EEEE",
+            "namespace": "ga4gh",
+            "alias": GA4GH_SEQUENCE_DIGEST,
+        }
+    },
+]
+
+TEST_VALID_PRE_MAPPED_VRS_ALLELE = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "V"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 2,
+        "type": "SequenceLocation",
+        "start": 1,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "W"}],
+}
+
+TEST_VALID_POST_MAPPED_VRS_ALLELE = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "F"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 6,
+        "type": "SequenceLocation",
+        "start": 5,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "label": TEST_REFSEQ_IDENTIFIER,
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "D"}],
+    "expressions": [{"value": f"{TEST_REFSEQ_IDENTIFIER}:p.Asp5Phe", "syntax": "hgvs.p"}],
+}
+
+TEST_VALID_PRE_MAPPED_VRS_HAPLOTYPE = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_PRE_MAPPED_VRS_ALLELE, TEST_VALID_PRE_MAPPED_VRS_ALLELE],
+}
+
+TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE = {
+    "type": "Haplotype",
+    "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE, TEST_VALID_POST_MAPPED_VRS_ALLELE],
+}
 
 SAVED_PUBMED_PUBLICATION = {
     "recordType": "PublicationIdentifier",
@@ -141,7 +227,7 @@ TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X = {
         },
     },
     "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "D"}],
-    "expressions": [{"value": TEST_HGVS_IDENTIFIER, "syntax": "hgvs.p"}],
+    "expressions": [{"value": TEST_HGVS_IDENTIFIER, "syntax": "hgvs.p", "type": "Expression", "syntax_version": None}],
 }
 
 # VRS 1.X
@@ -195,7 +281,7 @@ CONTRIBUTOR = {
 }
 
 SAVED_CONTRIBUTOR = {
-    "recordType": "Contributor",
+    "recordType": "SavedContributor",
     "orcidId": TEST_USER["username"],
     "givenName": TEST_USER["first_name"],
     "familyName": TEST_USER["last_name"],
@@ -336,6 +422,16 @@ TEST_KEYWORDS = [
     },
 ]
 
+TEST_EXPERIMENT_SET = {
+    "extra_metadata": {},
+    "approved": False,
+}
+
+TEST_MINIMAL_EXPERIMENT_SET = {
+    "extraMetadata": {},
+    "approved": False,
+}
+
 TEST_EXPERIMENT_WITH_KEYWORD = {
     "title": "Test Experiment Title",
     "shortDescription": "Test experiment",
@@ -347,6 +443,14 @@ TEST_EXPERIMENT_WITH_KEYWORD = {
             "description": "Details of delivery method",
         },
     ],
+}
+
+TEST_EXPERIMENT = {
+    "title": "Test Experiment Title",
+    "short_description": "Test experiment",
+    "abstract_text": "Abstract",
+    "method_text": "Methods",
+    "extra_metadata": {},
 }
 
 TEST_MINIMAL_EXPERIMENT = {
@@ -480,15 +584,23 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
     "numScoreSets": 0,  # NOTE: This is context-dependent and may need overriding per test
 }
 
-TEST_TAXONOMY = {
-    "id": 1,
+TEST_MINIMAL_TAXONOMY = {
     "tax_id": 9606,
+}
+
+TEST_POPULATED_TAXONOMY = {
+    **TEST_MINIMAL_TAXONOMY,
     "organism_name": "Organism name",
     "common_name": "Common name",
     "rank": "Rank",
     "has_described_species_name": True,
     "article_reference": "NCBI:txid9606",
     "genome_identifier_id": None,
+}
+
+TEST_SAVED_TAXONOMY = {
+    **TEST_POPULATED_TAXONOMY,
+    "id": 1,
     "url": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id=9606",
 }
 
@@ -557,6 +669,7 @@ TEST_SEQ_SCORESET = {
     "short_description": "Test score set",
     "abstract_text": "Abstract",
     "method_text": "Methods",
+    "extra_metadata": {},
     "target_genes": [
         {
             "name": "TEST1",
@@ -565,12 +678,12 @@ TEST_SEQ_SCORESET = {
                 "sequence_type": "dna",
                 "sequence": "ACGTTT",
                 "taxonomy": {
-                    "tax_id": TEST_TAXONOMY["tax_id"],
-                    "organism_name": TEST_TAXONOMY["organism_name"],
-                    "common_name": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "tax_id": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organism_name": TEST_SAVED_TAXONOMY["organism_name"],
+                    "common_name": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         }
@@ -592,14 +705,14 @@ TEST_MINIMAL_SEQ_SCORESET = {
                 "sequenceType": "dna",
                 "sequence": "ACGTTT",
                 "taxonomy": {
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         }
@@ -645,14 +758,14 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
                 "label": "TEST1",
                 "taxonomy": {
                     "recordType": "Taxonomy",
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         }
@@ -803,14 +916,14 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET = {
                 "sequence": "ACGTTT",
                 "label": "TEST3",
                 "taxonomy": {
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         },
@@ -823,14 +936,14 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET = {
                 "sequence": "TAATGCC",
                 "label": "TEST4",
                 "taxonomy": {
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         },
@@ -876,14 +989,14 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
                 "label": "TEST3",
                 "taxonomy": {
                     "recordType": "Taxonomy",
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         },
@@ -900,14 +1013,14 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
                 "label": "TEST4",
                 "taxonomy": {
                     "recordType": "Taxonomy",
-                    "taxId": TEST_TAXONOMY["tax_id"],
-                    "organismName": TEST_TAXONOMY["organism_name"],
-                    "commonName": TEST_TAXONOMY["common_name"],
-                    "rank": TEST_TAXONOMY["rank"],
-                    "hasDescribedSpeciesName": TEST_TAXONOMY["has_described_species_name"],
-                    "articleReference": TEST_TAXONOMY["article_reference"],
-                    "id": TEST_TAXONOMY["id"],
-                    "url": TEST_TAXONOMY["url"],
+                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                    "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                    "rank": TEST_SAVED_TAXONOMY["rank"],
+                    "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                    "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                    "id": TEST_SAVED_TAXONOMY["id"],
+                    "url": TEST_SAVED_TAXONOMY["url"],
                 },
             },
         },
@@ -1009,9 +1122,14 @@ TEST_SEQ_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
                 "mapped_reference_sequence": {
                     "sequence_type": "dna",
                     "sequence_id": "ga4gh:SQ.map_test",
-                    "sequence_accessions": ["NC_000001.11"],
+                    "sequence_accessions": [VALID_CHR_ACCESSION],
                 },
-            }
+            },
+            "c": {
+                "mapped_reference_sequence": {
+                    "sequence_accessions": [VALID_NT_ACCESSION],
+                },
+            },
         }
     },
     "mapped_scores": [],
@@ -1033,9 +1151,14 @@ TEST_ACC_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
                 "mapped_reference_sequence": {
                     "sequence_type": "dna",
                     "sequence_id": "ga4gh:SQ.map_test",
-                    "sequence_accessions": ["NC_000001.11"],
+                    "sequence_accessions": [VALID_CHR_ACCESSION],
                 },
-            }
+            },
+            "c": {
+                "mapped_reference_sequence": {
+                    "sequence_accessions": [VALID_NT_ACCESSION],
+                },
+            },
         }
     },
     "mapped_scores": [],
@@ -1057,9 +1180,14 @@ TEST_MULTI_TARGET_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
                 "mapped_reference_sequence": {
                     "sequence_type": "dna",
                     "sequence_id": "ga4gh:SQ.map_test",
-                    "sequence_accessions": ["NC_000001.11"],
+                    "sequence_accessions": [VALID_CHR_ACCESSION],
                 },
-            }
+            },
+            "c": {
+                "mapped_reference_sequence": {
+                    "sequence_accessions": [VALID_NT_ACCESSION],
+                },
+            },
         },
         "TEST4": {
             "g": {
@@ -1071,9 +1199,14 @@ TEST_MULTI_TARGET_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
                 "mapped_reference_sequence": {
                     "sequence_type": "dna",
                     "sequence_id": "ga4gh:SQ.map_test",
-                    "sequence_accessions": ["NC_000001.11"],
+                    "sequence_accessions": [VALID_CHR_ACCESSION],
                 },
-            }
+            },
+            "c": {
+                "mapped_reference_sequence": {
+                    "sequence_accessions": [VALID_NT_ACCESSION],
+                },
+            },
         },
     },
     "mapped_scores": [],
@@ -1082,15 +1215,30 @@ TEST_MULTI_TARGET_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
     "mapped_date_utc": datetime.isoformat(datetime.now()),
 }
 
+
+TEST_MINIMAL_VARIANT = {
+    "data": {
+        "count_data": {},
+        "score_data": {"sd": 0.100412839533719, "se": 0.0409933700802629, "score": 0.406972991738182},
+    },
+    "hgvs_nt": "c.[197A>G;472T>C]",
+    "creation_date": datetime.date(datetime.now()),
+    "modification_date": datetime.date(datetime.now()),
+}
+
+
 TEST_MINIMAL_MAPPED_VARIANT = {
     "pre_mapped": {},
     "post_mapped": {},
-    "modification_date": datetime.isoformat(datetime.now()),
-    "mapped_date": datetime.isoformat(datetime.now()),
+    "modification_date": datetime.date(datetime.now()),
+    "mapped_date": datetime.date(datetime.now()),
     "current": True,
     "vrs_version": "2.0",
     "mapping_api_version": "pytest.0.0",
 }
+
+
+TEST_MINIMAL_MAPPED_VARIANT_CREATE = {**TEST_MINIMAL_MAPPED_VARIANT, "clinical_controls": [], "gnomad_variants": []}
 
 TEST_POST_MAPPED_VRS_WITH_HGVS_G_EXPRESSION = {
     "id": "ga4gh:VA.fRW7u-kBQnAKitu1PoDMLvlECWZTHCos",
@@ -1150,7 +1298,7 @@ TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION = {
     "mapping_api_version": "pytest.0.0",
 }
 
-TEST_WT_SCORE = 1.0
+TEST_BASELINE_SCORE = 1.0
 
 
 TEST_BS3_ODDS_PATH = {
@@ -1181,7 +1329,9 @@ TEST_SAVED_PS3_ODDS_PATH = {
 TEST_SCORE_SET_NORMAL_RANGE = {
     "label": "test1",
     "classification": "normal",
-    "range": (0, 2.0),
+    "range": [0, 2.0],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
 }
 
 
@@ -1190,30 +1340,17 @@ TEST_SAVED_SCORE_SET_NORMAL_RANGE = {
     "label": "test1",
     "classification": "normal",
     "range": [0.0, 2.0],
-}
-
-
-TEST_SCORE_SET_NORMAL_RANGE_WITH_ODDS_PATH = {
-    "label": "test1",
-    "classification": "normal",
-    "range": (0, 2.0),
-    "odds_path": TEST_BS3_ODDS_PATH,
-}
-
-
-TEST_SAVED_SCORE_SET_NORMAL_RANGE_WITH_ODDS_PATH = {
-    "recordType": "ScoreRange",
-    "label": "test1",
-    "classification": "normal",
-    "range": [0.0, 2.0],
-    "oddsPath": TEST_SAVED_BS3_ODDS_PATH,
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
 }
 
 
 TEST_SCORE_SET_ABNORMAL_RANGE = {
     "label": "test2",
     "classification": "abnormal",
-    "range": (-2.0, 0),
+    "range": [-2.0, 0.0],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
 }
 
 
@@ -1222,99 +1359,550 @@ TEST_SAVED_SCORE_SET_ABNORMAL_RANGE = {
     "label": "test2",
     "classification": "abnormal",
     "range": [-2.0, 0.0],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
 }
 
 
-TEST_SCORE_SET_ABNORMAL_RANGE_WITH_ODDS_PATH = {
-    "label": "test2",
-    "classification": "abnormal",
-    "range": (-2.0, 0),
-    "odds_path": TEST_PS3_ODDS_PATH,
+TEST_SCORE_SET_NOT_SPECIFIED_RANGE = {
+    "label": "test3",
+    "classification": "not_specified",
+    "range": [-8.0, -2.0],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
 }
 
 
-TEST_SAVED_SCORE_SET_ABNORMAL_RANGE_WITH_ODDS_PATH = {
+TEST_SAVED_SCORE_SET_NOT_SPECIFIED_RANGE = {
     "recordType": "ScoreRange",
-    "label": "test2",
-    "classification": "abnormal",
-    "range": [-2.0, 0.0],
-    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
+    "label": "test3",
+    "classification": "not_specified",
+    "range": [-8.0, -2.0],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
 }
 
+
+TEST_SCORE_SET_NEGATIVE_INFINITY_RANGE = {
+    "label": "test4",
+    "classification": "not_specified",
+    "range": [None, 0.0],
+    "inclusive_lower_bound": False,
+    "inclusive_upper_bound": False,
+}
+
+
+TEST_SAVED_SCORE_SET_NEGATIVE_INFINITY_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test4",
+    "classification": "not_specified",
+    "range": [None, 0.0],
+    "inclusiveLowerBound": False,
+    "inclusiveUpperBound": False,
+}
+
+
+TEST_SCORE_SET_POSITIVE_INFINITY_RANGE = {
+    "label": "test5",
+    "classification": "not_specified",
+    "range": [0.0, None],
+    "inclusive_lower_bound": False,
+    "inclusive_upper_bound": False,
+}
+
+
+TEST_SAVED_SCORE_SET_POSITIVE_INFINITY_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test5",
+    "classification": "not_specified",
+    "range": [0.0, None],
+    "inclusiveLowerBound": False,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SAVED_SCORE_SET_NO_SUPPORTING_EVIDENCE_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "not_specified",
+    "range": [-0.5, 0.5],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_BS3_SUPPORTING_RANGE = {
+    "label": "test1",
+    "classification": "normal",
+    "range": [-1.5, -0.5],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "normal",
+    "range": [-1.5, -0.5],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_BS3_MODERATE_RANGE = {
+    "label": "test1",
+    "classification": "normal",
+    "range": [-3.5, -1.5],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_BS3_MODERATE_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "normal",
+    "range": [-3.5, -1.5],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_BS3_STRONG_RANGE = {
+    "label": "test1",
+    "classification": "normal",
+    "range": [-7.5, -3.5],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_BS3_STRONG_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "normal",
+    "range": [-7.5, -3.5],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_BS3_VERY_STRONG_RANGE = {
+    "label": "test1",
+    "classification": "normal",
+    "range": [None, -7.5],
+    "inclusive_lower_bound": False,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "normal",
+    "range": [None, -7.5],
+    "inclusiveLowerBound": False,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_PS3_SUPPORTING_RANGE = {
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [0.5, 1.5],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [0.5, 1.5],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_PS3_MODERATE_RANGE = {
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [1.5, 3.5],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_PS3_MODERATE_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [1.5, 3.5],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_PS3_STRONG_RANGE = {
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [3.5, 7.5],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_PS3_STRONG_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [3.5, 7.5],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
+
+TEST_SCORE_SET_PS3_VERY_STRONG_RANGE = {
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [7.5, None],
+    "inclusive_lower_bound": True,
+    "inclusive_upper_bound": False,
+}
+
+TEST_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE = {
+    "recordType": "ScoreRange",
+    "label": "test1",
+    "classification": "abnormal",
+    "range": [7.5, None],
+    "inclusiveLowerBound": True,
+    "inclusiveUpperBound": False,
+}
 
 TEST_SCORE_SET_RANGE = {
-    "wt_score": TEST_WT_SCORE,
+    "baseline_score": TEST_BASELINE_SCORE,
     "ranges": [
         TEST_SCORE_SET_NORMAL_RANGE,
         TEST_SCORE_SET_ABNORMAL_RANGE,
     ],
-    "odds_path_source": None,
+    "source": None,
 }
 
 
-TEST_SAVED_SCORE_SET_RANGE = {
-    "recordType": "ScoreSetRanges",
-    "wtScore": TEST_WT_SCORE,
-    "ranges": [TEST_SAVED_SCORE_SET_NORMAL_RANGE, TEST_SAVED_SCORE_SET_ABNORMAL_RANGE],
+TEST_SCORE_SET_RANGE_WITH_SOURCE = {
+    "baseline_score": TEST_BASELINE_SCORE,
+    "ranges": [
+        TEST_SCORE_SET_NORMAL_RANGE,
+        TEST_SCORE_SET_ABNORMAL_RANGE,
+    ],
+    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
 }
 
 
-TEST_SCORE_SET_RANGE_WITH_ODDS_PATH = {
-    "wt_score": TEST_WT_SCORE,
-    "ranges": [TEST_SCORE_SET_NORMAL_RANGE_WITH_ODDS_PATH, TEST_SCORE_SET_ABNORMAL_RANGE_WITH_ODDS_PATH],
-    "odds_path_source": None,
+TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE = {
+    **TEST_SCORE_SET_NORMAL_RANGE,
+    "odds_path": TEST_BS3_ODDS_PATH,
 }
 
 
-TEST_SAVED_SCORE_SET_RANGE_WITH_ODDS_PATH = {
-    "recordType": "ScoreSetRanges",
-    "wtScore": TEST_WT_SCORE,
-    "ranges": [TEST_SAVED_SCORE_SET_NORMAL_RANGE_WITH_ODDS_PATH, TEST_SAVED_SCORE_SET_ABNORMAL_RANGE_WITH_ODDS_PATH],
+TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE = {
+    **TEST_SAVED_SCORE_SET_NORMAL_RANGE,
+    "oddsPath": TEST_SAVED_BS3_ODDS_PATH,
+    "recordType": "InvestigatorScoreRange",
 }
 
 
-TEST_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE = {
-    "wt_score": TEST_WT_SCORE,
-    "ranges": [TEST_SCORE_SET_NORMAL_RANGE_WITH_ODDS_PATH, TEST_SCORE_SET_ABNORMAL_RANGE_WITH_ODDS_PATH],
+TEST_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE = {
+    **TEST_SCORE_SET_ABNORMAL_RANGE,
+    "odds_path": TEST_PS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE = {
+    **TEST_SAVED_SCORE_SET_ABNORMAL_RANGE,
+    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
+    "recordType": "InvestigatorScoreRange",
+}
+
+
+TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE = {
+    **TEST_SCORE_SET_NOT_SPECIFIED_RANGE,
+    "odds_path": TEST_PS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE = {
+    **TEST_SAVED_SCORE_SET_NOT_SPECIFIED_RANGE,
+    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
+    "recordType": "InvestigatorScoreRange",
+}
+
+
+TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE = {
+    "baseline_score": TEST_BASELINE_SCORE,
+    "ranges": [
+        TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE,
+        TEST_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE,
+        TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE,
+    ],
     "odds_path_source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+    "source": None,
 }
 
 
-TEST_SAVED_SCORE_SET_RANGE_WITH_ODDS_PATH_AND_SOURCE = {
-    "recordType": "ScoreSetRanges",
-    "wtScore": TEST_WT_SCORE,
-    "ranges": [TEST_SAVED_SCORE_SET_NORMAL_RANGE_WITH_ODDS_PATH, TEST_SAVED_SCORE_SET_ABNORMAL_RANGE_WITH_ODDS_PATH],
+TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE = {
+    "recordType": "InvestigatorScoreRanges",
+    "baselineScore": TEST_BASELINE_SCORE,
+    "ranges": [
+        TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE,
+        TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE,
+        TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE,
+    ],
     "oddsPathSource": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+    "source": None,
 }
 
 
-TEST_SCORE_CALIBRATION = {
-    "parameter_sets": [
-        {
-            "functionally_altering": {"skew": 1.15, "location": -2.20, "scale": 1.20},
-            "functionally_normal": {"skew": -1.5, "location": 2.25, "scale": 0.8},
-            "fraction_functionally_altering": 0.20,
-        },
+TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE = {
+    **TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE,
+    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+}
+
+
+TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE = {
+    **TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE,
+    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+}
+
+
+# no camel casing required, and no need for a 'recordType' key
+TEST_PILLAR_PROJECT_FUNCTIONALY_ALTERING_PARAMETERS = TEST_SAVED_PILLAR_PROJECT_FUNCTIONALY_ALTERING_PARAMETERS = {
+    "skew": 1.15,
+    "location": -2.20,
+    "scale": 1.20,
+}
+
+
+# no camel casing required, and no need for a 'recordType' key
+TEST_PILLAR_PROJECT_FUNCTIONALY_NORMAL_PARAMETERS = TEST_SAVED_PILLAR_PROJECT_FUNCTIONALY_NORMAL_PARAMETERS = {
+    "skew": -1.5,
+    "location": 2.25,
+    "scale": 0.8,
+}
+
+
+TEST_PILLAR_PROJECT_PARAMETER_SETS = [
+    {
+        "functionally_altering": TEST_PILLAR_PROJECT_FUNCTIONALY_ALTERING_PARAMETERS,
+        "functionally_normal": TEST_PILLAR_PROJECT_FUNCTIONALY_NORMAL_PARAMETERS,
+        "fraction_functionally_altering": 0.20,
+    }
+]
+
+
+TEST_SAVED_PILLAR_PROJECT_PARAMETER_SETS = [
+    {
+        "functionallyAltering": TEST_SAVED_PILLAR_PROJECT_FUNCTIONALY_ALTERING_PARAMETERS,
+        "functionallyNormal": TEST_SAVED_PILLAR_PROJECT_FUNCTIONALY_NORMAL_PARAMETERS,
+        "fractionFunctionallyAltering": 0.20,
+    }
+]
+
+
+TEST_PILLAR_PROJECT_SCORE_SET_BS3_SUPPORTING_RANGE = {
+    **TEST_SCORE_SET_BS3_SUPPORTING_RANGE,
+    "positive_likelihood_ratio": 100.0,
+    "evidence_strength": -1,
+    "label": "BS3_SUPPORTING",
+}
+
+
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE = {
+    **TEST_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE,
+    "recordType": "PillarProjectScoreRange",
+    "label": "BS3_SUPPORTING",
+    "evidenceStrength": -1,
+    "positiveLikelihoodRatio": 100.0,
+}
+
+TEST_PILLAR_PROJECT_SCORE_SET_PS3_SUPPORTING_RANGE = {
+    **TEST_SCORE_SET_PS3_SUPPORTING_RANGE,
+    "positive_likelihood_ratio": 10.0,
+    "evidence_strength": 1,
+    "label": "PS3_SUPPORTING",
+}
+
+
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE = {
+    **TEST_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE,
+    "recordType": "PillarProjectScoreRange",
+    "label": "PS3_SUPPORTING",
+    "positiveLikelihoodRatio": 10.0,
+    "evidenceStrength": 1,
+}
+
+
+TEST_PILLAR_PROJECT_SCORE_SET_BS3_MODERATE_RANGE = {
+    **TEST_SCORE_SET_BS3_MODERATE_RANGE,
+    "positive_likelihood_ratio": 100.0,
+    "evidence_strength": -2,
+    "label": "BS3_MODERATE",
+}
+
+
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_MODERATE_RANGE = {
+    **TEST_SAVED_SCORE_SET_BS3_MODERATE_RANGE,
+    "recordType": "PillarProjectScoreRange",
+    "label": "BS3_MODERATE",
+    "evidenceStrength": -2,
+    "positiveLikelihoodRatio": 100.0,
+}
+
+TEST_PILLAR_PROJECT_SCORE_SET_PS3_MODERATE_RANGE = {
+    **TEST_SCORE_SET_PS3_MODERATE_RANGE,
+    "positive_likelihood_ratio": 10.0,
+    "evidence_strength": 2,
+    "label": "PS3_MODERATE",
+}
+
+
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_MODERATE_RANGE = {
+    **TEST_SAVED_SCORE_SET_PS3_MODERATE_RANGE,
+    "recordType": "PillarProjectScoreRange",
+    "label": "PS3_MODERATE",
+    "positiveLikelihoodRatio": 10.0,
+    "evidenceStrength": 2,
+}
+
+
+TEST_PILLAR_PROJECT_SCORE_SET_BS3_STRONG_RANGE = {
+    **TEST_SCORE_SET_BS3_STRONG_RANGE,
+    "positive_likelihood_ratio": 100.0,
+    "evidence_strength": -4,
+    "label": "BS3_STRONG",
+}
+
+
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_STRONG_RANGE = {
+    **TEST_SAVED_SCORE_SET_BS3_STRONG_RANGE,
+    "recordType": "PillarProjectScoreRange",
+    "label": "BS3_STRONG",
+    "evidenceStrength": -4,
+    "positiveLikelihoodRatio": 100.0,
+}
+
+TEST_PILLAR_PROJECT_SCORE_SET_PS3_STRONG_RANGE = {
+    **TEST_SCORE_SET_PS3_STRONG_RANGE,
+    "positive_likelihood_ratio": 10.0,
+    "evidence_strength": 4,
+    "label": "PS3_STRONG",
+}
+
+
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_STRONG_RANGE = {
+    **TEST_SAVED_SCORE_SET_PS3_STRONG_RANGE,
+    "recordType": "PillarProjectScoreRange",
+    "label": "PS3_STRONG",
+    "positiveLikelihoodRatio": 10.0,
+    "evidenceStrength": 4,
+}
+
+
+TEST_PILLAR_PROJECT_SCORE_SET_BS3_VERY_STRONG_RANGE = {
+    **TEST_SCORE_SET_BS3_VERY_STRONG_RANGE,
+    "positive_likelihood_ratio": 100.0,
+    "evidence_strength": -8,
+    "label": "BS3_VERY_STRONG",
+}
+
+
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE = {
+    **TEST_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE,
+    "recordType": "PillarProjectScoreRange",
+    "label": "BS3_VERY_STRONG",
+    "evidenceStrength": -8,
+    "positiveLikelihoodRatio": 100.0,
+}
+
+TEST_PILLAR_PROJECT_SCORE_SET_PS3_VERY_STRONG_RANGE = {
+    **TEST_SCORE_SET_PS3_VERY_STRONG_RANGE,
+    "positive_likelihood_ratio": 10.0,
+    "evidence_strength": 8,
+    "label": "PS3_VERY_STRONG",
+}
+
+
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE = {
+    **TEST_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE,
+    "recordType": "PillarProjectScoreRange",
+    "label": "PS3_VERY_STRONG",
+    "positiveLikelihoodRatio": 10.0,
+    "evidenceStrength": 8,
+}
+
+
+TEST_PILLAR_PROJECT_SCORE_SET_RANGE = {
+    "ranges": [
+        TEST_PILLAR_PROJECT_SCORE_SET_BS3_SUPPORTING_RANGE,
+        TEST_PILLAR_PROJECT_SCORE_SET_BS3_MODERATE_RANGE,
+        TEST_PILLAR_PROJECT_SCORE_SET_BS3_STRONG_RANGE,
+        TEST_PILLAR_PROJECT_SCORE_SET_BS3_VERY_STRONG_RANGE,
+        TEST_PILLAR_PROJECT_SCORE_SET_PS3_SUPPORTING_RANGE,
+        TEST_PILLAR_PROJECT_SCORE_SET_PS3_MODERATE_RANGE,
+        TEST_PILLAR_PROJECT_SCORE_SET_PS3_STRONG_RANGE,
+        TEST_PILLAR_PROJECT_SCORE_SET_PS3_VERY_STRONG_RANGE,
     ],
-    "evidence_strengths": [3, 2, 1, -1],
-    "thresholds": [1.25, 2.5, 3, 5.5],
-    "positive_likelihood_ratios": [100, 10, 1, 0.1],
+    "parameter_sets": TEST_PILLAR_PROJECT_PARAMETER_SETS,
     "prior_probability_pathogenicity": 0.20,
+    "source": None,
 }
 
 
-TEST_SAVED_SCORE_CALIBRATION = {
-    "parameterSets": [
-        {
-            "functionallyAltering": {"skew": 1.15, "location": -2.20, "scale": 1.20},
-            "functionallyNormal": {"skew": -1.5, "location": 2.25, "scale": 0.8},
-            "fractionFunctionallyAltering": 0.20,
-        },
+TEST_PILLAR_PROJECT_SAVED_SCORE_SET_RANGE = {
+    "recordType": "PillarProjectScoreRanges",
+    "ranges": [
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE,
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_MODERATE_RANGE,
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_STRONG_RANGE,
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE,
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE,
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_MODERATE_RANGE,
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_STRONG_RANGE,
+        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE,
     ],
-    "evidenceStrengths": [3, 2, 1, -1],
-    "thresholds": [1.25, 2.5, 3, 5.5],
-    "positiveLikelihoodRatios": [100, 10, 1, 0.1],
+    "parameterSets": TEST_SAVED_PILLAR_PROJECT_PARAMETER_SETS,
     "priorProbabilityPathogenicity": 0.20,
+}
+
+TEST_PILLAR_PROJECT_SCORE_SET_RANGE_WITH_SOURCE = {
+    **TEST_PILLAR_PROJECT_SCORE_SET_RANGE,
+    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+}
+
+
+TEST_SAVED_PILLAR_PROJECT_SCORE_SET_RANGE_WITH_SOURCE = {
+    **TEST_PILLAR_PROJECT_SAVED_SCORE_SET_RANGE,
+    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+}
+
+
+TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED = {
+    "investigator_provided": TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE,
+}
+
+
+TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED = {
+    "recordType": "ScoreSetRanges",
+    "investigatorProvided": TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE,
+}
+
+
+TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT = {
+    "pillar_project": TEST_PILLAR_PROJECT_SCORE_SET_RANGE_WITH_SOURCE,
+}
+
+
+TEST_SAVED_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT = {
+    "recordType": "ScoreSetRanges",
+    "pillarProject": TEST_SAVED_PILLAR_PROJECT_SCORE_SET_RANGE_WITH_SOURCE,
+}
+
+
+TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT = {
+    **TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+    **TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+}
+
+
+TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT = {
+    **TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+    **TEST_SAVED_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
 }
 
 
@@ -1598,4 +2186,214 @@ TEST_CLINGEN_ALLELE_OBJECT = {
         },
     ],
     "type": "nucleotide",
+}
+
+
+TEST_UNIPROT_SWISS_PROT_TYPE = "UniProtKB reviewed (Swiss-Prot)"
+TEST_UNIPROT_TREMBL_TYPE = "UniProtKB unreviewed (TrEMBL)"
+TEST_UNIPROT_JOB_ID = "1234567890"
+
+TEST_UNIPROT_JOB_SUBMISSION_RESPONSE = {
+    "jobId": TEST_UNIPROT_JOB_ID,
+    "message": "Job submitted successfully",
+}
+
+TEST_UNIPROT_JOB_SUBMISSION_ERROR_RESPONSE = {
+    "url": "http://rest.uniprot.org/idmapping/run",
+    "messages": [
+        "The parameter 'from' has an invalid value '{0}'.",
+        "'to' is a required parameter",
+        "'ids' is a required parameter",
+        "The parameter 'to' has an invalid value '{0}'.",
+        "'from' is a required parameter",
+        "The combination of 'from={0}' and 'to={1}' parameters is invalid",
+    ],
+}
+
+
+TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE = {
+    "results": [
+        {
+            "from": f"{VALID_NT_ACCESSION}",
+            "to": {"primaryAccession": f"{VALID_UNIPROT_ACCESSION}", "entryType": TEST_UNIPROT_SWISS_PROT_TYPE},
+        },
+    ]
+}
+
+
+TEST_UNIPROT_ID_MAPPING_TREMBL_RESPONSE = {
+    "results": [
+        {
+            "from": f"{VALID_NT_ACCESSION}",
+            "to": {"primaryAccession": f"{VALID_UNIPROT_ACCESSION}", "entryType": TEST_UNIPROT_TREMBL_TYPE},
+        },
+    ]
+}
+
+
+TEST_UNIPROT_ID_MAPPING_COMBINED_RESPONSE = {
+    "results": [
+        TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE["results"][0],
+        TEST_UNIPROT_ID_MAPPING_TREMBL_RESPONSE["results"][0],
+    ]
+}
+
+TEST_UNIPROT_ID_FAILED_ID_MAPPING_RESPONSE = {"failedIds": [VALID_NT_ACCESSION]}
+
+
+TEST_UNIPROT_FINISHED_JOB_STATUS_RESPONSE = {
+    "jobStatus": "FINISHED",
+    "warnings": [{"code": 0, "message": "string"}],
+    "errors": [{"code": 0, "message": "string"}],
+    "start": datetime.now().isoformat(),
+    "totalEntries": 1,
+    "processedEntries": 1,
+    "lastUpdated": datetime.now().isoformat(),
+}
+
+
+TEST_UNIPROT_RUNNING_JOB_STATUS_RESPONSE = {
+    "jobStatus": "RUNNING",
+    "warnings": [{"code": 0, "message": "string"}],
+    "errors": [{"code": 0, "message": "string"}],
+    "start": datetime.now().isoformat(),
+    "totalEntries": 21,
+    "processedEntries": 12,
+    "lastUpdated": datetime.now().isoformat(),
+}
+
+
+TEST_UNIPROT_REDIRECT_RESPONSE = {
+    "from": "Refseq_pro",
+    "to": "UniProtKB",
+    "ids": [VALID_NT_ACCESSION],
+    "taxId": "homo sapiens",
+    "redirectURL": "https://redirect.url",
+    "warnings": [{"code": 0, "message": "string"}],
+    "errors": [{"code": 0, "message": "string"}],
+}
+
+TEST_GNOMAD_LOCUS_CONTIG = "chr10"
+TEST_GNOMAD_LOCUS_POSITION = "87961093"
+TEST_GNOMAD_ALLELES = '"[A, G]"'
+TEST_GNOMAD_DATA_VERSION = "v1.pytest"
+TEST_GNOMAD_ALLELE_COUNT = "3"
+TEST_GNOMAD_ALLELE_NUMBER = "1613510"
+TEST_GNOMAD_ALLELE_FREQUENCY = float(float(TEST_GNOMAD_ALLELE_COUNT) / float(TEST_GNOMAD_ALLELE_NUMBER))
+TEST_GNOMAD_FAF95_MAX = "6.800000000000001e-07"
+TEST_GNOMAD_FAF95_MAX_ANCESTRY = "nfe"
+
+
+TEST_MAVEDB_ATHENA_ROW = {
+    "locus.contig": TEST_GNOMAD_LOCUS_CONTIG,
+    "locus.position": TEST_GNOMAD_LOCUS_POSITION,
+    "alleles": TEST_GNOMAD_ALLELES,
+    "caid": VALID_CLINGEN_CA_ID,
+    "joint.freq.all.ac": TEST_GNOMAD_ALLELE_COUNT,
+    "joint.freq.all.an": TEST_GNOMAD_ALLELE_NUMBER,
+    "joint.fafmax.faf95_max_gen_anc": TEST_GNOMAD_FAF95_MAX_ANCESTRY,
+    "joint.fafmax.faf95_max": TEST_GNOMAD_FAF95_MAX,
+}
+
+TEST_GNOMAD_VARIANT = {
+    "db_name": "gnomAD",
+    "db_identifier": f"10-{TEST_GNOMAD_LOCUS_POSITION}-A-G",
+    "db_version": TEST_GNOMAD_DATA_VERSION,
+    "allele_count": int(TEST_GNOMAD_ALLELE_COUNT),
+    "allele_number": int(TEST_GNOMAD_ALLELE_NUMBER),
+    "allele_frequency": TEST_GNOMAD_ALLELE_FREQUENCY,
+    "faf95_max": float(TEST_GNOMAD_FAF95_MAX),
+    "faf95_max_ancestry": TEST_GNOMAD_FAF95_MAX_ANCESTRY,
+    "creation_date": date.today().isoformat(),
+    "modification_date": date.today().isoformat(),
+}
+
+TEST_SAVED_GNOMAD_VARIANT = {
+    "dbName": "gnomAD",
+    "dbIdentifier": f"10-{TEST_GNOMAD_LOCUS_POSITION}-A-G",
+    "dbVersion": TEST_GNOMAD_DATA_VERSION,
+    "alleleCount": int(TEST_GNOMAD_ALLELE_COUNT),
+    "alleleNumber": int(TEST_GNOMAD_ALLELE_NUMBER),
+    "alleleFrequency": TEST_GNOMAD_ALLELE_FREQUENCY,
+    "faf95Max": float(TEST_GNOMAD_FAF95_MAX),
+    "faf95MaxAncestry": TEST_GNOMAD_FAF95_MAX_ANCESTRY,
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
+    "recordType": "GnomADVariantWithMappedVariants",
+    "id": 1,  # Presuming this is the only gnomAD variant in the database
+}
+
+
+SEQUENCE = (
+    "ATGAGTATTCAACATTTCCGTGTCGCCCTTATTCCCTTTTTTGCGGCATTTTGCCTTCCTGTTTTTGCTCACCCAGAAACGCTGGTGAAAGTAAAAGATGCT"
+    "GAAGATCAGTTGGGTGCACGAGTGGGTTACATCGAACTGGATCTCAACAGCGGTAAGATCCTTGAGAGTTTTCGCCCCGAAGAACGTTTTCCAATGATGAGCACTTTTAAAGTTCT"
+    "GCTATGTGGCGCGGTATTATCCCGTGTTGACGCCGGGCAAGAGCAACTCGGTCGCCGCATACACTATTCTCAGAATGACTTGGTTGAGTACTCACCAGTCACAGAAAAGCATCTTA"
+    "CGGATGGCATGACAGTAAGAGAATTATGCAGTGCTGCCATAACCATGAGTGATAACACTGCGGCCAACTTACTTCTGACAACGATCGGAGGACCGAAGGAGCTAACCGCTTTTTTG"
+    "CACAACATGGGGGATCATGTAACTCGCCTTGATCGTTGGGAACCGGAGCTGAATGAAGCCATACCAAACGACGAGCGTGACACCACGATGCCTGCAGCAATGGCAACAACGTTGCG"
+    "CAAACTATTAACTGGCGAACTACTTACTCTAGCTTCCCGGCAACAATTAATAGACTGGATGGAGGCGGATAAAGTTGCAGGACCACTTCTGCGCTCGGCCCTTCCGGCTGGCTGGT"
+    "TTATTGCTGATAAATCTGGAGCCGGTGAGCGTGGGTCTCGCGGTATCATTGCAGCACTGGGGCCAGATGGTAAGCCCTCCCGTATCGTAGTTATCTACACGACGGGGAGTCAGGCA"
+    "ACTATGGATGAACGAAATAGACAGATCGCTGAGATAGGTGCCTCACTGATTAAGCATTGGTAA"
+)
+
+
+TEST_MINIMAL_ORCID_AUTH_TOKEN_REQUEST = {
+    "code": "xxx.test.xxx",
+    "redirect_uri": "https://www.fake.orcid.org/redirect_uri",
+}
+
+
+TEST_MINIMAL_ORCID_AUTH_TOKEN_RESPONSE = {
+    "access_token": "yyy.test.yyy",
+    "expires_in": 30,
+    "id_token": "zzz.test.zzz",
+    "token_type": "bearer",
+}
+
+TEST_MINIMAL_ORCID_USER = {"orcid_id": TEST_ORCID_ID}
+
+TEST_MINIMAL_RAW_READ_IDENTIFIER = {"identifier": "test_raw_read"}
+
+TEST_SAVED_MINIMAL_RAW_READ_IDENTIFIER = {
+    **TEST_MINIMAL_RAW_READ_IDENTIFIER,
+    "id": 1,
+    "url": "https://www.test.rawreadidentifiers.org",
+}
+
+TEST_POPULATED_EXPERIMENT_SEARCH = {
+    "published": True,
+    "authors": ["last-name"],
+    "databases": ["uniprot"],
+    "journals": ["biomed"],
+    "publication_identifiers": ["12345678"],
+    "keywords": ["keyword"],
+    "text": "testtesttest",
+}
+
+TEST_POPULATED_SCORE_SET_SEARCH = {
+    "published": True,
+    "targets": ["BRCA1"],
+    "target_organism_names": ["homo sapiens"],
+    "target_types": ["protein_coding"],
+    "target_accessions": ["NC_12345.1"],
+    "authors": ["last-name"],
+    "databases": ["uniprot"],
+    "journals": ["biomed"],
+    "publication_identifiers": ["12345678"],
+    "keywords": ["keyword"],
+    "text": "testtesttest",
+}
+
+TEST_POPULATED_TEXT_SEARCH = {"text": "testtesttest"}
+
+TEST_POPULATED_VARIANT = {
+    **TEST_MINIMAL_VARIANT,
+    "urn": f"{VALID_SCORE_SET_URN}#1",
+    "hgvs_nt": "c.1A>T",
+    "hgvs_pro": "p.1M>T",
+    "hgvs_splice": "c.1A>T",
+}
+
+TEST_SAVED_VARIANT = {
+    **TEST_POPULATED_VARIANT,
+    "id": 1,
 }

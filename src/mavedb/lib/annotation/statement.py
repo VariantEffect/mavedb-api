@@ -1,0 +1,58 @@
+from typing import Union
+from ga4gh.core.models import MappableConcept
+from ga4gh.va_spec.base.core import (
+    Direction,
+    ExperimentalVariantFunctionalImpactProposition,
+    Statement,
+    StudyResult,
+    EvidenceLineType,
+    StatementType,
+    iriReference,
+)
+from ga4gh.core.models import Coding
+from mavedb.models.mapped_variant import MappedVariant
+from mavedb.lib.annotation.method import variant_interpretation_functional_guideline_method
+from mavedb.lib.annotation.classification import (
+    functional_classification_of_variant,
+    ExperimentalVariantFunctionalImpactClassification,
+)
+from mavedb.lib.annotation.contribution import (
+    mavedb_api_contribution,
+    mavedb_vrs_contribution,
+    mavedb_creator_contribution,
+    mavedb_modifier_contribution,
+)
+
+
+def mapped_variant_to_functional_statement(
+    mapped_variant: MappedVariant,
+    proposition: ExperimentalVariantFunctionalImpactProposition,
+    evidence: list[Union[StudyResult, EvidenceLineType, StatementType, iriReference]],
+) -> Statement:
+    classification = functional_classification_of_variant(mapped_variant)
+
+    if classification == ExperimentalVariantFunctionalImpactClassification.NORMAL:
+        direction = Direction.DISPUTES
+    elif classification == ExperimentalVariantFunctionalImpactClassification.ABNORMAL:
+        direction = Direction.SUPPORTS
+    else:
+        direction = Direction.NEUTRAL
+
+    return Statement(
+        description=f"Variant functional impact statement for {mapped_variant.variant.urn}.",
+        specifiedBy=variant_interpretation_functional_guideline_method(),
+        contributions=[
+            mavedb_api_contribution(),
+            mavedb_vrs_contribution(mapped_variant),
+            mavedb_creator_contribution(mapped_variant.variant, mapped_variant.variant.score_set.created_by),
+            mavedb_modifier_contribution(mapped_variant.variant, mapped_variant.variant.score_set.modified_by),
+        ],
+        proposition=proposition,
+        direction=direction,
+        classification=MappableConcept(
+            primaryCoding=Coding(
+                code=classification, system="ga4gh-gks-term:experimental-var-func-impact-classification"
+            ),
+        ),
+        hasEvidenceLines=[evidence_item for evidence_item in evidence],
+    )

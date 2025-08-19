@@ -20,7 +20,7 @@ def search_target_genes(
     search: TextSearch,
     limit: Optional[int],
 ) -> list[TargetGene]:
-    save_to_logging_context({"target_gene_search_criteria": search.dict()})
+    save_to_logging_context({"target_gene_search_criteria": search.model_dump()})
 
     query = db.query(TargetGene)
 

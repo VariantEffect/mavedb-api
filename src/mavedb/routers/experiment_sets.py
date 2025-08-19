@@ -56,9 +56,9 @@ def fetch_experiment_set(
         enrich_experiment_with_num_score_sets(exp, user_data)
         for exp in item.experiments
     ]
-    enriched_item = experiment_set.ExperimentSet.from_orm(item).copy(update={
+    enriched_item = experiment_set.ExperimentSet.model_validate(item).copy(update={
         "experiments": enriched_experiments,
-        "numExperiments": len(enriched_experiments)
+        "num_experiments": len(enriched_experiments)
     })
 
     return enriched_item

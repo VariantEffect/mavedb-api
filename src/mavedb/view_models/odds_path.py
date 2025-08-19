@@ -1,5 +1,5 @@
 from typing import Literal, Optional
-from pydantic import validator
+from pydantic import field_validator
 
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
@@ -22,7 +22,7 @@ class OddsPathBase(BaseModel):
 
 
 class OddsPathModify(OddsPathBase):
-    @validator("ratio")
+    @field_validator("ratio")
     def ratio_must_be_positive(cls, value: float) -> float:
         if value < 0:
             raise ValueError("OddsPath value must be greater than or equal to 0")
