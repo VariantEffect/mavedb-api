@@ -42,13 +42,14 @@ def lookup_variants(
     save_to_logging_context({"clingen_allele_ids_to_lookup": request.clingen_allele_ids})
     logger.debug(msg="Looking up variants by Clingen Allele IDs", extra=logging_context())
 
-    # sort multi-variant components lexicographically
+    # sort multi-variant components lexicographically, as they are in the database
     request.clingen_allele_ids = [",".join(sorted(allele_id.split(","))) for allele_id in request.clingen_allele_ids]
     exact_match_variants = db.execute(
         select(Variant, MappedVariant.clingen_allele_id)
         .join(MappedVariant)
         .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
         .where(MappedVariant.clingen_allele_id.in_(request.clingen_allele_ids))
+        .where(MappedVariant.current == True)  # noqa: E712
     ).all()
 
     save_to_logging_context({"num_variants_matching_clingen_allele_ids": len(exact_match_variants)})
@@ -56,33 +57,7 @@ def lookup_variants(
 
     num_variants_matching_clingen_allele_ids_and_permitted = 0
 
-    # # this block is just for testing
-    # hardcoded_nt_clingen_ids = ["CA000504"]
-    # related_nt_variants = db.execute(
-    #     select(Variant, MappedVariant.clingen_allele_id)
-    #     .join(MappedVariant)
-    #     .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
-    #     .where(MappedVariant.clingen_allele_id.in_(hardcoded_nt_clingen_ids))
-    # ).all()
-
-    # # hard coded response for UI testing
-    # if request.clingen_allele_ids == ["PA332611"]:
-    #     # no exact match variants
-    #     # one related nt variant
-    #     return [
-    #         {
-    #             "clingen_allele_id": "PA332611",
-    #             "equivalent_aa": [],
-    #             "equivalent_nt": [{
-    #                 "clingen_allele_id": "CA000504",
-    #                 "variant_effect_measurements": [variant for variant, allele_id in related_nt_variants if allele_id == ""],
-    #             }],
-    #         }
-    #     ]
-    # # end testing block
-
-    # {requested_allele_id: {"exact_match": [], "equivalent_nt": {clingen_allele_id: []}}}
-    variants_by_allele_id: dict[str, ClingenAlleleIdVariantLookupResponse] = {
+    variants_by_allele_id: dict[str, dict] = {
         allele_id: {
             "clingen_allele_id": allele_id,
             "exact_match": {"clingen_allele_id": allele_id, "variant_effect_measurements": []},
@@ -106,7 +81,7 @@ def lookup_variants(
 
     for allele_id in request.clingen_allele_ids:
         # validate and determine whether multi-variant
-        # TODO would we ever have a multi-variant with more than 2 alleles? assuming NO
+        # NOTE: assuming we never have more than 2 components in a multi-variant
         single_clingen_allele_id_re = r"^[CP]A\d+$"
         multi_clingen_allele_id_re = r"^[CP]A\d+,[CP]A\d+$"
         single_or_multi_clingen_allele_id_re = r"^[CP]A\d+(,[CP]A\d+)?$"
@@ -117,7 +92,6 @@ def lookup_variants(
                 detail=f"Invalid Clingen Allele ID '{allele_id}'",
             )
 
-        # TODO clean up to reuse code between single and multi variant
         if re.fullmatch(single_clingen_allele_id_re, allele_id):
             if allele_id.startswith("PA"):
                 subquery = (
@@ -150,6 +124,7 @@ def lookup_variants(
                     .join(MappedVariant)
                     .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
                     .where(MappedVariant.clingen_allele_id.in_(related_aa_clingen_ids))
+                    .where(MappedVariant.current == True)  # noqa: E712
                 ).all()
                 related_nt_clingen_ids = [var_translation.nt_clingen_id for var_translation in related_clingen_ids]
                 related_nt_variants = db.execute(
@@ -157,6 +132,7 @@ def lookup_variants(
                     .join(MappedVariant)
                     .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
                     .where(MappedVariant.clingen_allele_id.in_(related_nt_clingen_ids))
+                    .where(MappedVariant.current == True)  # noqa: E712
                 ).all()
             elif allele_id.startswith("CA"):
                 subquery = (
@@ -184,6 +160,7 @@ def lookup_variants(
                     .join(MappedVariant)
                     .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
                     .where(MappedVariant.clingen_allele_id.in_(related_aa_clingen_ids))
+                    .where(MappedVariant.current == True)  # noqa: E712
                 ).all()
                 # exclude requested clingen allele id from "related_clingen_ids" to avoid duplicates
                 related_nt_clingen_ids = [
@@ -196,6 +173,7 @@ def lookup_variants(
                     .join(MappedVariant)
                     .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
                     .where(MappedVariant.clingen_allele_id.in_(related_nt_clingen_ids))
+                    .where(MappedVariant.current == True)  # noqa: E712
                 ).all()
 
             num_variants_matching_clingen_allele_ids_and_permitted = 0
@@ -264,46 +242,53 @@ def lookup_variants(
                 # assuming that aa variants should always be paired with aa variants, and nt variants with nt variants,
                 # create lists of just the aa variants, and lists of just the nt variants.
                 # assuming only 2 components for any multivariant in db.
+                aa_clingen_id_first_allele = [
+                    translation.aa_clingen_id for translation in related_clingen_id_components[0]
+                ]
+                # original component should also be included, even if it is not in the variant translations table
+                aa_clingen_id_first_allele.append(allele_id_components[0])
+                aa_clingen_id_second_allele = [
+                    translation.aa_clingen_id for translation in related_clingen_id_components[1]
+                ]
+                # original component should also be included, even if it is not in the variant translations table
+                aa_clingen_id_first_allele.append(allele_id_components[1])
                 related_aa_clingen_id_combinations = list(
-                    itertools.product(
-                        related_clingen_id_components[0].aa_clingen_id, related_clingen_id_components[1].aa_clingen_id
-                    )
+                    itertools.product(aa_clingen_id_first_allele, aa_clingen_id_second_allele)
                 )
-                # # remove the combination that is the same as the original components
-                # related_aa_clingen_id_combinations = [
-                #     (aa1, aa2) for aa1, aa2 in related_aa_clingen_id_combinations
-                #     if not (aa1 == allele_id_components[0] and aa2 == allele_id_components[1])
-                # ]
                 # turn each inner list into a single string and sort each pair lexicographically, since this is how they are stored in the db
-                related_aa_clingen_id_combinations = [
-                    ",".join(sorted(combination)) for combination in related_aa_clingen_id_combinations
+                joined_related_aa_clingen_id_combinations = [
+                    ",".join(sorted(list(combination)))
+                    for combination in related_aa_clingen_id_combinations  # type: ignore
+                ]
+                related_nt_clingen_id_first_allele = [
+                    translation.nt_clingen_id for translation in related_clingen_id_components[0]
+                ]
+                related_nt_clingen_id_second_allele = [
+                    translation.nt_clingen_id for translation in related_clingen_id_components[1]
                 ]
                 related_nt_clingen_id_combinations = list(
-                    itertools.product(
-                        related_clingen_id_components[0].nt_clingen_id, related_clingen_id_components[1].nt_clingen_id
-                    )
+                    itertools.product(related_nt_clingen_id_first_allele, related_nt_clingen_id_second_allele)
                 )
-                # # remove the combination that is the same as the original components
-                # related_nt_clingen_id_combinations = [
-                #     (nt1, nt2) for nt1, nt2 in related_nt_clingen_id_combinations
-                #     if not (nt1 == allele_id_components[0] and nt2 == allele_id_components[1])
-                # ]
-                related_nt_clingen_id_combinations = [
-                    ",".join(sorted(combination)) for combination in related_nt_clingen_id_combinations
+                joined_related_nt_clingen_id_combinations = [
+                    ",".join(sorted(list(combination)))
+                    for combination in related_nt_clingen_id_combinations  # type: ignore
                 ]
+
                 # query the db for variants with these combinations
                 related_aa_variants = db.execute(
                     select(Variant, MappedVariant.clingen_allele_id)
                     .join(MappedVariant)
                     .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
-                    .where(MappedVariant.clingen_allele_id.in_(related_aa_clingen_id_combinations))
+                    .where(MappedVariant.clingen_allele_id.in_(joined_related_aa_clingen_id_combinations))
                     .where(MappedVariant.clingen_allele_id != allele_id)
+                    .where(MappedVariant.current == True)  # noqa: E712
                 ).all()
                 related_nt_variants = db.execute(
                     select(Variant, MappedVariant.clingen_allele_id)
                     .join(MappedVariant)
                     .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
-                    .where(MappedVariant.clingen_allele_id.in_(related_nt_clingen_id_combinations))
+                    .where(MappedVariant.clingen_allele_id.in_(joined_related_nt_clingen_id_combinations))
+                    .where(MappedVariant.current == True)  # noqa: E712
                 ).all()
 
             elif all(component.startswith("CA") for component in allele_id_components):
@@ -334,46 +319,53 @@ def lookup_variants(
                 # assuming that aa variants should always be paired with aa variants, and nt variants with nt variants,
                 # create lists of just the aa variants, and lists of just the nt variants.
                 # assuming only 2 components for any multivariant in db.
-                related_aa_clingen_id_combinations = list(
-                    itertools.product(
-                        related_clingen_id_components[0].aa_clingen_id, related_clingen_id_components[1].aa_clingen_id
-                    )
-                )
-                # # remove the combination that is the same as the original components
-                # related_aa_clingen_id_combinations = [
-                #     (aa1, aa2) for aa1, aa2 in related_aa_clingen_id_combinations
-                #     if not (aa1 == allele_id_components[0] and aa2 == allele_id_components[1])
-                # ]
-                # turn each inner list into a single string and sort each pair lexicographically, since this is how they are stored in the db
-                related_aa_clingen_id_combinations = [
-                    ",".join(sorted(combination)) for combination in related_aa_clingen_id_combinations
+                aa_clingen_id_first_allele = [
+                    translation.aa_clingen_id for translation in related_clingen_id_components[0]
                 ]
-                related_nt_clingen_id_combinations = list(
-                    itertools.product(
-                        related_clingen_id_components[0].nt_clingen_id, related_clingen_id_components[1].nt_clingen_id
-                    )
+                aa_clingen_id_second_allele = [
+                    translation.aa_clingen_id for translation in related_clingen_id_components[1]
+                ]
+                related_aa_clingen_id_combinations = list(
+                    itertools.product(aa_clingen_id_first_allele, aa_clingen_id_second_allele)
                 )
-                # # remove the combination that is the same as the original components
-                # related_nt_clingen_id_combinations = [
-                #     (nt1, nt2) for nt1, nt2 in related_nt_clingen_id_combinations
-                #     if not (nt1 == allele_id_components[0] and nt2 == allele_id_components[1])
-                # ]
-                related_nt_clingen_id_combinations = [
-                    ",".join(sorted(combination)) for combination in related_nt_clingen_id_combinations
+                # turn each inner list into a single string and sort each pair lexicographically, since this is how they are stored in the db
+                joined_related_aa_clingen_id_combinations = [
+                    ",".join(sorted(list(combination)))
+                    for combination in related_aa_clingen_id_combinations  # type: ignore
+                ]
+
+                related_nt_clingen_id_first_allele = [
+                    translation.nt_clingen_id for translation in related_clingen_id_components[0]
+                ]
+                # original component should also be included, even if it is not in the variant translations table
+                related_nt_clingen_id_first_allele.append(allele_id_components[0])
+                related_nt_clingen_id_second_allele = [
+                    translation.nt_clingen_id for translation in related_clingen_id_components[1]
+                ]
+                # original component should also be included, even if it is not in the variant translations table
+                related_nt_clingen_id_first_allele.append(allele_id_components[1])
+                related_nt_clingen_id_combinations = list(
+                    itertools.product(related_nt_clingen_id_first_allele, related_nt_clingen_id_second_allele)
+                )
+                joined_related_nt_clingen_id_combinations = [
+                    ",".join(sorted(list(combination)))
+                    for combination in related_nt_clingen_id_combinations  # type: ignore
                 ]
                 # query the db for variants with these combinations
                 related_aa_variants = db.execute(
                     select(Variant, MappedVariant.clingen_allele_id)
                     .join(MappedVariant)
                     .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
-                    .where(MappedVariant.clingen_allele_id.in_(related_aa_clingen_id_combinations))
+                    .where(MappedVariant.clingen_allele_id.in_(joined_related_aa_clingen_id_combinations))
+                    .where(MappedVariant.current == True)  # noqa: E712
                 ).all()
                 related_nt_variants = db.execute(
                     select(Variant, MappedVariant.clingen_allele_id)
                     .join(MappedVariant)
                     .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
-                    .where(MappedVariant.clingen_allele_id.in_(related_nt_clingen_id_combinations))
+                    .where(MappedVariant.clingen_allele_id.in_(joined_related_nt_clingen_id_combinations))
                     .where(MappedVariant.clingen_allele_id != allele_id)
+                    .where(MappedVariant.current == True)  # noqa: E712
                 ).all()
 
             else:
@@ -382,8 +374,8 @@ def lookup_variants(
                     detail=f"Invalid Clingen Allele ID '{allele_id}': all components must be either PA or CA",
                 )
 
+            equivalent_aa_variants = {}
             for variant, related_allele_id in related_aa_variants:
-                equivalent_aa_variants = {}
                 if has_permission(user_data, variant.score_set, Action.READ).permitted:
                     if related_allele_id not in equivalent_aa_variants:
                         equivalent_aa_variants[related_allele_id] = {
@@ -396,8 +388,8 @@ def lookup_variants(
                 equivalent_aa_variants[related_allele_id] for related_allele_id in equivalent_aa_variants
             ]
 
+            equivalent_nt_variants = {}
             for variant, related_allele_id in related_nt_variants:
-                equivalent_nt_variants = {}
                 if has_permission(user_data, variant.score_set, Action.READ).permitted:
                     if related_allele_id not in equivalent_nt_variants:
                         equivalent_nt_variants[related_allele_id] = {
@@ -409,8 +401,6 @@ def lookup_variants(
             variants_by_allele_id[allele_id]["equivalent_nt"] = [
                 equivalent_nt_variants[related_allele_id] for related_allele_id in equivalent_nt_variants
             ]
-
-        # TODO multi-variant components and vice versa
 
     return [variants_by_allele_id[allele_id] for allele_id in request.clingen_allele_ids]
 
