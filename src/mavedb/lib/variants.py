@@ -22,6 +22,21 @@ def hgvs_from_vrs_allele(allele: dict) -> str:
             raise KeyError("Invalid VRS allele structure. Expected 'expressions'.")
 
 
+def get_single_variation_hgvs_from_post_mapped(post_mapped_vrs: Optional[Any]) -> list[str]:
+    """"""
+    if not post_mapped_vrs:
+        return []
+
+    if post_mapped_vrs["type"] == "Haplotype":  # type: ignore
+        return [hgvs_from_vrs_allele(allele) for allele in post_mapped_vrs["members"]]
+    elif post_mapped_vrs["type"] == "CisPhasedBlock":  # type: ignore
+        return [hgvs_from_vrs_allele(allele) for allele in post_mapped_vrs["members"]]
+    elif post_mapped_vrs["type"] == "Allele":  # type: ignore
+        return [hgvs_from_vrs_allele(post_mapped_vrs)]
+    else:
+        return []
+
+
 def get_hgvs_from_post_mapped(post_mapped_vrs: Optional[Any]) -> Optional[str]:
     if not post_mapped_vrs:
         return None
@@ -42,6 +57,29 @@ def get_hgvs_from_post_mapped(post_mapped_vrs: Optional[Any]) -> Optional[str]:
     # TODO (https://github.com/VariantEffect/mavedb-api/issues/468) In a future version, we will be able to generate
     # a combined HGVS string for haplotypes and cis phased blocks directly from mapper output.
     if len(variations_hgvs) > 1:
+        # Use the hgvs library to parse and combine HGVS strings into a haplotype if possible
+        import hgvs.parser
+
+        hp = hgvs.parser.Parser()
+
+        def parse_hgvs(hgvs):
+            try:
+                var = hp.parse_hgvs_variant(hgvs)
+                # var.ac: reference sequence, var.type: 'g', 'c', or 'p'
+                return var.ac, var.type
+            except Exception:
+                return None, None
+
+        refs_types = [parse_hgvs(h) for h in variations_hgvs]
+        if all(rt == refs_types[0] for rt in refs_types):
+            ref, typ = refs_types[0]
+            # Extract the change part after the type (e.g., 123A>T from NC_000001.11:g.123A>T)
+            changes = []
+            for h in variations_hgvs:
+                # Remove the reference and type prefix
+                change = h.split(":", 1)[1][len(typ)+1:]  # +1 for the dot after type
+                changes.append(change)
+            return f"{ref}:{typ}.[{';'.join(changes)}]"
         return None
         # raise ValueError(f"Multiple variations found in variant {variant_urn}.")
 
