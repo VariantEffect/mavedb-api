@@ -1,6 +1,12 @@
+# ruff: noqa: E402
+
 import pytest  # noqa: F401
 
 from sqlalchemy import select, delete
+
+arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
 
 from mavedb.models.publication_identifier import PublicationIdentifier
 
