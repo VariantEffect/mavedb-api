@@ -9,8 +9,8 @@ from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 
 
-class VariantBase(BaseModel):
-    """Properties shared by most variant view models"""
+class VariantEffectMeasurementBase(BaseModel):
+    """Properties shared by most variant effect measurement view models"""
 
     urn: Optional[str] = None
     data: Any
@@ -22,20 +22,21 @@ class VariantBase(BaseModel):
     modification_date: date
 
 
-class VariantCreate(VariantBase):
-    """Input view model for creating variants"""
+class VariantEffectMeasurementCreate(VariantEffectMeasurementBase):
+    """Input view model for creating variant effect measurements"""
 
     pass
 
 
-class VariantUpdate(VariantBase):
-    """Input view model for updating variants"""
+class VariantEffectMeasurementUpdate(VariantEffectMeasurementBase):
+    """Input view model for updating variant effect measurements"""
 
     pass
 
 
-# Properties shared by models stored in DB
-class SavedVariant(VariantBase):
+class SavedVariantEffectMeasurement(VariantEffectMeasurementBase):
+    """Base class for variant effect measurement view models handling saved variant effect measurements"""
+
     id: int
     record_type: str = None  # type: ignore
 
@@ -45,8 +46,8 @@ class SavedVariant(VariantBase):
         from_attributes = True
 
 
-class SavedVariantWithMappedVariant(SavedVariant):
-    """Class for saved variant with any associated mapped variants"""
+class SavedVariantEffectMeasurementWithMappedVariant(SavedVariantEffectMeasurement):
+    """Class for saved variant effect measurement with any associated mapped variants"""
 
     mapped_variant: Optional[SavedMappedVariant] = None
 
@@ -65,21 +66,21 @@ class SavedVariantWithMappedVariant(SavedVariant):
         return data
 
 
-class Variant(SavedVariant):
-    """Variant view model returned to most clients"""
+class VariantEffectMeasurement(SavedVariantEffectMeasurement):
+    """Variant effect measurement view model returned to most clients"""
 
     pass
 
 
-class VariantWithScoreSet(SavedVariant):
-    """Variant view model with mapped variants and score set"""
+class VariantEffectMeasurementWithScoreSet(SavedVariantEffectMeasurement):
+    """Variant effect measurement view model with mapped variants and score set"""
 
     score_set: "ScoreSet"
     mapped_variants: list[MappedVariant]
 
 
-class VariantWithShortScoreSet(SavedVariant):
-    """Variant view model with mapped variants and a limited set of score set details"""
+class VariantEffectMeasurementWithShortScoreSet(SavedVariantEffectMeasurement):
+    """Variant effect measurement view model with mapped variants and a limited set of score set details"""
 
     score_set: "ShortScoreSet"
     mapped_variants: list[MappedVariant]
@@ -91,8 +92,24 @@ class ClingenAlleleIdVariantLookupsRequest(BaseModel):
     clingen_allele_ids: list[str]
 
 
+class Variant(BaseModel):
+    """View model for a variant, defined by its ClinGen allele id, with associated variant effect measurements"""
+
+    clingen_allele_id: str
+    variant_effect_measurements: list[VariantEffectMeasurementWithShortScoreSet]
+
+
+class ClingenAlleleIdVariantLookupResponse(BaseModel):
+    """Response model for a variant lookup by ClinGen allele ID"""
+
+    clingen_allele_id: str
+    exact_match: Optional[Variant] = None
+    equivalent_nt: list[Variant] = []
+    equivalent_aa: list[Variant] = []
+
+
 # ruff: noqa: E402
 from mavedb.view_models.score_set import ScoreSet, ShortScoreSet
 
-VariantWithScoreSet.model_rebuild()
-VariantWithShortScoreSet.model_rebuild()
+VariantEffectMeasurementWithScoreSet.update_forward_refs()
+VariantEffectMeasurementWithShortScoreSet.update_forward_refs()
