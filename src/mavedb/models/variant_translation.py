@@ -1,9 +1,8 @@
 from datetime import date
 
 from sqlalchemy import Column, Date, String
-from sqlalchemy.ext.declarative import declarative_base
 
-Base = declarative_base()
+from mavedb.db.base import Base
 
 
 class VariantTranslation(Base):
