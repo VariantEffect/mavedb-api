@@ -122,9 +122,22 @@ TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE = {
     "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE, TEST_VALID_POST_MAPPED_VRS_ALLELE],
 }
 
+TEST_PUBMED_PUBLICATION = {
+    "identifier": TEST_PUBMED_IDENTIFIER,
+    "db_name": "PubMed",
+    "title": "None",
+    "authors": [],
+    "abstract": "test",
+    "doi": "test",
+    "publication_year": 1999,
+    "publication_journal": "test",
+    "url": "http://www.ncbi.nlm.nih.gov/pubmed/20711194",
+    "reference_html": ". None. test. 1999; (Unknown volume):(Unknown pages). test",
+}
+
 SAVED_PUBMED_PUBLICATION = {
     "recordType": "PublicationIdentifier",
-    "identifier": "20711194",
+    "identifier": TEST_PUBMED_IDENTIFIER,
     "dbName": "PubMed",
     "title": "None",
     "authors": [],
