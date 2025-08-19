@@ -257,8 +257,8 @@ def lookup_variants(
                 )
                 # turn each inner list into a single string and sort each pair lexicographically, since this is how they are stored in the db
                 joined_related_aa_clingen_id_combinations = [
-                    ",".join(sorted(list(combination)))
-                    for combination in related_aa_clingen_id_combinations  # type: ignore
+                    ",".join(sorted(list(combination)))  # type: ignore
+                    for combination in related_aa_clingen_id_combinations
                 ]
                 related_nt_clingen_id_first_allele = [
                     translation.nt_clingen_id for translation in related_clingen_id_components[0]
@@ -270,8 +270,8 @@ def lookup_variants(
                     itertools.product(related_nt_clingen_id_first_allele, related_nt_clingen_id_second_allele)
                 )
                 joined_related_nt_clingen_id_combinations = [
-                    ",".join(sorted(list(combination)))
-                    for combination in related_nt_clingen_id_combinations  # type: ignore
+                    ",".join(sorted(list(combination)))  # type: ignore
+                    for combination in related_nt_clingen_id_combinations
                 ]
 
                 # query the db for variants with these combinations
@@ -330,8 +330,8 @@ def lookup_variants(
                 )
                 # turn each inner list into a single string and sort each pair lexicographically, since this is how they are stored in the db
                 joined_related_aa_clingen_id_combinations = [
-                    ",".join(sorted(list(combination)))
-                    for combination in related_aa_clingen_id_combinations  # type: ignore
+                    ",".join(sorted(list(combination)))  # type: ignore
+                    for combination in related_aa_clingen_id_combinations
                 ]
 
                 related_nt_clingen_id_first_allele = [
@@ -348,8 +348,8 @@ def lookup_variants(
                     itertools.product(related_nt_clingen_id_first_allele, related_nt_clingen_id_second_allele)
                 )
                 joined_related_nt_clingen_id_combinations = [
-                    ",".join(sorted(list(combination)))
-                    for combination in related_nt_clingen_id_combinations  # type: ignore
+                    ",".join(sorted(list(combination)))  # type: ignore
+                    for combination in related_nt_clingen_id_combinations
                 ]
                 # query the db for variants with these combinations
                 related_aa_variants = db.execute(
