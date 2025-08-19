@@ -56,7 +56,7 @@ def populate_variant_translations(db: Session, urns: Sequence[Optional[str]], al
             .join(Variant)
             .join(ScoreSet)
             .where(ScoreSet.id == ss_id)
-            .where(MappedVariant.current)
+            .where(MappedVariant.current == True)  # noqa: E712
         ).all()
         logger.info(
             f"Found {len(clingen_allele_ids)} clingen allele IDs in the database associated with this score set."
