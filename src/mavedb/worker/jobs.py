@@ -16,16 +16,19 @@ from sqlalchemy.orm import Session
 from mavedb.data_providers.services import vrs_mapper
 from mavedb.db.view import refresh_all_mat_views
 from mavedb.lib.clingen.constants import (
+    CAR_SUBMISSION_ENDPOINT,
     DEFAULT_LDH_SUBMISSION_BATCH_SIZE,
     LDH_SUBMISSION_ENDPOINT,
     LINKED_DATA_RETRY_THRESHOLD,
     CLIN_GEN_SUBMISSION_ENABLED,
 )
 from mavedb.lib.clingen.content_constructors import construct_ldh_submission
-from mavedb.lib.clingen.linked_data_hub import (
+from mavedb.lib.clingen.services import (
+    ClinGenAlleleRegistryService,
     ClinGenLdhService,
     get_clingen_variation,
     clingen_allele_id_from_ldh_variation,
+    get_allele_registry_associations,
 )
 from mavedb.lib.exceptions import (
     MappingEnqueueError,
@@ -40,6 +43,7 @@ from mavedb.lib.gnomad import gnomad_variant_data_for_caids, link_gnomad_variant
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.mapping import ANNOTATION_LAYERS
 from mavedb.lib.score_sets import (
+    get_hgvs_from_post_mapped,
     columns_for_dataset,
     create_variants,
     create_variants_data,
@@ -53,7 +57,6 @@ from mavedb.lib.validation.dataframe.dataframe import (
     validate_and_standardize_dataframe_pair,
 )
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.lib.variants import hgvs_from_mapped_variant
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.mapped_variant import MappedVariant
@@ -603,7 +606,7 @@ async def map_variants_for_score_set(
     try:
         if CLIN_GEN_SUBMISSION_ENABLED:
             new_job = await redis.enqueue_job(
-                "submit_score_set_mappings_to_ldh",
+                "submit_score_set_mappings_to_car",
                 correlation_id,
                 score_set.id,
             )
@@ -618,14 +621,14 @@ async def map_variants_for_score_set(
                 raise SubmissionEnqueueError()
         else:
             logger.warning(
-                msg="ClinGen submission is disabled, skipped submission of mapped variants to LDH.",
+                msg="ClinGen submission is disabled, skipped submission of mapped variants to CAR and LDH.",
                 extra=logging_context,
             )
 
     except Exception as e:
         send_slack_error(e)
         send_slack_message(
-            f"Could not submit mappings to LDH for score set {score_set.urn}. Mappings for this score set should be submitted manually."
+            f"Could not submit mappings to CAR and/or LDH mappings for score set {score_set.urn}. Mappings for this score set should be submitted manually."
         )
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logger.error(
@@ -804,6 +807,161 @@ async def refresh_published_variants_view(ctx: dict, correlation_id: str):
 ####################################################################################################
 
 
+async def submit_score_set_mappings_to_car(ctx: dict, correlation_id: str, score_set_id: int):
+    logging_context = {}
+    score_set = None
+    text = "Could not submit mappings to ClinGen Allele Registry for score set %s. Mappings for this score set should be submitted manually."
+    try:
+        db: Session = ctx["db"]
+        redis: ArqRedis = ctx["redis"]
+        score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one()
+
+        logging_context = setup_job_state(ctx, None, score_set.urn, correlation_id)
+        logger.info(msg="Started CAR mapped resource submission", extra=logging_context)
+
+        submission_urn = score_set.urn
+        assert submission_urn, "A valid URN is needed to submit CAR objects for this score set."
+
+        logging_context["current_car_submission_resource"] = submission_urn
+        logger.debug(msg="Fetched score set metadata for CAR mapped resource submission.", extra=logging_context)
+
+    except Exception as e:
+        send_slack_error(e)
+        if score_set:
+            send_slack_message(text=text % score_set.urn)
+        else:
+            send_slack_message(text=text % score_set_id)
+
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="CAR mapped resource submission encountered an unexpected error during setup. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False, "enqueued_job": None}
+
+    try:
+        variant_post_mapped_objects = db.execute(
+            select(MappedVariant.id, MappedVariant.post_mapped)
+            .join(Variant)
+            .join(ScoreSet)
+            .where(ScoreSet.urn == score_set.urn)
+            .where(MappedVariant.post_mapped.is_not(None))
+            .where(MappedVariant.current.is_(True))
+        ).all()
+
+        if not variant_post_mapped_objects:
+            logger.warning(
+                msg="No current mapped variants with post mapped metadata were found for this score set. Skipping CAR submission.",
+                extra=logging_context,
+            )
+            return {"success": True, "retried": False, "enqueued_job": None}
+
+        variant_post_mapped_hgvs: dict[str, list[int]] = {}
+        for mapped_variant_id, post_mapped in variant_post_mapped_objects:
+            hgvs_for_post_mapped = get_hgvs_from_post_mapped(post_mapped)
+
+            if not hgvs_for_post_mapped:
+                logger.warning(
+                    msg=f"Could not construct a valid HGVS string for mapped variant {mapped_variant_id}. Skipping submission of this variant.",
+                    extra=logging_context,
+                )
+                continue
+
+            if hgvs_for_post_mapped in variant_post_mapped_hgvs:
+                variant_post_mapped_hgvs[hgvs_for_post_mapped].append(mapped_variant_id)
+            else:
+                variant_post_mapped_hgvs[hgvs_for_post_mapped] = [mapped_variant_id]
+
+    except Exception as e:
+        send_slack_error(e)
+        send_slack_message(text=text % score_set.urn)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="LDH mapped resource submission encountered an unexpected error while attempting to construct post mapped HGVS strings. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False, "enqueued_job": None}
+
+    try:
+        if not CAR_SUBMISSION_ENDPOINT:
+            logger.warning(
+                msg="ClinGen Allele Registry submission is disabled (no submission endpoint), skipping submission of mapped variants to CAR.",
+                extra=logging_context,
+            )
+            return {"success": False, "retried": False, "enqueued_job": None}
+
+        car_service = ClinGenAlleleRegistryService(url=CAR_SUBMISSION_ENDPOINT)
+        registered_alleles = car_service.dispatch_submissions(list(variant_post_mapped_hgvs.keys()))
+    except Exception as e:
+        send_slack_error(e)
+        send_slack_message(text=text % score_set.urn)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="LDH mapped resource submission encountered an unexpected error while attempting to authenticate to the LDH. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False, "enqueued_job": None}
+
+    try:
+        linked_alleles = get_allele_registry_associations(list(variant_post_mapped_hgvs.keys()), registered_alleles)
+        for hgvs_string, caid in linked_alleles.items():
+            mapped_variant_ids = variant_post_mapped_hgvs[hgvs_string]
+            mapped_variants = db.scalars(select(MappedVariant).where(MappedVariant.id.in_(mapped_variant_ids))).all()
+
+            for mapped_variant in mapped_variants:
+                mapped_variant.clingen_allele_id = caid
+                db.add(mapped_variant)
+
+        db.commit()
+
+    except Exception as e:
+        send_slack_error(e)
+        send_slack_message(text=text % score_set.urn)
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="LDH mapped resource submission encountered an unexpected error while attempting to authenticate to the LDH. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False, "enqueued_job": None}
+
+    new_job_id = None
+    try:
+        new_job = await redis.enqueue_job(
+            "submit_score_set_mappings_to_ldh",
+            correlation_id,
+            score_set.id,
+        )
+
+        if new_job:
+            new_job_id = new_job.job_id
+
+            logging_context["submit_clingen_ldh_variants_job_id"] = new_job_id
+            logger.info(msg="Queued a new ClinGen submission job.", extra=logging_context)
+
+        else:
+            raise SubmissionEnqueueError()
+
+    except Exception as e:
+        send_slack_error(e)
+        send_slack_message(
+            f"Could not submit mappings to LDH for score set {score_set.urn}. Mappings for this score set should be submitted manually."
+        )
+        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
+        logger.error(
+            msg="Mapped variant ClinGen submission encountered an unexpected error while attempting to enqueue a submission job. This job will not be retried.",
+            extra=logging_context,
+        )
+
+        return {"success": False, "retried": False, "enqueued_job": new_job_id}
+
+    ctx["state"][ctx["job_id"]] = logging_context.copy()
+    return {"success": True, "retried": False, "enqueued_job": new_job_id}
+
+
 async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score_set_id: int):
     logging_context = {}
     score_set = None
@@ -872,8 +1030,16 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, correlation_id: str, score
 
         variant_content = []
         for variant, mapped_variant in variant_objects:
-            for variation in hgvs_from_mapped_variant(mapped_variant):
-                variant_content.append((variation, variant, mapped_variant))
+            variation = get_hgvs_from_post_mapped(mapped_variant.post_mapped)
+
+            if not variation:
+                logger.warning(
+                    msg=f"Could not construct a valid HGVS string for mapped variant {mapped_variant.id}. Skipping submission of this variant.",
+                    extra=logging_context,
+                )
+                continue
+
+            variant_content.append((variation, variant, mapped_variant))
 
         submission_content = construct_ldh_submission(variant_content)
 

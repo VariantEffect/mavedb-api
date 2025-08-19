@@ -8,6 +8,7 @@ import tempfile
 import cdot.hgvs.dataproviders
 import pytest
 import pytest_asyncio
+from arq.worker import Worker
 from biocommons.seqrepo import SeqRepo
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
@@ -18,17 +19,7 @@ from mavedb.lib.authorization import require_current_user
 from mavedb.models.user import User
 from mavedb.server_main import app
 from mavedb.deps import get_db, get_worker, hgvs_data_provider, get_seqrepo
-from arq.worker import Worker
-from mavedb.worker.jobs import (
-    create_variants_for_score_set,
-    map_variants_for_score_set,
-    link_clingen_variants,
-    submit_score_set_mappings_to_ldh,
-    variant_mapper_manager,
-    poll_uniprot_mapping_jobs_for_score_set,
-    submit_uniprot_mapping_jobs_for_score_set,
-    link_gnomad_variants,
-)
+from mavedb.worker.settings import BACKGROUND_FUNCTIONS, BACKGROUND_CRONJOBS
 
 from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_SEQREPO_INITIAL_STATE, TEST_USER
 
@@ -112,16 +103,8 @@ async def arq_worker(data_provider, session, arq_redis):
         ctx["pool"] = futures.ProcessPoolExecutor()
 
     worker_ = Worker(
-        functions=[
-            create_variants_for_score_set,
-            map_variants_for_score_set,
-            variant_mapper_manager,
-            submit_score_set_mappings_to_ldh,
-            link_clingen_variants,
-            poll_uniprot_mapping_jobs_for_score_set,
-            submit_uniprot_mapping_jobs_for_score_set,
-            link_gnomad_variants,
-        ],
+        functions=BACKGROUND_FUNCTIONS,
+        cron_jobs=BACKGROUND_CRONJOBS,
         redis_pool=arq_redis,
         burst=True,
         poll_delay=0,

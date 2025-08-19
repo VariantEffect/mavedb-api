@@ -20,7 +20,11 @@ pyathena = pytest.importorskip("pyathena")
 from mavedb.data_providers.services import VRSMap
 from mavedb.lib.mave.constants import HGVS_NT_COLUMN
 from mavedb.lib.score_sets import csv_data_to_df
-from mavedb.lib.clingen.linked_data_hub import ClinGenLdhService, clingen_allele_id_from_ldh_variation
+from mavedb.lib.clingen.services import (
+    ClinGenAlleleRegistryService,
+    ClinGenLdhService,
+    clingen_allele_id_from_ldh_variation,
+)
 from mavedb.lib.uniprot.id_mapping import UniProtIDMappingAPI
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.enums.mapping_state import MappingState
@@ -40,11 +44,13 @@ from mavedb.worker.jobs import (
     variant_mapper_manager,
     submit_score_set_mappings_to_ldh,
     link_clingen_variants,
+    submit_score_set_mappings_to_car,
     submit_uniprot_mapping_jobs_for_score_set,
     poll_uniprot_mapping_jobs_for_score_set,
 )
 from tests.helpers.constants import (
     TEST_ACC_SCORESET_VARIANT_MAPPING_SCAFFOLD,
+    TEST_CLINGEN_ALLELE_OBJECT,
     TEST_CLINGEN_SUBMISSION_RESPONSE,
     TEST_CLINGEN_SUBMISSION_BAD_RESQUEST_RESPONSE,
     TEST_CLINGEN_SUBMISSION_UNAUTHORIZED_RESPONSE,
@@ -58,9 +64,7 @@ from tests.helpers.constants import (
     TEST_MULTI_TARGET_SCORESET_VARIANT_MAPPING_SCAFFOLD,
     TEST_SEQ_SCORESET_VARIANT_MAPPING_SCAFFOLD,
     VALID_NT_ACCESSION,
-    TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS1_X,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
-    TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_UNIPROT_JOB_SUBMISSION_RESPONSE,
     TEST_UNIPROT_SWISS_PROT_TYPE,
@@ -196,10 +200,8 @@ async def setup_mapping_output(
     variants = session.scalars(select(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).all()
     for variant in variants:
         mapped_score = {
-            "pre_mapped": TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS1_X,
-            "pre_mapped_2_0": TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
-            "post_mapped": TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X,
-            "post_mapped_2_0": TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
+            "pre_mapped": TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
+            "post_mapped": TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
             "mavedb_id": variant.urn,
         }
 
@@ -540,7 +542,10 @@ async def test_create_variants_for_score_set_enqueues_manager_and_successful_map
     async def dummy_mapping_job():
         return await setup_mapping_output(async_client, session, score_set, score_set_is_seq, score_set_is_multi_target)
 
-    async def dummy_submission_job():
+    async def dummy_car_submission_job():
+        return TEST_CLINGEN_ALLELE_OBJECT
+
+    async def dummy_ldh_submission_job():
         return [TEST_CLINGEN_SUBMISSION_RESPONSE, None]
 
     # Variants have not yet been created, so infer their URNs.
@@ -556,7 +561,12 @@ async def test_create_variants_for_score_set_enqueues_manager_and_successful_map
         patch.object(
             _UnixSelectorEventLoop,
             "run_in_executor",
-            side_effect=[dummy_mapping_job(), dummy_submission_job(), dummy_linking_job()],
+            side_effect=[
+                dummy_mapping_job(),
+                dummy_car_submission_job(),
+                dummy_ldh_submission_job(),
+                dummy_linking_job(),
+            ],
         ),
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
@@ -1491,7 +1501,7 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping(
     async def dummy_mapping_job():
         return await setup_mapping_output(async_client, session, score_set)
 
-    async def dummy_submission_job():
+    async def dummy_ldh_submission_job():
         return [TEST_CLINGEN_SUBMISSION_RESPONSE, None]
 
     async def dummy_linking_job():
@@ -1509,8 +1519,9 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping(
         patch.object(
             _UnixSelectorEventLoop,
             "run_in_executor",
-            side_effect=[dummy_mapping_job(), dummy_submission_job(), dummy_linking_job()],
+            side_effect=[dummy_mapping_job(), dummy_ldh_submission_job(), dummy_linking_job()],
         ),
+        patch.object(ClinGenAlleleRegistryService, "dispatch_submissions", return_value=[TEST_CLINGEN_ALLELE_OBJECT]),
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
         patch.object(UniProtIDMappingAPI, "submit_id_mapping", return_value=TEST_UNIPROT_JOB_SUBMISSION_RESPONSE),
         patch.object(UniProtIDMappingAPI, "check_id_mapping_results_ready", return_value=True),
@@ -1521,12 +1532,17 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping(
         patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.UNIPROT_ID_MAPPING_ENABLED", True),
         patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", True),
+        patch("mavedb.worker.jobs.CAR_SUBMISSION_ENDPOINT", "https://reg.test.genome.network/pytest"),
+        patch("mavedb.lib.clingen.services.GENBOREE_ACCOUNT_NAME", "testuser"),
+        patch("mavedb.lib.clingen.services.GENBOREE_ACCOUNT_PASSWORD", "testpassword"),
+        patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION),
+        patch.object(ClinGenAlleleRegistryService, "dispatch_submissions", return_value=[TEST_CLINGEN_ALLELE_OBJECT]),
     ):
         await arq_worker.async_run()
         num_completed_jobs = await arq_worker.run_check()
 
     # We should have completed all jobs exactly once.
-    assert num_completed_jobs == 7
+    assert num_completed_jobs == 8
 
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
@@ -1640,7 +1656,14 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping_
 
 @pytest.mark.asyncio
 async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping_linking_enabled_uniprot_disabled(
-    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+    setup_worker_db,
+    standalone_worker_context,
+    session,
+    async_client,
+    data_files,
+    arq_worker,
+    arq_redis,
+    mocked_gnomad_variant_row,
 ):
     score_set = await setup_records_files_and_variants(
         session,
@@ -1678,12 +1701,18 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping_
         patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.UNIPROT_ID_MAPPING_ENABLED", False),
         patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", True),
+        patch("mavedb.worker.jobs.CAR_SUBMISSION_ENDPOINT", "https://reg.test.genome.network/pytest"),
+        patch("mavedb.lib.clingen.services.GENBOREE_ACCOUNT_NAME", "testuser"),
+        patch("mavedb.lib.clingen.services.GENBOREE_ACCOUNT_PASSWORD", "testpassword"),
+        patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION),
+        patch.object(ClinGenAlleleRegistryService, "dispatch_submissions", return_value=[TEST_CLINGEN_ALLELE_OBJECT]),
+        patch("mavedb.worker.jobs.gnomad_variant_data_for_caids", return_value=[mocked_gnomad_variant_row]),
     ):
         await arq_worker.async_run()
         num_completed_jobs = await arq_worker.run_check()
 
-    # We should have completed the manager, mapping, and linking jobs, but not the submission or uniprot jobs.
-    assert num_completed_jobs == 5
+    # We should have completed the manager, mapping, submission, and linking jobs, but not the uniprot jobs.
+    assert num_completed_jobs == 6
 
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
@@ -1714,7 +1743,7 @@ async def test_mapping_manager_enqueues_mapping_process_with_retried_mapping_suc
     async def dummy_mapping_job():
         return await setup_mapping_output(async_client, session, score_set)
 
-    async def dummy_submission_job():
+    async def dummy_ldh_submission_job():
         return [TEST_CLINGEN_SUBMISSION_RESPONSE, None]
 
     async def dummy_linking_job():
@@ -1732,19 +1761,25 @@ async def test_mapping_manager_enqueues_mapping_process_with_retried_mapping_suc
         patch.object(
             _UnixSelectorEventLoop,
             "run_in_executor",
-            side_effect=[failed_mapping_job(), dummy_mapping_job(), dummy_submission_job(), dummy_linking_job()],
+            side_effect=[failed_mapping_job(), dummy_mapping_job(), dummy_ldh_submission_job(), dummy_linking_job()],
         ),
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
+        patch.object(ClinGenAlleleRegistryService, "dispatch_submissions", return_value=[TEST_CLINGEN_ALLELE_OBJECT]),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.UNIPROT_ID_MAPPING_ENABLED", False),
         patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", True),
+        patch("mavedb.worker.jobs.CAR_SUBMISSION_ENDPOINT", "https://reg.test.genome.network/pytest"),
+        patch("mavedb.lib.clingen.services.GENBOREE_ACCOUNT_NAME", "testuser"),
+        patch("mavedb.lib.clingen.services.GENBOREE_ACCOUNT_PASSWORD", "testpassword"),
+        patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION),
+        patch.object(ClinGenAlleleRegistryService, "dispatch_submissions", return_value=[TEST_CLINGEN_ALLELE_OBJECT]),
     ):
         await arq_worker.async_run()
         num_completed_jobs = await arq_worker.run_check()
 
-    # We should have completed the mapping manager job twice, the mapping job twice, the submission job, and both linking jobs.
-    assert num_completed_jobs == 7
+    # We should have completed the mapping manager job twice, the mapping job twice, the two submission jobs, and both linking jobs.
+    assert num_completed_jobs == 8
 
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
@@ -1801,7 +1836,188 @@ async def test_mapping_manager_enqueues_mapping_process_with_unsuccessful_mappin
 
 
 ############################################################################################################################################
-# ClinGen Submission
+# ClinGen CAR Submission
+############################################################################################################################################
+
+
+@pytest.mark.asyncio
+async def test_submit_score_set_mappings_to_car_success(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch.object(ClinGenAlleleRegistryService, "dispatch_submissions", return_value=[TEST_CLINGEN_ALLELE_OBJECT]),
+        patch("mavedb.worker.jobs.CAR_SUBMISSION_ENDPOINT", "https://reg.test.genome.network/pytest"),
+    ):
+        result = await submit_score_set_mappings_to_car(standalone_worker_context, uuid4().hex, score_set.id)
+
+    mapped_variants_with_caid_for_score_set = session.scalars(
+        select(MappedVariant)
+        .join(Variant)
+        .join(ScoreSetDbModel)
+        .filter(ScoreSetDbModel.urn == score_set.urn, MappedVariant.clingen_allele_id.is_not(None))
+    ).all()
+
+    assert len(mapped_variants_with_caid_for_score_set) == score_set.num_variants
+
+    assert result["success"]
+    assert not result["retried"]
+    assert result["enqueued_job"] is not None
+
+
+@pytest.mark.asyncio
+async def test_submit_score_set_mappings_to_car_exception_in_setup(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with patch(
+        "mavedb.worker.jobs.setup_job_state",
+        side_effect=Exception(),
+    ):
+        result = await submit_score_set_mappings_to_car(standalone_worker_context, uuid4().hex, score_set.id)
+
+    assert not result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_job"]
+
+
+@pytest.mark.asyncio
+async def test_submit_score_set_mappings_to_car_no_variants_exist(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    result = await submit_score_set_mappings_to_car(standalone_worker_context, uuid4().hex, score_set.id)
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_job"]
+
+
+@pytest.mark.asyncio
+async def test_submit_score_set_mappings_to_car_exception_in_hgvs_dict_creation(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with patch(
+        "mavedb.worker.jobs.get_hgvs_from_post_mapped",
+        side_effect=Exception(),
+    ):
+        result = await submit_score_set_mappings_to_car(standalone_worker_context, uuid4().hex, score_set.id)
+
+    assert not result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_job"]
+
+
+@pytest.mark.asyncio
+async def test_submit_score_set_mappings_to_car_exception_during_submission(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch.object(ClinGenAlleleRegistryService, "dispatch_submissions", side_effect=Exception()),
+        patch("mavedb.worker.jobs.CAR_SUBMISSION_ENDPOINT", "https://reg.test.genome.network/pytest"),
+    ):
+        result = await submit_score_set_mappings_to_car(standalone_worker_context, uuid4().hex, score_set.id)
+
+    assert not result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_job"]
+
+
+@pytest.mark.asyncio
+async def test_submit_score_set_mappings_to_car_exception_in_allele_association(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch("mavedb.worker.jobs.get_allele_registry_associations", side_effect=Exception()),
+        patch("mavedb.worker.jobs.CAR_SUBMISSION_ENDPOINT", "https://reg.test.genome.network/pytest"),
+    ):
+        result = await submit_score_set_mappings_to_car(standalone_worker_context, uuid4().hex, score_set.id)
+
+    assert not result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_job"]
+
+
+@pytest.mark.asyncio
+async def test_submit_score_set_mappings_to_car_exception_during_ldh_enqueue(
+    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    with (
+        patch("mavedb.worker.jobs.CAR_SUBMISSION_ENDPOINT", "https://reg.test.genome.network/pytest"),
+        patch.object(ClinGenAlleleRegistryService, "dispatch_submissions", return_value=[TEST_CLINGEN_ALLELE_OBJECT]),
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception()),
+    ):
+        result = await submit_score_set_mappings_to_car(standalone_worker_context, uuid4().hex, score_set.id)
+
+    mapped_variants_with_caid_for_score_set = session.scalars(
+        select(MappedVariant)
+        .join(Variant)
+        .join(ScoreSetDbModel)
+        .filter(ScoreSetDbModel.urn == score_set.urn, MappedVariant.clingen_allele_id.is_not(None))
+    ).all()
+
+    assert len(mapped_variants_with_caid_for_score_set) == score_set.num_variants
+
+    assert not result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_job"]
+
+
+############################################################################################################################################
+# ClinGen LDH Submission
 ############################################################################################################################################
 
 
@@ -1919,7 +2135,7 @@ async def test_submit_score_set_mappings_to_ldh_exception_in_hgvs_generation(
     )
 
     with patch(
-        "mavedb.lib.variants.hgvs_from_mapped_variant",
+        "mavedb.lib.variants.get_hgvs_from_post_mapped",
         side_effect=Exception(),
     ):
         result = await submit_score_set_mappings_to_ldh(standalone_worker_context, uuid4().hex, score_set.id)

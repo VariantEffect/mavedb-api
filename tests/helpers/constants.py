@@ -2066,6 +2066,129 @@ TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST = {
     "errCat": "INVALID URL",
 }
 
+
+TEST_CLINGEN_ALLELE_OBJECT = {
+    "@context": "http://reg.genome.network/schema/allele.jsonld",
+    "@id": "http://reg.genome.network/allele/CA341478553",
+    "communityStandardTitle": ["NM_001408.3(CELSR2):c.1A>G (p.Met1Val)"],
+    "externalRecords": {
+        "MyVariantInfo_hg19": [
+            {"@id": "http://myvariant.info/v1/variant/chr1:g.109792702A>G?assembly=hg19", "id": "chr1:g.109792702A>G"}
+        ],
+        "MyVariantInfo_hg38": [
+            {"@id": "http://myvariant.info/v1/variant/chr1:g.109250080A>G?assembly=hg38", "id": "chr1:g.109250080A>G"}
+        ],
+        "gnomAD_4": [
+            {
+                "@id": "http://gnomad.broadinstitute.org/variant/1-109250080-A-G?dataset=gnomad_r4",
+                "id": "1-109250080-A-G",
+                "variant": "1:109250080 A / G",
+            }
+        ],
+    },
+    "genomicAlleles": [
+        {
+            "chromosome": "1",
+            "coordinates": [{"allele": "G", "end": 109250080, "referenceAllele": "A", "start": 109250079}],
+            "hgvs": ["NC_000001.11:g.109250080A>G", "CM000663.2:g.109250080A>G"],
+            "referenceGenome": "GRCh38",
+            "referenceSequence": "http://reg.genome.network/refseq/RS000049",
+        },
+        {
+            "chromosome": "1",
+            "coordinates": [{"allele": "G", "end": 109792702, "referenceAllele": "A", "start": 109792701}],
+            "hgvs": ["NC_000001.10:g.109792702A>G", "CM000663.1:g.109792702A>G"],
+            "referenceGenome": "GRCh37",
+            "referenceSequence": "http://reg.genome.network/refseq/RS000025",
+        },
+        {
+            "chromosome": "1",
+            "coordinates": [{"allele": "G", "end": 109594225, "referenceAllele": "A", "start": 109594224}],
+            "hgvs": ["NC_000001.9:g.109594225A>G"],
+            "referenceGenome": "NCBI36",
+            "referenceSequence": "http://reg.genome.network/refseq/RS000001",
+        },
+        {
+            "coordinates": [{"allele": "G", "end": 5376, "referenceAllele": "A", "start": 5375}],
+            "hgvs": ["NG_052669.1:g.5376A>G"],
+            "referenceSequence": "http://reg.genome.network/refseq/RS617150",
+        },
+    ],
+    "transcriptAlleles": [
+        {
+            "coordinates": [{"allele": "G", "end": 542, "referenceAllele": "A", "start": 541}],
+            "gene": "http://reg.genome.network/gene/GN003231",
+            "geneNCBI_id": 1952,
+            "geneSymbol": "CELSR2",
+            "hgvs": ["ENST00000271332.4:c.1A>G", TEST_HGVS_IDENTIFIER],
+            "proteinEffect": {"hgvs": "ENSP00000271332.3:p.Met1Val", "hgvsWellDefined": "ENSP00000271332.3:p.Met1Val"},
+            "referenceSequence": "http://reg.genome.network/refseq/RS743193",
+            "MANE": {
+                "maneVersion": "1.3",
+                "maneStatus": "MANE Select",
+                "nucleotide": {
+                    "Ensembl": {"hgvs": "ENST00000271332.4:c.1A>G"},
+                    "RefSeq": {"hgvs": "NM_001408.3:c.1A>G"},
+                },
+                "protein": {
+                    "Ensembl": {"hgvs": "ENSP00000271332.3:p.Met1Val"},
+                    "RefSeq": {"hgvs": "NP_001399.1:p.Met1Val"},
+                },
+            },
+        },
+        {
+            "coordinates": [{"allele": "G", "end": 62, "referenceAllele": "A", "start": 61}],
+            "gene": "http://reg.genome.network/gene/GN003231",
+            "geneNCBI_id": 1952,
+            "geneSymbol": "CELSR2",
+            "hgvs": ["ENST00000271332.3:c.1A>G"],
+            "proteinEffect": {"hgvs": "ENSP00000271332.3:p.Met1Val", "hgvsWellDefined": "ENSP00000271332.3:p.Met1Val"},
+            "referenceSequence": "http://reg.genome.network/refseq/RS252294",
+        },
+        {
+            "coordinates": [{"allele": "G", "end": 62, "referenceAllele": "A", "start": 61}],
+            "gene": "http://reg.genome.network/gene/GN003231",
+            "geneNCBI_id": 1952,
+            "geneSymbol": "CELSR2",
+            "hgvs": ["NM_001408.2:c.1A>G"],
+            "proteinEffect": {"hgvs": "NP_001399.1:p.Met1Val", "hgvsWellDefined": "NP_001399.1:p.Met1Val"},
+            "referenceSequence": "http://reg.genome.network/refseq/RS026793",
+        },
+        {
+            "coordinates": [{"allele": "G", "end": 366, "referenceAllele": "A", "start": 365}],
+            "gene": "http://reg.genome.network/gene/GN003231",
+            "geneNCBI_id": 1952,
+            "geneSymbol": "CELSR2",
+            "hgvs": ["XM_005270580.3:c.1A>G"],
+            "proteinEffect": {"hgvs": "XP_005270637.1:p.Met1Val", "hgvsWellDefined": "XP_005270637.1:p.Met1Val"},
+            "referenceSequence": "http://reg.genome.network/refseq/RS066576",
+        },
+        {
+            "coordinates": [{"allele": "G", "end": 542, "referenceAllele": "A", "start": 541}],
+            "gene": "http://reg.genome.network/gene/GN003231",
+            "geneNCBI_id": 1952,
+            "geneSymbol": "CELSR2",
+            "hgvs": ["NM_001408.3:c.1A>G"],
+            "proteinEffect": {"hgvs": "NP_001399.1:p.Met1Val", "hgvsWellDefined": "NP_001399.1:p.Met1Val"},
+            "referenceSequence": "http://reg.genome.network/refseq/RS664974",
+            "MANE": {
+                "maneVersion": "1.3",
+                "maneStatus": "MANE Select",
+                "nucleotide": {
+                    "Ensembl": {"hgvs": "ENST00000271332.4:c.1A>G"},
+                    "RefSeq": {"hgvs": "NM_001408.3:c.1A>G"},
+                },
+                "protein": {
+                    "Ensembl": {"hgvs": "ENSP00000271332.3:p.Met1Val"},
+                    "RefSeq": {"hgvs": "NP_001399.1:p.Met1Val"},
+                },
+            },
+        },
+    ],
+    "type": "nucleotide",
+}
+
+
 TEST_UNIPROT_SWISS_PROT_TYPE = "UniProtKB reviewed (Swiss-Prot)"
 TEST_UNIPROT_TREMBL_TYPE = "UniProtKB unreviewed (TrEMBL)"
 TEST_UNIPROT_JOB_ID = "1234567890"
