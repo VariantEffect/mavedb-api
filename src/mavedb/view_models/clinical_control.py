@@ -18,7 +18,7 @@ class ClinicalControlBase(BaseModel):
 
 
 class ClinicalControlUpdate(ClinicalControlBase):
-    mapped_variants: Optional[list[MappedVariantCreate]] = None
+    mapped_variants: Optional[list["MappedVariantCreate"]] = None
 
 
 class ClinicalControlCreate(ClinicalControlUpdate):
@@ -35,11 +35,11 @@ class SavedClinicalControl(ClinicalControlBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class SavedClinicalControlWithMappedVariants(SavedClinicalControl):
-    mapped_variants: Sequence[SavedMappedVariant]
+    mapped_variants: Sequence["SavedMappedVariant"]
 
 
 # Properties to return to non-admin clients
@@ -48,7 +48,7 @@ class ClinicalControl(SavedClinicalControl):
 
 
 class ClinicalControlWithMappedVariants(SavedClinicalControlWithMappedVariants):
-    mapped_variants: Sequence[MappedVariant]
+    mapped_variants: Sequence["MappedVariant"]
 
 
 class ClinicalControlOptions(BaseModel):
@@ -59,6 +59,6 @@ class ClinicalControlOptions(BaseModel):
 # ruff: noqa: E402
 from mavedb.view_models.mapped_variant import MappedVariant, SavedMappedVariant, MappedVariantCreate
 
-ClinicalControlCreate.update_forward_refs()
-SavedClinicalControlWithMappedVariants.update_forward_refs()
-ClinicalControlWithMappedVariants.update_forward_refs()
+# ClinicalControlUpdate.model_rebuild()
+SavedClinicalControlWithMappedVariants.model_rebuild()
+ClinicalControlWithMappedVariants.model_rebuild()

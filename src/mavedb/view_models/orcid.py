@@ -19,7 +19,7 @@ class OrcidAuthTokenResponse(BaseModel):
 class OrcidUser(BaseModel):
     record_type: str = None  # type: ignore
     orcid_id: str
-    given_name: Optional[str]
-    family_name: Optional[str]
+    given_name: Optional[str] = None
+    family_name: Optional[str] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
