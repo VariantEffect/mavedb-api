@@ -645,7 +645,7 @@ async def create_score_set(
                     "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                 )
             upload_taxonomy = gene.target_sequence.taxonomy
-            save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.tax_id})
+            save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.code})
             taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
 
             if not taxonomy:
@@ -983,7 +983,7 @@ async def update_score_set(
                     )
 
                 upload_taxonomy = gene.target_sequence.taxonomy
-                save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.tax_id})
+                save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.code})
                 taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
 
                 if not taxonomy:
@@ -993,7 +993,7 @@ async def update_score_set(
                     )
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.tax_id}",
+                        detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.code}",
                     )
 
                 # If the target sequence has a label, use it. Otherwise, use the name from the target gene as the label.

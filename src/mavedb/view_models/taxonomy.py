@@ -7,7 +7,7 @@ from mavedb.view_models.base.base import BaseModel
 
 
 class TaxonomyBase(BaseModel):
-    tax_id: int
+    code: int
     organism_name: Optional[str]
     common_name: Optional[str]
     rank: Optional[str]
