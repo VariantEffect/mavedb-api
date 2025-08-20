@@ -15,6 +15,7 @@ from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.orm import Session
 
 from mavedb import deps
+from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.annotation.annotate import (
     variant_pathogenicity_evidence,
     variant_functional_impact_statement,
@@ -519,9 +520,16 @@ def get_score_set_annotated_variants(
             detail=f"No mapped variants associated with score set URN {urn} were found. Could not construct evidence lines.",
         )
 
-    return {
-        mapped_variant.variant.urn: variant_pathogenicity_evidence(mapped_variant) for mapped_variant in mapped_variants
-    }
+    variant_evidence: dict[str, Optional[VariantPathogenicityEvidenceLine]] = {}
+    for mv in mapped_variants:
+        # TODO#372: Non-nullable URNs
+        try:
+            variant_evidence[mv.variant.urn] = variant_pathogenicity_evidence(mv)  # type: ignore
+        except MappingDataDoesntExistException:
+            logger.debug(msg=f"Mapping data does not exist for variant {mv.variant.urn}.", extra=logging_context())
+            variant_evidence[mv.variant.urn] = None  # type: ignore
+
+    return variant_evidence
 
 
 @router.get(
@@ -569,10 +577,16 @@ def get_score_set_annotated_variants_functional_statement(
             detail=f"No mapped variants associated with score set URN {urn} were found. Could not construct functional impact statements.",
         )
 
-    return {
-        mapped_variant.variant.urn: variant_functional_impact_statement(mapped_variant)
-        for mapped_variant in mapped_variants
-    }
+    variant_impact_statements: dict[str, Optional[Statement]] = {}
+    for mv in mapped_variants:
+        # TODO#372: Non-nullable URNs
+        try:
+            variant_impact_statements[mv.variant.urn] = variant_functional_impact_statement(mv)  # type: ignore
+        except MappingDataDoesntExistException:
+            logger.debug(msg=f"Mapping data does not exist for variant {mv.variant.urn}.", extra=logging_context())
+            variant_impact_statements[mv.variant.urn] = None  # type: ignore
+
+    return variant_impact_statements
 
 
 @router.get(
@@ -620,7 +634,16 @@ def get_score_set_annotated_variants_functional_study_result(
             detail=f"No mapped variants associated with score set URN {urn} were found. Could not construct study results.",
         )
 
-    return {mapped_variant.variant.urn: variant_study_result(mapped_variant) for mapped_variant in mapped_variants}
+    variant_study_results: dict[str, Optional[ExperimentalVariantFunctionalImpactStudyResult]] = {}
+    for mv in mapped_variants:
+        # TODO#372: Non-nullable URNs
+        try:
+            variant_study_results[mv.variant.urn] = variant_study_result(mv)  # type: ignore
+        except MappingDataDoesntExistException:
+            logger.debug(msg=f"Mapping data does not exist for variant {mv.variant.urn}.", extra=logging_context())
+            variant_study_results[mv.variant.urn] = None  # type: ignore
+
+    return variant_study_results
 
 
 @router.post(

@@ -69,7 +69,11 @@ from tests.helpers.util.score_set import (
     create_seq_score_set_with_variants,
 )
 from tests.helpers.util.user import change_ownership
-from tests.helpers.util.variant import create_mapped_variants_for_score_set, mock_worker_variant_insertion
+from tests.helpers.util.variant import (
+    create_mapped_variants_for_score_set,
+    mock_worker_variant_insertion,
+    clear_first_mapped_variant_post_mapped,
+)
 
 
 ########################################################################################################################
@@ -2844,6 +2848,42 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thre
     [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
     indirect=["mock_publication_fetch"],
 )
+def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_variants_were_not_mapped(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        },
+    )
+
+    first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for annotated_variant_urn, annotated_variant in response_data.items():
+        if annotated_variant_urn == first_var.urn:
+            assert annotated_variant is None
+        else:
+            assert f"Pathogenicity evidence line {annotated_variant_urn}" in annotated_variant.get("description")
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
 def test_get_annotated_functional_impact_statement_for_score_set(
     client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
 ):
@@ -2959,6 +2999,42 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_thres
     [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
     indirect=["mock_publication_fetch"],
 )
+def test_get_annotated_functional_impact_statement_for_score_set_when_some_variants_were_not_mapped(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
+        },
+    )
+
+    first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for annotated_variant_urn, annotated_variant in response_data.items():
+        if annotated_variant_urn == first_var.urn:
+            assert annotated_variant is None
+        else:
+            assert annotated_variant.get("type") == "Statement"
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
 def test_get_annotated_functional_study_result_for_score_set(
     client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
 ):
@@ -3067,6 +3143,42 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
 
     for _, annotated_variant in response_data.items():
         assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_annotated_functional_study_result_exists_for_score_set_when_some_variants_were_not_mapped(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        },
+    )
+
+    first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for annotated_variant_urn, annotated_variant in response_data.items():
+        if annotated_variant_urn == first_var.urn:
+            assert annotated_variant is None
+        else:
+            assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
 
 
 ########################################################################################################################
