@@ -1,7 +1,7 @@
 """add uniprot id field for mapped metadata
 
 Revision ID: 4b9fb51a460d
-Revises: f69b4049bc3b
+Revises: aa3933cf0cb3
 Create Date: 2025-07-24 16:07:51.548202
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "4b9fb51a460d"
-down_revision = "f69b4049bc3b"
+down_revision = "aa3933cf0cb3"
 branch_labels = None
 depends_on = None
 

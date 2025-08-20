@@ -1,7 +1,7 @@
 """consolidate score ranges and calibrations
 
 Revision ID: af87c9953d2d
-Revises: f69b4049bc3b
+Revises: ec535fd72270
 Create Date: 2025-07-09 21:04:33.916597
 
 """
@@ -12,7 +12,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = "af87c9953d2d"
-down_revision = "f69b4049bc3b"
+down_revision = "ec535fd72270"
 branch_labels = None
 depends_on = None
 

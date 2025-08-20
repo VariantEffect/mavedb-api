@@ -1,7 +1,7 @@
 """Variant translations data model
 
 Revision ID: 986b635a697f
-Revises: f69b4049bc3b
+Revises: af87c9953d2d
 Create Date: 2025-03-24 14:00:18.063245
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "986b635a697f"
-down_revision = "f69b4049bc3b"
+down_revision = "af87c9953d2d"
 branch_labels = None
 depends_on = None
 
