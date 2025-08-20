@@ -18,6 +18,8 @@ from tests.helpers.constants import (
     TEST_BIORXIV_IDENTIFIER,
     TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
     VALID_EXPERIMENT_URN,
+    VALID_SCORE_SET_URN,
+    VALID_TMP_URN,
 )
 from tests.helpers.util.common import dummy_attributed_object_from_dict
 
@@ -502,3 +504,115 @@ def test_cannot_create_saved_score_set_without_all_attributed_properties(exclude
 
     assert "Unable to create SavedScoreSet without attribute" in str(exc_info.value)
     assert exclude in str(exc_info.value)
+
+
+def test_can_create_score_set_with_none_type_superseded_score_set_urn():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
+    score_set_test["superseded_score_set_urn"] = None
+
+    saved_score_set = ScoreSetCreate(**score_set_test)
+
+    assert saved_score_set.superseded_score_set_urn is None
+
+
+def test_can_create_score_set_with_superseded_score_set_urn():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
+    score_set_test["superseded_score_set_urn"] = VALID_SCORE_SET_URN
+
+    saved_score_set = ScoreSetCreate(**score_set_test)
+
+    assert saved_score_set.superseded_score_set_urn == VALID_SCORE_SET_URN
+
+
+def test_cant_create_score_set_with_invalid_superseded_score_set_urn():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
+    score_set_test["superseded_score_set_urn"] = "invalid-urn"
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**score_set_test)
+
+    assert f"'{score_set_test['superseded_score_set_urn']}' is not a valid score set URN" in str(exc_info.value)
+
+
+def test_cant_create_score_set_with_tmp_superseded_score_set_urn():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
+    score_set_test["superseded_score_set_urn"] = VALID_TMP_URN
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**score_set_test)
+
+    assert "cannot supersede a private score set - please edit it instead" in str(exc_info.value)
+
+
+def test_can_create_score_set_with_none_type_meta_analyzes_score_set_urn():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
+    score_set_test["meta_analyzes_score_set_urns"] = None
+
+    saved_score_set = ScoreSetCreate(**score_set_test)
+
+    assert saved_score_set.meta_analyzes_score_set_urns is None
+
+
+def test_can_create_score_set_with_empty_meta_analyzes_score_set_urn():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
+    score_set_test["meta_analyzes_score_set_urns"] = []
+
+    saved_score_set = ScoreSetCreate(**score_set_test)
+
+    assert saved_score_set.meta_analyzes_score_set_urns is None
+
+
+def test_can_create_score_set_with_meta_analyzes_score_set_urn():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["meta_analyzes_score_set_urns"] = [VALID_SCORE_SET_URN]
+
+    saved_score_set = ScoreSetCreate(**score_set_test)
+    assert saved_score_set.meta_analyzes_score_set_urns == [VALID_SCORE_SET_URN]
+
+
+def test_cant_create_score_set_with_invalid_meta_analyzes_score_set_urn():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
+    score_set_test["meta_analyzes_score_set_urns"] = ["invalid-urn"]
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**score_set_test)
+
+    assert f"'{score_set_test['meta_analyzes_score_set_urns'][0]}' is not a valid score set URN" in str(exc_info.value)
+
+
+def test_cant_create_score_set_with_invalid_experiment_urn():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["experiment_urn"] = "invalid-urn"
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**score_set_test)
+
+    assert f"'{score_set_test['experiment_urn']}' is not a valid experiment URN" in str(exc_info.value)
+
+
+def test_cant_create_score_set_with_experiment_urn_if_is_meta_analysis():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
+    score_set_test["meta_analyzes_score_set_urns"] = [VALID_SCORE_SET_URN]
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**score_set_test)
+
+    assert "experiment URN should not be supplied when your score set is a meta-analysis" in str(exc_info.value)
+
+
+def test_cant_create_score_set_without_experiment_urn_if_not_meta_analysis():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["meta_analyzes_score_set_urns"] = []
+
+    with pytest.raises(ValueError) as exc_info:
+        ScoreSetCreate(**score_set_test)
+
+    assert "experiment URN is required unless your score set is a meta-analysis" in str(exc_info.value)

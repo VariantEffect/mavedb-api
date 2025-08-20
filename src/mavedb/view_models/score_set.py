@@ -224,25 +224,37 @@ class ScoreSetCreate(ScoreSetModify):
     meta_analyzes_score_set_urns: Optional[list[str]] = None
 
     @field_validator("superseded_score_set_urn")
-    def validate_superseded_score_set_urn(cls, v: str) -> str:
+    def validate_superseded_score_set_urn(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return None
+
         if urn_re.MAVEDB_SCORE_SET_URN_RE.fullmatch(v) is None:
             if urn_re.MAVEDB_TMP_URN_RE.fullmatch(v) is None:
                 raise ValueError(f"'{v}' is not a valid score set URN")
             else:
                 raise ValueError("cannot supersede a private score set - please edit it instead")
+
         return v
 
     @field_validator("meta_analyzes_score_set_urns")
-    def validate_score_set_urn(cls, v: str) -> str:
+    def validate_score_set_urn(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        if not v:
+            return None
+
         for s in v:
             if urn_re.MAVEDB_SCORE_SET_URN_RE.fullmatch(s) is None and urn_re.MAVEDB_TMP_URN_RE.fullmatch(s) is None:
                 raise ValueError(f"'{s}' is not a valid score set URN")
+
         return v
 
     @field_validator("experiment_urn")
-    def validate_experiment_urn(cls, v: str) -> str:
+    def validate_experiment_urn(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return None
+
         if urn_re.MAVEDB_EXPERIMENT_URN_RE.fullmatch(v) is None and urn_re.MAVEDB_TMP_URN_RE.fullmatch(v) is None:
             raise ValueError(f"'{v}' is not a valid experiment URN")
+
         return v
 
     @model_validator(mode="after")
