@@ -84,9 +84,11 @@ class ExperimentCreate(ExperimentModify):
     experiment_set_urn: Optional[str] = None
 
     @field_validator("experiment_set_urn")
-    def validate_experiment_urn(cls, v: str) -> str:
-        if (urn_re.MAVEDB_EXPERIMENT_SET_URN_RE.fullmatch(v) is None) and (
-            urn_re.MAVEDB_TMP_URN_RE.fullmatch(v) is None
+    def validate_experiment_urn(cls, v: Optional[str]) -> Optional[str]:
+        if (
+            v is not None
+            and (urn_re.MAVEDB_EXPERIMENT_SET_URN_RE.fullmatch(v) is None)
+            and (urn_re.MAVEDB_TMP_URN_RE.fullmatch(v) is None)
         ):
             raise ValueError(f"'{v}' is not a valid experiment set URN")
         return v
@@ -130,7 +132,9 @@ class SavedExperiment(ExperimentBase):
     # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.
     @model_validator(mode="before")
     def generate_primary_and_secondary_publications(cls, data: Any):
-        if not hasattr(data, "primary_publication_identifiers") or not hasattr(data, "secondary_publication_identifiers"):
+        if not hasattr(data, "primary_publication_identifiers") or not hasattr(
+            data, "secondary_publication_identifiers"
+        ):
             try:
                 publication_identifiers = transform_publication_identifiers_to_primary_and_secondary(
                     data.publication_identifier_associations

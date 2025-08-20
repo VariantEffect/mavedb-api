@@ -285,3 +285,21 @@ def test_cannot_create_saved_experiment_without_all_attributed_properties(exclud
 
     assert "Unable to create SavedExperiment without attribute" in str(exc_info.value)
     assert exclude in str(exc_info.value)
+
+
+def test_can_create_experiment_with_nonetype_experiment_set_urn():
+    experiment_test = TEST_MINIMAL_EXPERIMENT.copy()
+    experiment_test["experiment_set_urn"] = None
+    experiment = ExperimentCreate(**experiment_test)
+
+    assert experiment.experiment_set_urn is None
+
+
+def test_cant_create_experiment_with_invalid_experiment_set_urn():
+    experiment_test = TEST_MINIMAL_EXPERIMENT.copy()
+    experiment_test["experiment_set_urn"] = "invalid_urn"
+
+    with pytest.raises(ValueError) as exc_info:
+        ExperimentCreate(**experiment_test)
+
+    assert f"'{experiment_test['experiment_set_urn']}' is not a valid experiment set URN" in str(exc_info.value)
