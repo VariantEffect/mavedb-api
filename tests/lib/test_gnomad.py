@@ -149,6 +149,33 @@ def test_links_new_gnomad_variant_to_mapped_variant(
         assert getattr(mapped_variant.gnomad_variants[0], attr) == edited_saved_gnomad_variant[attr]
 
 
+def test_can_link_gnomad_variants_with_none_type_faf_fields(
+    session, mocked_gnomad_variant_row, setup_lib_db_with_mapped_variant
+):
+    mapped_variant = setup_lib_db_with_mapped_variant
+    mapped_variant.clingen_allele_id = mocked_gnomad_variant_row.caid
+    session.add(mapped_variant)
+    session.commit()
+
+    mocked_gnomad_variant_row.__setattr__("joint.fafmax.faf95_max_gen_anc", None)
+    mocked_gnomad_variant_row.__setattr__("joint.fafmax.faf95_max", None)
+
+    with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
+        result = link_gnomad_variants_to_mapped_variants(session, [mocked_gnomad_variant_row])
+        assert result == 1
+        session.commit()
+
+    gnomad_variant_comparator = TEST_GNOMAD_VARIANT.copy()
+    gnomad_variant_comparator.pop("creation_date")
+    gnomad_variant_comparator.pop("modification_date")
+    gnomad_variant_comparator["faf95_max"] = None
+    gnomad_variant_comparator["faf95_max_ancestry"] = None
+
+    assert len(mapped_variant.gnomad_variants) == 1
+    for attr in gnomad_variant_comparator:
+        assert getattr(mapped_variant.gnomad_variants[0], attr) == gnomad_variant_comparator[attr]
+
+
 def test_links_existing_gnomad_variant(session, mocked_gnomad_variant_row, setup_lib_db_with_mapped_variant):
     gnomad_variant = GnomADVariant(**TEST_GNOMAD_VARIANT)
     mapped_variant = setup_lib_db_with_mapped_variant

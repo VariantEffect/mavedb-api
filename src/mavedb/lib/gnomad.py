@@ -153,7 +153,10 @@ def link_gnomad_variants_to_mapped_variants(
         allele_number = int(row.__getattribute__("joint.freq.all.an"))
         allele_frequency = float(allele_count) / float(allele_number)
         faf95_max_ancestry = row.__getattribute__("joint.fafmax.faf95_max_gen_anc")
-        faf95_max = float(row.__getattribute__("joint.fafmax.faf95_max"))
+        faf95_max = row.__getattribute__("joint.fafmax.faf95_max")
+
+        if faf95_max is not None:
+            faf95_max = float(faf95_max)
 
         for mapped_variant in mapped_variants_with_caids:
             # Remove any existing gnomAD variants for this mapped variant that match the current gnomAD data version to avoid data duplication.

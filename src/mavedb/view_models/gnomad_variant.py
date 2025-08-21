@@ -19,8 +19,8 @@ class GnomADVariantBase(BaseModel):
     allele_number: int
     allele_frequency: float
 
-    faf95_max: float
-    faf95_max_ancestry: str
+    faf95_max: Optional[float]
+    faf95_max_ancestry: Optional[str]
 
 
 class GnomADVariantUpdate(GnomADVariantBase):
