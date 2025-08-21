@@ -12,11 +12,11 @@ def create_experiment(client: TestClient, update: Optional[Dict[str, Any]] = Non
     experiment_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     if update is not None:
         experiment_payload.update(update)
-    jsonschema.validate(instance=experiment_payload, schema=ExperimentCreate.schema())
+    jsonschema.validate(instance=experiment_payload, schema=ExperimentCreate.model_json_schema())
 
     response = client.post("/api/v1/experiments/", json=experiment_payload)
     assert response.status_code == 200, "Could not create experiment."
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=Experiment.schema())
+    jsonschema.validate(instance=response_data, schema=Experiment.model_json_schema())
     return response_data

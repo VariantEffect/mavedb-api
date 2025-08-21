@@ -1,7 +1,7 @@
 """add gnomad variants table
 
 Revision ID: 79b28316dd0c
-Revises: f69b4049bc3b
+Revises: 4b9fb51a460d
 Create Date: 2025-06-17 08:38:51.954238
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "79b28316dd0c"
-down_revision = "f69b4049bc3b"
+down_revision = "4b9fb51a460d"
 branch_labels = None
 depends_on = None
 

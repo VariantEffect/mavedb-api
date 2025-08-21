@@ -1,6 +1,8 @@
+import hashlib
 import logging
 import requests
 import os
+import time
 from datetime import datetime
 from typing import Optional
 from urllib import parse
@@ -11,10 +13,87 @@ from jose import jwt
 from mavedb.lib.logging.context import logging_context, save_to_logging_context, format_raised_exception_info_as_dict
 from mavedb.lib.clingen.constants import GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD, LDH_MAVE_ACCESS_ENDPOINT
 
-from mavedb.lib.types.clingen import LdhSubmission
+from mavedb.lib.types.clingen import LdhSubmission, ClinGenAllele
 from mavedb.lib.utils import batched
 
 logger = logging.getLogger(__name__)
+
+
+class ClinGenAlleleRegistryService:
+    """
+    A service class for interacting with the ClinGen Allele Registry API.
+
+    This class provides methods for authenticating with the Genboree services and dispatching
+    submissions to the ClinGen Allele Registry API.
+
+    Attributes:
+        url (str): The base URL of the ClinGen Allele Registry API.
+
+    Methods:
+        __init__(url: str) -> None:
+            Initializes the ClinGenAlleleRegistryService instance with the given API URL.
+
+        construct_auth_url(url: str) -> str:
+            Constructs an authenticated request URL for the provided URL using the Genboree account credentials.
+
+        dispatch_submissions(content_submissions: list[str]) -> dict[str, str]:
+            Dispatches a list of content submissions to the ClinGen Allele Registry API.
+            Args:
+                content_submissions (list[str]): A list of HGVS strings to be submitted to the ClinGen Allele Registry.
+            Returns:
+                dict[str, str]: A dictionary mapping HGVS strings to their corresponding ClinGen Allele Registry IDs (CAIDs).
+                The keys are the HGVS strings, and the values are the CAIDs assigned by the ClinGen Allele Registry.
+                If the submission fails, an empty dictionary is returned.
+            Raises:
+                requests.exceptions.RequestException: If an error occurs during the HTTP request to the ClinGen Allele Registry API.
+    """
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+
+    def construct_auth_url(self, url: str) -> str:
+        """
+        Constructs an authenticated request for the provided URL using the Genboree account credentials.
+
+        This method generates a token based on the URL, Genboree account name, and password,
+        and appends the necessary authentication parameters to the URL.
+
+        Args:
+            url (str): The base URL to which the authentication parameters will be appended.
+        Returns:
+            str: The authenticated URL with appended Genboree account name, timestamp, and token.
+        """
+        if not GENBOREE_ACCOUNT_NAME or not GENBOREE_ACCOUNT_PASSWORD:
+            raise ValueError("Genboree account name and password must be set in the environment variables.")
+
+        identity = hashlib.sha1((GENBOREE_ACCOUNT_NAME + GENBOREE_ACCOUNT_PASSWORD).encode("utf-8")).hexdigest()
+        gbTime = str(int(time.time()))
+        token = hashlib.sha1((url + identity + gbTime).encode("utf-8")).hexdigest()
+        return url + "&gbLogin=" + GENBOREE_ACCOUNT_NAME + "&gbTime=" + gbTime + "&gbToken=" + token
+
+    def dispatch_submissions(self, content_submissions: list[str]) -> list[ClinGenAllele]:
+        save_to_logging_context({"car_submission_count": len(content_submissions)})
+
+        try:
+            logger.info(msg="Dispatching ClinGen Allele Registry submission...", extra=logging_context())
+            request_url = self.construct_auth_url(f"{self.url}/alleles?file=hgvs")
+
+            response = requests.put(
+                url=request_url,
+                data="\n".join(content_submissions),
+            )
+            response.raise_for_status()
+
+        except (requests.exceptions.RequestException, requests.exceptions.HTTPError) as exc:
+            save_to_logging_context(format_raised_exception_info_as_dict(exc))
+            logger.error(msg="Failed to dispatch CAR submission.", exc_info=exc, extra=logging_context())
+            return []
+
+        response_data: list[ClinGenAllele] = response.json()
+        save_to_logging_context({"car_submission_response_count": len(response_data)})
+        logger.info(msg="Successfully dispatched CAR submission.", extra=logging_context())
+
+        return response_data
 
 
 class ClinGenLdhService:
@@ -242,3 +321,59 @@ def clingen_allele_id_from_ldh_variation(variation: Optional[dict]) -> Optional[
         save_to_logging_context(format_raised_exception_info_as_dict(exc))
         logger.error("Failed to extract ClinGen allele ID from variation data.", extra=logging_context())
         return None
+
+
+def get_allele_registry_associations(
+    content_submissions: list[str], submission_response: list[ClinGenAllele]
+) -> dict[str, str]:
+    """
+    Links HGVS strings and ClinGen Canonoical Allele IDs (CAIDs) given a list of both.
+
+    Args:
+        content_submissions (list[str]): A list of HGVS strings to check for associations in the ClinGen Allele Registry.
+        submission_response (list[ClinGenAllele]): The response from the ClinGen Allele Registry submission,
+                                                    which contains the registered alleles and their associated CAIDs.
+
+    Returns:
+        dict[str, str]: A dictionary mapping HGVS strings to their corresponding ClinGen Allele Registry IDs (CAIDs).
+                        The keys are the HGVS strings, and the values are the CAIDs assigned by the ClinGen Allele Registry.
+                        If no associations are found, an empty dictionary is returned.
+    """
+    save_to_logging_context(
+        {
+            "num_hgvs_strings_to_associate": len(content_submissions),
+            "num_car_alleles_to_associate": len(submission_response),
+        }
+    )
+
+    if not content_submissions or not submission_response:
+        logger.warning(
+            msg="No content submissions or submission response provided for ClinGen Allele Registry association.",
+            extra=logging_context(),
+        )
+        return {}
+    else:
+        logger.info(
+            msg="Attempting to associate ClinGen Allele Registry allees with MaveDB HGVS strings.",
+            extra=logging_context(),
+        )
+
+    allele_registry_associations: dict[str, str] = {}
+    for registration in submission_response:
+        # Extract the CAID from the URL (e.g., "http://reg.test.genome.network/allele/CA2513066" -> "CA2513066")
+        caid = registration["@id"].split("/")[-1]
+        alleles = registration.get("genomicAlleles", []) + registration.get("transcriptAlleles", [])
+
+        for allele in alleles:
+            for hgvs_string in content_submissions:
+                if hgvs_string in allele["hgvs"]:
+                    allele_registry_associations[hgvs_string] = caid
+                    logger.debug(
+                        msg=f"Found allele registry association for HGVS string '{hgvs_string}': {caid}",
+                        extra=logging_context(),
+                    )
+                    break
+
+    save_to_logging_context({"num_hgvs_strings_associated_with_caid": len(allele_registry_associations)})
+    logger.info(msg="Done associating ClinGen Allele Registry responses.", extra=logging_context())
+    return allele_registry_associations

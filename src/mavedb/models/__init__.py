@@ -27,4 +27,5 @@ __all__ = [
     "uniprot_offset",
     "user",
     "variant",
+    "variant_translation",
 ]

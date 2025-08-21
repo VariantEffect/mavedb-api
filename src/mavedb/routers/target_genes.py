@@ -29,6 +29,7 @@ def search_my_target_genes(
     Search my target genes.
     """
     items = _search_target_genes(db, user_data.user, search, 50)
+
     return [i for i in items if i.score_set.superseding_score_set is None]
 
 

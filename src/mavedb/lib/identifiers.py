@@ -436,3 +436,11 @@ async def create_external_gene_identifier_offset(
 
     identifier_offset_attribute = EXTERNAL_GENE_IDENTIFIER_OFFSET_ATTRIBUTES[external_gene_identifier.db_name]
     setattr(target_gene, identifier_offset_attribute, external_gene_identifier_offset)
+
+
+def sanitize_target_sequence_label(label: str):
+    """
+    Strip whitespace from the supplied string and replace any
+    internal whitespace with an underscore.
+    """
+    return label.strip().replace(" ", "_")
