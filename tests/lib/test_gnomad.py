@@ -89,36 +89,31 @@ def test_allele_list_from_list_like_string_empty():
 
 
 def test_allele_list_from_list_like_string_valid_two_alleles():
-    assert allele_list_from_list_like_string('"[A, T]"') == ["A", "T"]
+    assert allele_list_from_list_like_string("[A, T]") == ["A", "T"]
 
 
 def test_allele_list_from_list_like_string_valid_with_whitespace():
-    assert allele_list_from_list_like_string('"[A,  TG]"') == ["A", "TG"]
-
-
-def test_allele_list_from_list_like_string_invalid_format_missing_quotes():
-    with pytest.raises(ValueError, match="Invalid format for alleles string."):
-        allele_list_from_list_like_string("[A, T]")
+    assert allele_list_from_list_like_string("[A,  TG]") == ["A", "TG"]
 
 
 def test_allele_list_from_list_like_string_invalid_format_single_allele():
     with pytest.raises(ValueError, match="Invalid format for alleles string."):
-        allele_list_from_list_like_string('"[G]"')
+        allele_list_from_list_like_string("[G]")
 
 
 def test_allele_list_from_list_like_string_invalid_format_extra_allele():
     with pytest.raises(ValueError, match="Invalid format for alleles string."):
-        allele_list_from_list_like_string('"[A, T, C]"')
+        allele_list_from_list_like_string("[A, T, C]")
 
 
 def test_allele_list_from_list_like_string_invalid_format_non_AGTC():
     with pytest.raises(ValueError, match="Invalid format for alleles string."):
-        allele_list_from_list_like_string('"[A, X]"')
+        allele_list_from_list_like_string("[A, X]")
 
 
 def test_allele_list_from_list_like_string_invalid_format_not_list():
     with pytest.raises(ValueError, match="Invalid format for alleles string."):
-        allele_list_from_list_like_string('"A, T"')
+        allele_list_from_list_like_string("A, T")
 
 
 ### Tests for gnomad_variant_data_for_caids function ###

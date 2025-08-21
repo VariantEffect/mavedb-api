@@ -56,7 +56,7 @@ def allele_list_from_list_like_string(alleles_string: str) -> list[str]:
     if not alleles_string:
         return []
 
-    if not re.match(r"^\"\[\s*[AGTC]+(?:\s*,\s*[AGTC]+)\s*\]\"$", alleles_string):
+    if not re.match(r"^\[\s*[AGTC]+(?:\s*,\s*[AGTC]+)\s*\]$", alleles_string):
         raise ValueError("Invalid format for alleles string.")
 
     alleles_string = alleles_string.strip().strip('"[]')
