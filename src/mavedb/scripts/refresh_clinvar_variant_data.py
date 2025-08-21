@@ -116,9 +116,11 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: str, urns:
             continue
 
         variant_data = tsv_data[clinvar_allele_id]
+        identifier = str(clinvar_allele_id)
+
         clinvar_variant = db.scalars(
             select(ClinicalControl).where(
-                ClinicalControl.db_identifier == clinvar_allele_id,
+                ClinicalControl.db_identifier == identifier,
                 ClinicalControl.db_version == version,
                 ClinicalControl.db_name == "ClinVar",
             )
@@ -129,7 +131,7 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: str, urns:
             clinvar_variant.clinical_review_status = variant_data.get("ReviewStatus")
         else:
             clinvar_variant = ClinicalControl(
-                db_identifier=clinvar_allele_id,
+                db_identifier=identifier,
                 gene_symbol=variant_data.get("GeneSymbol"),
                 clinical_significance=variant_data.get("ClinicalSignificance"),
                 clinical_review_status=variant_data.get("ReviewStatus"),
@@ -150,7 +152,7 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: str, urns:
 
         db.commit()
         logger.debug(
-            f"Added ClinVar variant data ({clinvar_allele_id}) for ClinGen allele ID {clingen_id}. ({index + 1}/{total_variants_with_clingen_ids})."
+            f"Added ClinVar variant data ({identifier}) for ClinGen allele ID {clingen_id}. ({index + 1}/{total_variants_with_clingen_ids})."
         )
 
 
