@@ -419,7 +419,7 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_no_score_ra
 
     assert response.status_code == 404
     assert (
-        f"Could not construct a functional impact statement for mapped variant {score_set['urn']}#1: No score range evidence found"
+        f"Could not construct a functional impact statement for mapped variant {score_set['urn']}#1. Variant does not have sufficient evidence to evaluate its functional impact"
         in response_data["detail"]
     )
 
@@ -583,7 +583,7 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_no_score_calibra
 
     assert response.status_code == 404
     assert (
-        f"Could not construct a pathogenicity evidence line for mapped variant {score_set['urn']}#1; No calibrations exist"
+        f"Could not construct a pathogenicity evidence line for mapped variant {score_set['urn']}#1; Variant does not have sufficient evidence to evaluate its pathogenicity"
         in response_data["detail"]
     )
 

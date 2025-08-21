@@ -139,12 +139,12 @@ async def show_mapped_variant_functional_impact_statement(
 
     if not functional_impact:
         logger.info(
-            msg="Could not construct a functional impact statement for this mapped variant; No score range evidence exists for this score set.",
+            msg="Could not construct a functional impact statement for this mapped variant. Variant does not have sufficient evidence to evaluate its functional impact.",
             extra=logging_context(),
         )
         raise HTTPException(
             status_code=404,
-            detail=f"Could not construct a functional impact statement for mapped variant {urn}: No score range evidence found",
+            detail=f"Could not construct a functional impact statement for mapped variant {urn}. Variant does not have sufficient evidence to evaluate its functional impact.",
         )
 
     return functional_impact
@@ -180,12 +180,12 @@ async def show_mapped_variant_acmg_evidence_line(
 
     if not pathogenicity_evidence:
         logger.info(
-            msg="Could not construct a pathogenicity evidence line for this mapped variant; No calibrations exist for this score set.",
+            msg="Could not construct a pathogenicity evidence line for this mapped variant; Variant does not have sufficient evidence to evaluate its pathogenicity.",
             extra=logging_context(),
         )
         raise HTTPException(
             status_code=404,
-            detail=f"Could not construct a pathogenicity evidence line for mapped variant {urn}; No calibrations exist for this score set",
+            detail=f"Could not construct a pathogenicity evidence line for mapped variant {urn}; Variant does not have sufficient evidence to evaluate its pathogenicity.",
         )
 
     return pathogenicity_evidence

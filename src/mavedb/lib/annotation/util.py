@@ -8,6 +8,7 @@ from ga4gh.vrs.models import (
     Expression,
     LiteralSequenceExpression,
 )
+from mavedb.lib.annotation.constants import CLINICAL_RANGES, FUNCTIONAL_RANGES
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 
@@ -137,3 +138,114 @@ def variation_from_mapped_variant(mapped_variant: MappedVariant) -> MolecularVar
         )
 
     return vrs_object_from_mapped_variant(mapped_variant.post_mapped)
+
+
+def _can_annotate_variant_base_assumptions(mapped_variant: MappedVariant) -> bool:
+    """
+    Check if a mapped variant meets the basic requirements for annotation.
+
+    This function validates that a mapped variant has the necessary data
+    to proceed with annotation by checking for a valid score value.
+
+    Args:
+        mapped_variant (MappedVariant): The mapped variant to check for
+            annotation eligibility.
+
+    Returns:
+        bool: True if the variant can be annotated (has score ranges and
+            a non-None score), False otherwise.
+    """
+    # This property is guaranteed to exist for all variants.
+    if mapped_variant.variant.data["score_data"]["score"] is None:  # type: ignore
+        return False
+
+    return True
+
+
+def _variant_score_ranges_have_required_keys_for_annotation(
+    mapped_variant: MappedVariant, key_options: list[str]
+) -> bool:
+    """
+    Check if a mapped variant's score set contains any of the required score range keys for annotation and is present.
+
+    Args:
+        mapped_variant (MappedVariant): The mapped variant object containing the variant with score set data.
+        key_options (list[str]): List of possible score range keys to check for in the score set.
+
+    Returns:
+        bool: False if none of the required keys are found or if all found keys have None values.
+              Returns True (implicitly) if at least one required key exists with a non-None value.
+    """
+    if mapped_variant.variant.score_set.score_ranges is None:
+        return False
+
+    if not any(
+        range_key in mapped_variant.variant.score_set.score_ranges
+        and mapped_variant.variant.score_set.score_ranges[range_key] is not None
+        for range_key in key_options
+    ):
+        return False
+
+    return True
+
+
+def can_annotate_variant_for_pathogenicity_evidence(mapped_variant: MappedVariant) -> bool:
+    """
+    Determine if a mapped variant can be annotated for pathogenicity evidence.
+
+    This function checks whether a given mapped variant meets all the necessary
+    requirements to receive pathogenicity evidence annotations. It validates
+    both basic annotation assumptions and the presence of required clinical
+    score range keys.
+
+    Args:
+        mapped_variant (MappedVariant): The mapped variant object to evaluate
+            for pathogenicity evidence annotation eligibility.
+
+    Returns:
+        bool: True if the variant can be annotated for pathogenicity evidence,
+            False otherwise.
+
+    Notes:
+        The function performs two main validation checks:
+        1. Basic annotation assumptions via _can_annotate_variant_base_assumptions
+        2. Required clinical range keys via _variant_score_ranges_have_required_keys_for_annotation
+
+        Both checks must pass for the variant to be considered eligible for
+        pathogenicity evidence annotation.
+    """
+    if not _can_annotate_variant_base_assumptions(mapped_variant):
+        return False
+    if not _variant_score_ranges_have_required_keys_for_annotation(mapped_variant, CLINICAL_RANGES):
+        return False
+
+    return True
+
+
+def can_annotate_variant_for_functional_statement(mapped_variant: MappedVariant) -> bool:
+    """
+    Determine if a mapped variant can be annotated for functional statements.
+
+    This function checks if a variant meets all the necessary conditions to receive
+    functional annotations by validating base assumptions and ensuring the variant's
+    score ranges contain the required keys for functional annotation.
+
+    Args:
+        mapped_variant (MappedVariant): The variant object to check for annotation
+            eligibility, containing mapping information and score data.
+
+    Returns:
+        bool: True if the variant can be annotated for functional statements,
+            False otherwise.
+
+    Notes:
+        The function performs two main checks:
+        1. Validates base assumptions using _can_annotate_variant_base_assumptions
+        2. Verifies score ranges have required keys using FUNCTIONAL_RANGES
+    """
+    if not _can_annotate_variant_base_assumptions(mapped_variant):
+        return False
+    if not _variant_score_ranges_have_required_keys_for_annotation(mapped_variant, FUNCTIONAL_RANGES):
+        return False
+
+    return True
