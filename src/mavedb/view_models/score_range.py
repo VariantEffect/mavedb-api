@@ -1,4 +1,3 @@
-import operator
 from typing import Optional, Literal, Sequence, Union
 from pydantic import field_validator, model_validator
 
@@ -106,12 +105,6 @@ class ScoreRangesBase(BaseModel):
                 range_with_min_value = range_check
                 range_with_non_min_value = range_test
 
-            adjacent_boundary_comparator = (
-                operator.gt
-                if range_with_min_value.inclusive_upper_bound or range_with_non_min_value.inclusive_lower_bound
-                else operator.ge
-            )
-
             # If both ranges have inclusive bounds and their bounds intersect, we consider them overlapping.
             if (
                 range_with_min_value.inclusive_upper_bound
@@ -125,11 +118,10 @@ class ScoreRangesBase(BaseModel):
 
             # Since we have ordered the ranges, it's a guarantee that the lower bound of the first range is less
             # than or equal to the lower bound of the second range. If the upper bound of the first range is greater
-            # than or equal to the lower bound of the second range, then the two ranges overlap. Note that if either
-            # of these ranges has an inclusive upper or lower bound, we should compare them without the equality operator.
-            if adjacent_boundary_comparator(
-                inf_or_float(range_with_min_value.range[1], False),
-                inf_or_float(range_with_non_min_value.range[0], True),
+            # than the lower bound of the second range, then the two ranges overlap. Inclusive bounds only come into
+            # play when the boundaries are equal and both bounds are inclusive.
+            if inf_or_float(range_with_min_value.range[1], False) > inf_or_float(
+                range_with_non_min_value.range[0], True
             ):
                 return True
 
