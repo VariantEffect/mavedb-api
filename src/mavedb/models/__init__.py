@@ -9,6 +9,7 @@ __all__ = [
     "experiment",
     "experiment_set",
     "genome_identifier",
+    "gnomad_variant",
     "legacy_keyword",
     "license",
     "mapped_variant",
@@ -26,4 +27,5 @@ __all__ = [
     "uniprot_offset",
     "user",
     "variant",
+    "variant_translation",
 ]

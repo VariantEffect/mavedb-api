@@ -1,10 +1,11 @@
 from humps import camelize
+
 from pydantic import BaseModel as PydanticBaseModel
-from pydantic import validator
+from pydantic import field_validator
 
 
 class BaseModel(PydanticBaseModel):
-    @validator("*", pre=True)
+    @field_validator("*", mode="before")
     def empty_str_to_none(cls, x):
         """
         Convert empty strings to None. This is applied to all string-valued attributes before other validators run.
@@ -18,4 +19,4 @@ class BaseModel(PydanticBaseModel):
 
     class Config:
         alias_generator = camelize
-        allow_population_by_field_name = True
+        populate_by_name = True

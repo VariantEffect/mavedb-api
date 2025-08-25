@@ -2,7 +2,7 @@ from enum import Enum
 from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import Session
 from starlette.convertors import Convertor, register_url_convertor
@@ -121,7 +121,9 @@ def list_publication_journal_names(*, db: Session = Depends(deps.get_db)) -> Any
     List distinct journal names, in alphabetical order.
     """
 
-    items = db.query(PublicationIdentifier).all()
+    items = db.scalars(
+        select(PublicationIdentifier).where(PublicationIdentifier.publication_journal.is_not(None))
+    ).all()
     journals = map(lambda item: item.publication_journal, items)
     return sorted(list(set(journals)))
 

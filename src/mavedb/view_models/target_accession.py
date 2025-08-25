@@ -1,21 +1,27 @@
 from datetime import date
 from typing import Optional
+from typing_extensions import Self
 
+from pydantic import model_validator
+
+from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models import record_type_validator, set_record_type
-from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models.base.base import BaseModel
 
 
 class TargetAccessionBase(BaseModel):
     accession: str
     is_base_editor: bool
-    assembly: Optional[str]
-    gene: Optional[str]
+    assembly: Optional[str] = None
+    gene: Optional[str] = None
 
-    @validator("gene", always=True)
-    def check_gene_or_assembly(cls, gene, values):
-        if "assembly" not in values and not gene:
-            raise ValueError("either a `gene` or `assembly` is required")
-        return gene
+    @model_validator(mode="after")
+    def check_gene_or_assembly(self) -> Self:
+        if self.assembly is None and self.gene is None:
+            raise ValidationError(
+                f"Could not create {self.__class__.__name__} object: Either a `gene` or `assembly` is required."
+            )
+        return self
 
 
 class TargetAccessionModify(TargetAccessionBase):
@@ -38,7 +44,7 @@ class SavedTargetAccession(TargetAccessionBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
         arbitrary_types_allowed = True
 
 

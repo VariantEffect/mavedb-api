@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 def search_experiments(
     db: Session, owner_or_contributor: Optional[User], search: ExperimentsSearch
 ) -> list[Experiment]:
-    save_to_logging_context({"experiment_search_criteria": search.dict()})
+    save_to_logging_context({"experiment_search_criteria": search.model_dump()})
 
     query = db.query(Experiment)
     # .filter(ScoreSet.private.is_(False))
@@ -149,7 +149,7 @@ def enrich_experiment_with_num_score_sets(
         }
     )
 
-    updated_experiment = experiment.Experiment.from_orm(item_update).copy(
+    updated_experiment = experiment.Experiment.model_validate(item_update).copy(
         update={
             "num_score_sets": len(filtered_score_set_urns),
             "score_set_urns": filtered_score_set_urns,

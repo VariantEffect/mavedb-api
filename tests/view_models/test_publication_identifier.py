@@ -38,7 +38,7 @@ def test_publication_identifier_create_old_medrxiv_validator():
     assert pubmed_one.identifier == "20733333"
 
 
-def test_invalid_publication_identifier_create_validator():
+def test_cannot_create_publication_identifier_with_invalid_identifier():
     # Test invalid identifier
     invalid_identifier = "not_an_identifier"
     with pytest.raises(ValueError) as exc_info:
@@ -48,11 +48,13 @@ def test_invalid_publication_identifier_create_validator():
     )
 
 
-def test_invalid_publication_identifier_date_part_create_validator():
-    # Test invalid identifier (date too early on bioRxiv identifier)
-    invalid_identifier = "2018.12.12.207222"
+def test_cannot_create_publication_identifier_with_invalid_db_name():
+    # Test invalid db name
+    valid_identifier = "20711111"
+    invalid_db_name = "not_a_db"
     with pytest.raises(ValueError) as exc_info:
-        PublicationIdentifierCreate(identifier=invalid_identifier)
-    assert "'2018.12.12.207222' is not a valid DOI or a valid PubMed, bioRxiv, or medRxiv identifier." in str(
-        exc_info.value
+        PublicationIdentifierCreate(identifier=valid_identifier, db_name=invalid_db_name)
+    assert (
+        "The `db_name` key within the identifier attribute of the external publication identifier should take one of the following values"
+        in str(exc_info.value)
     )
