@@ -7,12 +7,12 @@ from mavedb.view_models.base.base import BaseModel
 
 class TaxonomyBase(BaseModel):
     code: int
-    organism_name: Optional[str]
-    common_name: Optional[str]
-    rank: Optional[str]
-    has_described_species_name: Optional[bool]
-    article_reference: Optional[str]
-    genome_id: Optional[int]
+    organism_name: Optional[str] = None
+    common_name: Optional[str] = None
+    rank: Optional[str] = None
+    has_described_species_name: Optional[bool] = None
+    article_reference: Optional[str] = None
+    genome_id: Optional[int] = None
 
 
 class TaxonomyCreate(TaxonomyBase):
