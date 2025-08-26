@@ -40,7 +40,13 @@ def functional_classification_of_variant(
         )
 
     # This property of this column is guaranteed to be defined.
-    functional_score: float = mapped_variant.variant.data["score_data"]["score"]  # type: ignore
+    functional_score: Optional[float] = mapped_variant.variant.data["score_data"]["score"]  # type: ignore
+    if functional_score is None:
+        raise ValueError(
+            f"Variant {mapped_variant.variant.urn} does not have a functional score."
+            " Unable to classify functional impact."
+        )
+
     for range in score_ranges.ranges:
         lower_bound, upper_bound = inf_or_float(range.range[0], lower=True), inf_or_float(range.range[1], lower=False)
         if functional_score > lower_bound and functional_score <= upper_bound:
@@ -72,7 +78,12 @@ def pillar_project_clinical_classification_of_variant(
         )
 
     # This property of this column is guaranteed to be defined.
-    functional_score: float = mapped_variant.variant.data["score_data"]["score"]  # type: ignore
+    functional_score: Optional[float] = mapped_variant.variant.data["score_data"]["score"]  # type: ignore
+    if functional_score is None:
+        raise ValueError(
+            f"Variant {mapped_variant.variant.urn} does not have a functional score."
+            " Unable to classify clinical impact."
+        )
 
     for range in score_ranges.ranges:
         lower_bound, upper_bound = inf_or_float(range.range[0], lower=True), inf_or_float(range.range[1], lower=False)

@@ -13,7 +13,6 @@ from typing import Optional
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 
-from mavedb.lib.annotation.constants import FUNCTIONAL_RANGES, CLINICAL_RANGES
 from mavedb.lib.annotation.evidence_line import acmg_evidence_line, functional_evidence_line
 from mavedb.lib.annotation.proposition import (
     mapped_variant_to_experimental_variant_clinical_impact_proposition,
@@ -21,6 +20,10 @@ from mavedb.lib.annotation.proposition import (
 )
 from mavedb.lib.annotation.statement import mapped_variant_to_functional_statement
 from mavedb.lib.annotation.study_result import mapped_variant_to_experimental_variant_impact_study_result
+from mavedb.lib.annotation.util import (
+    can_annotate_variant_for_pathogenicity_evidence,
+    can_annotate_variant_for_functional_statement,
+)
 from mavedb.models.mapped_variant import MappedVariant
 
 
@@ -29,14 +32,7 @@ def variant_study_result(mapped_variant: MappedVariant) -> ExperimentalVariantFu
 
 
 def variant_functional_impact_statement(mapped_variant: MappedVariant) -> Optional[Statement]:
-    if mapped_variant.variant.score_set.score_ranges is None:
-        return None
-
-    if not any(
-        range_key in mapped_variant.variant.score_set.score_ranges
-        and mapped_variant.variant.score_set.score_ranges[range_key] is not None
-        for range_key in FUNCTIONAL_RANGES
-    ):
+    if not can_annotate_variant_for_functional_statement(mapped_variant):
         return None
 
     # TODO#494: Add support for multiple functional evidence lines. If a score set has multiple ranges
@@ -51,14 +47,7 @@ def variant_functional_impact_statement(mapped_variant: MappedVariant) -> Option
 def variant_pathogenicity_evidence(
     mapped_variant: MappedVariant,
 ) -> Optional[VariantPathogenicityEvidenceLine]:
-    if mapped_variant.variant.score_set.score_ranges is None:
-        return None
-
-    if not any(
-        range_key in mapped_variant.variant.score_set.score_ranges
-        and mapped_variant.variant.score_set.score_ranges[range_key] is not None
-        for range_key in CLINICAL_RANGES
-    ):
+    if not can_annotate_variant_for_pathogenicity_evidence(mapped_variant):
         return None
 
     study_result = mapped_variant_to_experimental_variant_impact_study_result(mapped_variant)

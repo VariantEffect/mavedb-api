@@ -21,6 +21,10 @@ class MappedVariantBase(BaseModel):
     mapping_api_version: str
     current: bool
 
+    # Generated via model validators. On update/create classes, the input should be
+    # a dict. On saved classes, the input should be a model instance.
+    variant_urn: str
+
 
 class MappedVariantUpdate(MappedVariantBase):
     clinical_controls: Sequence["ClinicalControlBase"]
@@ -30,8 +34,8 @@ class MappedVariantUpdate(MappedVariantBase):
     def generate_score_set_urn_list(cls, data: Any):
         if "variant_urn" not in data and "variant" in data:
             try:
-                data.__setattr__("variant_urn", None if not data["variant"] else data["variant"]["urn"])
-            except AttributeError as exc:
+                data["variant_urn"] = None if not data["variant"] else data["variant"]["urn"]
+            except KeyError as exc:
                 raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
         return data
 

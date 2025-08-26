@@ -7,6 +7,7 @@ from sqlalchemy import text, select, Row
 from sqlalchemy.orm import Session
 
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.utils import batched
 from mavedb.db.athena import engine as athena_engine
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
@@ -56,7 +57,7 @@ def allele_list_from_list_like_string(alleles_string: str) -> list[str]:
     if not alleles_string:
         return []
 
-    if not re.match(r"^\"\[\s*[AGTC]+(?:\s*,\s*[AGTC]+)\s*\]\"$", alleles_string):
+    if not re.match(r"^\[\s*[AGTC]+(?:\s*,\s*[AGTC]+)\s*\]$", alleles_string):
         raise ValueError("Invalid format for alleles string.")
 
     alleles_string = alleles_string.strip().strip('"[]')
@@ -67,7 +68,9 @@ def allele_list_from_list_like_string(alleles_string: str) -> list[str]:
 
 def gnomad_variant_data_for_caids(caids: Sequence[str]) -> Sequence[Row[Any]]:  # pragma: no cover
     """
-    Fetches variant rows from the gnomAD table for a list of CAIDs.
+    Fetches variant rows from the gnomAD table for a list of CAIDs. Athena has a maximum character limit of 262144
+    in queries. CAIDs are about 12 characters long on average + 4 for two quotes, a comma and a space. Chunk our list
+    into chunks of 260000/16=16250 so we are guaranteed to remain under the character limit.
 
     Args:
         caids (list[str]): A list of CAIDs (Canonical Allele Identifiers) to query.
@@ -87,36 +90,45 @@ def gnomad_variant_data_for_caids(caids: Sequence[str]) -> Sequence[Row[Any]]:  
     Raises:
         sqlalchemy.exc.SQLAlchemyError: If there is an error executing the query.
     """
-
-    caid_str = ",".join(f"'{caid}'" for caid in caids)
-    athena_query = f"""
-        SELECT
-            "locus.contig",
-            "locus.position",
-            "alleles",
-            "caid",
-            "joint.freq.all.ac",
-            "joint.freq.all.an",
-            "joint.fafmax.faf95_max_gen_anc",
-            "joint.fafmax.faf95_max"
-        FROM
-            {gnomad_table_name()}
-        WHERE
-            caid IN ({caid_str})
-    """
-
-    save_to_logging_context({"num_caids": len(caids)})
-    logger.debug(msg=f"Fetching gnomAD variants from Athena with query:\n{athena_query}", extra=logging_context())
+    chunked_caids = batched(caids, 16250)
+    caid_strs = [",".join(f"'{caid}'" for caid in chunk) for chunk in chunked_caids]
+    save_to_logging_context({"num_caids": len(caids), "num_chunks": len(caid_strs)})
 
     with athena_engine.connect() as athena_connection:
         logger.debug(msg="Connected to Athena", extra=logging_context())
-        result = athena_connection.execute(text(athena_query))
-        rows = result.fetchall()
 
-    save_to_logging_context({"num_gnomad_variant_rows_fetched": len(rows)})
-    logger.debug(msg="Done fetching gnomAD variants from Athena", extra=logging_context())
+        result_rows: list[Row[Any]] = []
+        for chunk_index, caid_str in enumerate(caid_strs):
+            athena_query = f"""
+                SELECT
+                    "locus.contig",
+                    "locus.position",
+                    "alleles",
+                    "caid",
+                    "joint.freq.all.ac",
+                    "joint.freq.all.an",
+                    "joint.fafmax.faf95_max_gen_anc",
+                    "joint.fafmax.faf95_max"
+                FROM
+                    {gnomad_table_name()}
+                WHERE
+                    caid IN ({caid_str})
+            """
+            logger.debug(
+                msg=f"Fetching gnomAD variants from Athena (batch {chunk_index}) with query:\n{athena_query}",
+                extra=logging_context(),
+            )
 
-    return rows
+            result = athena_connection.execute(text(athena_query))
+            rows = result.fetchall()
+            result_rows.extend(rows)
+
+            logger.debug(f"Fetched {len(rows)} gnomAD variants from Athena (batch {chunk_index}).")
+
+        save_to_logging_context({"num_gnomad_variant_rows_fetched": len(result_rows)})
+        logger.debug(msg="Done fetching gnomAD variants from Athena", extra=logging_context())
+
+    return result_rows
 
 
 def link_gnomad_variants_to_mapped_variants(
@@ -153,7 +165,10 @@ def link_gnomad_variants_to_mapped_variants(
         allele_number = int(row.__getattribute__("joint.freq.all.an"))
         allele_frequency = float(allele_count) / float(allele_number)
         faf95_max_ancestry = row.__getattribute__("joint.fafmax.faf95_max_gen_anc")
-        faf95_max = float(row.__getattribute__("joint.fafmax.faf95_max"))
+        faf95_max = row.__getattribute__("joint.fafmax.faf95_max")
+
+        if faf95_max is not None:
+            faf95_max = float(faf95_max)
 
         for mapped_variant in mapped_variants_with_caids:
             # Remove any existing gnomAD variants for this mapped variant that match the current gnomAD data version to avoid data duplication.

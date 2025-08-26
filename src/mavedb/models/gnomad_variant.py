@@ -24,8 +24,8 @@ class GnomADVariant(Base):
     allele_number = Column(Integer, nullable=False)
     allele_frequency = Column(Float, nullable=False)
 
-    faf95_max = Column(Float, nullable=False)
-    faf95_max_ancestry = Column(String, nullable=False)
+    faf95_max = Column(Float, nullable=True)
+    faf95_max_ancestry = Column(String, nullable=True)
 
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)

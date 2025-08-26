@@ -19,6 +19,13 @@ def test_variant_functional_impact_statement_no_score_ranges(mock_mapped_variant
     assert result is None
 
 
+def test_variant_functional_impact_statement_no_score(mock_mapped_variant):
+    mock_mapped_variant.variant.data = {"score_data": {"score": None}}
+    result = variant_functional_impact_statement(mock_mapped_variant)
+
+    assert result is None
+
+
 def test_variant_functional_impact_statement_with_score_ranges(mock_mapped_variant):
     result = variant_functional_impact_statement(mock_mapped_variant)
 
@@ -35,6 +42,13 @@ def test_variant_functional_impact_statement_with_score_ranges(mock_mapped_varia
 def test_variant_pathogenicity_evidence_no_score_ranges_no_thresholds(mock_mapped_variant):
     mock_mapped_variant.variant.score_set.score_ranges = None
     mock_mapped_variant.variant.score_set.score_calibrations = None
+    result = variant_pathogenicity_evidence(mock_mapped_variant)
+
+    assert result is None
+
+
+def test_variant_pathogenicity_evidence_no_score(mock_mapped_variant):
+    mock_mapped_variant.variant.data = {"score_data": {"score": None}}
     result = variant_pathogenicity_evidence(mock_mapped_variant)
 
     assert result is None

@@ -89,36 +89,31 @@ def test_allele_list_from_list_like_string_empty():
 
 
 def test_allele_list_from_list_like_string_valid_two_alleles():
-    assert allele_list_from_list_like_string('"[A, T]"') == ["A", "T"]
+    assert allele_list_from_list_like_string("[A, T]") == ["A", "T"]
 
 
 def test_allele_list_from_list_like_string_valid_with_whitespace():
-    assert allele_list_from_list_like_string('"[A,  TG]"') == ["A", "TG"]
-
-
-def test_allele_list_from_list_like_string_invalid_format_missing_quotes():
-    with pytest.raises(ValueError, match="Invalid format for alleles string."):
-        allele_list_from_list_like_string("[A, T]")
+    assert allele_list_from_list_like_string("[A,  TG]") == ["A", "TG"]
 
 
 def test_allele_list_from_list_like_string_invalid_format_single_allele():
     with pytest.raises(ValueError, match="Invalid format for alleles string."):
-        allele_list_from_list_like_string('"[G]"')
+        allele_list_from_list_like_string("[G]")
 
 
 def test_allele_list_from_list_like_string_invalid_format_extra_allele():
     with pytest.raises(ValueError, match="Invalid format for alleles string."):
-        allele_list_from_list_like_string('"[A, T, C]"')
+        allele_list_from_list_like_string("[A, T, C]")
 
 
 def test_allele_list_from_list_like_string_invalid_format_non_AGTC():
     with pytest.raises(ValueError, match="Invalid format for alleles string."):
-        allele_list_from_list_like_string('"[A, X]"')
+        allele_list_from_list_like_string("[A, X]")
 
 
 def test_allele_list_from_list_like_string_invalid_format_not_list():
     with pytest.raises(ValueError, match="Invalid format for alleles string."):
-        allele_list_from_list_like_string('"A, T"')
+        allele_list_from_list_like_string("A, T")
 
 
 ### Tests for gnomad_variant_data_for_caids function ###
@@ -152,6 +147,33 @@ def test_links_new_gnomad_variant_to_mapped_variant(
     assert len(mapped_variant.gnomad_variants) == 1
     for attr in edited_saved_gnomad_variant:
         assert getattr(mapped_variant.gnomad_variants[0], attr) == edited_saved_gnomad_variant[attr]
+
+
+def test_can_link_gnomad_variants_with_none_type_faf_fields(
+    session, mocked_gnomad_variant_row, setup_lib_db_with_mapped_variant
+):
+    mapped_variant = setup_lib_db_with_mapped_variant
+    mapped_variant.clingen_allele_id = mocked_gnomad_variant_row.caid
+    session.add(mapped_variant)
+    session.commit()
+
+    mocked_gnomad_variant_row.__setattr__("joint.fafmax.faf95_max_gen_anc", None)
+    mocked_gnomad_variant_row.__setattr__("joint.fafmax.faf95_max", None)
+
+    with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
+        result = link_gnomad_variants_to_mapped_variants(session, [mocked_gnomad_variant_row])
+        assert result == 1
+        session.commit()
+
+    gnomad_variant_comparator = TEST_GNOMAD_VARIANT.copy()
+    gnomad_variant_comparator.pop("creation_date")
+    gnomad_variant_comparator.pop("modification_date")
+    gnomad_variant_comparator["faf95_max"] = None
+    gnomad_variant_comparator["faf95_max_ancestry"] = None
+
+    assert len(mapped_variant.gnomad_variants) == 1
+    for attr in gnomad_variant_comparator:
+        assert getattr(mapped_variant.gnomad_variants[0], attr) == gnomad_variant_comparator[attr]
 
 
 def test_links_existing_gnomad_variant(session, mocked_gnomad_variant_row, setup_lib_db_with_mapped_variant):
