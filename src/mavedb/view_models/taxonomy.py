@@ -12,7 +12,7 @@ class TaxonomyBase(BaseModel):
     rank: Optional[str] = None
     has_described_species_name: Optional[bool] = None
     article_reference: Optional[str] = None
-    genome_id: Optional[int] = None
+    genome_identifier_id: Optional[int] = None
 
 
 class TaxonomyCreate(TaxonomyBase):
