@@ -598,8 +598,9 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
     "numScoreSets": 0,  # NOTE: This is context-dependent and may need overriding per test
 }
 
+
 TEST_MINIMAL_TAXONOMY = {
-    "tax_id": 9606,
+    "code": 9606,
 }
 
 TEST_POPULATED_TAXONOMY = {
@@ -692,7 +693,7 @@ TEST_SEQ_SCORESET = {
                 "sequence_type": "dna",
                 "sequence": "ACGTTT",
                 "taxonomy": {
-                    "tax_id": TEST_SAVED_TAXONOMY["tax_id"],
+                    "code": TEST_SAVED_TAXONOMY["code"],
                     "organism_name": TEST_SAVED_TAXONOMY["organism_name"],
                     "common_name": TEST_SAVED_TAXONOMY["common_name"],
                     "rank": TEST_SAVED_TAXONOMY["rank"],
@@ -719,7 +720,7 @@ TEST_MINIMAL_SEQ_SCORESET = {
                 "sequenceType": "dna",
                 "sequence": "ACGTTT",
                 "taxonomy": {
-                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "code": TEST_SAVED_TAXONOMY["code"],
                     "organismName": TEST_SAVED_TAXONOMY["organism_name"],
                     "commonName": TEST_SAVED_TAXONOMY["common_name"],
                     "rank": TEST_SAVED_TAXONOMY["rank"],
@@ -772,7 +773,7 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
                 "label": "TEST1",
                 "taxonomy": {
                     "recordType": "Taxonomy",
-                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "code": TEST_SAVED_TAXONOMY["code"],
                     "organismName": TEST_SAVED_TAXONOMY["organism_name"],
                     "commonName": TEST_SAVED_TAXONOMY["common_name"],
                     "rank": TEST_SAVED_TAXONOMY["rank"],
@@ -930,7 +931,7 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET = {
                 "sequence": "ACGTTT",
                 "label": "TEST3",
                 "taxonomy": {
-                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "code": TEST_SAVED_TAXONOMY["code"],
                     "organismName": TEST_SAVED_TAXONOMY["organism_name"],
                     "commonName": TEST_SAVED_TAXONOMY["common_name"],
                     "rank": TEST_SAVED_TAXONOMY["rank"],
@@ -950,7 +951,7 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET = {
                 "sequence": "TAATGCC",
                 "label": "TEST4",
                 "taxonomy": {
-                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "code": TEST_SAVED_TAXONOMY["code"],
                     "organismName": TEST_SAVED_TAXONOMY["organism_name"],
                     "commonName": TEST_SAVED_TAXONOMY["common_name"],
                     "rank": TEST_SAVED_TAXONOMY["rank"],
@@ -1003,7 +1004,7 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
                 "label": "TEST3",
                 "taxonomy": {
                     "recordType": "Taxonomy",
-                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "code": TEST_SAVED_TAXONOMY["code"],
                     "organismName": TEST_SAVED_TAXONOMY["organism_name"],
                     "commonName": TEST_SAVED_TAXONOMY["common_name"],
                     "rank": TEST_SAVED_TAXONOMY["rank"],
@@ -1027,7 +1028,7 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
                 "label": "TEST4",
                 "taxonomy": {
                     "recordType": "Taxonomy",
-                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "code": TEST_SAVED_TAXONOMY["code"],
                     "organismName": TEST_SAVED_TAXONOMY["organism_name"],
                     "commonName": TEST_SAVED_TAXONOMY["common_name"],
                     "rank": TEST_SAVED_TAXONOMY["rank"],

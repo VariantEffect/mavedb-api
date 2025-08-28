@@ -68,18 +68,18 @@ def fetch_taxonomy(
     return item
 
 
-@router.get("/tax-id/{item_id}", status_code=200, response_model=taxonomy.Taxonomy, responses={404: {}})
-def fetch_taxonomy_by_tax_id(
+@router.get("/code/{item_id}", status_code=200, response_model=taxonomy.Taxonomy, responses={404: {}})
+def fetch_taxonomy_by_code(
     *,
     item_id: int,
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """
-    Fetch a single taxonomy by tax_id.
+    Fetch a single taxonomy by code.
     """
-    item = db.query(Taxonomy).filter(Taxonomy.tax_id == item_id).first()
+    item = db.query(Taxonomy).filter(Taxonomy.code == item_id).first()
     if not item:
-        raise HTTPException(status_code=404, detail=f"Taxonomy with tax_ID {item_id} not found")
+        raise HTTPException(status_code=404, detail=f"Taxonomy with code {item_id} not found")
     return item
 
 
@@ -101,7 +101,7 @@ async def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_d
                 )
             )
         else:
-            query = query.filter(Taxonomy.tax_id == int(search.text))
+            query = query.filter(Taxonomy.code == int(search.text))
     items = query.order_by(Taxonomy.organism_name).all()
 
     if not items and search.text:

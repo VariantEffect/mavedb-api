@@ -10,16 +10,16 @@ from mavedb.view_models.taxonomy import TaxonomyCreate
 
 async def find_or_create_taxonomy(db: Session, taxonomy: TaxonomyCreate):
     """
-    Find an existing taxonomy ID record with the specified tax_id int, or create a new one.
+    Find an existing taxonomy ID record with the specified code, or create a new one.
 
     :param db: An active database session
     :param taxonomy: A TaxonomyCreate object containing the taxonomy details to search for or create.
     :return: An existing Taxonomy containing the specified taxonomy ID, or a new, unsaved Taxonomy
-    tax_id: A valid taxonomy ID from NCBI
+    code: A valid taxonomy ID from NCBI
     """
-    taxonomy_record = db.query(Taxonomy).filter(Taxonomy.tax_id == taxonomy.tax_id).one_or_none()
+    taxonomy_record = db.query(Taxonomy).filter(Taxonomy.code == taxonomy.code).one_or_none()
     if not taxonomy_record:
-        taxonomy_record = await search_NCBI_taxonomy(db, str(taxonomy.tax_id))
+        taxonomy_record = await search_NCBI_taxonomy(db, str(taxonomy.code))
     return taxonomy_record
 
 
@@ -51,14 +51,14 @@ async def search_NCBI_taxonomy(db: Session, search: str) -> Any:
                 ncbi_taxonomy.setdefault("rank", "NULL")
                 ncbi_taxonomy.setdefault("has_described_species_name", False)
                 taxonomy_record = Taxonomy(
-                    tax_id=ncbi_taxonomy["tax_id"],
+                    code=ncbi_taxonomy["code"],
                     organism_name=ncbi_taxonomy["organism_name"],
                     common_name=ncbi_taxonomy["common_name"],
                     rank=ncbi_taxonomy["rank"],
                     has_described_species_name=ncbi_taxonomy["has_described_species_name"],
                     url="https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=info&id="
-                    + str(ncbi_taxonomy["tax_id"]),
-                    article_reference="NCBI:txid" + str(ncbi_taxonomy["tax_id"]),
+                    + str(ncbi_taxonomy["code"]),
+                    article_reference="NCBI:txid" + str(ncbi_taxonomy["code"]),
                 )
                 db.add(taxonomy_record)
                 db.commit()

@@ -7,7 +7,7 @@ from mavedb.view_models.taxonomy import TaxonomyCreate
 
 taxonomy = TaxonomyCreate(
     id=1,
-    tax_id=1,
+    code=1,
     organism_name="Organism",
     common_name="Common name",
     rank="Rank",
