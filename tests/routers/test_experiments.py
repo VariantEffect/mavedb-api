@@ -363,7 +363,7 @@ def test_cannot_create_experiment_that_keyword_has_an_invalid_code(client, setup
     response = client.post("/api/v1/experiments/", json=experiment)
     assert response.status_code == 422
     response_data = response.json()
-    assert response_data["detail"][0]["msg"] == "Invalid Gene Ontology accession."
+    assert "Invalid Gene Ontology accession." in response_data["detail"][0]["msg"]
 
 
 def test_cannot_create_experiment_that_keyword_label_is_other_without_description(client, setup_router_db):

@@ -1,7 +1,7 @@
 """controlled keyword modification
 
 Revision ID: 0b29eefbe1dd
-Revises: af87c9953d2d
+Revises: 2b7a977e7e98
 Create Date: 2025-08-07 15:45:43.241567
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '0b29eefbe1dd'
-down_revision = 'af87c9953d2d'
+down_revision = '2b7a977e7e98'
 branch_labels = None
 depends_on = None
 

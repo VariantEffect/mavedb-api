@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 
 from mavedb.lib.validation import keywords
 from mavedb.view_models import record_type_validator, set_record_type
@@ -29,12 +29,11 @@ class KeywordBase(BaseModel):
         keywords.validate_keyword(v)
         return v
 
-    @field_validator("code")
-    def validate_code(cls, value, values):
-        key = values.get("key")
-        label = values.get("label")
-        keywords.validate_code(key, label, value)
-        return value
+    @model_validator(mode="after")
+    def validate_code(self):
+        keywords.validate_code(self.key, self.label, self.code)
+        return self
+
 
     # TODO#273: Un-commenting this block will require new experiments to contain a keyword on creation.
     # @field_validator("label")
