@@ -11,8 +11,8 @@ class LicenseBase(BaseModel):
     long_name: str
     short_name: str
     active: bool
-    link: Optional[str]
-    version: Optional[str]
+    link: Optional[str] = None
+    version: Optional[str] = None
 
 
 # Properties shared by models stored in DB
@@ -25,7 +25,7 @@ class SavedLicense(LicenseBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class ShortLicense(SavedLicense):

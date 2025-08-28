@@ -100,3 +100,15 @@ def create_mapped_variants_for_score_set(db, score_set_urn, mapped_variant: dict
     score_set.mapping_state = MappingState.complete
     db.commit()
     return
+
+
+def clear_first_mapped_variant_post_mapped(session, score_set_urn):
+    db_score_set = session.query(ScoreSet).filter(ScoreSet.urn == score_set_urn).one()
+    variants = db_score_set.variants
+
+    if variants:
+        first_var = variants[0]
+        first_var.mapped_variants[0].post_mapped = None
+        session.commit()
+
+        return first_var

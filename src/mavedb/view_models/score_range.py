@@ -1,11 +1,14 @@
-from typing import Any, Optional, Literal, Sequence, Union
-from pydantic import validator
+from typing import Optional, Literal, Sequence, Union
+from pydantic import field_validator, model_validator
 
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import inf_or_float
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
-from mavedb.view_models.publication_identifier import PublicationIdentifierBase
+from mavedb.view_models.publication_identifier import (
+    PublicationIdentifierBase,
+    PublicationIdentifierCreate,
+)
 from mavedb.view_models.odds_path import OddsPathCreate, OddsPathBase, OddsPathModify, SavedOddsPath, OddsPath
 
 
@@ -25,22 +28,41 @@ class ScoreRangeBase(BaseModel):
     # Typing this as tuple[Union[float, None], Union[float, None]] will generate an invalid
     # jsonschema, and fail all tests that access the schema. This may be fixed in pydantic v2,
     # but it's unclear. Even just typing it as Tuple[Any, Any] will generate an invalid schema!
-    range: list[Any]  # really: tuple[Union[float, None], Union[float, None]]
+    range: tuple[Union[float, None], Union[float, None]]
+    inclusive_lower_bound: bool = True
+    inclusive_upper_bound: bool = False
 
-    @validator("range")
-    def ranges_are_not_backwards(cls, field_value: tuple[Any]):
-        if len(field_value) != 2:
-            raise ValidationError("Only a lower and upper bound are allowed.")
+    @field_validator("range")
+    def ranges_are_not_backwards(
+        cls, field_value: tuple[Union[float, None], Union[float, None]]
+    ) -> tuple[Union[float, None], Union[float, None]]:
+        lower = inf_or_float(field_value[0], True)
+        upper = inf_or_float(field_value[1], False)
 
-        field_value[0] = inf_or_float(field_value[0], True) if field_value[0] is not None else None
-        field_value[1] = inf_or_float(field_value[1], False) if field_value[1] is not None else None
-
-        if inf_or_float(field_value[0], True) > inf_or_float(field_value[1], False):
+        if lower > upper:
             raise ValidationError("The lower bound of the score range may not be larger than the upper bound.")
-        elif inf_or_float(field_value[0], True) == inf_or_float(field_value[1], False):
+        elif lower == upper:
             raise ValidationError("The lower and upper bound of the score range may not be the same.")
 
         return field_value
+
+    # @root_validator
+    @model_validator(mode="after")
+    def inclusive_bounds_do_not_include_infinity(self: "ScoreRangeBase") -> "ScoreRangeBase":
+        """
+        Ensure that if the lower bound is inclusive, it does not include negative infinity.
+        Similarly, if the upper bound is inclusive, it does not include positive infinity.
+        """
+        range_values = self.range
+        inclusive_lower_bound = self.inclusive_lower_bound
+        inclusive_upper_bound = self.inclusive_upper_bound
+
+        if inclusive_lower_bound and range_values[0] is None:
+            raise ValidationError("An inclusive lower bound may not include negative infinity.")
+        if inclusive_upper_bound and range_values[1] is None:
+            raise ValidationError("An inclusive upper bound may not include positive infinity.")
+
+        return self
 
 
 class ScoreRangeModify(ScoreRangeBase):
@@ -68,29 +90,46 @@ class ScoreRangesBase(BaseModel):
     ranges: Sequence[ScoreRangeBase]
     source: Optional[Sequence[PublicationIdentifierBase]] = None
 
-    @validator("ranges")
+    @field_validator("ranges")
     def ranges_do_not_overlap(cls, field_value: Sequence[ScoreRangeBase]) -> Sequence[ScoreRangeBase]:
-        def test_overlap(tp1, tp2) -> bool:
+        def test_overlap(range_test: ScoreRangeBase, range_check: ScoreRangeBase) -> bool:
             # Always check the tuple with the lowest lower bound. If we do not check
             # overlaps in this manner, checking the overlap of (0,1) and (1,2) will
             # yield different results depending on the ordering of tuples.
-            if min(inf_or_float(tp1[0], True), inf_or_float(tp2[0], True)) == inf_or_float(tp1[0], True):
-                tp_with_min_value = tp1
-                tp_with_non_min_value = tp2
+            if min(inf_or_float(range_test.range[0], True), inf_or_float(range_check.range[0], True)) == inf_or_float(
+                range_test.range[0], True
+            ):
+                range_with_min_value = range_test
+                range_with_non_min_value = range_check
             else:
-                tp_with_min_value = tp2
-                tp_with_non_min_value = tp1
+                range_with_min_value = range_check
+                range_with_non_min_value = range_test
 
-            if inf_or_float(tp_with_min_value[1], False) > inf_or_float(
-                tp_with_non_min_value[0], True
-            ) and inf_or_float(tp_with_min_value[0], True) <= inf_or_float(tp_with_non_min_value[1], False):
+            # If both ranges have inclusive bounds and their bounds intersect, we consider them overlapping.
+            if (
+                range_with_min_value.inclusive_upper_bound
+                and range_with_non_min_value.inclusive_lower_bound
+                and (
+                    inf_or_float(range_with_min_value.range[1], False)
+                    == inf_or_float(range_with_non_min_value.range[0], True)
+                )
+            ):
+                return True
+
+            # Since we have ordered the ranges, it's a guarantee that the lower bound of the first range is less
+            # than or equal to the lower bound of the second range. If the upper bound of the first range is greater
+            # than the lower bound of the second range, then the two ranges overlap. Inclusive bounds only come into
+            # play when the boundaries are equal and both bounds are inclusive.
+            if inf_or_float(range_with_min_value.range[1], False) > inf_or_float(
+                range_with_non_min_value.range[0], True
+            ):
                 return True
 
             return False
 
         for i, range_test in enumerate(field_value):
             for range_check in list(field_value)[i + 1 :]:
-                if test_overlap(range_test.range, range_check.range):
+                if test_overlap(range_test, range_check):
                     raise ValidationError(
                         f"Score ranges may not overlap; `{range_test.label}` ({range_test.range}) overlaps with `{range_check.label}` ({range_check.range})."
                     )
@@ -100,6 +139,7 @@ class ScoreRangesBase(BaseModel):
 
 class ScoreRangesModify(ScoreRangesBase):
     ranges: Sequence[ScoreRangeModify]
+    source: Optional[Sequence[PublicationIdentifierCreate]] = None
 
 
 class ScoreRangesCreate(ScoreRangesModify):
@@ -158,41 +198,27 @@ class InvestigatorScoreRangesBase(ScoreRangesBase):
     ranges: Sequence[InvestigatorScoreRangeBase]
     odds_path_source: Optional[Sequence[PublicationIdentifierBase]] = None
 
-    @validator("baseline_score")
-    def score_range_normal_classification_exists_if_baseline_score_provided(
-        cls, field_value: Optional[float], values: dict[str, Any]
-    ) -> Optional[float]:
-        ranges = values.get("ranges", [])
+    @model_validator(mode="after")
+    def validate_baseline_score(self: "InvestigatorScoreRangesBase") -> "InvestigatorScoreRangesBase":
+        ranges = getattr(self, "ranges", []) or []
+        baseline_score = getattr(self, "baseline_score", None)
 
-        if field_value is not None:
-            if not any([range_model.classification == "normal" for range_model in ranges]):
+        if baseline_score is not None:
+            if not any(range_model.classification == "normal" for range_model in ranges):
                 raise ValidationError("A baseline score has been provided, but no normal classification range exists.")
-
-        return field_value
-
-    @validator("baseline_score")
-    def baseline_score_in_normal_range(cls, field_value: Optional[float], values: dict[str, Any]) -> Optional[float]:
-        ranges = values.get("ranges", [])
-        baseline_score = field_value
 
         normal_ranges = [range_model.range for range_model in ranges if range_model.classification == "normal"]
 
         if normal_ranges and baseline_score is None:
             # For now, we do not raise an error if a normal range is provided but no baseline score.
-            # raise ValidationError(
-            #     "A normal range has been provided, but no baseline type score has been provided.",
-            #     custom_loc=["body", "scoreRanges", "baselineScore"],
-            # )
-            return field_value
+            return self
 
         if baseline_score is None:
-            return field_value
+            return self
 
-        for range in normal_ranges:
-            if baseline_score >= inf_or_float(range[0], lower=True) and baseline_score < inf_or_float(
-                range[1], lower=False
-            ):
-                return field_value
+        for r in normal_ranges:
+            if baseline_score >= inf_or_float(r[0], lower=True) and baseline_score < inf_or_float(r[1], lower=False):
+                return self
 
         raise ValidationError(
             f"The provided baseline score of {baseline_score} is not within any of the provided normal ranges. This score should be within a normal range.",
@@ -202,6 +228,7 @@ class InvestigatorScoreRangesBase(ScoreRangesBase):
 
 class InvestigatorScoreRangesModify(ScoreRangesModify, InvestigatorScoreRangesBase):
     ranges: Sequence[InvestigatorScoreRangeModify]
+    odds_path_source: Optional[Sequence[PublicationIdentifierCreate]] = None
 
 
 class InvestigatorScoreRangesCreate(ScoreRangesCreate, InvestigatorScoreRangesModify):
@@ -232,11 +259,12 @@ class PillarProjectScoreRangeBase(ScoreRangeBase):
     evidence_strength: int
     # path (normal) / benign (abnormal) -> classification
 
-    @validator("evidence_strength")
+    @model_validator(mode="after")
     def evidence_strength_cardinality_must_agree_with_classification(
-        cls, field_value: int, values: dict[str, Any]
-    ) -> int:
-        classification = values.get("classification")
+        self: "PillarProjectScoreRangeBase",
+    ) -> "PillarProjectScoreRangeBase":
+        classification = getattr(self, "classification")
+        field_value = getattr(self, "evidence_strength")
 
         if classification == "normal" and field_value >= 0:
             raise ValidationError(
@@ -247,7 +275,7 @@ class PillarProjectScoreRangeBase(ScoreRangeBase):
                 "The evidence strength for an abnormal range must be positive.",
             )
 
-        return field_value
+        return self
 
 
 class PillarProjectScoreRangeModify(ScoreRangeModify, PillarProjectScoreRangeBase):
@@ -322,32 +350,25 @@ class ScoreSetRangesBase(BaseModel):
 
     _fields_to_exclude_for_validatation = {"record_type"}
 
-    @validator("*")
-    def score_range_labels_must_be_unique(
-        cls, field_value: Union[InvestigatorScoreRangesBase, PillarProjectScoreRangesBase, None], field
-    ) -> Union[InvestigatorScoreRangesBase, PillarProjectScoreRangesBase, None]:
-        if field_value is None:
-            return None
+    @model_validator(mode="after")
+    def score_range_labels_must_be_unique(self: "ScoreSetRangesBase") -> "ScoreSetRangesBase":
+        for container in (self.investigator_provided, self.pillar_project):
+            if container is None:
+                continue
 
-        # Skip validation for fields that are not score range containers
-        if field.name in cls._fields_to_exclude_for_validatation:
-            return field_value
+            existing_labels, duplicate_labels = set(), set()
+            for range_model in container.ranges:
+                range_model.label = range_model.label.strip()
+                if range_model.label in existing_labels:
+                    duplicate_labels.add(range_model.label)
+                else:
+                    existing_labels.add(range_model.label)
 
-        existing_labels, duplicate_labels = set(), set()
-        for i, range_model in enumerate(field_value.ranges):
-            range_model.label = range_model.label.strip()
-
-            if range_model.label in existing_labels:
-                duplicate_labels.add(range_model.label)
-            else:
-                existing_labels.add(range_model.label)
-
-        if duplicate_labels:
-            raise ValidationError(
-                f"Detected repeated label(s): {', '.join(duplicate_labels)}. Range labels must be unique.",
-            )
-
-        return field_value
+            if duplicate_labels:
+                raise ValidationError(
+                    f"Detected repeated label(s): {', '.join(duplicate_labels)}. Range labels must be unique.",
+                )
+        return self
 
 
 class ScoreSetRangesModify(ScoreSetRangesBase):

@@ -8,6 +8,7 @@ import jsonschema
 from sqlalchemy import select
 
 from mavedb.models.clinical_control import ClinicalControl as ClinicalControlDbModel
+from mavedb.models.gnomad_variant import GnomADVariant as GnomADVariantDbModel
 from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
@@ -35,13 +36,13 @@ def create_seq_score_set(
         score_set_payload["experimentUrn"] = experiment_urn
     if update is not None:
         score_set_payload.update(update)
-    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.model_json_schema())
 
     response = client.post("/api/v1/score-sets/", json=score_set_payload)
     assert response.status_code == 200, "Could not create sequence based score set"
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     return response_data
 
 
@@ -54,7 +55,7 @@ def create_acc_score_set(
     if update is not None:
         score_set_payload.update(update)
 
-    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.model_json_schema())
 
     with patch.object(
         cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
@@ -64,7 +65,7 @@ def create_acc_score_set(
     assert response.status_code == 200, "Could not create accession based score set"
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     return response_data
 
 
@@ -76,13 +77,13 @@ def create_multi_target_score_set(
         score_set_payload["experimentUrn"] = experiment_urn
     if update is not None:
         score_set_payload.update(update)
-    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=score_set_payload, schema=ScoreSetCreate.model_json_schema())
 
     response = client.post("/api/v1/score-sets/", json=score_set_payload)
     assert response.status_code == 200, "Could not create sequence based score set"
 
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     return response_data
 
 
@@ -94,7 +95,7 @@ def create_seq_score_set_with_mapped_variants(
     )
     score_set = mock_worker_vrs_mapping(client, db, score_set)
 
-    jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
 
 
@@ -106,7 +107,7 @@ def create_acc_score_set_with_mapped_variants(
     )
     score_set = mock_worker_vrs_mapping(client, db, score_set)
 
-    jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
 
 
@@ -120,7 +121,7 @@ def create_seq_score_set_with_variants(
         score_set["numVariants"] == 3
     ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
 
-    jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
 
 
@@ -134,7 +135,7 @@ def create_acc_score_set_with_variants(
         score_set["numVariants"] == 3
     ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
 
-    jsonschema.validate(instance=score_set, schema=ScoreSet.schema())
+    jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
 
 
@@ -152,6 +153,24 @@ def link_clinical_controls_to_mapped_variants(db, score_set):
     )
     mapped_variants[1].clinical_controls.append(
         db.scalar(select(ClinicalControlDbModel).where(ClinicalControlDbModel.id == 2))
+    )
+
+    db.add(mapped_variants[0])
+    db.add(mapped_variants[1])
+    db.commit()
+
+
+def link_gnomad_variants_to_mapped_variants(db, score_set):
+    mapped_variants = db.scalars(
+        select(MappedVariantDbModel)
+        .join(VariantDbModel)
+        .join(ScoreSetDbModel)
+        .where(ScoreSetDbModel.urn == score_set["urn"])
+    ).all()
+
+    # The first mapped variant gets the gnomAD variant.
+    mapped_variants[0].gnomad_variants.append(
+        db.scalar(select(GnomADVariantDbModel).where(GnomADVariantDbModel.id == 1))
     )
 
     db.add(mapped_variants[0])

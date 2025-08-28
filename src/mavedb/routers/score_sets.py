@@ -3,17 +3,24 @@ from datetime import date
 from typing import Any, List, Optional, Sequence, Union
 
 import pandas as pd
-import pydantic
 from arq import ArqRedis
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
+from ga4gh.va_spec.base.core import Statement, ExperimentalVariantFunctionalImpactStudyResult
 from sqlalchemy import null, or_, select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.orm import Session
 
 from mavedb import deps
+from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
+from mavedb.lib.annotation.annotate import (
+    variant_pathogenicity_evidence,
+    variant_functional_impact_statement,
+    variant_study_result,
+)
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import (
     RoleRequirer,
@@ -22,7 +29,7 @@ from mavedb.lib.authorization import (
     require_current_user_with_email,
 )
 from mavedb.lib.contributors import find_or_create_contributor
-from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError, ValidationError
+from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
@@ -58,6 +65,7 @@ from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment import Experiment
+from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
@@ -65,7 +73,7 @@ from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
-from mavedb.view_models import mapped_variant, score_set, clinical_control, score_range
+from mavedb.view_models import mapped_variant, score_set, clinical_control, score_range, gnomad_variant
 from mavedb.view_models.search import ScoreSetsSearch
 
 logger = logging.getLogger(__name__)
@@ -141,7 +149,7 @@ def search_score_sets(
     if updated_score_sets:
         for u in updated_score_sets:
             enriched_experiment = enrich_experiment_with_num_score_sets(u.experiment, user_data)
-            response_item = score_set.ScoreSet.from_orm(u).copy(update={"experiment": enriched_experiment})
+            response_item = score_set.ScoreSet.model_validate(u).copy(update={"experiment": enriched_experiment})
             enriched_score_sets.append(response_item)
 
     return enriched_score_sets
@@ -197,7 +205,7 @@ def search_my_score_sets(
     if updated_score_sets:
         for u in updated_score_sets:
             enriched_experiment = enrich_experiment_with_num_score_sets(u.experiment, user_data)
-            response_item = score_set.ScoreSet.from_orm(u).copy(update={"experiment": enriched_experiment})
+            response_item = score_set.ScoreSet.model_validate(u).copy(update={"experiment": enriched_experiment})
             enriched_score_sets.append(response_item)
 
     return enriched_score_sets
@@ -222,7 +230,7 @@ async def show_score_set(
     save_to_logging_context({"requested_resource": urn})
     item = await fetch_score_set_by_urn(db, urn, user_data, None, False)
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
+    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.get(
@@ -467,6 +475,177 @@ def get_score_set_mapped_variants(
     return mapped_variants
 
 
+@router.get(
+    "/score-sets/{urn}/annotated-variants/pathogenicity-evidence-line",
+    status_code=200,
+    response_model=dict[str, Optional[VariantPathogenicityEvidenceLine]],
+    response_model_exclude_none=True,
+)
+def get_score_set_annotated_variants(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+) -> Any:
+    """
+    Return pathogenicity evidence line annotations for mapped variants within a score set.
+    """
+    save_to_logging_context(
+        {"requested_resource": urn, "resource_property": "annotated-variants/pathogenicity-evidence-line"}
+    )
+
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
+    if not score_set:
+        logger.info(
+            msg="Could not fetch the requested pathogenicity evidence lines; No such score set exists.",
+            extra=logging_context(),
+        )
+        raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
+
+    assert_permission(user_data, score_set, Action.READ)
+
+    mapped_variants = (
+        db.query(MappedVariant)
+        .filter(ScoreSet.urn == urn)
+        .filter(ScoreSet.id == Variant.score_set_id)
+        .filter(Variant.id == MappedVariant.variant_id)
+        .where(MappedVariant.current.is_(True))
+        .all()
+    )
+
+    if not mapped_variants:
+        logger.info(msg="No mapped variants are associated with the requested score set.", extra=logging_context())
+        raise HTTPException(
+            status_code=404,
+            detail=f"No mapped variants associated with score set URN {urn} were found. Could not construct evidence lines.",
+        )
+
+    variant_evidence: dict[str, Optional[VariantPathogenicityEvidenceLine]] = {}
+    for mv in mapped_variants:
+        # TODO#372: Non-nullable URNs
+        try:
+            variant_evidence[mv.variant.urn] = variant_pathogenicity_evidence(mv)  # type: ignore
+        except MappingDataDoesntExistException:
+            logger.debug(msg=f"Mapping data does not exist for variant {mv.variant.urn}.", extra=logging_context())
+            variant_evidence[mv.variant.urn] = None  # type: ignore
+
+    return variant_evidence
+
+
+@router.get(
+    "/score-sets/{urn}/annotated-variants/functional-impact-statement",
+    status_code=200,
+    response_model=dict[str, Optional[Statement]],
+    response_model_exclude_none=True,
+)
+def get_score_set_annotated_variants_functional_statement(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+):
+    """
+    Return functional impact statement annotations for mapped variants within a score set.
+    """
+    save_to_logging_context(
+        {"requested_resource": urn, "resource_property": "annotated-variants/functional-impact-statement"}
+    )
+
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
+    if not score_set:
+        logger.info(
+            msg="Could not fetch the requested functional impact statements; No such score set exists.",
+            extra=logging_context(),
+        )
+        raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
+
+    assert_permission(user_data, score_set, Action.READ)
+
+    mapped_variants = (
+        db.query(MappedVariant)
+        .filter(ScoreSet.urn == urn)
+        .filter(ScoreSet.id == Variant.score_set_id)
+        .filter(Variant.id == MappedVariant.variant_id)
+        .where(MappedVariant.current.is_(True))
+        .all()
+    )
+
+    if not mapped_variants:
+        logger.info(msg="No mapped variants are associated with the requested score set.", extra=logging_context())
+        raise HTTPException(
+            status_code=404,
+            detail=f"No mapped variants associated with score set URN {urn} were found. Could not construct functional impact statements.",
+        )
+
+    variant_impact_statements: dict[str, Optional[Statement]] = {}
+    for mv in mapped_variants:
+        # TODO#372: Non-nullable URNs
+        try:
+            variant_impact_statements[mv.variant.urn] = variant_functional_impact_statement(mv)  # type: ignore
+        except MappingDataDoesntExistException:
+            logger.debug(msg=f"Mapping data does not exist for variant {mv.variant.urn}.", extra=logging_context())
+            variant_impact_statements[mv.variant.urn] = None  # type: ignore
+
+    return variant_impact_statements
+
+
+@router.get(
+    "/score-sets/{urn}/annotated-variants/functional-study-result",
+    status_code=200,
+    response_model=dict[str, Optional[ExperimentalVariantFunctionalImpactStudyResult]],
+    response_model_exclude_none=True,
+)
+def get_score_set_annotated_variants_functional_study_result(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+):
+    """
+    Return functional study result annotations for mapped variants within a score set.
+    """
+    save_to_logging_context(
+        {"requested_resource": urn, "resource_property": "annotated-variants/functional-study-result"}
+    )
+
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
+    if not score_set:
+        logger.info(
+            msg="Could not fetch the requested functional study results; No such score set exists.",
+            extra=logging_context(),
+        )
+        raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
+
+    assert_permission(user_data, score_set, Action.READ)
+
+    mapped_variants = (
+        db.query(MappedVariant)
+        .filter(ScoreSet.urn == urn)
+        .filter(ScoreSet.id == Variant.score_set_id)
+        .filter(Variant.id == MappedVariant.variant_id)
+        .where(MappedVariant.current.is_(True))
+        .all()
+    )
+
+    if not mapped_variants:
+        logger.info(msg="No mapped variants are associated with the requested score set.", extra=logging_context())
+        raise HTTPException(
+            status_code=404,
+            detail=f"No mapped variants associated with score set URN {urn} were found. Could not construct study results.",
+        )
+
+    variant_study_results: dict[str, Optional[ExperimentalVariantFunctionalImpactStudyResult]] = {}
+    for mv in mapped_variants:
+        # TODO#372: Non-nullable URNs
+        try:
+            variant_study_results[mv.variant.urn] = variant_study_result(mv)  # type: ignore
+        except MappingDataDoesntExistException:
+            logger.debug(msg=f"Mapping data does not exist for variant {mv.variant.urn}.", extra=logging_context())
+            variant_study_results[mv.variant.urn] = None  # type: ignore
+
+    return variant_study_results
+
+
 @router.post(
     "/score-sets/",
     response_model=score_set.ScoreSet,
@@ -607,10 +786,7 @@ async def create_score_set(
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise pydantic.ValidationError(
-            [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
-            model=score_set.ScoreSetCreate,
-        )
+        raise HTTPException(status_code=422, detail=str(e))
 
     doi_identifiers = [
         await find_or_create_doi_identifier(db, identifier.identifier)
@@ -747,7 +923,7 @@ async def create_score_set(
         processing_state=ProcessingState.incomplete,
         created_by=user_data.user,
         modified_by=user_data.user,
-        score_ranges=item_create.score_ranges.dict() if item_create.score_ranges else null(),
+        score_ranges=item_create.score_ranges.model_dump() if item_create.score_ranges else null(),
     )  # type: ignore
 
     db.add(item)
@@ -757,7 +933,7 @@ async def create_score_set(
     save_to_logging_context({"created_resource": item.urn})
 
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
+    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.post(
@@ -822,7 +998,7 @@ async def upload_score_set_variant_data(
     db.commit()
     db.refresh(item)
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
+    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.post(
@@ -858,7 +1034,7 @@ async def update_score_set_range_data(
 
     save_to_logging_context({"updated_resource": item.urn})
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
+    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.put(
@@ -945,15 +1121,12 @@ async def update_score_set(
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise pydantic.ValidationError(
-            [pydantic.error_wrappers.ErrorWrapper(ValidationError(str(e)), loc="contributors")],
-            model=score_set.ScoreSetUpdate,
-        )
+        raise HTTPException(status_code=422, detail=str(e))
 
     # Score set has not been published and attributes affecting scores may still be edited.
     if item.private:
         if item_update.score_ranges:
-            item.score_ranges = item_update.score_ranges.dict()
+            item.score_ranges = item_update.score_ranges.model_dump()
         else:
             item.score_ranges = null()
 
@@ -1116,7 +1289,7 @@ async def update_score_set(
     save_to_logging_context({"updated_resource": item.urn})
 
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
+    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.delete("/score-sets/{urn}", responses={422: {}})
@@ -1251,7 +1424,7 @@ async def publish_score_set(
         )
 
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.from_orm(item).copy(update={"experiment": enriched_experiment})
+    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
 
 
 @router.get(
@@ -1385,3 +1558,70 @@ async def get_clinical_controls_options_for_score_set(
         dict(zip(("db_name", "available_versions"), (db_name, db_versions)))
         for db_name, db_versions in clinical_control_options.items()
     ]
+
+
+@router.get(
+    "/score-sets/{urn}/gnomad-variants",
+    status_code=200,
+    response_model=list[gnomad_variant.GnomADVariantWithMappedVariants],
+    response_model_exclude_none=True,
+)
+async def get_gnomad_variants_for_score_set(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(get_current_user),
+    version: Optional[str] = None,
+) -> Sequence[GnomADVariant]:
+    """
+    Fetch relevant gnomad variants for a given score set.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "gnomad_variants"})
+
+    # Rename user facing kwargs for consistency with code base naming conventions. My-py doesn't care for us redefining db.
+    db_version = version
+
+    item: Optional[ScoreSet] = db.scalars(select(ScoreSet).where(ScoreSet.urn == urn)).one_or_none()
+    if not item:
+        logger.info(
+            msg="Failed to fetch gnomad variants for score set; The requested score set does not exist.",
+            extra=logging_context(),
+        )
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
+    assert_permission(user_data, item, Action.READ)
+
+    gnomad_variants_query = (
+        select(GnomADVariant)
+        .join(MappedVariant, GnomADVariant.mapped_variants)
+        .join(Variant)
+        .where(Variant.score_set_id == item.id)
+    )
+
+    if db_version is not None:
+        save_to_logging_context({"db_version": db_version})
+        gnomad_variants_query = gnomad_variants_query.where(GnomADVariant.db_version == db_version)
+
+    gnomad_variants_for_item: Sequence[GnomADVariant] = db.scalars(gnomad_variants_query).all()
+    gnomad_variants_with_mapped_variant = []
+    for gnomad_variant_in_item in gnomad_variants_for_item:
+        gnomad_variant_in_item.mapped_variants = [
+            mv for mv in gnomad_variant_in_item.mapped_variants if mv.current and mv.variant.score_set_id == item.id
+        ]
+
+        if gnomad_variant_in_item.mapped_variants:
+            gnomad_variants_with_mapped_variant.append(gnomad_variant_in_item)
+
+    if not gnomad_variants_with_mapped_variant:
+        logger.info(
+            msg="No gnomad variants matching the provided filters are associated with the requested score set.",
+            extra=logging_context(),
+        )
+        raise HTTPException(
+            status_code=404,
+            detail=f"No gnomad variants matching the provided filters associated with score set URN {urn} were found",
+        )
+
+    save_to_logging_context({"resource_count": len(gnomad_variants_for_item)})
+
+    return gnomad_variants_for_item

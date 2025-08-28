@@ -8,20 +8,20 @@ from mavedb.view_models.base.base import BaseModel
 
 class AccessKeyBase(BaseModel):
     key_id: str
-    name: Optional[str]
-    expiration_date: Optional[date]
-    created_at: Optional[str]
+    name: Optional[str] = None
+    expiration_date: Optional[date] = None
+    created_at: Optional[str] = None
 
 
 # Properties shared by models stored in DB
 class SavedAccessKey(AccessKeyBase):
     record_type: str = None  # type: ignore
-    role: Optional[UserRole]
+    role: Optional[UserRole] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Properties to return to non-admin clients

@@ -10,15 +10,16 @@ from unittest.mock import patch
 import jsonschema
 import pytest
 from humps import camelize
-from sqlalchemy import select, delete
+from sqlalchemy import select
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_EXPERIMENT_URN_RE
+from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.models.enums.processing_state import ProcessingState
-from mavedb.models.clinical_control import ClinicalControl
+from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
@@ -51,6 +52,8 @@ from tests.helpers.constants import (
     TEST_SAVED_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
     TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    TEST_GNOMAD_DATA_VERSION,
+    TEST_SAVED_GNOMAD_VARIANT,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.common import update_expected_response_for_created_resources
@@ -61,10 +64,16 @@ from tests.helpers.util.score_set import (
     create_seq_score_set,
     create_seq_score_set_with_mapped_variants,
     link_clinical_controls_to_mapped_variants,
+    link_gnomad_variants_to_mapped_variants,
     publish_score_set,
+    create_seq_score_set_with_variants,
 )
 from tests.helpers.util.user import change_ownership
-from tests.helpers.util.variant import create_mapped_variants_for_score_set, mock_worker_variant_insertion
+from tests.helpers.util.variant import (
+    create_mapped_variants_for_score_set,
+    mock_worker_variant_insertion,
+    clear_first_mapped_variant_post_mapped,
+)
 
 
 ########################################################################################################################
@@ -73,11 +82,11 @@ from tests.helpers.util.variant import create_mapped_variants_for_score_set, moc
 
 
 def test_TEST_MINIMAL_SEQ_SCORESET_is_valid():
-    jsonschema.validate(instance=TEST_MINIMAL_SEQ_SCORESET, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=TEST_MINIMAL_SEQ_SCORESET, schema=ScoreSetCreate.model_json_schema())
 
 
 def test_TEST_MINIMAL_ACC_SCORESET_is_valid():
-    jsonschema.validate(instance=TEST_MINIMAL_ACC_SCORESET, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=TEST_MINIMAL_ACC_SCORESET, schema=ScoreSetCreate.model_json_schema())
 
 
 ########################################################################################################################
@@ -94,7 +103,7 @@ def test_create_minimal_score_set(client, setup_router_db):
     assert response.status_code == 200
     response_data = response.json()
 
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
 
     expected_response = update_expected_response_for_created_resources(
@@ -125,7 +134,7 @@ def test_create_score_set_with_contributor(client, setup_router_db):
     assert response.status_code == 200
     response_data = response.json()
 
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
 
     expected_response = update_expected_response_for_created_resources(
@@ -179,7 +188,7 @@ def test_create_score_set_with_score_range(
     assert response.status_code == 200
     response_data = response.json()
 
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
 
     expected_response = update_expected_response_for_created_resources(
@@ -205,13 +214,8 @@ def test_create_score_set_with_score_range(
         TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     ],
 )
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
 def test_cannot_create_score_set_with_score_range_and_source_when_publication_not_in_publications(
-    client, setup_router_db, score_ranges, mock_publication_fetch
+    client, setup_router_db, score_ranges
 ):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
@@ -223,9 +227,25 @@ def test_cannot_create_score_set_with_score_range_and_source_when_publication_no
 
     response_data = response.json()
     assert (
-        "Score range source publication at index 0 is not defined in score set publications."
-        in response_data["detail"][0]["msg"]
+        "source publication at index 0 is not defined in score set publications." in response_data["detail"][0]["msg"]
     )
+
+
+def test_cannot_create_score_set_with_nonexistent_contributor(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    score_set.update({"contributors": [{"orcid_id": TEST_ORCID_ID}]})
+
+    with patch(
+        "mavedb.lib.orcid.fetch_orcid_user",
+        side_effect=NonexistentOrcidUserError(f"No ORCID user was found for ORCID ID {TEST_ORCID_ID}."),
+    ):
+        response = client.post("/api/v1/score-sets/", json=score_set)
+
+    assert response.status_code == 422
+    response_data = response.json()
+    assert "No ORCID user was found for ORCID ID 1111-1111-1111-1111." in response_data["detail"]
 
 
 @pytest.mark.parametrize(
@@ -258,7 +278,7 @@ def test_remove_score_range_from_score_set(
     assert response.status_code == 200
     response_data = response.json()
 
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
 
     expected_response = update_expected_response_for_created_resources(
@@ -277,7 +297,7 @@ def test_remove_score_range_from_score_set(
     assert response.status_code == 200
     response_data = response.json()
 
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
 
     assert "scoreRanges" not in response_data.keys()
@@ -302,7 +322,8 @@ def test_cannot_create_score_set_with_invalid_target_gene_category(client, setup
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     assert response.status_code == 422
     response_data = response.json()
-    assert "value is not a valid enumeration member;" in response_data["detail"][0]["msg"]
+    assert "Input should be" in response_data["detail"][0]["msg"]
+    assert all(field in response_data["detail"][0]["msg"] for field in TargetCategory._member_names_)
 
 
 ########################################################################################################################
@@ -535,6 +556,27 @@ def test_cannot_update_score_set_target_data_after_publication(
         assert camelize(attribute) not in response_data.keys()
 
 
+def test_cannot_update_score_set_with_nonexistent_contributor(
+    client,
+    setup_router_db,
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    score_set_update_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_update_payload.update({"contributors": [{"orcid_id": TEST_ORCID_ID}]})
+
+    with patch(
+        "mavedb.lib.orcid.fetch_orcid_user",
+        side_effect=NonexistentOrcidUserError(f"No ORCID user was found for ORCID ID {TEST_ORCID_ID}."),
+    ):
+        response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_update_payload)
+
+    assert response.status_code == 422
+    response_data = response.json()
+    assert "No ORCID user was found for ORCID ID 1111-1111-1111-1111." in response_data["detail"]
+
+
 ########################################################################################################################
 # Score set fetching
 ########################################################################################################################
@@ -697,7 +739,7 @@ def test_add_score_set_variants_scores_only_endpoint(client, setup_router_db, da
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -726,7 +768,7 @@ def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setu
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -750,7 +792,7 @@ def test_add_score_set_variants_scores_only_endpoint_utf8_encoded(client, setup_
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -779,7 +821,7 @@ def test_add_score_set_variants_scores_and_counts_endpoint_utf8_encoded(session,
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -868,7 +910,7 @@ def test_contributor_can_add_scores_to_other_user_score_set(session, client, set
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -927,7 +969,7 @@ def test_contributor_can_add_scores_and_counts_to_other_user_score_set(session, 
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -975,7 +1017,7 @@ def test_admin_can_add_scores_to_other_user_score_set(
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -1004,7 +1046,7 @@ def test_admin_can_add_scores_and_counts_to_other_user_score_set(session, client
 
     assert response.status_code == 200
     response_data = response.json()
-    jsonschema.validate(instance=response_data, schema=ScoreSet.schema())
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
 
     # We test the worker process that actually adds the variant data separately. Here, we take it as
     # fact that it would have succeeded.
@@ -1525,7 +1567,7 @@ def test_cannot_add_score_set_to_meta_analysis_experiment(session, data_provider
 
     score_set_2 = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_2["experimentUrn"] = meta_score_set_1["experiment"]["urn"]
-    jsonschema.validate(instance=score_set_2, schema=ScoreSetCreate.schema())
+    jsonschema.validate(instance=score_set_2, schema=ScoreSetCreate.model_json_schema())
 
     response = client.post("/api/v1/score-sets/", json=score_set_2)
     response_data = response.json()
@@ -2600,6 +2642,7 @@ def test_can_fetch_current_clinical_control_options_for_score_set(
     score_set = create_seq_score_set_with_mapped_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
+
     link_clinical_controls_to_mapped_variants(session, score_set)
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
@@ -2620,23 +2663,606 @@ def test_can_fetch_current_clinical_control_options_for_score_set(
         )
 
 
-def test_cannot_fetch_clinical_control_options_for_nonexistent_score_set(
+########################################################################################################################
+# Fetching annotated variants for a score set
+########################################################################################################################
+
+
+@pytest.mark.parametrize(
+    "annotation_type", ["pathogenicity-evidence-line", "functional-impact-statement", "functional-study-result"]
+)
+def test_cannot_get_annotated_variants_for_nonexistent_score_set(client, setup_router_db, annotation_type):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/annotated-variants/{annotation_type}")
+    response_data = response.json()
+
+    assert response.status_code == 404
+    assert f"score set with URN {score_set['urn']+'xxx'} not found" in response_data["detail"]
+
+
+@pytest.mark.parametrize(
+    "annotation_type", ["pathogenicity-evidence-line", "functional-impact-statement", "functional-study-result"]
+)
+def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
+    client, session, data_provider, data_files, setup_router_db, annotation_type
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue:
+        publish_score_set_response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+        assert publish_score_set_response.status_code == 200
+        queue.assert_called_once()
+
+    publish_score_set = publish_score_set_response.json()
+
+    download_scores_csv_response = client.get(
+        f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_na_columns=true"
+    )
+    assert download_scores_csv_response.status_code == 200
+    download_scores_csv = download_scores_csv_response.text
+    csv_header = download_scores_csv.split("\n")[0]
+    columns = csv_header.split(",")
+    assert "hgvs_nt" in columns
+    assert "hgvs_pro" in columns
+    assert "hgvs_splice" not in columns
+
+    response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/annotated-variants/{annotation_type}")
+    response_data = response.json()
+
+    assert response.status_code == 404
+    assert (
+        f"No mapped variants associated with score set URN {publish_score_set['urn']} were found"
+        in response_data["detail"]
+    )
+
+
+# Tests that annotated variants of the correct type are returned when appropriate. The contents of these
+# annotated variants are not tested here, and are tested in more detail via the annotation library tests.
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        },
+    )
+
+    # The contents of the annotated variants objects should be tested in more detail elsewhere.
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for variant_urn, annotated_variant in response_data.items():
+        assert f"Pathogenicity evidence line {variant_urn}" in annotated_variant.get("description")
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thresholds_not_present(
+    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
+        },
+    )
+
+    print(score_set["scoreRanges"])
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant is None
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_annotated_pathogenicity_evidence_lines_exists_for_score_set_when_ranges_not_present(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        },
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for variant_urn, annotated_variant in response_data.items():
+        assert f"Pathogenicity evidence line {variant_urn}" in annotated_variant.get("description")
+
+
+def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thresholds_and_ranges_not_present(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant is None
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_variants_were_not_mapped(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        },
+    )
+
+    first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for annotated_variant_urn, annotated_variant in response_data.items():
+        if annotated_variant_urn == first_var.urn:
+            assert annotated_variant is None
+        else:
+            assert f"Pathogenicity evidence line {annotated_variant_urn}" in annotated_variant.get("description")
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_get_annotated_functional_impact_statement_for_score_set(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
+        },
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant.get("type") == "Statement"
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_annotated_functional_impact_statement_exists_for_score_set_when_thresholds_not_present(
+    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
+        },
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant.get("type") == "Statement"
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_nonetype_annotated_functional_impact_statement_for_score_set_when_ranges_not_present(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        },
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant is None
+
+
+def test_nonetype_annotated_functional_impact_statement_for_score_set_when_thresholds_and_ranges_not_present(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant is None
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_get_annotated_functional_impact_statement_for_score_set_when_some_variants_were_not_mapped(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
+        },
+    )
+
+    first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for annotated_variant_urn, annotated_variant in response_data.items():
+        if annotated_variant_urn == first_var.urn:
+            assert annotated_variant is None
+        else:
+            assert annotated_variant.get("type") == "Statement"
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_get_annotated_functional_study_result_for_score_set(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
+        },
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_not_present(
+    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
+        },
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_annotated_functional_study_result_exists_for_score_set_when_ranges_not_present(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        },
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
+
+
+def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_and_ranges_not_present(
+    client, session, data_provider, data_files, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for _, annotated_variant in response_data.items():
+        assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_annotated_functional_study_result_exists_for_score_set_when_some_variants_were_not_mapped(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+        update={
+            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        },
+    )
+
+    first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response_data = response.json()
+
+    assert response.status_code == 200
+    assert len(response_data) == score_set["numVariants"]
+
+    for annotated_variant_urn, annotated_variant in response_data.items():
+        if annotated_variant_urn == first_var.urn:
+            assert annotated_variant is None
+        else:
+            assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
+
+
+########################################################################################################################
+# Fetching gnomad variants for a score set
+########################################################################################################################
+
+
+def test_can_fetch_current_gnomad_variants_for_score_set(client, setup_router_db, session, data_provider, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_gnomad_variants_to_mapped_variants(session, score_set)
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/gnomad-variants")
+    assert response.status_code == 200
+
+    response_data = response.json()
+    assert len(response_data) == 1
+    for gnomad_variant in response_data:
+        mapped_variants = gnomad_variant.pop("mappedVariants")
+        assert len(mapped_variants) == 1
+        gnomad_variant_items = sorted(gnomad_variant.items())
+        assert gnomad_variant_items == sorted(TEST_SAVED_GNOMAD_VARIANT.items())
+
+
+def test_can_fetch_current_gnomad_variants_for_score_set_with_version(
     client, setup_router_db, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    link_clinical_controls_to_mapped_variants(session, score_set)
+    link_gnomad_variants_to_mapped_variants(session, score_set)
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/clinical-controls/options")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/gnomad-variants?version={TEST_GNOMAD_DATA_VERSION}")
+    assert response.status_code == 200
+
+    response_data = response.json()
+    assert len(response_data) == 1
+    for gnomad_variant in response_data:
+        mapped_variants = gnomad_variant.pop("mappedVariants")
+        assert len(mapped_variants) == 1
+        gnomad_variant_items = sorted(gnomad_variant.items())
+        assert gnomad_variant_items == sorted(TEST_SAVED_GNOMAD_VARIANT.items())
+
+
+def test_cannot_fetch_current_gnomad_variants_for_score_set_with_nonexistent_version(
+    client, setup_router_db, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_gnomad_variants_to_mapped_variants(session, score_set)
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/gnomad-variants?version=nonexistent_version")
+    assert response.status_code == 404
+
+    response_data = response.json()
+    assert "detail" in response_data
+    assert (
+        response_data["detail"]
+        == f"No gnomad variants matching the provided filters associated with score set URN {score_set['urn']} were found"
+    )
+
+
+def test_cannot_fetch_gnomad_variants_for_nonexistent_score_set(
+    client, setup_router_db, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_gnomad_variants_to_mapped_variants(session, score_set)
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/gnomad-variants")
 
     assert response.status_code == 404
     response_data = response.json()
     assert f"score set with URN '{score_set['urn']+'xxx'}' not found" in response_data["detail"]
 
 
-def test_cannot_fetch_clinical_control_options_for_score_set_when_none_exist(
+def test_cannot_fetch_gnomad_variants_for_score_set_when_none_exist(
     client, setup_router_db, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
@@ -2644,16 +3270,11 @@ def test_cannot_fetch_clinical_control_options_for_score_set_when_none_exist(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
 
-    # removes all clinical controls from the db.
-    session.execute(delete(ClinicalControl))
-    session.commit()
-
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
-    print(response.json())
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/gnomad-variants")
 
     assert response.status_code == 404
     response_data = response.json()
     assert (
-        f"no clinical control variants associated with score set URN {score_set['urn']} were found"
+        f"No gnomad variants matching the provided filters associated with score set URN {score_set['urn']} were found"
         in response_data["detail"]
     )

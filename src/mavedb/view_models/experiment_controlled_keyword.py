@@ -1,6 +1,7 @@
 from typing import Optional
+from typing_extensions import Self
 
-from pydantic import root_validator
+from pydantic import model_validator
 
 from mavedb.lib.validation import keywords
 from mavedb.view_models import keyword, record_type_validator, set_record_type
@@ -11,18 +12,16 @@ class ExperimentControlledKeywordBase(BaseModel):
     """Base class for experiment and controlled keyword bridge table view models."""
 
     keyword: keyword.KeywordBase
-    description: Optional[str]
+    description: Optional[str] = None
 
-    @root_validator(pre=True)
-    def validate_fields(cls, values):
-        validated_keyword = values.get("keyword")
-        validated_description = values.get("description")
-
+    @model_validator(mode="after")
+    def validate_fields(self) -> Self:
         # validated_keyword possible value: {'key': 'Delivery method', 'label': None}
         # Validate if keyword label is other, whether description is None.
-        if validated_keyword and validated_keyword["label"]:
-            keywords.validate_description(validated_keyword["label"], validated_keyword["key"], validated_description)
-        return values
+        if self.keyword and self.keyword.label:
+            keywords.validate_description(self.keyword.label, self.keyword.key, self.description)
+
+        return self
 
 
 class ExperimentControlledKeywordCreate(ExperimentControlledKeywordBase):
@@ -45,7 +44,7 @@ class SavedExperimentControlledKeyword(ExperimentControlledKeywordBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class ExperimentControlledKeyword(SavedExperimentControlledKeyword):

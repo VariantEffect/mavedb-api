@@ -3,40 +3,42 @@ from __future__ import annotations
 
 from typing import Optional
 
+from pydantic import field_validator
+
 from mavedb.lib.validation import keywords
 from mavedb.view_models import record_type_validator, set_record_type
-from mavedb.view_models.base.base import BaseModel, validator
+from mavedb.view_models.base.base import BaseModel
 
 
 class KeywordBase(BaseModel):
     """Base class for keyword view models.
     Keywords may have key but no value if users don't choose anything from dropdown menu.
-    TODO: Should modify it when we confirm the final controlled keyword list.
+    TODO#273: Controlled keywords are required once the final list is confirmed.
     """
 
     key: str
-    label: Optional[str]
-    system: Optional[str]
-    code: Optional[str]
-    version: Optional[str]
-    special: Optional[bool]
-    description: Optional[str]
+    label: Optional[str] = None
+    system: Optional[str] = None
+    code: Optional[str] = None
+    version: Optional[str] = None
+    special: Optional[bool] = None
+    description: Optional[str] = None
 
-    @validator("key")
-    def validate_key(cls, v):
+    @field_validator("key")
+    def validate_key(cls, v: str) -> str:
         keywords.validate_keyword(v)
         return v
 
-    @validator("code")
+    @field_validator("code")
     def validate_code(cls, value, values):
         key = values.get("key")
         label = values.get("label")
         keywords.validate_code(key, label, value)
         return value
 
-    # validator("label") blocks creating a new experiment without controlled keywords so comment it first.
-    # @validator("label")
-    # def validate_label(cls, v):
+    # TODO#273: Un-commenting this block will require new experiments to contain a keyword on creation.
+    # @field_validator("label")
+    # def validate_value(cls, v):
     #     keywords.validate_keyword(v)
     #     return v
 
@@ -61,7 +63,7 @@ class SavedKeyword(KeywordBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
         arbitrary_types_allowed = True
 
 

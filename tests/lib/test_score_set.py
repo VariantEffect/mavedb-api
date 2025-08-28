@@ -278,7 +278,7 @@ def test_create_variants_data_scores_and_counts_mismatched_lengths():
 
 
 def test_create_variants_seq_score_set(setup_lib_db, session):
-    experiment = Experiment(**TEST_EXPERIMENT, extra_metadata={})
+    experiment = Experiment(**TEST_EXPERIMENT)
     session.add(experiment)
     session.commit()
     session.refresh(experiment)
@@ -326,7 +326,7 @@ def test_create_variants_seq_score_set(setup_lib_db, session):
 
 
 def test_create_variants_acc_score_set(setup_lib_db, session):
-    experiment = Experiment(**TEST_EXPERIMENT, extra_metadata={})
+    experiment = Experiment(**TEST_EXPERIMENT)
     session.add(experiment)
     session.commit()
     session.refresh(experiment)

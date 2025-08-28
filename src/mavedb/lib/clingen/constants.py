@@ -7,6 +7,8 @@ GENBOREE_ACCOUNT_PASSWORD = os.getenv("GENBOREE_ACCOUNT_PASSWORD")
 
 CLIN_GEN_TENANT = os.getenv("CLIN_GEN_TENANT")
 
+CAR_SUBMISSION_ENDPOINT = os.getenv("CAR_SUBMISSION_ENDPOINT")
+
 LDH_SUBMISSION_TYPE = "cg-ldh-ld-submission"
 LDH_ENTITY_NAME = "MaveDBMapping"
 LDH_ENTITY_ENDPOINT = "maveDb"  # for some reason, not the same :/

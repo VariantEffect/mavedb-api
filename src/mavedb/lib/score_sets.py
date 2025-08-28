@@ -25,6 +25,7 @@ from mavedb.lib.mave.constants import (
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.utilities import is_null as validate_is_null
+from mavedb.lib.variants import get_hgvs_from_post_mapped, is_hgvs_g, is_hgvs_p
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
@@ -59,9 +60,6 @@ VariantData = dict[str, Optional[dict[str, dict]]]
 
 logger = logging.getLogger(__name__)
 
-HGVS_G_REGEX = re.compile(r"(^|:)g\.")
-HGVS_P_REGEX = re.compile(r"(^|:)p\.")
-
 
 class HGVSColumns:
     NUCLEOTIDE: str = "hgvs_nt"  # dataset.constants.hgvs_nt_column
@@ -74,7 +72,7 @@ class HGVSColumns:
 
 
 def search_score_sets(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
-    save_to_logging_context({"score_set_search_criteria": search.dict()})
+    save_to_logging_context({"score_set_search_criteria": search.model_dump()})
 
     query = db.query(ScoreSet)  # \
     # .filter(ScoreSet.private.is_(False))
@@ -531,56 +529,6 @@ def is_null(value):
     return null_values_re.fullmatch(value) or not value
 
 
-def hgvs_from_vrs_allele(allele: dict) -> str:
-    """
-    Extract the HGVS notation from the VRS allele.
-    """
-    try:
-        # VRS 2.X
-        return allele["expressions"][0]["value"]
-    except KeyError:
-        raise ValueError("VRS 1.X format not supported.")
-        # VRS 1.X. We don't want to allow this.
-        # return allele["variation"]["expressions"][0]["value"]
-
-
-def get_hgvs_from_mapped_variant(post_mapped_vrs: Any) -> Optional[str]:
-    if post_mapped_vrs["type"] == "Haplotype":  # type: ignore
-        variations_hgvs = [hgvs_from_vrs_allele(allele) for allele in post_mapped_vrs["members"]]
-    elif post_mapped_vrs["type"] == "CisPhasedBlock":  # type: ignore
-        variations_hgvs = [hgvs_from_vrs_allele(allele) for allele in post_mapped_vrs["members"]]
-    elif post_mapped_vrs["type"] == "Allele":  # type: ignore
-        variations_hgvs = [hgvs_from_vrs_allele(post_mapped_vrs)]
-    else:
-        return None
-
-    if len(variations_hgvs) == 0:
-        return None
-        # raise ValueError(f"No variations found in variant {variant_urn}.")
-    if len(variations_hgvs) > 1:
-        return None
-        # raise ValueError(f"Multiple variations found in variant {variant_urn}.")
-
-    return variations_hgvs[0]
-
-
-# TODO (https://github.com/VariantEffect/mavedb-api/issues/440) Temporarily, we are using these functions to distinguish
-# genomic and protein HGVS strings produced by the mapper. Using hgvs.parser.Parser is too slow, and we won't need to do
-# this once the mapper extracts separate g., c., and p. post-mapped HGVS strings.
-def is_hgvs_g(hgvs: str) -> bool:
-    """
-    Check if the given HGVS string is a genomic HGVS (g.) string.
-    """
-    return bool(HGVS_G_REGEX.search(hgvs))
-
-
-def is_hgvs_p(hgvs: str) -> bool:
-    """
-    Check if the given HGVS string is a protein HGVS (p.) string.
-    """
-    return bool(HGVS_P_REGEX.search(hgvs))
-
-
 def variant_to_csv_row(
     variant: Variant,
     columns: list[str],
@@ -617,13 +565,13 @@ def variant_to_csv_row(
         elif column_key == "accession":
             value = str(variant.urn)
         elif column_key == "post_mapped_hgvs_g":
-            hgvs_str = get_hgvs_from_mapped_variant(mapping.post_mapped) if mapping and mapping.post_mapped else None
+            hgvs_str = get_hgvs_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
             if hgvs_str is not None and is_hgvs_g(hgvs_str):
                 value = hgvs_str
             else:
                 value = ""
         elif column_key == "post_mapped_hgvs_p":
-            hgvs_str = get_hgvs_from_mapped_variant(mapping.post_mapped) if mapping and mapping.post_mapped else None
+            hgvs_str = get_hgvs_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
             if hgvs_str is not None and is_hgvs_p(hgvs_str):
                 value = hgvs_str
             else:

@@ -36,7 +36,13 @@ def do_migration(db: Session):
 
     for score_set in score_sets_with_ranges_or_calibrations:
         if score_set.score_ranges is not None:
-            investigator_ranges = InvestigatorScoreRangesCreate(**score_set.score_ranges)
+            investigator_ranges = InvestigatorScoreRangesCreate(
+                **score_set.score_ranges
+            )
+            for score_range in investigator_ranges.ranges:
+                score_range.inclusive_lower_bound = False if score_range.range[0] is None else True
+                score_range.inclusive_upper_bound = False
+
         else:
             investigator_ranges = None
 
@@ -60,6 +66,8 @@ def do_migration(db: Session):
                         label=str(evidence_strength),
                         evidence_strength=evidence_strength,
                         positive_likelihood_ratio=positive_likelihood_ratio,
+                        inclusive_lower_bound=False,
+                        inclusive_upper_bound=False,
                     ))
                 elif idx == len(thresholds) - 1:
                     calculated_range = (threshold, None)
@@ -69,6 +77,8 @@ def do_migration(db: Session):
                         evidence_strength=evidence_strength,
                         label=str(evidence_strength),
                         positive_likelihood_ratio=positive_likelihood_ratio,
+                        inclusive_lower_bound=True,
+                        inclusive_upper_bound=False,
                     ))
                 else:
                     if boundary_direction < 0:
@@ -82,6 +92,8 @@ def do_migration(db: Session):
                         label=str(evidence_strength),
                         evidence_strength=evidence_strength,
                         positive_likelihood_ratio=positive_likelihood_ratio,
+                        inclusive_lower_bound=True,
+                        inclusive_upper_bound=False,
                     ))
 
                 # Set boundary_direction if the sign of evidence_strength flips compared to the next one
@@ -99,7 +111,7 @@ def do_migration(db: Session):
         score_set.score_ranges = ScoreSetRangesCreate(
             investigator_provided=investigator_ranges if investigator_ranges else None,
             pillar_project=pillar_project_ranges if pillar_project_ranges else None,
-        ).dict()
+        ).model_dump()
         db.add(score_set)
 
 
