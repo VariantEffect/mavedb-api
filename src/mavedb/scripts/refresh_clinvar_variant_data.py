@@ -105,6 +105,10 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: str, urns:
         if total_variants_with_clingen_ids > 0 and index % (max(total_variants_with_clingen_ids // 100, 1)) == 0:
             logger.info(f"Progress: {index / total_variants_with_clingen_ids:.0%}")
 
+        if "," in clingen_id:
+            logger.debug("Detected a multi-variant ClinGen allele ID, skipping.")
+            continue
+
         # Guaranteed based on our query filters.
         clingen_data = query_clingen_allele_api(clingen_id)  # type: ignore
         clinvar_allele_id = clingen_data.get("externalRecords", {}).get("ClinVarAlleles", [{}])[0].get("alleleId")
