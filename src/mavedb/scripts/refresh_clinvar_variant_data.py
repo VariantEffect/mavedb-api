@@ -53,8 +53,12 @@ def parse_tsv(tsv_content: bytes) -> Dict[int, Dict[str, str]]:
     return data
 
 
-def query_clingen_allele_api(allele_id: str) -> Dict[str, Any]:
+def query_clingen_allele_api_with_allele_id(allele_id: str) -> Dict[str, Any]:
     url = f"https://reg.clinicalgenome.org/allele/{allele_id}"
+    return query_clingen_allele_api(url, allele_id)
+
+
+def query_clingen_allele_api(url: str, allele_id: Optional[str]) -> Dict[str, Any]:
     retries = 5
     for i in range(retries):
         try:
@@ -70,7 +74,10 @@ def query_clingen_allele_api(allele_id: str) -> Dict[str, Any]:
                 logger.error(f"Request failed after {retries} attempts: {e}")
                 raise
 
-    logger.debug(f"Fetched ClinGen data for allele ID {allele_id}.")
+    if allele_id is not None:
+        logger.debug(f"Fetched ClinGen data for allele ID {allele_id}.")
+    else:
+        logger.debug(f"Fetched ClinGen data from {url}.")
     return response.json()
 
 
@@ -106,8 +113,17 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: str, urns:
             logger.info(f"Progress: {index / total_variants_with_clingen_ids:.0%}")
 
         # Guaranteed based on our query filters.
-        clingen_data = query_clingen_allele_api(clingen_id)  # type: ignore
+        clingen_data = query_clingen_allele_api_with_allele_id(clingen_id)  # type: ignore
         clinvar_allele_id = clingen_data.get("externalRecords", {}).get("ClinVarAlleles", [{}])[0].get("alleleId")
+        if not clinvar_allele_id:
+            matching_registered_transcripts = clingen_data.get("aminoAcidAlleles", [{}])[0].get("matchingRegisteredTranscripts", [])
+            for transcript in matching_registered_transcripts:
+                transcript_url = transcript.get("@id")
+                if transcript_url:
+                    transcript_clingen_data = query_clingen_allele_api(transcript_url, None)
+                    clinvar_allele_id = transcript_clingen_data.get("externalRecords", {}).get("ClinVarAlleles", [{}])[0].get("alleleId")
+                    if clinvar_allele_id is not None:
+                        break
 
         if not clinvar_allele_id or clinvar_allele_id not in tsv_data:
             logger.debug(
