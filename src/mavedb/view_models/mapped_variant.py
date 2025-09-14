@@ -80,6 +80,22 @@ class MappedVariantWithControls(SavedMappedVariantWithControls):
     gnomad_variants: Sequence["GnomADVariant"]
 
 
+class MappedVariantForClinicalControl(BaseModel):
+    variant_urn: str
+
+    class Config:
+        from_attributes = True
+
+    @model_validator(mode="before")
+    def generate_score_set_urn_list(cls, data: Any):
+        if not hasattr(data, "variant_urn") and hasattr(data, "variant"):
+            try:
+                data.__setattr__("variant_urn", None if not data.variant else data.variant.urn)
+            except AttributeError as exc:
+                raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
+        return data
+
+
 # ruff: noqa: E402
 from mavedb.view_models.clinical_control import ClinicalControlBase, ClinicalControl, SavedClinicalControl
 from mavedb.view_models.gnomad_variant import GnomADVariantBase, GnomADVariant, SavedGnomADVariant

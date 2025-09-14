@@ -39,7 +39,7 @@ class SavedClinicalControl(ClinicalControlBase):
 
 
 class SavedClinicalControlWithMappedVariants(SavedClinicalControl):
-    mapped_variants: Sequence["SavedMappedVariant"]
+    mapped_variants: Sequence["MappedVariantForClinicalControl"]
 
 
 # Properties to return to non-admin clients
@@ -48,7 +48,7 @@ class ClinicalControl(SavedClinicalControl):
 
 
 class ClinicalControlWithMappedVariants(SavedClinicalControlWithMappedVariants):
-    mapped_variants: Sequence["MappedVariant"]
+    pass
 
 
 class ClinicalControlOptions(BaseModel):
@@ -57,7 +57,7 @@ class ClinicalControlOptions(BaseModel):
 
 
 # ruff: noqa: E402
-from mavedb.view_models.mapped_variant import MappedVariant, SavedMappedVariant, MappedVariantCreate
+from mavedb.view_models.mapped_variant import MappedVariantCreate, MappedVariantForClinicalControl
 
 # ClinicalControlUpdate.model_rebuild()
 SavedClinicalControlWithMappedVariants.model_rebuild()
