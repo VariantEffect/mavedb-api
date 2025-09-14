@@ -85,7 +85,6 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: str, urns:
             select(distinct(MappedVariant.clingen_allele_id))
             .join(Variant)
             .join(ScoreSet)
-            .where(MappedVariant.current.is_(True), MappedVariant.post_mapped.is_not(None))
             .where(
                 and_(
                     MappedVariant.clingen_allele_id.is_not(None),
@@ -104,6 +103,10 @@ def refresh_clinvar_variants(db: Session, month: Optional[str], year: str, urns:
     for index, clingen_id in enumerate(clingen_ids):
         if total_variants_with_clingen_ids > 0 and index % (max(total_variants_with_clingen_ids // 100, 1)) == 0:
             logger.info(f"Progress: {index / total_variants_with_clingen_ids:.0%}")
+
+        if clingen_id is not None and "," in clingen_id:
+            logger.debug("Detected a multi-variant ClinGen allele ID, skipping.")
+            continue
 
         # Guaranteed based on our query filters.
         clingen_data = query_clingen_allele_api(clingen_id)  # type: ignore
