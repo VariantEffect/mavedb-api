@@ -12,7 +12,7 @@ from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import Statement, ExperimentalVariantFunctionalImpactStudyResult
 from sqlalchemy import null, or_, select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
-from sqlalchemy.orm import contains_eager, joinedload, Session
+from sqlalchemy.orm import contains_eager, Session
 
 from mavedb import deps
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
