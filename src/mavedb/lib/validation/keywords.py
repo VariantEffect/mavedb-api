@@ -13,7 +13,7 @@ def validate_code(key: str, label: str, code: Optional[str]):
             raise ValidationError("Invalid Gene Ontology accession.")
 
 
-# TODO: value will not be Optional when we confirm the final controlled keyword list.
+# TODO: label will not be Optional when we confirm the final controlled keyword list.
 def validate_description(label: str, key: str, description: Optional[str]):
     if label.lower() == "other" and (description is None or description.strip() == ""):
         raise ValidationError(
