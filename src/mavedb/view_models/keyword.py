@@ -31,9 +31,9 @@ class KeywordBase(BaseModel):
 
     @model_validator(mode="after")
     def validate_code(self):
-        keywords.validate_code(self.key, self.label, self.code)
+        if self.label is not None:  # The client may submit empty keywords, which are removed before saving.
+            keywords.validate_code(self.key, self.label, self.code)
         return self
-
 
     # TODO#273: Un-commenting this block will require new experiments to contain a keyword on creation.
     # @field_validator("label")
