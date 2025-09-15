@@ -32,7 +32,7 @@ def fetch_keywords_by_key(
     items = (
         db.query(ControlledKeyword)
         .filter(func.lower(ControlledKeyword.key) == lower_key)
-        .order_by(ControlledKeyword.value)
+        .order_by(ControlledKeyword.label)
         .all()
     )
     if not items:
@@ -41,8 +41,8 @@ def fetch_keywords_by_key(
 
 
 @router.post("/search/{key}/{value}", status_code=200, response_model=keyword.Keyword)
-def search_keyword_by_key_and_value(key: str, value: str, db: Session = Depends(deps.get_db)) -> ControlledKeyword:
+def search_keyword_by_key_and_value(key: str, label: str, db: Session = Depends(deps.get_db)) -> ControlledKeyword:
     """
     Search keywords.
     """
-    return _search_keyword(db, key, value)
+    return _search_keyword(db, key, label)

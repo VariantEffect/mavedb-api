@@ -150,8 +150,8 @@ def experiment_keyword_statistics(
         raise HTTPException(500, "No association table associated with the keywords field when one was expected.")
 
     query = _join_model_and_filter_unpublished(
-        select(ControlledKeyword.value, func.count(ControlledKeyword.value)).join(queried_assc), queried_model
-    ).group_by(ControlledKeyword.value)
+        select(ControlledKeyword.label, func.count(ControlledKeyword.label)).join(queried_assc), queried_model
+    ).group_by(ControlledKeyword.label)
 
     return _count_for_identifier_in_query(db, query)
 

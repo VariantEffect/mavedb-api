@@ -16,10 +16,10 @@ class ExperimentControlledKeywordBase(BaseModel):
 
     @model_validator(mode="after")
     def validate_fields(self) -> Self:
-        # validated_keyword possible value: {'key': 'Delivery method', 'value': None}
-        # Validate if keyword value is other, whether description is None.
-        if self.keyword and self.keyword.value:
-            keywords.validate_description(self.keyword.value, self.keyword.key, self.description)
+        # validated_keyword possible value: {'key': 'Delivery method', 'label': None}
+        # Validate if keyword label is other, whether description is None.
+        if self.keyword and self.keyword.label:
+            keywords.validate_description(self.keyword.label, self.keyword.key, self.description)
 
         return self
 

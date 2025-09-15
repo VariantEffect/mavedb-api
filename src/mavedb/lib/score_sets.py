@@ -208,7 +208,7 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
             ScoreSet.experiment.has(
                 Experiment.keyword_objs.any(
                     ExperimentControlledKeywordAssociation.controlled_keyword.has(
-                        ControlledKeyword.value.in_(search.keywords)
+                        ControlledKeyword.label.in_(search.keywords)
                     )
                 )
             )
