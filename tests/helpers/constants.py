@@ -367,49 +367,51 @@ TEST_EXPERIMENT = {
 TEST_DB_KEYWORDS = [
     {
         "key": "Variant Library Creation Method",
-        "value": "Endogenous locus library method",
+        "label": "Endogenous locus library method",
         "special": False,
         "description": "Description",
     },
     {
         "key": "Variant Library Creation Method",
-        "value": "In vitro construct library method",
+        "label": "In vitro construct library method",
         "special": False,
         "description": "Description",
     },
-    {"key": "Variant Library Creation Method", "value": "Other", "special": False, "description": "Description"},
+    {"key": "Variant Library Creation Method", "label": "Other", "special": False, "description": "Description"},
     {
         "key": "Endogenous Locus Library Method System",
-        "value": "SaCas9",
+        "label": "SaCas9",
         "special": False,
         "description": "Description",
     },
     {
         "key": "Endogenous Locus Library Method Mechanism",
-        "value": "Base editor",
+        "label": "Base editor",
         "special": False,
         "description": "Description",
     },
     {
         "key": "In Vitro Construct Library Method System",
-        "value": "Oligo-directed mutagenic PCR",
+        "label": "Oligo-directed mutagenic PCR",
         "special": False,
         "description": "Description",
     },
     {
         "key": "In Vitro Construct Library Method Mechanism",
-        "value": "Native locus replacement",
+        "label": "Native locus replacement",
         "special": False,
         "description": "Description",
     },
-    {"key": "Delivery method", "value": "Other", "special": False, "description": "Description"},
+    {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
+    {"key": "Phenotypic Assay Mechanism", "label": "Other", "code": None, "special": False, "description": "Description"},
+    {"key": "Phenotypic Assay Mechanism", "label": "Label", "code": "GO:1234567", "special": False, "description": "Description"},
 ]
 
 TEST_KEYWORDS = [
     {
         "keyword": {
             "key": "Variant Library Creation Method",
-            "value": "Endogenous locus library method",
+            "label": "Endogenous locus library method",
             "special": False,
             "description": "Description",
         },
@@ -417,7 +419,7 @@ TEST_KEYWORDS = [
     {
         "keyword": {
             "key": "Endogenous Locus Library Method System",
-            "value": "SaCas9",
+            "label": "SaCas9",
             "special": False,
             "description": "Description",
         },
@@ -425,13 +427,13 @@ TEST_KEYWORDS = [
     {
         "keyword": {
             "key": "Endogenous Locus Library Method Mechanism",
-            "value": "Base editor",
+            "label": "Base editor",
             "special": False,
             "description": "Description",
         },
     },
     {
-        "keyword": {"key": "Delivery method", "value": "Other", "special": False, "description": "Description"},
+        "keyword": {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
         "description": "Details of delivery method",
     },
 ]
@@ -453,7 +455,7 @@ TEST_EXPERIMENT_WITH_KEYWORD = {
     "methodText": "Methods",
     "keywords": [
         {
-            "keyword": {"key": "Delivery method", "value": "Other", "special": False, "description": "Description"},
+            "keyword": {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
             "description": "Details of delivery method",
         },
     ],
@@ -533,7 +535,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
     "keywords": [
         {
             "recordType": "ExperimentControlledKeyword",
-            "keyword": {"key": "Delivery method", "value": "Other", "special": False, "description": "Description"},
+            "keyword": {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
             "description": "Details of delivery method",
         },
     ],
@@ -575,7 +577,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
             "recordType": "ExperimentControlledKeyword",
             "keyword": {
                 "key": "Variant Library Creation Method",
-                "value": "Other",
+                "label": "Other",
                 "special": False,
                 "description": "Description",
             },
@@ -583,7 +585,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
         },
         {
             "recordType": "ExperimentControlledKeyword",
-            "keyword": {"key": "Delivery method", "value": "Other", "special": False, "description": "Description"},
+            "keyword": {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
             "description": "Description",
         },
     ],
@@ -598,8 +600,9 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
     "numScoreSets": 0,  # NOTE: This is context-dependent and may need overriding per test
 }
 
+
 TEST_MINIMAL_TAXONOMY = {
-    "tax_id": 9606,
+    "code": 9606,
 }
 
 TEST_POPULATED_TAXONOMY = {
@@ -692,7 +695,7 @@ TEST_SEQ_SCORESET = {
                 "sequence_type": "dna",
                 "sequence": "ACGTTT",
                 "taxonomy": {
-                    "tax_id": TEST_SAVED_TAXONOMY["tax_id"],
+                    "code": TEST_SAVED_TAXONOMY["code"],
                     "organism_name": TEST_SAVED_TAXONOMY["organism_name"],
                     "common_name": TEST_SAVED_TAXONOMY["common_name"],
                     "rank": TEST_SAVED_TAXONOMY["rank"],
@@ -719,7 +722,7 @@ TEST_MINIMAL_SEQ_SCORESET = {
                 "sequenceType": "dna",
                 "sequence": "ACGTTT",
                 "taxonomy": {
-                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "code": TEST_SAVED_TAXONOMY["code"],
                     "organismName": TEST_SAVED_TAXONOMY["organism_name"],
                     "commonName": TEST_SAVED_TAXONOMY["common_name"],
                     "rank": TEST_SAVED_TAXONOMY["rank"],
@@ -772,7 +775,7 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
                 "label": "TEST1",
                 "taxonomy": {
                     "recordType": "Taxonomy",
-                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "code": TEST_SAVED_TAXONOMY["code"],
                     "organismName": TEST_SAVED_TAXONOMY["organism_name"],
                     "commonName": TEST_SAVED_TAXONOMY["common_name"],
                     "rank": TEST_SAVED_TAXONOMY["rank"],
@@ -930,7 +933,7 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET = {
                 "sequence": "ACGTTT",
                 "label": "TEST3",
                 "taxonomy": {
-                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "code": TEST_SAVED_TAXONOMY["code"],
                     "organismName": TEST_SAVED_TAXONOMY["organism_name"],
                     "commonName": TEST_SAVED_TAXONOMY["common_name"],
                     "rank": TEST_SAVED_TAXONOMY["rank"],
@@ -950,7 +953,7 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET = {
                 "sequence": "TAATGCC",
                 "label": "TEST4",
                 "taxonomy": {
-                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "code": TEST_SAVED_TAXONOMY["code"],
                     "organismName": TEST_SAVED_TAXONOMY["organism_name"],
                     "commonName": TEST_SAVED_TAXONOMY["common_name"],
                     "rank": TEST_SAVED_TAXONOMY["rank"],
@@ -1003,7 +1006,7 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
                 "label": "TEST3",
                 "taxonomy": {
                     "recordType": "Taxonomy",
-                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "code": TEST_SAVED_TAXONOMY["code"],
                     "organismName": TEST_SAVED_TAXONOMY["organism_name"],
                     "commonName": TEST_SAVED_TAXONOMY["common_name"],
                     "rank": TEST_SAVED_TAXONOMY["rank"],
@@ -1027,7 +1030,7 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
                 "label": "TEST4",
                 "taxonomy": {
                     "recordType": "Taxonomy",
-                    "taxId": TEST_SAVED_TAXONOMY["tax_id"],
+                    "code": TEST_SAVED_TAXONOMY["code"],
                     "organismName": TEST_SAVED_TAXONOMY["organism_name"],
                     "commonName": TEST_SAVED_TAXONOMY["common_name"],
                     "rank": TEST_SAVED_TAXONOMY["rank"],

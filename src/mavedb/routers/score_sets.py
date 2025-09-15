@@ -12,7 +12,7 @@ from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import Statement, ExperimentalVariantFunctionalImpactStudyResult
 from sqlalchemy import null, or_, select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import contains_eager, Session
 
 from mavedb import deps
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
@@ -820,7 +820,7 @@ async def create_score_set(
                     "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                 )
             upload_taxonomy = gene.target_sequence.taxonomy
-            save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.tax_id})
+            save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.code})
             taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
 
             if not taxonomy:
@@ -1155,7 +1155,7 @@ async def update_score_set(
                     )
 
                 upload_taxonomy = gene.target_sequence.taxonomy
-                save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.tax_id})
+                save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.code})
                 taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
 
                 if not taxonomy:
@@ -1165,7 +1165,7 @@ async def update_score_set(
                     )
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.tax_id}",
+                        detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.code}",
                     )
 
                 # If the target sequence has a label, use it. Otherwise, use the name from the target gene as the label.
@@ -1463,30 +1463,27 @@ async def get_clinical_controls_for_score_set(
 
     clinical_controls_query = (
         select(ClinicalControl)
-        .join(MappedVariant, ClinicalControl.mapped_variants)
-        .join(Variant)
-        .where(Variant.score_set_id == item.id)
+        .join(ClinicalControl.mapped_variants)
+        .join(MappedVariant.variant)
+        .options(
+            contains_eager(ClinicalControl.mapped_variants)
+            .contains_eager(MappedVariant.variant)
+        )
+        .filter(MappedVariant.current.is_(True))
+        .filter(Variant.score_set_id == item.id)
     )
 
     if db_name is not None:
         save_to_logging_context({"db_name": db_name})
-        clinical_controls_query = clinical_controls_query.where(ClinicalControl.db_name == db_name)
+        clinical_controls_query = clinical_controls_query.filter(ClinicalControl.db_name == db_name)
 
     if db_version is not None:
         save_to_logging_context({"db_version": db_version})
-        clinical_controls_query = clinical_controls_query.where(ClinicalControl.db_version == db_version)
+        clinical_controls_query = clinical_controls_query.filter(ClinicalControl.db_version == db_version)
 
-    clinical_controls_for_item: Sequence[ClinicalControl] = _db.scalars(clinical_controls_query).all()
-    clinical_controls_with_mapped_variant = []
-    for control_variant in clinical_controls_for_item:
-        control_variant.mapped_variants = [
-            mv for mv in control_variant.mapped_variants if mv.current and mv.variant.score_set_id == item.id
-        ]
+    clinical_controls: Sequence[ClinicalControl] = _db.scalars(clinical_controls_query).unique().all()
 
-        if control_variant.mapped_variants:
-            clinical_controls_with_mapped_variant.append(control_variant)
-
-    if not clinical_controls_with_mapped_variant:
+    if not clinical_controls:
         logger.info(
             msg="No clinical control variants matching the provided filters are associated with the requested score set.",
             extra=logging_context(),
@@ -1496,9 +1493,9 @@ async def get_clinical_controls_for_score_set(
             detail=f"No clinical control variants matching the provided filters associated with score set URN {urn} were found",
         )
 
-    save_to_logging_context({"resource_count": len(clinical_controls_for_item)})
+    save_to_logging_context({"resource_count": len(clinical_controls)})
 
-    return clinical_controls_for_item
+    return clinical_controls
 
 
 @router.get(

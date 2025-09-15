@@ -1,12 +1,21 @@
+import re
 from typing import Optional
 
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import is_null
 
 
-# TODO: value will not be Optional when we confirm the final controlled keyword list.
-def validate_description(value: str, key: str, description: Optional[str]):
-    if value.lower() == "other" and (description is None or description.strip() == ""):
+def validate_code(key: str, label: str, code: Optional[str]):
+    if key.lower() == "phenotypic assay mechanism" and label.lower() != "other":
+        # The Gene Ontology accession is a unique seven digit identifier prefixed by GO:.
+        # e.g. GO:0005739, GO:1904659, or GO:0016597.
+        if code is None or not re.match(r"^GO:\d{7}$", code):
+            raise ValidationError("Invalid Gene Ontology accession.")
+
+
+# TODO: label will not be Optional when we confirm the final controlled keyword list.
+def validate_description(label: str, key: str, description: Optional[str]):
+    if label.lower() == "other" and (description is None or description.strip() == ""):
         raise ValidationError(
             "Other option does not allow empty description.", custom_loc=["body", "keywordDescriptions", key]
         )
@@ -14,19 +23,19 @@ def validate_description(value: str, key: str, description: Optional[str]):
 
 def validate_duplicates(keywords: list):
     keys = []
-    values = []
+    labels = []
     for k in keywords:
         keys.append(k.keyword.key.lower())  # k: ExperimentControlledKeywordCreate object
-        if k.keyword.value.lower() != "other":
-            values.append(k.keyword.value.lower())
+        if k.keyword.label.lower() != "other":
+            labels.append(k.keyword.label.lower())
 
     keys_set = set(keys)
-    values_set = set(values)
+    labels_set = set(labels)
 
     if len(keys) != len(keys_set):
         raise ValidationError("Duplicate keys found in keywords.")
-    if len(values) != len(values_set):
-        raise ValidationError("Duplicate values found in keywords.")
+    if len(labels) != len(labels_set):
+        raise ValidationError("Duplicate labels found in keywords.")
 
 
 def validate_keyword(keyword: str):
@@ -47,7 +56,7 @@ def validate_keyword(keyword: str):
 
 
 def validate_keyword_keys(keywords: list):
-    keyword_dict = {k.keyword.key.lower(): k.keyword.value.lower() for k in keywords}
+    keyword_dict = {k.keyword.key.lower(): k.keyword.label.lower() for k in keywords}
     variant_library_method = keyword_dict.get("variant library creation method", "")
 
     if variant_library_method == "endogenous locus library method":

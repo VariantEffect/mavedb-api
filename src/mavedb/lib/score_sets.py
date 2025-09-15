@@ -114,7 +114,7 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
                 ScoreSet.target_genes.any(
                     TargetGene.target_accession.has(func.lower(TargetAccession.assembly).icontains(lower_search_text))
                 ),
-                # TODO(#94): add LICENSE, plus TAX_ID if numeric
+                # TODO(#94): add LICENSE, plus TAXONOMY CODE if numeric
                 ScoreSet.publication_identifiers.any(
                     func.lower(PublicationIdentifier.identifier).icontains(lower_search_text)
                 ),
@@ -208,7 +208,7 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
             ScoreSet.experiment.has(
                 Experiment.keyword_objs.any(
                     ExperimentControlledKeywordAssociation.controlled_keyword.has(
-                        ControlledKeyword.value.in_(search.keywords)
+                        ControlledKeyword.label.in_(search.keywords)
                     )
                 )
             )

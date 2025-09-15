@@ -12,7 +12,7 @@ class Taxonomy(Base):
     __tablename__ = "taxonomies"
 
     id = Column(Integer, primary_key=True)
-    tax_id = Column(Integer, nullable=False)
+    code = Column(Integer, nullable=False)
     organism_name = Column(String, nullable=True)
     common_name = Column(String, nullable=True)
     rank = Column(String, nullable=True)

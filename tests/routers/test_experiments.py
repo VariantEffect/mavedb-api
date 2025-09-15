@@ -148,7 +148,7 @@ def test_cannot_create_experiment_that_keyword_does_not_match_db_keyword(client,
             {
                 "keyword": {
                     "key": "Invalid key",
-                    "value": "Invalid value",
+                    "label": "Invalid label",
                 },
             }
         ]
@@ -157,7 +157,7 @@ def test_cannot_create_experiment_that_keyword_does_not_match_db_keyword(client,
     response = client.post("/api/v1/experiments/", json=experiment)
     assert response.status_code == 422
     response_data = response.json()
-    assert response_data["detail"] == "Invalid keyword Invalid key or Invalid value"
+    assert response_data["detail"] == "Invalid keyword Invalid key or Invalid label"
 
 
 def test_cannot_create_experiment_that_keywords_has_wrong_combination1(client, setup_router_db):
@@ -167,7 +167,7 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination1(client, s
             {
                 "keyword": {
                     "key": "Variant Library Creation Method",
-                    "value": "Endogenous locus library method",
+                    "label": "Endogenous locus library method",
                     "special": False,
                     "description": "Description",
                 },
@@ -175,7 +175,7 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination1(client, s
             {
                 "keyword": {
                     "key": "In Vitro Construct Library Method System",
-                    "value": "Oligo-directed mutagenic PCR",
+                    "label": "Oligo-directed mutagenic PCR",
                     "special": False,
                     "description": "Description",
                 },
@@ -200,7 +200,7 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination2(client, s
             {
                 "keyword": {
                     "key": "Variant Library Creation Method",
-                    "value": "In vitro construct library method",
+                    "label": "In vitro construct library method",
                     "special": False,
                     "description": "Description",
                 },
@@ -208,7 +208,7 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination2(client, s
             {
                 "keyword": {
                     "key": "Endogenous Locus Library Method System",
-                    "value": "SaCas9",
+                    "label": "SaCas9",
                     "special": False,
                     "description": "Description",
                 },
@@ -236,7 +236,7 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, s
             {
                 "keyword": {
                     "key": "Variant Library Creation Method",
-                    "value": "Other",
+                    "label": "Other",
                     "special": False,
                     "description": "Description",
                 },
@@ -245,7 +245,7 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination3(client, s
             {
                 "keyword": {
                     "key": "Endogenous Locus Library Method System",
-                    "value": "SaCas9",
+                    "label": "SaCas9",
                     "special": False,
                     "description": "Description",
                 },
@@ -274,7 +274,7 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination4(client, s
             {
                 "keyword": {
                     "key": "Variant Library Creation Method",
-                    "value": "Other",
+                    "label": "Other",
                     "special": False,
                     "description": "Description",
                 },
@@ -283,7 +283,7 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination4(client, s
             {
                 "keyword": {
                     "key": "In Vitro Construct Library Method System",
-                    "value": "Error-prone PCR",
+                    "label": "Error-prone PCR",
                     "special": False,
                     "description": "Description",
                 },
@@ -302,7 +302,71 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination4(client, s
     )
 
 
-def test_cannot_create_experiment_that_keyword_value_is_other_without_description(client, setup_router_db):
+def test_create_experiment_that_keyword_gene_ontology_has_valid_code(client, setup_router_db):
+    valid_keyword = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Phenotypic Assay Mechanism",
+                    "label": "Label",
+                    "code": "GO:1234567",
+                    "special": False,
+                    "description": "Description"},
+            },
+        ],
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **valid_keyword}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["keywords"][0]["keyword"]["key"] == "Phenotypic Assay Mechanism"
+    assert response_data["keywords"][0]["keyword"]["label"] == "Label"
+    assert response_data["keywords"][0]["keyword"]["code"] == "GO:1234567"
+
+
+def test_create_experiment_that_keyword_gene_ontology_is_other_without_code(client, setup_router_db):
+    valid_keyword = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Phenotypic Assay Mechanism",
+                    "label": "Other",
+                    "code": None,
+                    "description": "Description"
+                },
+                "description": "Description",
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **valid_keyword}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["keywords"][0]["keyword"]["key"] == "Phenotypic Assay Mechanism"
+    assert response_data["keywords"][0]["keyword"]["label"] == "Other"
+
+
+def test_cannot_create_experiment_that_keyword_has_an_invalid_code(client, setup_router_db):
+    invalid_keyword = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Phenotypic Assay Mechanism",
+                    "label": "Label",
+                    "code": "invalid",
+                    "description": "Description"
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **invalid_keyword}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert "Invalid Gene Ontology accession." in response_data["detail"][0]["msg"]
+
+
+def test_cannot_create_experiment_that_keyword_label_is_other_without_description(client, setup_router_db):
     """
     Test src/mavedb/lib/validation/keywords.validate_description function
     If choose other, description should not be null.
@@ -312,7 +376,7 @@ def test_cannot_create_experiment_that_keyword_value_is_other_without_descriptio
             {
                 "keyword": {
                     "key": "Variant Library Creation Method",
-                    "value": "Other",
+                    "label": "Other",
                     "special": False,
                     "description": "Description",
                 },
@@ -334,7 +398,7 @@ def test_cannot_create_experiment_that_keywords_have_duplicate_keys(client, setu
             {
                 "keyword": {
                     "key": "Variant Library Creation Method",
-                    "value": "Other",
+                    "label": "Other",
                     "special": False,
                     "description": "Description",
                 },
@@ -343,7 +407,7 @@ def test_cannot_create_experiment_that_keywords_have_duplicate_keys(client, setu
             {
                 "keyword": {
                     "key": "Variant Library Creation Method",
-                    "value": "In vitro construct library method",
+                    "label": "In vitro construct library method",
                     "special": False,
                     "description": "Description",
                 },
@@ -357,17 +421,17 @@ def test_cannot_create_experiment_that_keywords_have_duplicate_keys(client, setu
     assert response_data["detail"] == "Duplicate keys found in keywords."
 
 
-def test_cannot_create_experiment_that_keywords_have_duplicate_values(client, setup_router_db):
+def test_cannot_create_experiment_that_keywords_have_duplicate_labels(client, setup_router_db):
     """
     Test src/mavedb/lib/validation/keywords.validate_duplicates function
-    Keyword values are not allowed duplicates except Other.
+    Keyword labels are not allowed duplicates except Other.
     """
     invalid_keywords = {
         "keywords": [
             {
                 "keyword": {
                     "key": "Delivery method",
-                    "value": "In vitro construct library method",
+                    "label": "In vitro construct library method",
                     "special": False,
                     "description": "Description",
                 },
@@ -375,7 +439,7 @@ def test_cannot_create_experiment_that_keywords_have_duplicate_values(client, se
             {
                 "keyword": {
                     "key": "Variant Library Creation Method",
-                    "value": "In vitro construct library method",
+                    "label": "In vitro construct library method",
                     "special": False,
                     "description": "Description",
                 },
@@ -386,27 +450,27 @@ def test_cannot_create_experiment_that_keywords_have_duplicate_values(client, se
     response = client.post("/api/v1/experiments/", json=experiment)
     assert response.status_code == 422
     response_data = response.json()
-    assert response_data["detail"] == "Duplicate values found in keywords."
+    assert response_data["detail"] == "Duplicate labels found in keywords."
 
 
 def test_create_experiment_that_keywords_have_duplicate_others(client, setup_router_db):
     """
     Test src/mavedb/lib/validation/keywords.validate_duplicates function
-    Keyword values are not allowed duplicates except Other.
+    Keyword labels are not allowed duplicates except Other.
     """
     keywords = {
         "keywords": [
             {
                 "keyword": {
                     "key": "Variant Library Creation Method",
-                    "value": "Other",
+                    "label": "Other",
                     "special": False,
                     "description": "Description",
                 },
                 "description": "Description",
             },
             {
-                "keyword": {"key": "Delivery method", "value": "Other", "special": False, "description": "Description"},
+                "keyword": {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
                 "description": "Description",
             },
         ]
