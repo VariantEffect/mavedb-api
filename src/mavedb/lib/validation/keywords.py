@@ -6,11 +6,13 @@ from mavedb.lib.validation.utilities import is_null
 
 
 def validate_code(key: str, label: str, code: Optional[str]):
-    if key.lower() == "phenotypic assay mechanism" and label.lower() != "other":
-        # The Gene Ontology accession is a unique seven digit identifier prefixed by GO:.
-        # e.g. GO:0005739, GO:1904659, or GO:0016597.
-        if code is None or not re.match(r"^GO:\d{7}$", code):
-            raise ValidationError("Invalid Gene Ontology accession.")
+    # TODO Re-enable this when we have GO codes for all phenotypic assay mechanisms.
+    pass
+    # if key.lower() == "phenotypic assay mechanism" and label.lower() != "other":
+    #     # The Gene Ontology accession is a unique seven digit identifier prefixed by GO:.
+    #     # e.g. GO:0005739, GO:1904659, or GO:0016597.
+    #     if code is None or not re.match(r"^GO:\d{7}$", code):
+    #         raise ValidationError("Invalid Gene Ontology accession.")
 
 
 # TODO: label will not be Optional when we confirm the final controlled keyword list.
