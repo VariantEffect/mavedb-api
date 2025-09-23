@@ -18,6 +18,9 @@ from mavedb.view_models.score_range import (
     InvestigatorScoreRangesCreate,
     InvestigatorScoreRangesModify,
     InvestigatorScoreRanges,
+    ScottScoreRangesCreate,
+    ScottScoreRangesModify,
+    ScottScoreRanges,
     ZeibergCalibrationScoreRangeCreate,
     ZeibergCalibrationScoreRangeModify,
     ZeibergCalibrationScoreRange,
@@ -354,6 +357,9 @@ def test_score_ranges_base_valid_range(ScoreRangesModel, score_ranges_data):
         InvestigatorScoreRanges,
         InvestigatorScoreRangesCreate,
         InvestigatorScoreRangesModify,
+        ScottScoreRanges,
+        ScottScoreRangesCreate,
+        ScottScoreRangesModify,
     ],
 )
 def test_score_ranges_brnich_valid_range(ScoreRangesModel, score_ranges_data):
@@ -413,6 +419,9 @@ def test_score_ranges_zeiberg_calibration_valid_range(ScoreRangesModel, score_ra
         (InvestigatorScoreRanges, BrnichScoreRange),
         (InvestigatorScoreRangesCreate, BrnichScoreRangeCreate),
         (InvestigatorScoreRangesModify, BrnichScoreRangeModify),
+        (ScottScoreRanges, BrnichScoreRange),
+        (ScottScoreRangesCreate, BrnichScoreRangeCreate),
+        (ScottScoreRangesModify, BrnichScoreRangeModify),
     ],
 )
 def test_score_ranges_ranges_may_not_overlap(ScoreRangesModel, ScoreRangeModel):
@@ -443,6 +452,9 @@ def test_score_ranges_ranges_may_not_overlap(ScoreRangesModel, ScoreRangeModel):
         (InvestigatorScoreRanges, BrnichScoreRange),
         (InvestigatorScoreRangesCreate, BrnichScoreRangeCreate),
         (InvestigatorScoreRangesModify, BrnichScoreRangeModify),
+        (ScottScoreRanges, BrnichScoreRange),
+        (ScottScoreRangesCreate, BrnichScoreRangeCreate),
+        (ScottScoreRangesModify, BrnichScoreRangeModify),
     ],
 )
 def test_score_ranges_ranges_may_not_overlap_via_inclusive_bounds(ScoreRangesModel, ScoreRangeModel):
@@ -485,6 +497,9 @@ def test_score_ranges_ranges_may_not_overlap_via_inclusive_bounds(ScoreRangesMod
         (InvestigatorScoreRanges, BrnichScoreRange),
         (InvestigatorScoreRangesCreate, BrnichScoreRangeCreate),
         (InvestigatorScoreRangesModify, BrnichScoreRangeModify),
+        (ScottScoreRanges, BrnichScoreRange),
+        (ScottScoreRangesCreate, BrnichScoreRangeCreate),
+        (ScottScoreRangesModify, BrnichScoreRangeModify),
     ],
 )
 @pytest.mark.parametrize(
@@ -638,6 +653,9 @@ def test_score_ranges_zeiberg_calibration_ranges_boundaries_may_be_adjacent(
         InvestigatorScoreRanges,
         InvestigatorScoreRangesCreate,
         InvestigatorScoreRangesModify,
+        ScottScoreRanges,
+        ScottScoreRangesCreate,
+        ScottScoreRangesModify,
     ],
 )
 def test_score_ranges_brnich_normal_classification_exists_if_baseline_score_provided(ScoreRangesModel):
@@ -659,6 +677,9 @@ def test_score_ranges_brnich_normal_classification_exists_if_baseline_score_prov
         InvestigatorScoreRanges,
         InvestigatorScoreRangesCreate,
         InvestigatorScoreRangesModify,
+        ScottScoreRanges,
+        ScottScoreRangesCreate,
+        ScottScoreRangesModify,
     ],
 )
 def test_score_ranges_brnich_baseline_score_within_normal_range(ScoreRangesModel):
@@ -684,6 +705,9 @@ def test_score_ranges_brnich_baseline_score_within_normal_range(ScoreRangesModel
         InvestigatorScoreRanges,
         InvestigatorScoreRangesCreate,
         InvestigatorScoreRangesModify,
+        ScottScoreRanges,
+        ScottScoreRangesCreate,
+        ScottScoreRangesModify,
     ],
 )
 def test_score_ranges_brnich_baseline_type_score_provided_if_normal_range_exists(ScoreRangesModel):

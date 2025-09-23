@@ -276,6 +276,33 @@ class InvestigatorScoreRanges(BrnichScoreRanges, SavedInvestigatorScoreRanges):
 
 
 ##############################################################################################################
+# Scott score range models
+##############################################################################################################
+
+
+class ScottScoreRangesBase(BrnichScoreRangesBase):
+    title: str = "Scott calibration"
+
+
+class ScottScoreRangesModify(BrnichScoreRangesModify, ScottScoreRangesBase):
+    pass
+
+
+class ScottScoreRangesCreate(BrnichScoreRangesCreate, ScottScoreRangesModify):
+    pass
+
+
+class SavedScottScoreRanges(SavedBrnichScoreRanges, ScottScoreRangesBase):
+    record_type: str = None  # type: ignore
+
+    _record_type_factory = record_type_validator()(set_record_type)
+
+
+class ScottScoreRanges(BrnichScoreRanges, SavedScottScoreRanges):
+    pass
+
+
+##############################################################################################################
 # Zeiberg specific calibration models
 ##############################################################################################################
 
@@ -378,13 +405,14 @@ class ZeibergCalibrationScoreRanges(ScoreRanges, SavedZeibergCalibrationScoreRan
 
 class ScoreSetRangesBase(BaseModel):
     investigator_provided: Optional[InvestigatorScoreRangesBase] = None
+    scott_calibration: Optional[ScottScoreRangesBase] = None
     zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesBase] = None
 
     _fields_to_exclude_for_validatation = {"record_type"}
 
     @model_validator(mode="after")
     def score_range_labels_must_be_unique(self: "ScoreSetRangesBase") -> "ScoreSetRangesBase":
-        for container in (self.investigator_provided, self.zeiberg_calibration):
+        for container in (self.investigator_provided, self.zeiberg_calibration, self.scott_calibration):
             if container is None:
                 continue
 
@@ -405,11 +433,13 @@ class ScoreSetRangesBase(BaseModel):
 
 class ScoreSetRangesModify(ScoreSetRangesBase):
     investigator_provided: Optional[InvestigatorScoreRangesModify] = None
+    scott_calibration: Optional[ScottScoreRangesModify] = None
     zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesModify] = None
 
 
 class ScoreSetRangesCreate(ScoreSetRangesModify):
     investigator_provided: Optional[InvestigatorScoreRangesCreate] = None
+    scott_calibration: Optional[ScottScoreRangesCreate] = None
     zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesCreate] = None
 
 
@@ -417,6 +447,7 @@ class SavedScoreSetRanges(ScoreSetRangesBase):
     record_type: str = None  # type: ignore
 
     investigator_provided: Optional[SavedInvestigatorScoreRanges] = None
+    scott_calibration: Optional[SavedScottScoreRanges] = None
     zeiberg_calibration: Optional[SavedZeibergCalibrationScoreRanges] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
@@ -424,4 +455,5 @@ class SavedScoreSetRanges(ScoreSetRangesBase):
 
 class ScoreSetRanges(SavedScoreSetRanges):
     investigator_provided: Optional[InvestigatorScoreRanges] = None
+    scott_calibration: Optional[ScottScoreRanges] = None
     zeiberg_calibration: Optional[ZeibergCalibrationScoreRanges] = None
