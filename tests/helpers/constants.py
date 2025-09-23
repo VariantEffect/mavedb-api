@@ -1618,6 +1618,164 @@ TEST_SCORE_SET_RANGE_WITH_SOURCE = {
 }
 
 
+TEST_BRNICH_SCORE_SET_NORMAL_RANGE = {
+    **TEST_SCORE_SET_NORMAL_RANGE,
+    "odds_path": TEST_BS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_BRNICH_SCORE_SET_NORMAL_RANGE = {
+    **TEST_SAVED_SCORE_SET_NORMAL_RANGE,
+    "oddsPath": TEST_SAVED_BS3_ODDS_PATH,
+    "recordType": "BrnichScoreRange",
+}
+
+
+TEST_BRNICH_SCORE_SET_ABNORMAL_RANGE = {
+    **TEST_SCORE_SET_ABNORMAL_RANGE,
+    "odds_path": TEST_PS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_BRNICH_SCORE_SET_ABNORMAL_RANGE = {
+    **TEST_SAVED_SCORE_SET_ABNORMAL_RANGE,
+    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
+    "recordType": "BrnichScoreRange",
+}
+
+
+TEST_BRNICH_SCORE_SET_NOT_SPECIFIED_RANGE = {
+    **TEST_SCORE_SET_NOT_SPECIFIED_RANGE,
+    "odds_path": TEST_PS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_BRNICH_SCORE_SET_NOT_SPECIFIED_RANGE = {
+    **TEST_SAVED_SCORE_SET_NOT_SPECIFIED_RANGE,
+    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
+    "recordType": "BrnichScoreRange",
+}
+
+
+TEST_BRNICH_SCORE_SET_RANGE = {
+    "baseline_score": TEST_BASELINE_SCORE,
+    "ranges": [
+        TEST_BRNICH_SCORE_SET_NORMAL_RANGE,
+        TEST_BRNICH_SCORE_SET_ABNORMAL_RANGE,
+        TEST_BRNICH_SCORE_SET_NOT_SPECIFIED_RANGE,
+    ],
+    "research_use_only": False,
+    "title": "Test Brnich Functional Ranges",
+    "odds_path_source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+    "source": None,
+}
+
+
+TEST_SAVED_BRNICH_SCORE_SET_RANGE = {
+    "recordType": "BrnichScoreRanges",
+    "baselineScore": TEST_BASELINE_SCORE,
+    "ranges": [
+        TEST_SAVED_BRNICH_SCORE_SET_NORMAL_RANGE,
+        TEST_SAVED_BRNICH_SCORE_SET_ABNORMAL_RANGE,
+        TEST_SAVED_BRNICH_SCORE_SET_NOT_SPECIFIED_RANGE,
+    ],
+    "researchUseOnly": False,
+    "title": "Test Brnich Functional Ranges",
+    "oddsPathSource": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+    "source": None,
+}
+
+
+TEST_BRNICH_SCORE_SET_RANGE_WITH_SOURCE = {
+    **TEST_BRNICH_SCORE_SET_RANGE,
+    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+}
+
+
+TEST_SAVED_BRNICH_SCORE_SET_RANGE_WITH_SOURCE = {
+    **TEST_SAVED_BRNICH_SCORE_SET_RANGE,
+    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+}
+
+TEST_SCOTT_SCORE_SET_NORMAL_RANGE = {
+    **TEST_SCORE_SET_NORMAL_RANGE,
+    "odds_path": TEST_BS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_SCOTT_SCORE_SET_NORMAL_RANGE = {
+    **TEST_SAVED_SCORE_SET_NORMAL_RANGE,
+    "oddsPath": TEST_SAVED_BS3_ODDS_PATH,
+    "recordType": "BrnichScoreRange",
+}
+
+
+TEST_SCOTT_SCORE_SET_ABNORMAL_RANGE = {
+    **TEST_SCORE_SET_ABNORMAL_RANGE,
+    "odds_path": TEST_PS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_SCOTT_SCORE_SET_ABNORMAL_RANGE = {
+    **TEST_SAVED_SCORE_SET_ABNORMAL_RANGE,
+    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
+    "recordType": "BrnichScoreRange",
+}
+
+
+TEST_SCOTT_SCORE_SET_NOT_SPECIFIED_RANGE = {
+    **TEST_SCORE_SET_NOT_SPECIFIED_RANGE,
+    "odds_path": TEST_PS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_SCOTT_SCORE_SET_NOT_SPECIFIED_RANGE = {
+    **TEST_SAVED_SCORE_SET_NOT_SPECIFIED_RANGE,
+    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
+    "recordType": "BrnichScoreRange",
+}
+
+
+TEST_SCOTT_SCORE_SET_RANGE = {
+    "baseline_score": TEST_BASELINE_SCORE,
+    "ranges": [
+        TEST_SCOTT_SCORE_SET_NORMAL_RANGE,
+        TEST_SCOTT_SCORE_SET_ABNORMAL_RANGE,
+        TEST_SCOTT_SCORE_SET_NOT_SPECIFIED_RANGE,
+    ],
+    "research_use_only": False,
+    "title": "Test Scott Functional Ranges",
+    "odds_path_source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+    "source": None,
+}
+
+
+TEST_SAVED_SCOTT_SCORE_SET_RANGE = {
+    "recordType": "ScottScoreRanges",
+    "baselineScore": TEST_BASELINE_SCORE,
+    "ranges": [
+        TEST_SAVED_SCOTT_SCORE_SET_NORMAL_RANGE,
+        TEST_SAVED_SCOTT_SCORE_SET_ABNORMAL_RANGE,
+        TEST_SAVED_SCOTT_SCORE_SET_NOT_SPECIFIED_RANGE,
+    ],
+    "researchUseOnly": False,
+    "title": "Test Scott Functional Ranges",
+    "oddsPathSource": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+    "source": None,
+}
+
+
+TEST_SCOTT_SCORE_SET_RANGE_WITH_SOURCE = {
+    **TEST_SCOTT_SCORE_SET_RANGE,
+    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+}
+
+
+TEST_SAVED_SCOTT_SCORE_SET_RANGE_WITH_SOURCE = {
+    **TEST_SAVED_SCOTT_SCORE_SET_RANGE,
+    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+}
+
 TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE = {
     **TEST_SCORE_SET_NORMAL_RANGE,
     "odds_path": TEST_BS3_ODDS_PATH,
@@ -1627,7 +1785,7 @@ TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE = {
 TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE = {
     **TEST_SAVED_SCORE_SET_NORMAL_RANGE,
     "oddsPath": TEST_SAVED_BS3_ODDS_PATH,
-    "recordType": "InvestigatorScoreRange",
+    "recordType": "BrnichScoreRange",
 }
 
 
@@ -1640,7 +1798,7 @@ TEST_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE = {
 TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE = {
     **TEST_SAVED_SCORE_SET_ABNORMAL_RANGE,
     "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
-    "recordType": "InvestigatorScoreRange",
+    "recordType": "BrnichScoreRange",
 }
 
 
@@ -1653,7 +1811,7 @@ TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE = {
 TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE = {
     **TEST_SAVED_SCORE_SET_NOT_SPECIFIED_RANGE,
     "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
-    "recordType": "InvestigatorScoreRange",
+    "recordType": "BrnichScoreRange",
 }
 
 
@@ -1927,6 +2085,16 @@ TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED = {
     "investigatorProvided": TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE,
 }
 
+TEST_SCORE_SET_RANGES_ONLY_SCOTT = {
+    "scott_calibration": TEST_SCOTT_SCORE_SET_RANGE_WITH_SOURCE,
+}
+
+
+TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT = {
+    "recordType": "ScoreSetRanges",
+    "scottCalibration": TEST_SAVED_SCOTT_SCORE_SET_RANGE_WITH_SOURCE,
+}
+
 
 TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION = {
     "zeiberg_calibration": TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE_WITH_SOURCE,
@@ -1941,12 +2109,14 @@ TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION = {
 
 TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT = {
     **TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+    **TEST_SCORE_SET_RANGES_ONLY_SCOTT,
     **TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
 }
 
 
 TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT = {
     **TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+    **TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT,
     **TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
 }
 

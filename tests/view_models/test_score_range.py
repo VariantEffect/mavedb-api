@@ -9,9 +9,12 @@ from mavedb.view_models.score_range import (
     ScoreRangesCreate,
     ScoreRangesModify,
     ScoreRanges,
-    InvestigatorScoreRangeCreate,
-    InvestigatorScoreRangeModify,
-    InvestigatorScoreRange,
+    BrnichScoreRangeCreate,
+    BrnichScoreRangeModify,
+    BrnichScoreRange,
+    BrnichScoreRangesCreate,
+    BrnichScoreRangesModify,
+    BrnichScoreRanges,
     InvestigatorScoreRangesCreate,
     InvestigatorScoreRangesModify,
     InvestigatorScoreRanges,
@@ -30,17 +33,18 @@ from tests.helpers.constants import (
     TEST_SCORE_SET_NORMAL_RANGE,
     TEST_SCORE_SET_ABNORMAL_RANGE,
     TEST_SCORE_SET_NOT_SPECIFIED_RANGE,
-    TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE,
-    TEST_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE,
+    TEST_BRNICH_SCORE_SET_NORMAL_RANGE,
+    TEST_BRNICH_SCORE_SET_ABNORMAL_RANGE,
     TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_STRONG_RANGE,
     TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_STRONG_RANGE,
-    TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE,
-    TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE,
+    TEST_BRNICH_SCORE_SET_RANGE,
+    TEST_BRNICH_SCORE_SET_RANGE_WITH_SOURCE,
     TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE,
     TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE_WITH_SOURCE,
     TEST_SCORE_SET_RANGE,
     TEST_SCORE_SET_RANGE_WITH_SOURCE,
     TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+    TEST_SCORE_SET_RANGES_ONLY_SCOTT,
     TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
     TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     TEST_SCORE_SET_NEGATIVE_INFINITY_RANGE,
@@ -80,12 +84,10 @@ def test_score_range_base_valid_range(ScoreRangeModel, score_range_data):
 
 @pytest.mark.parametrize(
     "score_range_data",
-    [TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE, TEST_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE],
+    [TEST_BRNICH_SCORE_SET_NORMAL_RANGE, TEST_BRNICH_SCORE_SET_ABNORMAL_RANGE],
 )
-@pytest.mark.parametrize(
-    "ScoreRangeModel", [InvestigatorScoreRange, InvestigatorScoreRangeCreate, InvestigatorScoreRangeModify]
-)
-def test_score_range_investigator_valid_range(ScoreRangeModel, score_range_data):
+@pytest.mark.parametrize("ScoreRangeModel", [BrnichScoreRange, BrnichScoreRangeCreate, BrnichScoreRangeModify])
+def test_score_range_brnich_valid_range(ScoreRangeModel, score_range_data):
     score_range = ScoreRangeModel(**score_range_data)
     assert score_range.label == score_range_data["label"], "Label should match"
     assert score_range.classification == score_range_data["classification"], "Classification should match"
@@ -126,9 +128,9 @@ def test_score_range_zeiberg_calibration_valid_range(ScoreRangeModel, score_rang
         ScoreRange,
         ScoreRangeModify,
         ScoreRangeCreate,
-        InvestigatorScoreRange,
-        InvestigatorScoreRangeCreate,
-        InvestigatorScoreRangeModify,
+        BrnichScoreRange,
+        BrnichScoreRangeCreate,
+        BrnichScoreRangeModify,
     ],
 )
 def test_score_range_invalid_range_length(ScoreRangeModel):
@@ -172,9 +174,9 @@ def test_zeiberg_calibration_score_range_invalid_range_length(ScoreRangeModel):
         ScoreRange,
         ScoreRangeModify,
         ScoreRangeCreate,
-        InvestigatorScoreRange,
-        InvestigatorScoreRangeCreate,
-        InvestigatorScoreRangeModify,
+        BrnichScoreRange,
+        BrnichScoreRangeCreate,
+        BrnichScoreRangeModify,
         ZeibergCalibrationScoreRange,
         ZeibergCalibrationScoreRangeCreate,
         ZeibergCalibrationScoreRangeModify,
@@ -199,9 +201,9 @@ def test_score_range_base_invalid_range_order(ScoreRangeModel):
         ScoreRange,
         ScoreRangeModify,
         ScoreRangeCreate,
-        InvestigatorScoreRange,
-        InvestigatorScoreRangeCreate,
-        InvestigatorScoreRangeModify,
+        BrnichScoreRange,
+        BrnichScoreRangeCreate,
+        BrnichScoreRangeModify,
         ZeibergCalibrationScoreRange,
         ZeibergCalibrationScoreRangeCreate,
         ZeibergCalibrationScoreRangeModify,
@@ -226,9 +228,9 @@ def test_score_range_base_equal_bounds(ScoreRangeModel):
         ScoreRange,
         ScoreRangeModify,
         ScoreRangeCreate,
-        InvestigatorScoreRange,
-        InvestigatorScoreRangeCreate,
-        InvestigatorScoreRangeModify,
+        BrnichScoreRange,
+        BrnichScoreRangeCreate,
+        BrnichScoreRangeModify,
     ],
 )
 @pytest.mark.parametrize(
@@ -341,12 +343,20 @@ def test_score_ranges_base_valid_range(ScoreRangesModel, score_ranges_data):
 
 @pytest.mark.parametrize(
     "score_ranges_data",
-    [TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE, TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE],
+    [TEST_BRNICH_SCORE_SET_RANGE, TEST_BRNICH_SCORE_SET_RANGE_WITH_SOURCE],
 )
 @pytest.mark.parametrize(
-    "ScoreRangesModel", [InvestigatorScoreRanges, InvestigatorScoreRangesCreate, InvestigatorScoreRangesModify]
+    "ScoreRangesModel",
+    [
+        BrnichScoreRanges,
+        BrnichScoreRangesCreate,
+        BrnichScoreRangesModify,
+        InvestigatorScoreRanges,
+        InvestigatorScoreRangesCreate,
+        InvestigatorScoreRangesModify,
+    ],
 )
-def test_score_ranges_investigator_valid_range(ScoreRangesModel, score_ranges_data):
+def test_score_ranges_brnich_valid_range(ScoreRangesModel, score_ranges_data):
     score_ranges = ScoreRangesModel(**score_ranges_data)
     matched_source = (
         None
@@ -397,9 +407,12 @@ def test_score_ranges_zeiberg_calibration_valid_range(ScoreRangesModel, score_ra
         (ScoreRanges, ScoreRange),
         (ScoreRangesCreate, ScoreRangeCreate),
         (ScoreRangesModify, ScoreRangeModify),
-        (InvestigatorScoreRanges, InvestigatorScoreRange),
-        (InvestigatorScoreRangesCreate, InvestigatorScoreRangeCreate),
-        (InvestigatorScoreRangesModify, InvestigatorScoreRangeModify),
+        (BrnichScoreRanges, BrnichScoreRange),
+        (BrnichScoreRangesCreate, BrnichScoreRangeCreate),
+        (BrnichScoreRangesModify, BrnichScoreRangeModify),
+        (InvestigatorScoreRanges, BrnichScoreRange),
+        (InvestigatorScoreRangesCreate, BrnichScoreRangeCreate),
+        (InvestigatorScoreRangesModify, BrnichScoreRangeModify),
     ],
 )
 def test_score_ranges_ranges_may_not_overlap(ScoreRangesModel, ScoreRangeModel):
@@ -424,9 +437,12 @@ def test_score_ranges_ranges_may_not_overlap(ScoreRangesModel, ScoreRangeModel):
         (ScoreRanges, ScoreRange),
         (ScoreRangesCreate, ScoreRangeCreate),
         (ScoreRangesModify, ScoreRangeModify),
-        (InvestigatorScoreRanges, InvestigatorScoreRange),
-        (InvestigatorScoreRangesCreate, InvestigatorScoreRangeCreate),
-        (InvestigatorScoreRangesModify, InvestigatorScoreRangeModify),
+        (BrnichScoreRanges, BrnichScoreRange),
+        (BrnichScoreRangesCreate, BrnichScoreRangeCreate),
+        (BrnichScoreRangesModify, BrnichScoreRangeModify),
+        (InvestigatorScoreRanges, BrnichScoreRange),
+        (InvestigatorScoreRangesCreate, BrnichScoreRangeCreate),
+        (InvestigatorScoreRangesModify, BrnichScoreRangeModify),
     ],
 )
 def test_score_ranges_ranges_may_not_overlap_via_inclusive_bounds(ScoreRangesModel, ScoreRangeModel):
@@ -463,9 +479,12 @@ def test_score_ranges_ranges_may_not_overlap_via_inclusive_bounds(ScoreRangesMod
         (ScoreRanges, ScoreRange),
         (ScoreRangesCreate, ScoreRangeCreate),
         (ScoreRangesModify, ScoreRangeModify),
-        (InvestigatorScoreRanges, InvestigatorScoreRange),
-        (InvestigatorScoreRangesCreate, InvestigatorScoreRangeCreate),
-        (InvestigatorScoreRangesModify, InvestigatorScoreRangeModify),
+        (BrnichScoreRanges, BrnichScoreRange),
+        (BrnichScoreRangesCreate, BrnichScoreRangeCreate),
+        (BrnichScoreRangesModify, BrnichScoreRangeModify),
+        (InvestigatorScoreRanges, BrnichScoreRange),
+        (InvestigatorScoreRangesCreate, BrnichScoreRangeCreate),
+        (InvestigatorScoreRangesModify, BrnichScoreRangeModify),
     ],
 )
 @pytest.mark.parametrize(
@@ -612,11 +631,18 @@ def test_score_ranges_zeiberg_calibration_ranges_boundaries_may_be_adjacent(
 
 @pytest.mark.parametrize(
     "ScoreRangesModel",
-    [InvestigatorScoreRanges, InvestigatorScoreRangesCreate, InvestigatorScoreRangesModify],
+    [
+        BrnichScoreRanges,
+        BrnichScoreRangesCreate,
+        BrnichScoreRangesModify,
+        InvestigatorScoreRanges,
+        InvestigatorScoreRangesCreate,
+        InvestigatorScoreRangesModify,
+    ],
 )
-def test_score_ranges_investigator_normal_classification_exists_if_baseline_score_provided(ScoreRangesModel):
-    invalid_data = deepcopy(TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE)
-    invalid_data["ranges"].remove(TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE)
+def test_score_ranges_brnich_normal_classification_exists_if_baseline_score_provided(ScoreRangesModel):
+    invalid_data = deepcopy(TEST_BRNICH_SCORE_SET_RANGE)
+    invalid_data["ranges"].remove(TEST_BRNICH_SCORE_SET_NORMAL_RANGE)
     with pytest.raises(
         ValidationError,
         match=r".*A baseline score has been provided, but no normal classification range exists.*",
@@ -626,11 +652,18 @@ def test_score_ranges_investigator_normal_classification_exists_if_baseline_scor
 
 @pytest.mark.parametrize(
     "ScoreRangesModel",
-    [InvestigatorScoreRanges, InvestigatorScoreRangesCreate, InvestigatorScoreRangesModify],
+    [
+        BrnichScoreRanges,
+        BrnichScoreRangesCreate,
+        BrnichScoreRangesModify,
+        InvestigatorScoreRanges,
+        InvestigatorScoreRangesCreate,
+        InvestigatorScoreRangesModify,
+    ],
 )
-def test_score_ranges_investigator_baseline_score_within_normal_range(ScoreRangesModel):
+def test_score_ranges_brnich_baseline_score_within_normal_range(ScoreRangesModel):
     baseline_score = 50.0
-    invalid_data = deepcopy(TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE)
+    invalid_data = deepcopy(TEST_BRNICH_SCORE_SET_RANGE)
     invalid_data["baselineScore"] = baseline_score
     with pytest.raises(
         ValidationError,
@@ -644,10 +677,17 @@ def test_score_ranges_investigator_baseline_score_within_normal_range(ScoreRange
 @pytest.mark.skip("Not applicable currently. Baseline score is not required if a normal range exists.")
 @pytest.mark.parametrize(
     "ScoreRangesModel",
-    [InvestigatorScoreRanges, InvestigatorScoreRangesCreate, InvestigatorScoreRangesModify],
+    [
+        BrnichScoreRanges,
+        BrnichScoreRangesCreate,
+        BrnichScoreRangesModify,
+        InvestigatorScoreRanges,
+        InvestigatorScoreRangesCreate,
+        InvestigatorScoreRangesModify,
+    ],
 )
-def test_score_ranges_investigator_baseline_type_score_provided_if_normal_range_exists(ScoreRangesModel):
-    invalid_data = deepcopy(TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE)
+def test_score_ranges_brnich_baseline_type_score_provided_if_normal_range_exists(ScoreRangesModel):
+    invalid_data = deepcopy(TEST_BRNICH_SCORE_SET_RANGE)
     invalid_data["baselineScore"] = None
     with pytest.raises(
         ValidationError,
@@ -662,6 +702,7 @@ def test_score_ranges_investigator_baseline_type_score_provided_if_normal_range_
 @pytest.mark.parametrize(
     "score_set_ranges_data",
     [
+        TEST_SCORE_SET_RANGES_ONLY_SCOTT,
         TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
         TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
         TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
@@ -691,6 +732,7 @@ def test_score_set_ranges_valid_range(ScoreSetRangesModel, score_set_ranges_data
 @pytest.mark.parametrize(
     "score_set_ranges_data",
     [
+        TEST_SCORE_SET_RANGES_ONLY_SCOTT,
         TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
         TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
     ],

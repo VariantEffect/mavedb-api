@@ -161,25 +161,23 @@ class ScoreRanges(SavedScoreRanges):
 
 
 ##############################################################################################################
-# Investigator provided score range models
+# Brnich style score range models
 ##############################################################################################################
 
-### Investigator provided score range model
 
-
-class InvestigatorScoreRangeBase(ScoreRangeBase):
+class BrnichScoreRangeBase(ScoreRangeBase):
     odds_path: Optional[OddsPathBase] = None
 
 
-class InvestigatorScoreRangeModify(ScoreRangeModify, InvestigatorScoreRangeBase):
+class BrnichScoreRangeModify(ScoreRangeModify, BrnichScoreRangeBase):
     odds_path: Optional[OddsPathModify] = None
 
 
-class InvestigatorScoreRangeCreate(ScoreRangeCreate, InvestigatorScoreRangeModify):
+class BrnichScoreRangeCreate(ScoreRangeCreate, BrnichScoreRangeModify):
     odds_path: Optional[OddsPathCreate] = None
 
 
-class SavedInvestigatorScoreRange(SavedScoreRange, InvestigatorScoreRangeBase):
+class SavedBrnichScoreRange(SavedScoreRange, BrnichScoreRangeBase):
     record_type: str = None  # type: ignore
 
     odds_path: Optional[SavedOddsPath] = None
@@ -187,22 +185,22 @@ class SavedInvestigatorScoreRange(SavedScoreRange, InvestigatorScoreRangeBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
 
-class InvestigatorScoreRange(ScoreRange, SavedInvestigatorScoreRange):
+class BrnichScoreRange(ScoreRange, SavedBrnichScoreRange):
     odds_path: Optional[OddsPath] = None
 
 
-### Investigator provided score range wrapper model
+### Brnich score range wrapper model
 
 
-class InvestigatorScoreRangesBase(ScoreRangesBase):
-    title: str = "Investigator-provided functional classes"
+class BrnichScoreRangesBase(ScoreRangesBase):
+    title: str = "Brnich functional classes"
     baseline_score: Optional[float] = None
     baseline_score_description: Optional[str] = None
-    ranges: Sequence[InvestigatorScoreRangeBase]
+    ranges: Sequence[BrnichScoreRangeBase]
     odds_path_source: Optional[Sequence[PublicationIdentifierBase]] = None
 
     @model_validator(mode="after")
-    def validate_baseline_score(self: "InvestigatorScoreRangesBase") -> "InvestigatorScoreRangesBase":
+    def validate_baseline_score(self: "BrnichScoreRangesBase") -> "BrnichScoreRangesBase":
         ranges = getattr(self, "ranges", []) or []
         baseline_score = getattr(self, "baseline_score", None)
 
@@ -229,25 +227,52 @@ class InvestigatorScoreRangesBase(ScoreRangesBase):
         )
 
 
-class InvestigatorScoreRangesModify(ScoreRangesModify, InvestigatorScoreRangesBase):
-    ranges: Sequence[InvestigatorScoreRangeModify]
+class BrnichScoreRangesModify(ScoreRangesModify, BrnichScoreRangesBase):
+    ranges: Sequence[BrnichScoreRangeModify]
     odds_path_source: Optional[Sequence[PublicationIdentifierCreate]] = None
 
 
-class InvestigatorScoreRangesCreate(ScoreRangesCreate, InvestigatorScoreRangesModify):
-    ranges: Sequence[InvestigatorScoreRangeCreate]
+class BrnichScoreRangesCreate(ScoreRangesCreate, BrnichScoreRangesModify):
+    ranges: Sequence[BrnichScoreRangeCreate]
 
 
-class SavedInvestigatorScoreRanges(SavedScoreRanges, InvestigatorScoreRangesBase):
+class SavedBrnichScoreRanges(SavedScoreRanges, BrnichScoreRangesBase):
     record_type: str = None  # type: ignore
 
-    ranges: Sequence[SavedInvestigatorScoreRange]
+    ranges: Sequence[SavedBrnichScoreRange]
 
     _record_type_factory = record_type_validator()(set_record_type)
 
 
-class InvestigatorScoreRanges(ScoreRanges, SavedInvestigatorScoreRanges):
-    ranges: Sequence[InvestigatorScoreRange]
+class BrnichScoreRanges(ScoreRanges, SavedBrnichScoreRanges):
+    ranges: Sequence[BrnichScoreRange]
+
+
+##############################################################################################################
+# Investigator provided score range models
+##############################################################################################################
+
+
+class InvestigatorScoreRangesBase(BrnichScoreRangesBase):
+    title: str = "Investigator-provided functional classes"
+
+
+class InvestigatorScoreRangesModify(BrnichScoreRangesModify, InvestigatorScoreRangesBase):
+    pass
+
+
+class InvestigatorScoreRangesCreate(BrnichScoreRangesCreate, InvestigatorScoreRangesModify):
+    pass
+
+
+class SavedInvestigatorScoreRanges(SavedBrnichScoreRanges, InvestigatorScoreRangesBase):
+    record_type: str = None  # type: ignore
+
+    _record_type_factory = record_type_validator()(set_record_type)
+
+
+class InvestigatorScoreRanges(BrnichScoreRanges, SavedInvestigatorScoreRanges):
+    pass
 
 
 ##############################################################################################################
