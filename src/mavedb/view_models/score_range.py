@@ -88,6 +88,7 @@ class ScoreRange(SavedScoreRange):
 
 class ScoreRangesBase(BaseModel):
     ranges: Sequence[ScoreRangeBase]
+    research_use_only: bool = False
     source: Optional[Sequence[PublicationIdentifierBase]] = None
 
     @field_validator("ranges")
@@ -315,6 +316,7 @@ class ZeibergCalibrationScoreRangesBase(ScoreRangesBase):
     prior_probability_pathogenicity: Optional[float] = None
     parameter_sets: list[ZeibergCalibrationParameterSet] = []
     ranges: Sequence[ZeibergCalibrationScoreRangeBase]
+    research_use_only: bool = True
 
 
 class ZeibergCalibrationScoreRangesModify(ScoreRangesModify, ZeibergCalibrationScoreRangesBase):
