@@ -1,4 +1,3 @@
-import re
 from typing import Optional
 
 from mavedb.lib.validation.exceptions import ValidationError
@@ -6,7 +5,7 @@ from mavedb.lib.validation.utilities import is_null
 
 
 def validate_code(key: str, label: str, code: Optional[str]):
-    # TODO Re-enable this when we have GO codes for all phenotypic assay mechanisms.
+    # TODO(#511) Re-enable the Gene Ontology code requirement.
     pass
     # if key.lower() == "phenotypic assay mechanism" and label.lower() != "other":
     #     # The Gene Ontology accession is a unique seven digit identifier prefixed by GO:.
