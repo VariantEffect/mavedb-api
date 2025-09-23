@@ -54,7 +54,9 @@ def construct_ldh_submission_entity(variant: Variant, mapped_variant: Optional[M
     return entity
 
 
-def construct_ldh_submission(variant_content: list[tuple[str, Variant, Optional[MappedVariant]]]) -> list[LdhSubmission]:
+def construct_ldh_submission(
+    variant_content: list[tuple[str, Variant, Optional[MappedVariant]]],
+) -> list[LdhSubmission]:
     content_submission: list[LdhSubmission] = []
     for hgvs, variant, mapped_variant in variant_content:
         subject = construct_ldh_submission_subject(hgvs)

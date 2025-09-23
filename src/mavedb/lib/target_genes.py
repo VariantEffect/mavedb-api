@@ -32,9 +32,7 @@ def search_target_genes(
             TargetGene.score_set.has(
                 or_(
                     ScoreSet.created_by_id == owner_or_contributor.id,
-                    ScoreSet.contributors.any(
-                        Contributor.orcid_id == owner_or_contributor.username
-                    ),
+                    ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.username),
                 )
             )
         )

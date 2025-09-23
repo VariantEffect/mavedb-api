@@ -24,7 +24,7 @@ def search_target_gene_identifiers(db_name: str, search: TextSearch, db: Session
     if db_name not in EXTERNAL_GENE_IDENTIFIER_CLASSES:
         raise HTTPException(
             status_code=404,
-            detail=f"Unexpected db_name: {db_name}. Expected one of: {list(EXTERNAL_GENE_IDENTIFIER_CLASSES.keys())}"
+            detail=f"Unexpected db_name: {db_name}. Expected one of: {list(EXTERNAL_GENE_IDENTIFIER_CLASSES.keys())}",
         )
 
     identifier_class = EXTERNAL_GENE_IDENTIFIER_CLASSES[db_name]

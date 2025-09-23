@@ -121,7 +121,9 @@ def test_fetch_target_gene_by_invalid_id(client, setup_router_db):
     assert response.status_code == 404
 
 
-def test_fetch_private_target_gene_by_id_without_permission(session, data_provider, client, setup_router_db, data_files):
+def test_fetch_private_target_gene_by_id_without_permission(
+    session, data_provider, client, setup_router_db, data_files
+):
     experiment = create_experiment(client, {"title": "Experiment 1"})
     score_set = create_seq_score_set(client, experiment["urn"])
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
