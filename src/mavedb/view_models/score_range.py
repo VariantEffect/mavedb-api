@@ -87,6 +87,7 @@ class ScoreRange(SavedScoreRange):
 
 
 class ScoreRangesBase(BaseModel):
+    title: str = "Score Ranges"
     ranges: Sequence[ScoreRangeBase]
     research_use_only: bool = False
     source: Optional[Sequence[PublicationIdentifierBase]] = None
@@ -194,6 +195,7 @@ class InvestigatorScoreRange(ScoreRange, SavedInvestigatorScoreRange):
 
 
 class InvestigatorScoreRangesBase(ScoreRangesBase):
+    title: str = "Investigator-provided functional classes"
     baseline_score: Optional[float] = None
     baseline_score_description: Optional[str] = None
     ranges: Sequence[InvestigatorScoreRangeBase]
@@ -313,6 +315,7 @@ class ZeibergCalibrationParameterSet(BaseModel):
 
 
 class ZeibergCalibrationScoreRangesBase(ScoreRangesBase):
+    title: str = "Zeiberg calibration"
     prior_probability_pathogenicity: Optional[float] = None
     parameter_sets: list[ZeibergCalibrationParameterSet] = []
     ranges: Sequence[ZeibergCalibrationScoreRangeBase]

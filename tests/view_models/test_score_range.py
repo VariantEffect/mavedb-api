@@ -361,6 +361,7 @@ def test_score_ranges_investigator_valid_range(ScoreRangesModel, score_ranges_da
     assert score_ranges.ranges is not None, "Ranges should not be None"
     assert score_ranges.baseline_score == TEST_BASELINE_SCORE, "Baseline score should match"
     assert score_ranges.research_use_only is False, "Research use only should be False for invesitigator provided"
+    assert score_ranges.title == score_ranges_data.get("title", None), "Title should match"
     assert matched_odds_source == score_ranges_data.get("odds_path_source", None), "Odds path source should match"
     assert matched_source == score_ranges_data.get("source", None), "Source should match"
 
@@ -386,6 +387,7 @@ def test_score_ranges_zeiberg_calibration_valid_range(ScoreRangesModel, score_ra
     ), "Prior probability pathogenicity should match"
     assert score_ranges.parameter_sets is not None, "Parameter sets should not be None"
     assert score_ranges.research_use_only is True, "Research use only should be True for zeiberg calibration"
+    assert score_ranges.title == score_ranges_data.get("title", None), "Title should match"
     assert matched_source == score_ranges_data.get("source", None), "Source should match"
 
 
