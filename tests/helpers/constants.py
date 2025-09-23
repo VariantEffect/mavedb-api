@@ -403,8 +403,20 @@ TEST_DB_KEYWORDS = [
         "description": "Description",
     },
     {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
-    {"key": "Phenotypic Assay Mechanism", "label": "Other", "code": None, "special": False, "description": "Description"},
-    {"key": "Phenotypic Assay Mechanism", "label": "Label", "code": "GO:1234567", "special": False, "description": "Description"},
+    {
+        "key": "Phenotypic Assay Mechanism",
+        "label": "Other",
+        "code": None,
+        "special": False,
+        "description": "Description",
+    },
+    {
+        "key": "Phenotypic Assay Mechanism",
+        "label": "Label",
+        "code": "GO:1234567",
+        "special": False,
+        "description": "Description",
+    },
 ]
 
 TEST_KEYWORDS = [

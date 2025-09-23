@@ -52,13 +52,9 @@ def fetch_experiment_set(
 
     # Filter experiment sub-resources to only those experiments readable by the requesting user.
     item.experiments[:] = [exp for exp in item.experiments if has_permission(user_data, exp, Action.READ).permitted]
-    enriched_experiments = [
-        enrich_experiment_with_num_score_sets(exp, user_data)
-        for exp in item.experiments
-    ]
-    enriched_item = experiment_set.ExperimentSet.model_validate(item).copy(update={
-        "experiments": enriched_experiments,
-        "num_experiments": len(enriched_experiments)
-    })
+    enriched_experiments = [enrich_experiment_with_num_score_sets(exp, user_data) for exp in item.experiments]
+    enriched_item = experiment_set.ExperimentSet.model_validate(item).copy(
+        update={"experiments": enriched_experiments, "num_experiments": len(enriched_experiments)}
+    )
 
     return enriched_item

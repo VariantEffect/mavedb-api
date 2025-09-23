@@ -1465,10 +1465,7 @@ async def get_clinical_controls_for_score_set(
         select(ClinicalControl)
         .join(ClinicalControl.mapped_variants)
         .join(MappedVariant.variant)
-        .options(
-            contains_eager(ClinicalControl.mapped_variants)
-            .contains_eager(MappedVariant.variant)
-        )
+        .options(contains_eager(ClinicalControl.mapped_variants).contains_eager(MappedVariant.variant))
         .filter(MappedVariant.current.is_(True))
         .filter(Variant.score_set_id == item.id)
     )

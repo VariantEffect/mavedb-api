@@ -59,10 +59,7 @@ def test_create_minimal_experiment(client, setup_router_db):
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
-    expected_response.update({
-        "urn": response_data["urn"],
-        "experimentSetUrn": response_data["experimentSetUrn"]
-    })
+    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
@@ -83,10 +80,7 @@ def test_create_experiment_with_contributor(client, setup_router_db):
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
-    expected_response.update({
-        "urn": response_data["urn"],
-        "experimentSetUrn": response_data["experimentSetUrn"]
-    })
+    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
     expected_response["contributors"] = [
         {
             "recordType": "Contributor",
@@ -124,10 +118,7 @@ def test_create_experiment_with_keywords(session, client, setup_router_db):
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE)
-    expected_response.update({
-        "urn": response_data["urn"],
-        "experimentSetUrn": response_data["experimentSetUrn"]
-    })
+    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
@@ -311,7 +302,8 @@ def test_create_experiment_that_keyword_gene_ontology_has_valid_code(client, set
                     "label": "Label",
                     "code": "GO:1234567",
                     "special": False,
-                    "description": "Description"},
+                    "description": "Description",
+                },
             },
         ],
     }
@@ -332,7 +324,7 @@ def test_create_experiment_that_keyword_gene_ontology_is_other_without_code(clie
                     "key": "Phenotypic Assay Mechanism",
                     "label": "Other",
                     "code": None,
-                    "description": "Description"
+                    "description": "Description",
                 },
                 "description": "Description",
             },
@@ -346,24 +338,25 @@ def test_create_experiment_that_keyword_gene_ontology_is_other_without_code(clie
     assert response_data["keywords"][0]["keyword"]["label"] == "Other"
 
 
-def test_cannot_create_experiment_that_keyword_has_an_invalid_code(client, setup_router_db):
-    invalid_keyword = {
-        "keywords": [
-            {
-                "keyword": {
-                    "key": "Phenotypic Assay Mechanism",
-                    "label": "Label",
-                    "code": "invalid",
-                    "description": "Description"
-                },
-            },
-        ]
-    }
-    experiment = {**TEST_MINIMAL_EXPERIMENT, **invalid_keyword}
-    response = client.post("/api/v1/experiments/", json=experiment)
-    assert response.status_code == 422
-    response_data = response.json()
-    assert "Invalid Gene Ontology accession." in response_data["detail"][0]["msg"]
+# TODO(#511) Re-enable the Gene Ontology code requirement.
+# def test_cannot_create_experiment_that_keyword_has_an_invalid_code(client, setup_router_db):
+#     invalid_keyword = {
+#         "keywords": [
+#             {
+#                 "keyword": {
+#                     "key": "Phenotypic Assay Mechanism",
+#                     "label": "Label",
+#                     "code": "invalid",
+#                     "description": "Description",
+#                 },
+#             },
+#         ]
+#     }
+#     experiment = {**TEST_MINIMAL_EXPERIMENT, **invalid_keyword}
+#     response = client.post("/api/v1/experiments/", json=experiment)
+#     assert response.status_code == 422
+#     response_data = response.json()
+#     assert "Invalid Gene Ontology accession." in response_data["detail"][0]["msg"]
 
 
 def test_cannot_create_experiment_that_keyword_label_is_other_without_description(client, setup_router_db):
@@ -483,10 +476,7 @@ def test_create_experiment_that_keywords_have_duplicate_others(client, setup_rou
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE)
-    expected_response.update({
-        "urn": response_data["urn"],
-        "experimentSetUrn": response_data["experimentSetUrn"]
-    })
+    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
@@ -1130,10 +1120,7 @@ def test_create_experiment_with_invalid_primary_publication(client, setup_router
 def test_get_own_private_experiment(client, setup_router_db):
     experiment = create_experiment(client)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
-    expected_response.update({
-        "urn": experiment["urn"],
-        "experimentSetUrn": experiment["experimentSetUrn"]
-    })
+    expected_response.update({"urn": experiment["urn"], "experimentSetUrn": experiment["experimentSetUrn"]})
     response = client.get(f"/api/v1/experiments/{experiment['urn']}")
     assert response.status_code == 200
     response_data = response.json()
@@ -1166,10 +1153,7 @@ def test_anonymous_cannot_get_users_private_experiment(session, client, anonymou
 def test_admin_can_get_other_users_private_experiment(client, admin_app_overrides, setup_router_db):
     experiment = create_experiment(client)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
-    expected_response.update({
-        "urn": experiment["urn"],
-        "experimentSetUrn": experiment["experimentSetUrn"]
-    })
+    expected_response.update({"urn": experiment["urn"], "experimentSetUrn": experiment["experimentSetUrn"]})
     with DependencyOverrider(admin_app_overrides):
         response = client.get(f"/api/v1/experiments/{experiment['urn']}")
 
@@ -1207,7 +1191,9 @@ def test_users_get_one_score_set_to_own_public_experiment(session, data_provider
     assert score_set["urn"] in response_data["scoreSetUrns"]
 
 
-def test_users_get_one_published_score_set_from_other_experiment(session, data_provider, client, setup_router_db, data_files):
+def test_users_get_one_published_score_set_from_other_experiment(
+    session, data_provider, client, setup_router_db, data_files
+):
     experiment = create_experiment(client)
     unpublished_score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -1215,7 +1201,7 @@ def test_users_get_one_published_score_set_from_other_experiment(session, data_p
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         score_set = publish_score_set(client, unpublished_score_set["urn"])
         worker_queue.assert_called_once()
-    change_ownership(session, score_set['experiment']['urn'], ExperimentDbModel)
+    change_ownership(session, score_set["experiment"]["urn"], ExperimentDbModel)
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
     response = client.get(f"/api/v1/experiments/{score_set['experiment']['urn']}")
     assert response.status_code == 200
@@ -1225,7 +1211,8 @@ def test_users_get_one_published_score_set_from_other_experiment(session, data_p
 
 
 def test_users_get_one_published_score_set_from_others_experiment_with_a_private_score_set(
-        session, data_provider, client, setup_router_db, data_files):
+    session, data_provider, client, setup_router_db, data_files
+):
     experiment = create_experiment(client)
     score_set_1 = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -1234,7 +1221,7 @@ def test_users_get_one_published_score_set_from_others_experiment_with_a_private
         pub_score_set = publish_score_set(client, score_set_1["urn"])
         worker_queue.assert_called_once()
     score_set_2 = create_seq_score_set_with_variants(
-        client, session, data_provider, pub_score_set['experiment']['urn'], data_files / "scores.csv"
+        client, session, data_provider, pub_score_set["experiment"]["urn"], data_files / "scores.csv"
     )
     change_ownership(session, score_set_2["urn"], ScoreSetDbModel)
     response = client.get(f"/api/v1/experiments/{pub_score_set['experiment']['urn']}")
@@ -1245,7 +1232,8 @@ def test_users_get_one_published_score_set_from_others_experiment_with_a_private
 
 
 def test_users_get_two_score_sets_from_own_experiment_with_a_private_and_a_published_score_sets(
-        session, data_provider, client, setup_router_db, data_files):
+    session, data_provider, client, setup_router_db, data_files
+):
     experiment = create_experiment(client)
     score_set_1 = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -1254,7 +1242,7 @@ def test_users_get_two_score_sets_from_own_experiment_with_a_private_and_a_publi
         pub_score_set = publish_score_set(client, score_set_1["urn"])
         worker_queue.assert_called_once()
     score_set_2 = create_seq_score_set_with_variants(
-        client, session, data_provider, pub_score_set['experiment']['urn'], data_files / "scores.csv"
+        client, session, data_provider, pub_score_set["experiment"]["urn"], data_files / "scores.csv"
     )
     response = client.get(f"/api/v1/experiments/{pub_score_set['experiment']['urn']}")
     assert response.status_code == 200
@@ -1265,7 +1253,8 @@ def test_users_get_two_score_sets_from_own_experiment_with_a_private_and_a_publi
 
 
 def test_users_get_one_score_set_from_own_experiment_with_a_superseding_score_sets(
-        session, data_provider, client, setup_router_db, data_files):
+    session, data_provider, client, setup_router_db, data_files
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"

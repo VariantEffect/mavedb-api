@@ -21,9 +21,7 @@ router = APIRouter(prefix="/api/v1", tags=["target-genes"], responses={404: {"de
 
 @router.post("/me/target-genes/search", status_code=200, response_model=List[target_gene.TargetGeneWithScoreSetUrn])
 def search_my_target_genes(
-    search: TextSearch,
-    db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(require_current_user)
+    search: TextSearch, db: Session = Depends(deps.get_db), user_data: UserData = Depends(require_current_user)
 ) -> Any:
     """
     Search my target genes.
@@ -33,7 +31,9 @@ def search_my_target_genes(
     return [i for i in items if i.score_set.superseding_score_set is None]
 
 
-@router.get("/target-genes", status_code=200, response_model=List[target_gene.TargetGeneWithScoreSetUrn], responses={404: {}})
+@router.get(
+    "/target-genes", status_code=200, response_model=List[target_gene.TargetGeneWithScoreSetUrn], responses={404: {}}
+)
 def list_target_genes(
     *,
     db: Session = Depends(deps.get_db),
@@ -45,7 +45,8 @@ def list_target_genes(
     """
     items = (
         db.query(TargetGene)
-        .options(selectinload(TargetGene.score_set).selectinload(ScoreSet.superseding_score_set)).all()
+        .options(selectinload(TargetGene.score_set).selectinload(ScoreSet.superseding_score_set))
+        .all()
     )
     validated_items = []
     for gene in items:
@@ -83,7 +84,12 @@ def list_target_gene_categories(
     return sorted(list(set(categories)))
 
 
-@router.get("/target-genes/{item_id}", status_code=200, response_model=target_gene.TargetGeneWithScoreSetUrn, responses={404: {}})
+@router.get(
+    "/target-genes/{item_id}",
+    status_code=200,
+    response_model=target_gene.TargetGeneWithScoreSetUrn,
+    responses={404: {}},
+)
 def fetch_target_gene(
     *,
     item_id: int,
@@ -101,9 +107,7 @@ def fetch_target_gene(
 
 @router.post("/target-genes/search", status_code=200, response_model=List[target_gene.TargetGeneWithScoreSetUrn])
 def search_target_genes(
-    search: TextSearch,
-    db: Session = Depends(deps.get_db),
-    user_data: Optional[UserData] = Depends(get_current_user)
+    search: TextSearch, db: Session = Depends(deps.get_db), user_data: Optional[UserData] = Depends(get_current_user)
 ) -> Any:
     """
     Search target genes.

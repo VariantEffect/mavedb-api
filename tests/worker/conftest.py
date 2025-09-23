@@ -17,6 +17,7 @@ from tests.helpers.constants import (
     TEST_MAVEDB_ATHENA_ROW,
 )
 
+
 @pytest.fixture
 def setup_worker_db(session):
     db = session

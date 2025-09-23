@@ -89,10 +89,7 @@ def search_experiments(search: ExperimentsSearch, db: Session = Depends(deps.get
     Search experiments.
     """
     items = _search_experiments(db, None, search)
-    return [
-        enrich_experiment_with_num_score_sets(exp, None)
-        for exp in items
-    ]
+    return [enrich_experiment_with_num_score_sets(exp, None) for exp in items]
 
 
 @router.post(
@@ -109,10 +106,7 @@ def search_my_experiments(
     Search experiments created by the current user..
     """
     items = _search_experiments(db, user_data.user, search)
-    return [
-            enrich_experiment_with_num_score_sets(exp, user_data)
-            for exp in items
-        ]
+    return [enrich_experiment_with_num_score_sets(exp, user_data) for exp in items]
 
 
 @router.get(
@@ -176,11 +170,7 @@ def get_experiment_score_sets(
     )
 
     filter_superseded_score_set_tails = [
-        find_superseded_score_set_tail(
-            score_set,
-            Action.READ,
-            user_data
-        ) for score_set in score_set_result
+        find_superseded_score_set_tail(score_set, Action.READ, user_data) for score_set in score_set_result
     ]
     filtered_score_sets = [score_set for score_set in filter_superseded_score_set_tails if score_set is not None]
     if not filtered_score_sets:

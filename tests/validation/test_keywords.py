@@ -46,12 +46,13 @@ class TestKeywordValidators(TestCase):
         code = "GO:1234567"
         validate_code(key, label, code)
 
-    def test_Gene_Ontology_invalid_accession(self):
-        key = "Phenotypic Assay Mechanism"
-        label = "label"
-        code = "GO:123"
-        with self.assertRaises(ValidationError):
-            validate_code(key, label, code)
+    # TODO(#511) Re-enable the Gene Ontology code requirement.
+    # def test_Gene_Ontology_invalid_accession(self):
+    #     key = "Phenotypic Assay Mechanism"
+    #     label = "label"
+    #     code = "GO:123"
+    #     with self.assertRaises(ValidationError):
+    #         validate_code(key, label, code)
 
     def test_Gene_Ontoloty_term_is_other(self):
         key = "Phenotypic Assay Mechanism"
