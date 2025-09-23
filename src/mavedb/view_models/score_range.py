@@ -348,6 +348,8 @@ class ZeibergCalibrationScoreRanges(ScoreRanges, SavedZeibergCalibrationScoreRan
 
 ### Score set range container models
 
+# TODO#518: Generic score range keys for supported calibration formats.
+
 
 class ScoreSetRangesBase(BaseModel):
     investigator_provided: Optional[InvestigatorScoreRangesBase] = None
