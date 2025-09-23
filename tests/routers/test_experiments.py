@@ -338,24 +338,25 @@ def test_create_experiment_that_keyword_gene_ontology_is_other_without_code(clie
     assert response_data["keywords"][0]["keyword"]["label"] == "Other"
 
 
-def test_cannot_create_experiment_that_keyword_has_an_invalid_code(client, setup_router_db):
-    invalid_keyword = {
-        "keywords": [
-            {
-                "keyword": {
-                    "key": "Phenotypic Assay Mechanism",
-                    "label": "Label",
-                    "code": "invalid",
-                    "description": "Description",
-                },
-            },
-        ]
-    }
-    experiment = {**TEST_MINIMAL_EXPERIMENT, **invalid_keyword}
-    response = client.post("/api/v1/experiments/", json=experiment)
-    assert response.status_code == 422
-    response_data = response.json()
-    assert "Invalid Gene Ontology accession." in response_data["detail"][0]["msg"]
+# TODO(#511) Re-enable the Gene Ontology code requirement.
+# def test_cannot_create_experiment_that_keyword_has_an_invalid_code(client, setup_router_db):
+#     invalid_keyword = {
+#         "keywords": [
+#             {
+#                 "keyword": {
+#                     "key": "Phenotypic Assay Mechanism",
+#                     "label": "Label",
+#                     "code": "invalid",
+#                     "description": "Description",
+#                 },
+#             },
+#         ]
+#     }
+#     experiment = {**TEST_MINIMAL_EXPERIMENT, **invalid_keyword}
+#     response = client.post("/api/v1/experiments/", json=experiment)
+#     assert response.status_code == 422
+#     response_data = response.json()
+#     assert "Invalid Gene Ontology accession." in response_data["detail"][0]["msg"]
 
 
 def test_cannot_create_experiment_that_keyword_label_is_other_without_description(client, setup_router_db):
