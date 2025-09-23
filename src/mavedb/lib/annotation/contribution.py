@@ -10,7 +10,7 @@ from mavedb.lib.annotation.agent import (
     mavedb_api_agent,
     mavedb_vrs_agent,
     mavedb_user_agent,
-    pillar_project_calibration_agent,
+    zeiberg_calibration_agent,
 )
 from mavedb.lib.types.annotation import ResourceWithCreationModificationDates
 
@@ -46,15 +46,15 @@ def mavedb_vrs_contribution(mapped_variant: MappedVariant) -> Contribution:
     )
 
 
-def pillar_project_calibration_contribution() -> Contribution:
+def zeiberg_calibration_contribution() -> Contribution:
     """
     Create a [VA Contribution](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/activities/contribution.html#contribution)
     object for a sofware agent which performs calibrations on an arbitrary data set.
     """
     return Contribution(
-        name="MaveDB Pillar Project Calibration",
-        description="Contribution from the MaveDB Pillar Project Calibration software",
-        contributor=pillar_project_calibration_agent(),
+        name="Zeiberg Calibration",
+        description="Contribution from the Zeiberg Calibration software",
+        contributor=zeiberg_calibration_agent(),
         activityType="variant specific calibration software",
     )
 

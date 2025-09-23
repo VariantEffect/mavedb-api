@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 from mavedb.scripts.environment import with_database_session
 from mavedb.models.score_set import ScoreSet
 from mavedb.view_models.score_range import (
-    PillarProjectScoreRangeCreate,
-    PillarProjectScoreRangesCreate,
+    ZeibergCalibrationScoreRangeCreate,
+    ZeibergCalibrationScoreRangesCreate,
     ScoreSetRangesCreate,
 )
 
@@ -47,7 +47,9 @@ def _collapse_duplicate_thresholds(m: dict[int, Optional[float]], comparator: Ca
     return collapsed
 
 
-def build_pathogenic_ranges(thresholds: List[Optional[float]], inverted: bool) -> List[PillarProjectScoreRangeCreate]:
+def build_pathogenic_ranges(
+    thresholds: List[Optional[float]], inverted: bool
+) -> List[ZeibergCalibrationScoreRangeCreate]:
     raw_mapping = {
         strength: thresholds[idx]
         for idx, strength in enumerate(PATH_STRENGTHS)
@@ -61,7 +63,7 @@ def build_pathogenic_ranges(thresholds: List[Optional[float]], inverted: bool) -
     available = [s for s in PATH_STRENGTHS if s in mapping]
     ordering = available[::-1] if not inverted else available
 
-    ranges: List[PillarProjectScoreRangeCreate] = []
+    ranges: List[ZeibergCalibrationScoreRangeCreate] = []
     for i, s in enumerate(ordering):
         lower: Optional[float]
         upper: Optional[float]
@@ -74,7 +76,7 @@ def build_pathogenic_ranges(thresholds: List[Optional[float]], inverted: bool) -
             upper = mapping[s]
 
         ranges.append(
-            PillarProjectScoreRangeCreate(
+            ZeibergCalibrationScoreRangeCreate(
                 label=str(s),
                 classification="abnormal",
                 evidence_strength=s,
@@ -87,7 +89,7 @@ def build_pathogenic_ranges(thresholds: List[Optional[float]], inverted: bool) -
     return ranges
 
 
-def build_benign_ranges(thresholds: List[Optional[float]], inverted: bool) -> List[PillarProjectScoreRangeCreate]:
+def build_benign_ranges(thresholds: List[Optional[float]], inverted: bool) -> List[ZeibergCalibrationScoreRangeCreate]:
     raw_mapping = {
         strength: thresholds[idx]
         for idx, strength in enumerate(BENIGN_STRENGTHS)
@@ -101,7 +103,7 @@ def build_benign_ranges(thresholds: List[Optional[float]], inverted: bool) -> Li
     available = [s for s in BENIGN_STRENGTHS if s in mapping]
     ordering = available[::-1] if inverted else available
 
-    ranges: List[PillarProjectScoreRangeCreate] = []
+    ranges: List[ZeibergCalibrationScoreRangeCreate] = []
     for i, s in enumerate(ordering):
         lower: Optional[float]
         upper: Optional[float]
@@ -114,7 +116,7 @@ def build_benign_ranges(thresholds: List[Optional[float]], inverted: bool) -> Li
             upper = mapping[s]
 
         ranges.append(
-            PillarProjectScoreRangeCreate(
+            ZeibergCalibrationScoreRangeCreate(
                 label=str(s),
                 classification="normal",
                 evidence_strength=s,
@@ -133,12 +135,12 @@ def build_benign_ranges(thresholds: List[Optional[float]], inverted: bool) -> Li
 @click.argument("score_set_urn", type=str)
 @click.option("--overwrite", is_flag=True, default=False, help="Overwrite existing score_ranges if present.")
 def main(db: Session, json_path: str, score_set_urn: str, overwrite: bool) -> None:
-    """Load pillar project calibration JSON into a score set's pillar_project score ranges."""
+    """Load pillar project calibration JSON into a score set's zeiberg_calibration score ranges."""
     score_set: Optional[ScoreSet] = db.query(ScoreSet).filter(ScoreSet.urn == score_set_urn).one_or_none()
     if not score_set:
         raise click.ClickException(f"Score set with URN {score_set_urn} not found")
 
-    if score_set.score_ranges and score_set.score_ranges["pillar_project"] and not overwrite:
+    if score_set.score_ranges and score_set.score_ranges["zeiberg_calibration"] and not overwrite:
         raise click.ClickException(
             "pillar project score ranges already present for this score set. Use --overwrite to replace them."
         )
@@ -162,7 +164,7 @@ def main(db: Session, json_path: str, score_set_urn: str, overwrite: bool) -> No
     if not path_ranges and not benign_ranges:
         raise click.ClickException("No valid thresholds found to build ranges.")
 
-    existing_score_ranges.pillar_project = PillarProjectScoreRangesCreate(ranges=path_ranges + benign_ranges)
+    existing_score_ranges.zeiberg_calibration = ZeibergCalibrationScoreRangesCreate(ranges=path_ranges + benign_ranges)
     score_set.score_ranges = existing_score_ranges.model_dump(exclude_none=True)
 
     db.add(score_set)

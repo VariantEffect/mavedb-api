@@ -248,21 +248,21 @@ class InvestigatorScoreRanges(ScoreRanges, SavedInvestigatorScoreRanges):
 
 
 ##############################################################################################################
-# Pillar project specific calibration models
+# Zeiberg specific calibration models
 ##############################################################################################################
 
-### Pillar project score range model
+### Zeiberg score range model
 
 
-class PillarProjectScoreRangeBase(ScoreRangeBase):
+class ZeibergCalibrationScoreRangeBase(ScoreRangeBase):
     positive_likelihood_ratio: Optional[float] = None
     evidence_strength: int
     # path (normal) / benign (abnormal) -> classification
 
     @model_validator(mode="after")
     def evidence_strength_cardinality_must_agree_with_classification(
-        self: "PillarProjectScoreRangeBase",
-    ) -> "PillarProjectScoreRangeBase":
+        self: "ZeibergCalibrationScoreRangeBase",
+    ) -> "ZeibergCalibrationScoreRangeBase":
         classification = getattr(self, "classification")
         field_value = getattr(self, "evidence_strength")
 
@@ -278,63 +278,63 @@ class PillarProjectScoreRangeBase(ScoreRangeBase):
         return self
 
 
-class PillarProjectScoreRangeModify(ScoreRangeModify, PillarProjectScoreRangeBase):
+class ZeibergCalibrationScoreRangeModify(ScoreRangeModify, ZeibergCalibrationScoreRangeBase):
     pass
 
 
-class PillarProjectScoreRangeCreate(ScoreRangeCreate, PillarProjectScoreRangeModify):
+class ZeibergCalibrationScoreRangeCreate(ScoreRangeCreate, ZeibergCalibrationScoreRangeModify):
     pass
 
 
-class SavedPillarProjectScoreRange(SavedScoreRange, PillarProjectScoreRangeBase):
+class SavedZeibergCalibrationScoreRange(SavedScoreRange, ZeibergCalibrationScoreRangeBase):
     record_type: str = None  # type: ignore
 
     _record_type_factory = record_type_validator()(set_record_type)
 
 
-class PillarProjectScoreRange(ScoreRange, SavedPillarProjectScoreRange):
+class ZeibergCalibrationScoreRange(ScoreRange, SavedZeibergCalibrationScoreRange):
     pass
 
 
-### Pillar project score range wrapper model
+### Zeiberg score range wrapper model
 
 
-class PillarProjectParameters(BaseModel):
+class ZeibergCalibrationParameters(BaseModel):
     skew: float
     location: float
     scale: float
 
 
-class PillarProjectParameterSet(BaseModel):
-    functionally_altering: PillarProjectParameters
-    functionally_normal: PillarProjectParameters
+class ZeibergCalibrationParameterSet(BaseModel):
+    functionally_altering: ZeibergCalibrationParameters
+    functionally_normal: ZeibergCalibrationParameters
     fraction_functionally_altering: float
 
 
-class PillarProjectScoreRangesBase(ScoreRangesBase):
+class ZeibergCalibrationScoreRangesBase(ScoreRangesBase):
     prior_probability_pathogenicity: Optional[float] = None
-    parameter_sets: list[PillarProjectParameterSet] = []
-    ranges: Sequence[PillarProjectScoreRangeBase]
+    parameter_sets: list[ZeibergCalibrationParameterSet] = []
+    ranges: Sequence[ZeibergCalibrationScoreRangeBase]
 
 
-class PillarProjectScoreRangesModify(ScoreRangesModify, PillarProjectScoreRangesBase):
-    ranges: Sequence[PillarProjectScoreRangeModify]
+class ZeibergCalibrationScoreRangesModify(ScoreRangesModify, ZeibergCalibrationScoreRangesBase):
+    ranges: Sequence[ZeibergCalibrationScoreRangeModify]
 
 
-class PillarProjectScoreRangesCreate(ScoreRangesCreate, PillarProjectScoreRangesModify):
-    ranges: Sequence[PillarProjectScoreRangeCreate]
+class ZeibergCalibrationScoreRangesCreate(ScoreRangesCreate, ZeibergCalibrationScoreRangesModify):
+    ranges: Sequence[ZeibergCalibrationScoreRangeCreate]
 
 
-class SavedPillarProjectScoreRanges(SavedScoreRanges, PillarProjectScoreRangesBase):
+class SavedZeibergCalibrationScoreRanges(SavedScoreRanges, ZeibergCalibrationScoreRangesBase):
     record_type: str = None  # type: ignore
 
-    ranges: Sequence[SavedPillarProjectScoreRange]
+    ranges: Sequence[SavedZeibergCalibrationScoreRange]
 
     _record_type_factory = record_type_validator()(set_record_type)
 
 
-class PillarProjectScoreRanges(ScoreRanges, SavedPillarProjectScoreRanges):
-    ranges: Sequence[PillarProjectScoreRange]
+class ZeibergCalibrationScoreRanges(ScoreRanges, SavedZeibergCalibrationScoreRanges):
+    ranges: Sequence[ZeibergCalibrationScoreRange]
 
 
 ###############################################################################################################
@@ -346,13 +346,13 @@ class PillarProjectScoreRanges(ScoreRanges, SavedPillarProjectScoreRanges):
 
 class ScoreSetRangesBase(BaseModel):
     investigator_provided: Optional[InvestigatorScoreRangesBase] = None
-    pillar_project: Optional[PillarProjectScoreRangesBase] = None
+    zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesBase] = None
 
     _fields_to_exclude_for_validatation = {"record_type"}
 
     @model_validator(mode="after")
     def score_range_labels_must_be_unique(self: "ScoreSetRangesBase") -> "ScoreSetRangesBase":
-        for container in (self.investigator_provided, self.pillar_project):
+        for container in (self.investigator_provided, self.zeiberg_calibration):
             if container is None:
                 continue
 
@@ -373,23 +373,23 @@ class ScoreSetRangesBase(BaseModel):
 
 class ScoreSetRangesModify(ScoreSetRangesBase):
     investigator_provided: Optional[InvestigatorScoreRangesModify] = None
-    pillar_project: Optional[PillarProjectScoreRangesModify] = None
+    zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesModify] = None
 
 
 class ScoreSetRangesCreate(ScoreSetRangesModify):
     investigator_provided: Optional[InvestigatorScoreRangesCreate] = None
-    pillar_project: Optional[PillarProjectScoreRangesCreate] = None
+    zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesCreate] = None
 
 
 class SavedScoreSetRanges(ScoreSetRangesBase):
     record_type: str = None  # type: ignore
 
     investigator_provided: Optional[SavedInvestigatorScoreRanges] = None
-    pillar_project: Optional[SavedPillarProjectScoreRanges] = None
+    zeiberg_calibration: Optional[SavedZeibergCalibrationScoreRanges] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
 
 
 class ScoreSetRanges(SavedScoreSetRanges):
     investigator_provided: Optional[InvestigatorScoreRanges] = None
-    pillar_project: Optional[PillarProjectScoreRanges] = None
+    zeiberg_calibration: Optional[ZeibergCalibrationScoreRanges] = None

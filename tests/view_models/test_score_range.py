@@ -15,12 +15,12 @@ from mavedb.view_models.score_range import (
     InvestigatorScoreRangesCreate,
     InvestigatorScoreRangesModify,
     InvestigatorScoreRanges,
-    PillarProjectScoreRangeCreate,
-    PillarProjectScoreRangeModify,
-    PillarProjectScoreRange,
-    PillarProjectScoreRangesCreate,
-    PillarProjectScoreRangesModify,
-    PillarProjectScoreRanges,
+    ZeibergCalibrationScoreRangeCreate,
+    ZeibergCalibrationScoreRangeModify,
+    ZeibergCalibrationScoreRange,
+    ZeibergCalibrationScoreRangesCreate,
+    ZeibergCalibrationScoreRangesModify,
+    ZeibergCalibrationScoreRanges,
     ScoreSetRangesModify,
     ScoreSetRangesCreate,
     ScoreSetRanges,
@@ -32,16 +32,16 @@ from tests.helpers.constants import (
     TEST_SCORE_SET_NOT_SPECIFIED_RANGE,
     TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE,
     TEST_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE,
-    TEST_PILLAR_PROJECT_SCORE_SET_BS3_STRONG_RANGE,
-    TEST_PILLAR_PROJECT_SCORE_SET_PS3_STRONG_RANGE,
+    TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_STRONG_RANGE,
+    TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_STRONG_RANGE,
     TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE,
     TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE,
-    TEST_PILLAR_PROJECT_SCORE_SET_RANGE,
-    TEST_PILLAR_PROJECT_SCORE_SET_RANGE_WITH_SOURCE,
+    TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE,
+    TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE_WITH_SOURCE,
     TEST_SCORE_SET_RANGE,
     TEST_SCORE_SET_RANGE_WITH_SOURCE,
     TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+    TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
     TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     TEST_SCORE_SET_NEGATIVE_INFINITY_RANGE,
     TEST_SCORE_SET_POSITIVE_INFINITY_RANGE,
@@ -102,12 +102,13 @@ def test_score_range_investigator_valid_range(ScoreRangeModel, score_range_data)
 
 @pytest.mark.parametrize(
     "score_range_data",
-    [TEST_PILLAR_PROJECT_SCORE_SET_BS3_STRONG_RANGE, TEST_PILLAR_PROJECT_SCORE_SET_PS3_STRONG_RANGE],
+    [TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_STRONG_RANGE, TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_STRONG_RANGE],
 )
 @pytest.mark.parametrize(
-    "ScoreRangeModel", [PillarProjectScoreRange, PillarProjectScoreRangeCreate, PillarProjectScoreRangeModify]
+    "ScoreRangeModel",
+    [ZeibergCalibrationScoreRange, ZeibergCalibrationScoreRangeCreate, ZeibergCalibrationScoreRangeModify],
 )
-def test_score_range_pillar_project_valid_range(ScoreRangeModel, score_range_data):
+def test_score_range_zeiberg_calibration_valid_range(ScoreRangeModel, score_range_data):
     score_range = ScoreRangeModel(**score_range_data)
     assert score_range.label == score_range_data["label"], "Label should match"
     assert score_range.classification == score_range_data["classification"], "Classification should match"
@@ -146,12 +147,12 @@ def test_score_range_invalid_range_length(ScoreRangeModel):
 @pytest.mark.parametrize(
     "ScoreRangeModel",
     [
-        PillarProjectScoreRange,
-        PillarProjectScoreRangeCreate,
-        PillarProjectScoreRangeModify,
+        ZeibergCalibrationScoreRange,
+        ZeibergCalibrationScoreRangeCreate,
+        ZeibergCalibrationScoreRangeModify,
     ],
 )
-def test_pillar_project_score_range_invalid_range_length(ScoreRangeModel):
+def test_zeiberg_calibration_score_range_invalid_range_length(ScoreRangeModel):
     invalid_data = {
         "label": "Test Range",
         "classification": "normal",
@@ -174,9 +175,9 @@ def test_pillar_project_score_range_invalid_range_length(ScoreRangeModel):
         InvestigatorScoreRange,
         InvestigatorScoreRangeCreate,
         InvestigatorScoreRangeModify,
-        PillarProjectScoreRange,
-        PillarProjectScoreRangeCreate,
-        PillarProjectScoreRangeModify,
+        ZeibergCalibrationScoreRange,
+        ZeibergCalibrationScoreRangeCreate,
+        ZeibergCalibrationScoreRangeModify,
     ],
 )
 def test_score_range_base_invalid_range_order(ScoreRangeModel):
@@ -201,9 +202,9 @@ def test_score_range_base_invalid_range_order(ScoreRangeModel):
         InvestigatorScoreRange,
         InvestigatorScoreRangeCreate,
         InvestigatorScoreRangeModify,
-        PillarProjectScoreRange,
-        PillarProjectScoreRangeCreate,
-        PillarProjectScoreRangeModify,
+        ZeibergCalibrationScoreRange,
+        ZeibergCalibrationScoreRangeCreate,
+        ZeibergCalibrationScoreRangeModify,
     ],
 )
 def test_score_range_base_equal_bounds(ScoreRangeModel):
@@ -255,9 +256,9 @@ def test_score_range_may_not_include_infinity(ScoreRangeModel, range_value):
 @pytest.mark.parametrize(
     "ScoreRangeModel",
     [
-        PillarProjectScoreRange,
-        PillarProjectScoreRangeCreate,
-        PillarProjectScoreRangeModify,
+        ZeibergCalibrationScoreRange,
+        ZeibergCalibrationScoreRangeCreate,
+        ZeibergCalibrationScoreRangeModify,
     ],
 )
 @pytest.mark.parametrize(
@@ -267,7 +268,7 @@ def test_score_range_may_not_include_infinity(ScoreRangeModel, range_value):
         [1.0, None],
     ],
 )
-def test_pillar_project_score_range_may_not_include_infinity(ScoreRangeModel, range_value):
+def test_zeiberg_calibration_score_range_may_not_include_infinity(ScoreRangeModel, range_value):
     invalid_data = {
         "label": "Test Range",
         "classification": "normal",
@@ -297,12 +298,13 @@ def test_pillar_project_score_range_may_not_include_infinity(ScoreRangeModel, ra
     ],
 )
 @pytest.mark.parametrize(
-    "ScoreRangeModel", [PillarProjectScoreRange, PillarProjectScoreRangeCreate, PillarProjectScoreRangeModify]
+    "ScoreRangeModel",
+    [ZeibergCalibrationScoreRange, ZeibergCalibrationScoreRangeCreate, ZeibergCalibrationScoreRangeModify],
 )
-def test_pillar_project_evidence_strength_cardinality_must_agree_with_classification(
+def test_zeiberg_calibration_evidence_strength_cardinality_must_agree_with_classification(
     classification, evidence_strength, should_raise, ScoreRangeModel
 ):
-    invalid_data = deepcopy(TEST_PILLAR_PROJECT_SCORE_SET_BS3_STRONG_RANGE)
+    invalid_data = deepcopy(TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_STRONG_RANGE)
     invalid_data["classification"] = classification
     invalid_data["evidence_strength"] = evidence_strength
     if should_raise:
@@ -364,12 +366,13 @@ def test_score_ranges_investigator_valid_range(ScoreRangesModel, score_ranges_da
 
 @pytest.mark.parametrize(
     "score_ranges_data",
-    [TEST_PILLAR_PROJECT_SCORE_SET_RANGE, TEST_PILLAR_PROJECT_SCORE_SET_RANGE_WITH_SOURCE],
+    [TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE, TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE_WITH_SOURCE],
 )
 @pytest.mark.parametrize(
-    "ScoreRangesModel", [PillarProjectScoreRanges, PillarProjectScoreRangesCreate, PillarProjectScoreRangesModify]
+    "ScoreRangesModel",
+    [ZeibergCalibrationScoreRanges, ZeibergCalibrationScoreRangesCreate, ZeibergCalibrationScoreRangesModify],
 )
-def test_score_ranges_pillar_project_valid_range(ScoreRangesModel, score_ranges_data):
+def test_score_ranges_zeiberg_calibration_valid_range(ScoreRangesModel, score_ranges_data):
     score_ranges = ScoreRangesModel(**score_ranges_data)
     matched_source = (
         None
@@ -498,12 +501,12 @@ def test_score_ranges_ranges_boundaries_may_be_adjacent(
 @pytest.mark.parametrize(
     "ScoreRangesModel, ScoreRangeModel",
     [
-        (PillarProjectScoreRanges, PillarProjectScoreRange),
-        (PillarProjectScoreRangesCreate, PillarProjectScoreRangeCreate),
-        (PillarProjectScoreRangesModify, PillarProjectScoreRangeModify),
+        (ZeibergCalibrationScoreRanges, ZeibergCalibrationScoreRange),
+        (ZeibergCalibrationScoreRangesCreate, ZeibergCalibrationScoreRangeCreate),
+        (ZeibergCalibrationScoreRangesModify, ZeibergCalibrationScoreRangeModify),
     ],
 )
-def test_score_ranges_pillar_project_ranges_may_not_overlap(ScoreRangesModel, ScoreRangeModel):
+def test_score_ranges_zeiberg_calibration_ranges_may_not_overlap(ScoreRangesModel, ScoreRangeModel):
     range_test = ScoreRangeModel(label="Range 1", classification="abnormal", range=[0.0, 2.0], evidence_strength=2)
     range_check = ScoreRangeModel(label="Range 2", classification="abnormal", range=[1.0, 3.0], evidence_strength=3)
     invalid_data = {
@@ -522,12 +525,14 @@ def test_score_ranges_pillar_project_ranges_may_not_overlap(ScoreRangesModel, Sc
 @pytest.mark.parametrize(
     "ScoreRangesModel, ScoreRangeModel",
     [
-        (PillarProjectScoreRanges, PillarProjectScoreRange),
-        (PillarProjectScoreRangesCreate, PillarProjectScoreRangeCreate),
-        (PillarProjectScoreRangesModify, PillarProjectScoreRangeModify),
+        (ZeibergCalibrationScoreRanges, ZeibergCalibrationScoreRange),
+        (ZeibergCalibrationScoreRangesCreate, ZeibergCalibrationScoreRangeCreate),
+        (ZeibergCalibrationScoreRangesModify, ZeibergCalibrationScoreRangeModify),
     ],
 )
-def test_score_ranges_pillar_project_ranges_may_not_overlap_via_inclusive_bounds(ScoreRangesModel, ScoreRangeModel):
+def test_score_ranges_zeiberg_calibration_ranges_may_not_overlap_via_inclusive_bounds(
+    ScoreRangesModel, ScoreRangeModel
+):
     range_test = ScoreRangeModel(
         label="Range 1",
         classification="abnormal",
@@ -560,9 +565,9 @@ def test_score_ranges_pillar_project_ranges_may_not_overlap_via_inclusive_bounds
 @pytest.mark.parametrize(
     "ScoreRangesModel, ScoreRangeModel",
     [
-        (PillarProjectScoreRanges, PillarProjectScoreRange),
-        (PillarProjectScoreRangesCreate, PillarProjectScoreRangeCreate),
-        (PillarProjectScoreRangesModify, PillarProjectScoreRangeModify),
+        (ZeibergCalibrationScoreRanges, ZeibergCalibrationScoreRange),
+        (ZeibergCalibrationScoreRangesCreate, ZeibergCalibrationScoreRangeCreate),
+        (ZeibergCalibrationScoreRangesModify, ZeibergCalibrationScoreRangeModify),
     ],
 )
 @pytest.mark.parametrize(
@@ -572,7 +577,7 @@ def test_score_ranges_pillar_project_ranges_may_not_overlap_via_inclusive_bounds
         ([0.0, 2.0], [2.0, 3.0], False),
     ],
 )
-def test_score_ranges_pillar_project_ranges_boundaries_may_be_adjacent(
+def test_score_ranges_zeiberg_calibration_ranges_boundaries_may_be_adjacent(
     ScoreRangesModel, ScoreRangeModel, range_value1, range_value2, orientation
 ):
     range_test = ScoreRangeModel(
@@ -654,7 +659,7 @@ def test_score_ranges_investigator_baseline_type_score_provided_if_normal_range_
     "score_set_ranges_data",
     [
         TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-        TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+        TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
         TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     ],
 )
@@ -683,7 +688,7 @@ def test_score_set_ranges_valid_range(ScoreSetRangesModel, score_set_ranges_data
     "score_set_ranges_data",
     [
         TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-        TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+        TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
     ],
 )
 def test_score_set_ranges_may_not_include_duplicate_labels(ScoreSetRangesModel, score_set_ranges_data):

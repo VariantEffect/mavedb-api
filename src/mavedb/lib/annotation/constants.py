@@ -4,7 +4,7 @@ from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
 GENERIC_DISEASE_MEDGEN_CODE = "C0012634"
 MEDGEN_SYSTEM = "https://www.ncbi.nlm.nih.gov/medgen/"
 
-PILLAR_PROJECT_CALIBRATION_STRENGTH_OF_EVIDENCE_MAP = {
+ZEIBERG_CALIBRATION_CALIBRATION_STRENGTH_OF_EVIDENCE_MAP = {
     # No evidence
     0: (VariantPathogenicityEvidenceLine.Criterion.PS3, None),
     # Supporting evidence
@@ -31,4 +31,4 @@ PILLAR_PROJECT_CALIBRATION_STRENGTH_OF_EVIDENCE_MAP = {
 
 # TODO#493
 FUNCTIONAL_RANGES = ["investigator_provided"]
-CLINICAL_RANGES = ["pillar_project"]
+CLINICAL_RANGES = ["zeiberg_calibration"]
