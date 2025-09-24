@@ -93,7 +93,7 @@ def get_functional_consequence(hgvs_strings: Sequence[str]) -> dict[str, Optiona
         recoder_response = requests.post(
             f"{ENSEMBL_API_URL}/variant_recoder/human",
             headers=headers,
-            json={"variants": list(missing_hgvs)},
+            json={"ids": list(missing_hgvs)},
         )
         recoder_found = set()
         if recoder_response.status_code == 200:
