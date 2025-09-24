@@ -87,9 +87,9 @@ class ScoreRange(SavedScoreRange):
 
 
 class ScoreRangesBase(BaseModel):
-    title: str = "Score Ranges"
+    title: str
+    research_use_only: bool
     ranges: Sequence[ScoreRangeBase]
-    research_use_only: bool = False
     source: Optional[Sequence[PublicationIdentifierBase]] = None
 
     @field_validator("ranges")
@@ -193,7 +193,6 @@ class BrnichScoreRange(ScoreRange, SavedBrnichScoreRange):
 
 
 class BrnichScoreRangesBase(ScoreRangesBase):
-    title: str = "Brnich functional classes"
     baseline_score: Optional[float] = None
     baseline_score_description: Optional[str] = None
     ranges: Sequence[BrnichScoreRangeBase]
@@ -253,26 +252,54 @@ class BrnichScoreRanges(ScoreRanges, SavedBrnichScoreRanges):
 ##############################################################################################################
 
 
+# NOTE: Pydantic takes the first occurence of a field definition in the MRO for default values. It feels most
+# natural to define these classes like
+# class InvestigatorScoreRangesBase(BrnichScoreRangesBase):
+#    title: str = "Investigator-provided functional classes"
+#
+# class InvestigatorScoreRangesModify(BrnichScoreRangesModify, InvestigatorScoreRangesBase):
+#    pass
+#
+# however, this does not work because the title field is defined in BrnichScoreRangesBase, and the default
+# value from that class is taken instead of the one in InvestigatorScoreRangesBase. Note the opposite problem
+# would occur if we defined the classes in the opposite order.
+#
+# We'd also like to retain the inheritance chain from Base -> Modify -> Create and Base -> Saved -> Full for
+# each score range type as this makes it much easier to use these classes in inherited types from other
+# modules (like the ScoreSet models). So although a mixin class might seem natural, we can't use one here
+# since our MRO resolution wouldn't be linear.
+#
+# Just duplicating the defaults across each of the classes is the simplest solution for now, despite the
+# code duplication.
+
+
 class InvestigatorScoreRangesBase(BrnichScoreRangesBase):
     title: str = "Investigator-provided functional classes"
+    research_use_only: bool = False
 
 
 class InvestigatorScoreRangesModify(BrnichScoreRangesModify, InvestigatorScoreRangesBase):
-    pass
+    title: str = "Investigator-provided functional classes"
+    research_use_only: bool = False
 
 
 class InvestigatorScoreRangesCreate(BrnichScoreRangesCreate, InvestigatorScoreRangesModify):
-    pass
+    title: str = "Investigator-provided functional classes"
+    research_use_only: bool = False
 
 
 class SavedInvestigatorScoreRanges(SavedBrnichScoreRanges, InvestigatorScoreRangesBase):
     record_type: str = None  # type: ignore
 
+    title: str = "Investigator-provided functional classes"
+    research_use_only: bool = False
+
     _record_type_factory = record_type_validator()(set_record_type)
 
 
 class InvestigatorScoreRanges(BrnichScoreRanges, SavedInvestigatorScoreRanges):
-    pass
+    title: str = "Investigator-provided functional classes"
+    research_use_only: bool = False
 
 
 ##############################################################################################################
@@ -282,24 +309,31 @@ class InvestigatorScoreRanges(BrnichScoreRanges, SavedInvestigatorScoreRanges):
 
 class ScottScoreRangesBase(BrnichScoreRangesBase):
     title: str = "Scott calibration"
+    research_use_only: bool = False
 
 
 class ScottScoreRangesModify(BrnichScoreRangesModify, ScottScoreRangesBase):
-    pass
+    title: str = "Scott calibration"
+    research_use_only: bool = False
 
 
 class ScottScoreRangesCreate(BrnichScoreRangesCreate, ScottScoreRangesModify):
-    pass
+    title: str = "Scott calibration"
+    research_use_only: bool = False
 
 
 class SavedScottScoreRanges(SavedBrnichScoreRanges, ScottScoreRangesBase):
     record_type: str = None  # type: ignore
 
+    title: str = "Scott calibration"
+    research_use_only: bool = False
+
     _record_type_factory = record_type_validator()(set_record_type)
 
 
 class ScottScoreRanges(BrnichScoreRanges, SavedScottScoreRanges):
-    pass
+    title: str = "Scott calibration"
+    research_use_only: bool = False
 
 
 ##############################################################################################################
@@ -368,29 +402,38 @@ class ZeibergCalibrationParameterSet(BaseModel):
 
 class ZeibergCalibrationScoreRangesBase(ScoreRangesBase):
     title: str = "Zeiberg calibration"
+    research_use_only: bool = True
+
     prior_probability_pathogenicity: Optional[float] = None
     parameter_sets: list[ZeibergCalibrationParameterSet] = []
     ranges: Sequence[ZeibergCalibrationScoreRangeBase]
-    research_use_only: bool = True
 
 
 class ZeibergCalibrationScoreRangesModify(ScoreRangesModify, ZeibergCalibrationScoreRangesBase):
+    title: str = "Zeiberg calibration"
+    research_use_only: bool = True
     ranges: Sequence[ZeibergCalibrationScoreRangeModify]
 
 
 class ZeibergCalibrationScoreRangesCreate(ScoreRangesCreate, ZeibergCalibrationScoreRangesModify):
+    title: str = "Zeiberg calibration"
+    research_use_only: bool = True
     ranges: Sequence[ZeibergCalibrationScoreRangeCreate]
 
 
 class SavedZeibergCalibrationScoreRanges(SavedScoreRanges, ZeibergCalibrationScoreRangesBase):
     record_type: str = None  # type: ignore
 
+    title: str = "Zeiberg calibration"
+    research_use_only: bool = True
     ranges: Sequence[SavedZeibergCalibrationScoreRange]
 
     _record_type_factory = record_type_validator()(set_record_type)
 
 
 class ZeibergCalibrationScoreRanges(ScoreRanges, SavedZeibergCalibrationScoreRanges):
+    title: str = "Zeiberg calibration"
+    research_use_only: bool = True
     ranges: Sequence[ZeibergCalibrationScoreRange]
 
 

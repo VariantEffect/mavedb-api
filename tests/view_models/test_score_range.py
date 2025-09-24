@@ -527,10 +527,12 @@ def test_score_ranges_ranges_boundaries_may_be_adjacent(
         inclusive_upper_bound=not orientation,
     )
     valid_data = {
+        "title": "Test Ranges",
+        "research_use_only": False,
         "ranges": [
             range_test,
             range_check,
-        ]
+        ],
     }
 
     ScoreRangesModel(**valid_data)
