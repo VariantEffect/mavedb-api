@@ -67,7 +67,7 @@ def test_variant_pathogenicity_evidence_no_score_ranges_with_thresholds(mock_map
 
 
 def test_variant_pathogenicity_evidence_with_score_ranges_no_thresholds(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges.pop("pillar_project")
+    mock_mapped_variant.variant.score_set.score_ranges.pop("zeiberg_calibration")
     result = variant_pathogenicity_evidence(mock_mapped_variant)
 
     assert result is None

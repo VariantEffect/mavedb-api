@@ -6,7 +6,7 @@ from mavedb.lib.annotation.agent import (
     mavedb_api_agent,
     mavedb_vrs_agent,
     mavedb_user_agent,
-    pillar_project_calibration_agent,
+    zeiberg_calibration_agent,
 )
 
 from tests.helpers.constants import TEST_USER
@@ -45,9 +45,9 @@ def test_mavedb_user_agent():
     assert agent.agentType == "Person"
 
 
-def test_pillar_project_calibration_agent():
-    agent = pillar_project_calibration_agent()
+def test_zeiberg_calibration_agent():
+    agent = zeiberg_calibration_agent()
 
-    assert agent.name == "Pillar Project Variant Calibrator"
-    assert agent.description == "Pillar project variant calibrator, see https://github.com/Dzeiberg/mave_calibration"
+    assert agent.name == "Zeiberg Variant Calibrator"
+    assert agent.description == "Zeiberg variant calibrator, see https://github.com/Dzeiberg/mave_calibration"
     assert agent.agentType == "Software"

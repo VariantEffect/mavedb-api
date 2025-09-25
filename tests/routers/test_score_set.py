@@ -48,8 +48,10 @@ from tests.helpers.constants import (
     TEST_SAVED_GENERIC_CLINICAL_CONTROL,
     TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
     TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
-    TEST_SAVED_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+    TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
+    TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
+    TEST_SCORE_SET_RANGES_ONLY_SCOTT,
+    TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT,
     TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     TEST_GNOMAD_DATA_VERSION,
@@ -162,7 +164,8 @@ def test_create_score_set_with_contributor(client, setup_router_db):
     "score_ranges,saved_score_ranges",
     [
         (TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED, TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
-        (TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT, TEST_SAVED_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        (TEST_SCORE_SET_RANGES_ONLY_SCOTT, TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT),
+        (TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION, TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
         (TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT, TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
     ],
 )
@@ -210,7 +213,8 @@ def test_create_score_set_with_score_range(
     "score_ranges",
     [
         TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-        TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+        TEST_SCORE_SET_RANGES_ONLY_SCOTT,
+        TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
         TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     ],
 )
@@ -252,7 +256,8 @@ def test_cannot_create_score_set_with_nonexistent_contributor(client, setup_rout
     "score_ranges,saved_score_ranges",
     [
         (TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED, TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
-        (TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT, TEST_SAVED_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        (TEST_SCORE_SET_RANGES_ONLY_SCOTT, TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT),
+        (TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION, TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
         (TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT, TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
     ],
 )
@@ -2335,7 +2340,7 @@ def test_show_correct_score_set_version_with_superseded_score_set_to_its_owner(
     "score_ranges",
     [
         TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-        TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+        TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
         TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     ],
 )
@@ -2358,7 +2363,7 @@ def test_anonymous_user_cannot_add_score_ranges_to_score_set(
     "score_ranges",
     [
         TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-        TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+        TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
         TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     ],
 )
@@ -2378,7 +2383,7 @@ def test_user_cannot_add_score_ranges_to_own_score_set(client, setup_router_db, 
     "score_ranges,saved_score_ranges",
     [
         (TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED, TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
-        (TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT, TEST_SAVED_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+        (TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION, TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
         (TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT, TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
     ],
 )
@@ -2742,7 +2747,7 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
         },
     )
 
@@ -2807,7 +2812,7 @@ def test_annotated_pathogenicity_evidence_lines_exists_for_score_set_when_ranges
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
         },
     )
 
@@ -2860,7 +2865,7 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_vari
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
         },
     )
 
@@ -2958,7 +2963,7 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_range
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
         },
     )
 
@@ -3109,7 +3114,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_ranges_not_
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
         },
     )
 
@@ -3162,7 +3167,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_some_varian
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT),
+            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
         },
     )
 

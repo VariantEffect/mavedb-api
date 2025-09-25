@@ -12,17 +12,17 @@ from ga4gh.va_spec.base.core import (
     VariantPathogenicityProposition,
 )
 
-from mavedb.lib.annotation.classification import pillar_project_clinical_classification_of_variant
+from mavedb.lib.annotation.classification import zeiberg_calibration_clinical_classification_of_variant
 from mavedb.lib.annotation.contribution import (
     mavedb_api_contribution,
     mavedb_vrs_contribution,
-    pillar_project_calibration_contribution,
+    zeiberg_calibration_contribution,
     mavedb_creator_contribution,
     mavedb_modifier_contribution,
 )
 from mavedb.lib.annotation.document import score_set_to_document
 from mavedb.lib.annotation.method import (
-    pillar_project_calibration_method,
+    zeiberg_calibration_method,
     publication_identifiers_to_method,
 )
 from mavedb.models.mapped_variant import MappedVariant
@@ -33,7 +33,7 @@ def acmg_evidence_line(
     proposition: VariantPathogenicityProposition,
     evidence: list[Union[StudyResult, EvidenceLineType, StatementType, iriReference]],
 ) -> Optional[VariantPathogenicityEvidenceLine]:
-    evidence_outcome, evidence_strength = pillar_project_clinical_classification_of_variant(mapped_variant)
+    evidence_outcome, evidence_strength = zeiberg_calibration_clinical_classification_of_variant(mapped_variant)
 
     if not evidence_strength:
         evidence_outcome_code = f"{evidence_outcome.value}_not_met"
@@ -59,7 +59,7 @@ def acmg_evidence_line(
 
     return VariantPathogenicityEvidenceLine(
         description=f"Pathogenicity evidence line {mapped_variant.variant.urn}.",
-        specifiedBy=pillar_project_calibration_method(evidence_outcome),
+        specifiedBy=zeiberg_calibration_method(evidence_outcome),
         evidenceOutcome={
             "primaryCoding": Coding(
                 code=evidence_outcome_code,
@@ -72,7 +72,7 @@ def acmg_evidence_line(
         contributions=[
             mavedb_api_contribution(),
             mavedb_vrs_contribution(mapped_variant),
-            pillar_project_calibration_contribution(),
+            zeiberg_calibration_contribution(),
             mavedb_creator_contribution(mapped_variant.variant, mapped_variant.variant.score_set.created_by),
             mavedb_modifier_contribution(mapped_variant.variant, mapped_variant.variant.score_set.modified_by),
         ],

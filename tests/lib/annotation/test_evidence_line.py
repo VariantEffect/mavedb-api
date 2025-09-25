@@ -29,7 +29,7 @@ def test_acmg_evidence_line_with_met_valid_clinical_classification(
     mock_mapped_variant, expected_outcome, expected_strength, expected_direction
 ):
     with patch(
-        "mavedb.lib.annotation.evidence_line.pillar_project_clinical_classification_of_variant",
+        "mavedb.lib.annotation.evidence_line.zeiberg_calibration_clinical_classification_of_variant",
         return_value=(expected_outcome, expected_strength),
     ):
         proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mock_mapped_variant)
@@ -62,7 +62,7 @@ def test_acmg_evidence_line_with_not_met_clinical_classification(mock_mapped_var
     expected_evidence_outcome = f"{expected_outcome.value}_not_met"
 
     with patch(
-        "mavedb.lib.annotation.evidence_line.pillar_project_clinical_classification_of_variant",
+        "mavedb.lib.annotation.evidence_line.zeiberg_calibration_clinical_classification_of_variant",
         return_value=(expected_outcome, expected_strength),
     ):
         proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mock_mapped_variant)
