@@ -368,7 +368,7 @@ async def update_experiment(
         ]
     }
     for var, value in pairs.items():  # vars(item_update).items():
-        setattr(item, var, value) if value else None
+        setattr(item, var, value) if value is not None else None
 
     try:
         item.contributors = [

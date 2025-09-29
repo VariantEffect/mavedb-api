@@ -1072,7 +1072,7 @@ async def update_score_set(
             "primary_publication_identifiers",
             "target_genes",
         ]:
-            setattr(item, var, value) if value else None
+            setattr(item, var, value) if value is not None else None
 
     if item_update.license_id is not None:
         save_to_logging_context({"license": item_update.license_id})
