@@ -1071,6 +1071,7 @@ async def update_score_set(
             "secondary_publication_identifiers",
             "primary_publication_identifiers",
             "target_genes",
+            "dataset_columns",
         ]:
             setattr(item, var, value) if value is not None else None
 
@@ -1240,6 +1241,14 @@ async def update_score_set(
         # re-validate existing variants and clear them if they do not pass validation
         if item.variants:
             assert item.dataset_columns is not None
+
+            # score_columns_metadata and count_columns_metadata are the only values of dataset_columns that can be set manually.
+            # The others, scores_columns and count_columns, are calculated based on the uploaded data and should not be changed here.
+            if item_update.dataset_columns.get("countColumnsMetadata") is not None:
+                item.dataset_columns= {**item.dataset_columns, "count_columns_metadata": item_update.dataset_columns["countColumnsMetadata"]}
+            if item_update.dataset_columns.get("scoreColumnsMetadata") is not None:
+                item.dataset_columns = {**item.dataset_columns, "score_columns_metadata": item_update.dataset_columns["scoreColumnsMetadata"]}
+
             score_columns = [
                 "hgvs_nt",
                 "hgvs_splice",

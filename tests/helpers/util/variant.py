@@ -75,6 +75,8 @@ def mock_worker_variant_insertion(
     item.dataset_columns = {
         "score_columns": columns_for_dataset(scores),
         "count_columns": columns_for_dataset(counts),
+        "score_columns_metadata": item.dataset_columns.get("score_columns_metadata", {}) if item.dataset_columns else {},
+        "count_columns_metadata": item.dataset_columns.get("count_columns_metadata", {}) if item.dataset_columns else {},
     }
 
     db.add(item)
