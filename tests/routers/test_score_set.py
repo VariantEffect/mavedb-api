@@ -1704,7 +1704,8 @@ def test_search_private_score_sets_no_match(session, data_provider, client, setu
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 0
+    assert response.json()["num_score_sets"] == 0
+    assert len(response.json()["score_sets"]) == 0
 
 
 def test_search_private_score_sets_match(session, data_provider, client, setup_router_db, data_files):
@@ -1715,8 +1716,9 @@ def test_search_private_score_sets_match(session, data_provider, client, setup_r
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["title"] == score_set["title"]
+    assert response.json()["num_score_sets"] == 1
+    assert len(response.json()["score_sets"]) == 1
+    assert response.json()["score_sets"][0]["title"] == published_score_set["urn"]
 
 
 def test_search_private_score_sets_urn_match(session, data_provider, client, setup_router_db, data_files):
@@ -1727,8 +1729,9 @@ def test_search_private_score_sets_urn_match(session, data_provider, client, set
     search_payload = {"urn": score_set["urn"]}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["urn"] == score_set["urn"]
+    assert response.json()["num_score_sets"] == 1
+    assert len(response.json()["score_sets"]) == 1
+    assert response.json()["score_sets"][0]["urn"] == score_set["urn"]
 
 
 # There is space in the end of test urn. The search result returned nothing before.
@@ -1741,8 +1744,9 @@ def test_search_private_score_sets_urn_with_space_match(session, data_provider, 
     search_payload = {"urn": urn_with_space}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["urn"] == score_set["urn"]
+    assert response.json()["num_score_sets"] == 1
+    assert len(response.json()["score_sets"]) == 1
+    assert response.json()["score_sets"][0]["urn"] == score_set["urn"]
 
 
 def test_search_others_private_score_sets_no_match(session, data_provider, client, setup_router_db, data_files):
@@ -1754,7 +1758,8 @@ def test_search_others_private_score_sets_no_match(session, data_provider, clien
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 0
+    assert response.json()["num_score_sets"] == 0
+    assert len(response.json()["score_sets"]) == 0
 
 
 def test_search_others_private_score_sets_match(session, data_provider, client, setup_router_db, data_files):
@@ -1766,7 +1771,8 @@ def test_search_others_private_score_sets_match(session, data_provider, client, 
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 0
+    assert response.json()["num_score_sets"] == 0
+    assert len(response.json()["score_sets"]) == 0
 
 
 def test_search_others_private_score_sets_urn_match(session, data_provider, client, setup_router_db, data_files):
@@ -1778,7 +1784,8 @@ def test_search_others_private_score_sets_urn_match(session, data_provider, clie
     search_payload = {"urn": score_set["urn"]}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 0
+    assert response.json()["num_score_sets"] == 0
+    assert len(response.json()["score_sets"]) == 0
 
 
 # There is space in the end of test urn. The search result returned nothing before.
@@ -1794,7 +1801,8 @@ def test_search_others_private_score_sets_urn_with_space_match(
     search_payload = {"urn": urn_with_space}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 0
+    assert response.json()["num_score_sets"] == 0
+    assert len(response.json()["score_sets"]) == 0
 
 
 def test_search_public_score_sets_no_match(session, data_provider, client, setup_router_db, data_files):
@@ -1809,7 +1817,8 @@ def test_search_public_score_sets_no_match(session, data_provider, client, setup
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 0
+    assert response.json()["num_score_sets"] == 0
+    assert len(response.json()["score_sets"]) == 0
 
 
 def test_search_public_score_sets_match(session, data_provider, client, setup_router_db, data_files):
@@ -1824,8 +1833,9 @@ def test_search_public_score_sets_match(session, data_provider, client, setup_ro
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["title"] == score_set["title"]
+    assert response.json()["num_score_sets"] == 1
+    assert len(response.json()["score_sets"]) == 1
+    assert response.json()["score_sets"][0]["title"] == score_set["title"]
 
 
 def test_search_public_score_sets_urn_with_space_match(session, data_provider, client, setup_router_db, data_files):
@@ -1841,8 +1851,9 @@ def test_search_public_score_sets_urn_with_space_match(session, data_provider, c
     search_payload = {"urn": urn_with_space}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["urn"] == published_score_set["urn"]
+    assert response.json()["num_score_sets"] == 1
+    assert len(response.json()["score_sets"]) == 1
+    assert response.json()["score_sets"][0]["urn"] == published_score_set["urn"]
 
 
 def test_search_others_public_score_sets_no_match(session, data_provider, client, setup_router_db, data_files):
@@ -1859,8 +1870,8 @@ def test_search_others_public_score_sets_no_match(session, data_provider, client
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 0
-
+    assert response.json()["num_score_sets"] == 0
+    assert len(response.json()["score_sets"]) == 0
 
 def test_search_others_public_score_sets_match(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client, {"title": "Experiment 1"})
@@ -1877,8 +1888,9 @@ def test_search_others_public_score_sets_match(session, data_provider, client, s
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["title"] == published_score_set["title"]
+    assert response.json()["num_score_sets"] == 1
+    assert len(response.json()["score_sets"]) == 1
+    assert response.json()["score_sets"][0]["title"] == published_score_set["title"]
 
 
 def test_search_others_public_score_sets_urn_match(session, data_provider, client, setup_router_db, data_files):
@@ -1894,9 +1906,10 @@ def test_search_others_public_score_sets_urn_match(session, data_provider, clien
     search_payload = {"urn": score_set["urn"]}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["urn"] == published_score_set["urn"]
-
+    assert response.json()["num_score_sets"] == 1
+    assert len(response.json()["score_sets"]) == 1
+    assert response.json()["score_sets"][0]["urn"] == published_score_set["urn"]
+    
 
 def test_search_others_public_score_sets_urn_with_space_match(
     session, data_provider, client, setup_router_db, data_files
@@ -1914,8 +1927,9 @@ def test_search_others_public_score_sets_urn_with_space_match(
     search_payload = {"urn": urn_with_space}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["urn"] == published_score_set["urn"]
+    assert response.json()["num_score_sets"] == 1
+    assert len(response.json()["score_sets"]) == 1
+    assert response.json()["score_sets"][0]["urn"] == published_score_set["urn"]
 
 
 def test_search_private_score_sets_not_showing_public_score_set(
@@ -1934,8 +1948,9 @@ def test_search_private_score_sets_not_showing_public_score_set(
     search_payload = {"published": False}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["urn"] == score_set_2["urn"]
+    assert response.json()["num_score_sets"] == 1
+    assert len(response.json()["score_sets"]) == 1
+    assert response.json()["score_sets"][0]["urn"] == score_set_2["urn"]
 
 
 def test_search_public_score_sets_not_showing_private_score_set(
@@ -1954,8 +1969,9 @@ def test_search_public_score_sets_not_showing_private_score_set(
     search_payload = {"published": True}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["urn"] == published_score_set_1["urn"]
+    assert response.json()["num_score_sets"] == 1
+    assert len(response.json()["score_sets"]) == 1
+    assert response.json()["score_sets"][0]["urn"] == published_score_set_1["urn"]
 
 
 ########################################################################################################################
