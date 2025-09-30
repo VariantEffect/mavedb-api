@@ -226,7 +226,6 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
 
     query = db.query(ScoreSet)
     query = build_search_score_sets_query_filter(db, query, owner_or_contributor, search)
-    logger.info(query)
 
     score_sets: list[ScoreSet] = (
         query.join(ScoreSet.experiment)
@@ -298,7 +297,7 @@ def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Opt
     save_to_logging_context({"score_set_search_criteria": search.model_dump()})
 
     query = db.query(ScoreSet)
-    build_search_score_sets_query_filter(db, query, owner_or_contributor, search)
+    query = build_search_score_sets_query_filter(db, query, owner_or_contributor, search)
 
     score_sets: list[ScoreSet] = query.all()
     if not score_sets:
