@@ -295,6 +295,87 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
     }
 
 
+def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch):
+    save_to_logging_context({"score_set_search_criteria": search.model_dump()})
+
+    query = db.query(ScoreSet)
+    build_search_score_sets_query_filter(db, query, owner_or_contributor, search)
+
+    score_sets: list[ScoreSet] = query.all()
+    if not score_sets:
+        score_sets = []
+
+    target_category_counter = Counter()
+    target_name_counter = Counter()
+    target_organism_name_counter = Counter()
+    target_accession_counter = Counter()
+    for score_set in score_sets:
+        for target in getattr(score_set, "target_genes", []):
+
+            category = getattr(target, "category", None)
+            if category:
+                target_category_counter[category] += 1
+
+            name = getattr(target, "name", None)
+            if name:
+                target_name_counter[name] += 1
+
+            target_sequence = getattr(target, "target_sequence", None)
+            taxonomy = getattr(target_sequence, "taxonomy", None)
+            organism_name = getattr(taxonomy, "organism_name", None)
+
+            if organism_name:
+                target_organism_name_counter[organism_name] += 1
+
+            target_accession = getattr(target, "target_accession", None)
+            accession = getattr(target_accession, "accession", None)
+
+            if accession:
+                target_accession_counter[accession] += 1
+
+    target_gene_categories = [{"value": value, "count": count} for value, count in target_category_counter.items()]
+    target_gene_names = [{"value": value, "count": count} for value, count in target_name_counter.items()]
+    target_organism_names = [{"value": value, "count": count} for value, count in target_organism_name_counter.items()]
+    target_accessions = [{"value": value, "count": count} for value, count in target_accession_counter.items()]
+
+    publication_author_name_counter = Counter()
+    publication_db_name_counter = Counter()
+    publication_journal_counter = Counter()
+    for score_set in score_sets:
+        for publication_association in getattr(score_set, "publication_identifier_associations", []):
+            publication = getattr(publication_association, "publication", None)
+
+            authors = getattr(publication, "authors", [])
+            for author in authors:
+                name = author.get("name")
+                if name:
+                    publication_author_name_counter[name] += 1
+
+            db_name = getattr(publication, "db_name", None)
+            if db_name:
+                publication_db_name_counter[db_name] += 1
+
+            journal = getattr(publication, "publication_journal", None)
+            if journal:
+                publication_journal_counter[journal] += 1
+
+    publication_author_names = [{"value": value, "count": count} for value, count in publication_author_name_counter.items()]
+    publication_db_names = [{"value": value, "count": count} for value, count in publication_db_name_counter.items()]
+    publication_journals = [{"value": value, "count": count} for value, count in publication_journal_counter.items()]
+
+    logger.debug(msg=f"Score set search filter options were fetched.", extra=logging_context())
+
+    return {
+        "target_gene_categories": target_gene_categories,
+        "target_gene_names": target_gene_names,
+        "target_organism_names": target_organism_names,
+        "target_accessions": target_accessions,
+        "publication_author_names": publication_author_names,
+        "publication_db_names": publication_db_names,
+        "publication_journals": publication_journals,
+    }
+
+
 def fetch_superseding_score_set_in_search_result(
     score_sets: list[ScoreSet], requesting_user: Optional["UserData"], search: ScoreSetsSearch
 ) -> list[ScoreSet]:

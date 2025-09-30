@@ -45,6 +45,7 @@ from mavedb.lib.logging.context import (
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_sets import (
     csv_data_to_df,
+    fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
     get_score_set_variants_as_csv,
     variants_to_csv_rows,
@@ -74,7 +75,7 @@ from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
 from mavedb.view_models import mapped_variant, score_set, clinical_control, score_range, gnomad_variant
-from mavedb.view_models.search import ScoreSetsSearch, ScoreSetsSearchResponse
+from mavedb.view_models.search import ScoreSetsSearch, ScoreSetsSearchFilterOptionsResponse, ScoreSetsSearchResponse
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,14 @@ def search_score_sets(
         "score_sets": enriched_score_sets,
         "num_score_sets": num_score_sets
     }
+
+
+@router.post("/score-sets/search/filter-options", status_code=200, response_model=ScoreSetsSearchFilterOptionsResponse)
+def get_filter_options_for_search(
+    search: ScoreSetsSearch,
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    return fetch_score_set_search_filter_options(db, None, search)
 
 
 @router.get("/score-sets/mapped-genes", status_code=200, response_model=dict[str, list[str]])
