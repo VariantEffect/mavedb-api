@@ -164,6 +164,8 @@ async def create_variants_for_score_set(
         score_set.dataset_columns = {
             "score_columns": columns_for_dataset(validated_scores),
             "count_columns": columns_for_dataset(validated_counts),
+            "score_columns_metadata": score_set.dataset_columns.get("score_columns_metadata", {}) if score_set.dataset_columns else {},
+            "count_columns_metadata": score_set.dataset_columns.get("count_columns_metadata", {}) if score_set.dataset_columns else {},
         }
 
         # Delete variants after validation occurs so we don't overwrite them in the case of a bad update.

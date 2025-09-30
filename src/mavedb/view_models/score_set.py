@@ -76,6 +76,7 @@ class ScoreSetModify(ScoreSetBase):
     doi_identifiers: Optional[list[DoiIdentifierCreate]] = None
     target_genes: list[TargetGeneCreate]
     score_ranges: Optional[ScoreSetRangesCreate] = None
+    dataset_columns: Optional[dict] = None
 
     @field_validator("title", "short_description", "abstract_text", "method_text")
     def validate_field_is_non_empty(cls, v: str) -> str:
