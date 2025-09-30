@@ -145,8 +145,19 @@ def search_score_sets(
     Search score sets.
     """
     search.published = True
-    if search.limit is None or search.limit > 100:
+
+    # Require a limit of at most 100 when the search query does not include publication identifiers. We allow unlimited
+    # searches with publication identifiers, presuming that such a search will not have excessive results.
+    if search.publication_identifiers is None and (search.limit is None or search.limit > 100):
         search.limit = 100
+
+    # Also limit the search to at most 40 publication identifiers, to prevent artificially constructed searches that
+    # return very large result sets.
+    if search.publication_identifiers is not None and len(search.publication_identifiers) > 40:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cannot search for score sets belonging to more than 40 publication identifiers at once.",
+        )
 
     score_sets, num_score_sets = _search_score_sets(db, None, search).values()
     enriched_score_sets = []
