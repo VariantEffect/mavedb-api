@@ -72,7 +72,9 @@ class HGVSColumns:
         return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
-def build_search_score_sets_query_filter(db: Session, query: Query[ScoreSet], owner_or_contributor: Optional[User], search: ScoreSetsSearch):
+def build_search_score_sets_query_filter(
+    db: Session, query: Query[ScoreSet], owner_or_contributor: Optional[User], search: ScoreSetsSearch
+):
     superseding_score_set = aliased(ScoreSet)
 
     # Limit to unsuperseded score sets.
@@ -278,7 +280,7 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
     num_score_sets = len(score_sets)
     if search.limit is not None and num_score_sets > search.limit:
         # Limit the results.
-        score_sets = score_sets[:search.limit]
+        score_sets = score_sets[: search.limit]
         count_query = db.query(ScoreSet)  # \
         # .filter(ScoreSet.private.is_(False))
         build_search_score_sets_query_filter(db, count_query, owner_or_contributor, search)
@@ -289,10 +291,7 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
     save_to_logging_context({"matching_resources": len(score_sets)})
     logger.debug(msg=f"Score set search yielded {len(score_sets)} matching resources.", extra=logging_context())
 
-    return {
-        "score_sets": score_sets,
-        "num_score_sets": num_score_sets
-    }
+    return {"score_sets": score_sets, "num_score_sets": num_score_sets}
 
 
 def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch):
@@ -311,7 +310,6 @@ def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Opt
     target_accession_counter: Counter[str] = Counter()
     for score_set in score_sets:
         for target in getattr(score_set, "target_genes", []):
-
             category = getattr(target, "category", None)
             if category:
                 target_category_counter[category] += 1
@@ -359,7 +357,9 @@ def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Opt
             if journal:
                 publication_journal_counter[journal] += 1
 
-    publication_author_names = [{"value": value, "count": count} for value, count in publication_author_name_counter.items()]
+    publication_author_names = [
+        {"value": value, "count": count} for value, count in publication_author_name_counter.items()
+    ]
     publication_db_names = [{"value": value, "count": count} for value, count in publication_db_name_counter.items()]
     publication_journals = [{"value": value, "count": count} for value, count in publication_journal_counter.items()]
 

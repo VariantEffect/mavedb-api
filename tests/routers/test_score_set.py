@@ -1873,6 +1873,7 @@ def test_search_others_public_score_sets_no_match(session, data_provider, client
     assert response.json()["num_score_sets"] == 0
     assert len(response.json()["score_sets"]) == 0
 
+
 def test_search_others_public_score_sets_match(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client, {"title": "Experiment 1"})
     score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Test Fnord Score Set"})
@@ -1909,7 +1910,7 @@ def test_search_others_public_score_sets_urn_match(session, data_provider, clien
     assert response.json()["num_score_sets"] == 1
     assert len(response.json()["score_sets"]) == 1
     assert response.json()["score_sets"][0]["urn"] == published_score_set["urn"]
-    
+
 
 def test_search_others_public_score_sets_urn_with_space_match(
     session, data_provider, client, setup_router_db, data_files
