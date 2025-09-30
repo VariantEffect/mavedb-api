@@ -1718,7 +1718,7 @@ def test_search_private_score_sets_match(session, data_provider, client, setup_r
     assert response.status_code == 200
     assert response.json()["numScoreSets"] == 1
     assert len(response.json()["scoreSets"]) == 1
-    assert response.json()["scoreSets"][0]["title"] == published_score_set["urn"]
+    assert response.json()["scoreSets"][0]["title"] == score_set["urn"]
 
 
 def test_search_private_score_sets_urn_match(session, data_provider, client, setup_router_db, data_files):

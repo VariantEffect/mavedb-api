@@ -363,7 +363,7 @@ def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Opt
     publication_db_names = [{"value": value, "count": count} for value, count in publication_db_name_counter.items()]
     publication_journals = [{"value": value, "count": count} for value, count in publication_journal_counter.items()]
 
-    logger.debug(msg=f"Score set search filter options were fetched.", extra=logging_context())
+    logger.debug(msg="Score set search filter options were fetched.", extra=logging_context())
 
     return {
         "target_gene_categories": target_gene_categories,
