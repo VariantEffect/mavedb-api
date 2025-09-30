@@ -38,5 +38,26 @@ class ScoreSetsSearchResponse(BaseModel):
         from_attributes = True
 
 
+class ScoreSetsSearchFilterOption(BaseModel):
+    value: str
+    count: int
+
+    class Config:
+        from_attributes = True
+
+
+class ScoreSetsSearchFilterOptionsResponse(BaseModel):
+    target_gene_categories: list[ScoreSetsSearchFilterOption]
+    target_gene_names: list[ScoreSetsSearchFilterOption]
+    target_organism_names: list[ScoreSetsSearchFilterOption]
+    target_accessions: list[ScoreSetsSearchFilterOption]
+    publication_author_names: list[ScoreSetsSearchFilterOption]
+    publication_db_names: list[ScoreSetsSearchFilterOption]
+    publication_journals: list[ScoreSetsSearchFilterOption]
+
+    class Config:
+        from_attributes = True
+
+
 class TextSearch(BaseModel):
     text: Optional[str] = None
