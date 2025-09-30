@@ -1,7 +1,7 @@
 from typing import Optional
 
 from mavedb.view_models.base.base import BaseModel
-from mavedb.view_models.score_set import SavedScoreSet, ShortScoreSet
+from mavedb.view_models.score_set import ShortScoreSet
 
 
 class ExperimentsSearch(BaseModel):

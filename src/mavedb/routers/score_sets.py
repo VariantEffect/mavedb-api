@@ -51,7 +51,6 @@ from mavedb.lib.score_sets import (
     variants_to_csv_rows,
 )
 from mavedb.lib.score_sets import (
-    fetch_superseding_score_set_in_search_result,
     search_score_sets as _search_score_sets,
     refresh_variant_urns,
 )
