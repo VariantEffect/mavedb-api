@@ -143,6 +143,13 @@ def search_score_sets(
     """
     Search score sets.
     """
+
+    # Disallow searches for unpublished score sets via this endpoint.
+    if search.published is False:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cannot search for sprivate score sets except in the context of the current user's data.",
+        )
     search.published = True
 
     # Require a limit of at most 100 when the search query does not include publication identifiers. We allow unlimited

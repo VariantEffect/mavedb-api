@@ -1718,7 +1718,7 @@ def test_search_private_score_sets_match(session, data_provider, client, setup_r
     assert response.status_code == 200
     assert response.json()["numScoreSets"] == 1
     assert len(response.json()["scoreSets"]) == 1
-    assert response.json()["scoreSets"][0]["title"] == score_set["urn"]
+    assert response.json()["scoreSets"][0]["title"] == score_set["title"]
 
 
 def test_search_private_score_sets_urn_match(session, data_provider, client, setup_router_db, data_files):
@@ -1932,8 +1932,7 @@ def test_search_others_public_score_sets_urn_with_space_match(
     assert len(response.json()["scoreSets"]) == 1
     assert response.json()["scoreSets"][0]["urn"] == published_score_set["urn"]
 
-
-def test_search_private_score_sets_not_showing_public_score_set(
+def test_cannot_search_private_score_sets(
     session, data_provider, client, setup_router_db, data_files
 ):
     experiment = create_experiment(client, {"title": "Experiment 1"})
@@ -1948,10 +1947,12 @@ def test_search_private_score_sets_not_showing_public_score_set(
 
     search_payload = {"published": False}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
-    assert response.status_code == 200
-    assert response.json()["numScoreSets"] == 1
-    assert len(response.json()["scoreSets"]) == 1
-    assert response.json()["scoreSets"][0]["urn"] == score_set_2["urn"]
+    assert response.status_code == 422
+
+    response_data = response.json()
+    assert (
+        "cannot search for private score sets except in the context of the current user's data" in response_data["detail"][0]["msg"]
+    )
 
 
 def test_search_public_score_sets_not_showing_private_score_set(
