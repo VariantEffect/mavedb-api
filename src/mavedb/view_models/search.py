@@ -1,6 +1,7 @@
 from typing import Optional
 
 from mavedb.view_models.base.base import BaseModel
+from mavedb.view_models.score_set import SavedScoreSet, ShortScoreSet
 
 
 class ExperimentsSearch(BaseModel):
@@ -26,6 +27,15 @@ class ScoreSetsSearch(BaseModel):
     publication_identifiers: Optional[list[str]] = None
     keywords: Optional[list[str]] = None
     text: Optional[str] = None
+    limit: Optional[int] = None
+
+
+class ScoreSetsSearchResponse(BaseModel):
+    score_sets: list[ShortScoreSet]
+    num_score_sets: int
+
+    class Config:
+        from_attributes = True
 
 
 class TextSearch(BaseModel):

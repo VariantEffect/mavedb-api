@@ -74,7 +74,7 @@ from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
 from mavedb.view_models import mapped_variant, score_set, clinical_control, score_range, gnomad_variant
-from mavedb.view_models.search import ScoreSetsSearch
+from mavedb.view_models.search import ScoreSetsSearch, ScoreSetsSearchResponse
 
 logger = logging.getLogger(__name__)
 
@@ -134,25 +134,30 @@ router = APIRouter(
 )
 
 
-@router.post("/score-sets/search", status_code=200, response_model=list[score_set.ShortScoreSet])
+@router.post("/score-sets/search", status_code=200, response_model=ScoreSetsSearchResponse)
 def search_score_sets(
     search: ScoreSetsSearch,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
-) -> Any:  # = Body(..., embed=True),
+) -> Any:
     """
     Search score sets.
     """
-    score_sets = _search_score_sets(db, None, search)
-    updated_score_sets = fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
-    enriched_score_sets = []
-    if updated_score_sets:
-        for u in updated_score_sets:
-            enriched_experiment = enrich_experiment_with_num_score_sets(u.experiment, user_data)
-            response_item = score_set.ScoreSet.model_validate(u).copy(update={"experiment": enriched_experiment})
-            enriched_score_sets.append(response_item)
+    search.published = True
+    if search.limit is None or search.limit > 100:
+        search.limit = 100
 
-    return enriched_score_sets
+    score_sets, num_score_sets = _search_score_sets(db, None, search).values()
+    enriched_score_sets = []
+    for ss in score_sets:
+        enriched_experiment = enrich_experiment_with_num_score_sets(ss.experiment, user_data)
+        response_item = score_set.ScoreSet.model_validate(ss).copy(update={"experiment": enriched_experiment})
+        enriched_score_sets.append(response_item)
+
+    return {
+        "score_sets": enriched_score_sets,
+        "num_score_sets": num_score_sets
+    }
 
 
 @router.get("/score-sets/mapped-genes", status_code=200, response_model=dict[str, list[str]])
@@ -189,26 +194,27 @@ def score_set_mapped_gene_mapping(
 @router.post(
     "/me/score-sets/search",
     status_code=200,
-    response_model=list[score_set.ShortScoreSet],
+    response_model=ScoreSetsSearchResponse,
 )
 def search_my_score_sets(
-    search: ScoreSetsSearch,  # = Body(..., embed=True),
+    search: ScoreSetsSearch,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
 ) -> Any:
     """
     Search score sets created by the current user..
     """
-    score_sets = _search_score_sets(db, user_data.user, search)
-    updated_score_sets = fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
+    score_sets, num_score_sets = _search_score_sets(db, user_data.user, search).values()
     enriched_score_sets = []
-    if updated_score_sets:
-        for u in updated_score_sets:
-            enriched_experiment = enrich_experiment_with_num_score_sets(u.experiment, user_data)
-            response_item = score_set.ScoreSet.model_validate(u).copy(update={"experiment": enriched_experiment})
-            enriched_score_sets.append(response_item)
+    for ss in score_sets:
+        enriched_experiment = enrich_experiment_with_num_score_sets(ss.experiment, user_data)
+        response_item = score_set.ScoreSet.model_validate(ss).copy(update={"experiment": enriched_experiment})
+        enriched_score_sets.append(response_item)
 
-    return enriched_score_sets
+    return {
+        "score_sets": enriched_score_sets,
+        "num_score_sets": num_score_sets
+    }
 
 
 @router.get(

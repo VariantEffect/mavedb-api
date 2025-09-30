@@ -1,8 +1,9 @@
+from collections import Counter
 import csv
 import io
 import logging
-import re
 from operator import attrgetter
+import re
 from typing import Any, BinaryIO, Iterable, Optional, TYPE_CHECKING, Sequence, Literal
 
 from mavedb.models.mapped_variant import MappedVariant
@@ -10,7 +11,7 @@ import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
 from sqlalchemy import Integer, and_, cast, func, or_, select
-from sqlalchemy.orm import Session, aliased, contains_eager, joinedload, selectinload
+from sqlalchemy.orm import Session, aliased, contains_eager, joinedload, Query, selectinload
 
 from mavedb.lib.exceptions import ValidationError
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
@@ -71,11 +72,13 @@ class HGVSColumns:
         return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
-def search_score_sets(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
-    save_to_logging_context({"score_set_search_criteria": search.model_dump()})
+def build_search_score_sets_query_filter(db: Session, query: Query[ScoreSet], owner_or_contributor: Optional[User], search: ScoreSetsSearch):
+    superseding_score_set = aliased(ScoreSet)
 
-    query = db.query(ScoreSet)  # \
-    # .filter(ScoreSet.private.is_(False))
+    # Limit to unsuperseded score sets.
+    # TODO#??? Prevent unpublished superseding score sets from hiding their published precursors in search results.
+    query = query.join(superseding_score_set, ScoreSet.superseding_score_set, isouter=True)
+    query = query.filter(superseding_score_set.id.is_(None))
 
     if owner_or_contributor is not None:
         query = query.filter(
@@ -213,6 +216,15 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
                 )
             )
         )
+    return query
+
+
+def search_score_sets(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch):
+    save_to_logging_context({"score_set_search_criteria": search.model_dump()})
+
+    query = db.query(ScoreSet)
+    query = build_search_score_sets_query_filter(db, query, owner_or_contributor, search)
+    logger.info(query)
 
     score_sets: list[ScoreSet] = (
         query.join(ScoreSet.experiment)
@@ -257,15 +269,30 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
             ),
         )
         .order_by(Experiment.title)
+        .limit(search.limit + 1 if search.limit is not None else None)
         .all()
     )
     if not score_sets:
         score_sets = []
 
+    num_score_sets = len(score_sets)
+    if search.limit is not None and num_score_sets > search.limit:
+        # Limit the results.
+        score_sets = score_sets[:search.limit]
+        count_query = db.query(ScoreSet)  # \
+        # .filter(ScoreSet.private.is_(False))
+        build_search_score_sets_query_filter(db, count_query, owner_or_contributor, search)
+        num_score_sets = count_query.order_by(None).limit(None).count()
+
+    # build_search_score_sets_query_filter(db, query, owner_or_contributor, search)
+
     save_to_logging_context({"matching_resources": len(score_sets)})
     logger.debug(msg=f"Score set search yielded {len(score_sets)} matching resources.", extra=logging_context())
 
-    return score_sets  # filter_visible_score_sets(score_sets)
+    return {
+        "score_sets": score_sets,
+        "num_score_sets": num_score_sets
+    }
 
 
 def fetch_superseding_score_set_in_search_result(
