@@ -305,10 +305,10 @@ def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Opt
     if not score_sets:
         score_sets = []
 
-    target_category_counter = Counter()
-    target_name_counter = Counter()
-    target_organism_name_counter = Counter()
-    target_accession_counter = Counter()
+    target_category_counter: Counter[str] = Counter()
+    target_name_counter: Counter[str] = Counter()
+    target_organism_name_counter: Counter[str] = Counter()
+    target_accession_counter: Counter[str] = Counter()
     for score_set in score_sets:
         for target in getattr(score_set, "target_genes", []):
 
@@ -338,9 +338,9 @@ def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Opt
     target_organism_names = [{"value": value, "count": count} for value, count in target_organism_name_counter.items()]
     target_accessions = [{"value": value, "count": count} for value, count in target_accession_counter.items()]
 
-    publication_author_name_counter = Counter()
-    publication_db_name_counter = Counter()
-    publication_journal_counter = Counter()
+    publication_author_name_counter: Counter[str] = Counter()
+    publication_db_name_counter: Counter[str] = Counter()
+    publication_journal_counter: Counter[str] = Counter()
     for score_set in score_sets:
         for publication_association in getattr(score_set, "publication_identifier_associations", []):
             publication = getattr(publication_association, "publication", None)
