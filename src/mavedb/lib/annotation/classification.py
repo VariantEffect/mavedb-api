@@ -33,7 +33,7 @@ def functional_classification_of_variant(
     # This view model object is much simpler to work with.
     score_ranges = ScoreSetRanges(**mapped_variant.variant.score_set.score_ranges).investigator_provided
 
-    if not score_ranges:
+    if not score_ranges or not score_ranges.ranges:
         raise ValueError(
             f"Variant {mapped_variant.variant.urn} does not have investigator-provided score ranges."
             " Unable to classify functional impact."
@@ -71,7 +71,7 @@ def zeiberg_calibration_clinical_classification_of_variant(
 
     score_ranges = ScoreSetRanges(**mapped_variant.variant.score_set.score_ranges).zeiberg_calibration
 
-    if not score_ranges:
+    if not score_ranges or not score_ranges.ranges:
         raise ValueError(
             f"Variant {mapped_variant.variant.urn} does not have pillar project score ranges."
             " Unable to classify clinical impact."

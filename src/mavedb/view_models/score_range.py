@@ -205,7 +205,9 @@ class BrnichScoreRangesBase(ScoreRangesBase):
 
         if baseline_score is not None:
             if not any(range_model.classification == "normal" for range_model in ranges):
-                raise ValidationError("A baseline score has been provided, but no normal classification range exists.")
+                # For now, we do not raise an error if a baseline score is provided but no normal range exists.
+                # raise ValidationError("A baseline score has been provided, but no normal classification range exists.")
+                return self
 
         normal_ranges = [range_model.range for range_model in ranges if range_model.classification == "normal"]
 

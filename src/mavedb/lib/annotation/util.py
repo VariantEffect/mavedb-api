@@ -162,7 +162,7 @@ def _can_annotate_variant_base_assumptions(mapped_variant: MappedVariant) -> boo
     return True
 
 
-def _variant_score_ranges_have_required_keys_for_annotation(
+def _variant_score_ranges_have_required_keys_and_ranges_for_annotation(
     mapped_variant: MappedVariant, key_options: list[str]
 ) -> bool:
     """
@@ -173,7 +173,8 @@ def _variant_score_ranges_have_required_keys_for_annotation(
         key_options (list[str]): List of possible score range keys to check for in the score set.
 
     Returns:
-        bool: False if none of the required keys are found or if all found keys have None values.
+        bool: False if none of the required keys are found or if all found keys have None values or if all found keys
+              do not have range data.
               Returns True (implicitly) if at least one required key exists with a non-None value.
     """
     if mapped_variant.variant.score_set.score_ranges is None:
@@ -182,6 +183,7 @@ def _variant_score_ranges_have_required_keys_for_annotation(
     if not any(
         range_key in mapped_variant.variant.score_set.score_ranges
         and mapped_variant.variant.score_set.score_ranges[range_key] is not None
+        and mapped_variant.variant.score_set.score_ranges[range_key]["ranges"]
         for range_key in key_options
     ):
         return False
@@ -209,14 +211,14 @@ def can_annotate_variant_for_pathogenicity_evidence(mapped_variant: MappedVarian
     Notes:
         The function performs two main validation checks:
         1. Basic annotation assumptions via _can_annotate_variant_base_assumptions
-        2. Required clinical range keys via _variant_score_ranges_have_required_keys_for_annotation
+        2. Required clinical range keys via _variant_score_ranges_have_required_keys_and_ranges_for_annotation
 
         Both checks must pass for the variant to be considered eligible for
         pathogenicity evidence annotation.
     """
     if not _can_annotate_variant_base_assumptions(mapped_variant):
         return False
-    if not _variant_score_ranges_have_required_keys_for_annotation(mapped_variant, CLINICAL_RANGES):
+    if not _variant_score_ranges_have_required_keys_and_ranges_for_annotation(mapped_variant, CLINICAL_RANGES):
         return False
 
     return True
@@ -245,7 +247,7 @@ def can_annotate_variant_for_functional_statement(mapped_variant: MappedVariant)
     """
     if not _can_annotate_variant_base_assumptions(mapped_variant):
         return False
-    if not _variant_score_ranges_have_required_keys_for_annotation(mapped_variant, FUNCTIONAL_RANGES):
+    if not _variant_score_ranges_have_required_keys_and_ranges_for_annotation(mapped_variant, FUNCTIONAL_RANGES):
         return False
 
     return True

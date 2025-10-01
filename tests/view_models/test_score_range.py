@@ -646,6 +646,7 @@ def test_score_ranges_zeiberg_calibration_ranges_boundaries_may_be_adjacent(
     ScoreRangesModel(**valid_data)
 
 
+@pytest.mark.skip("Not applicable currently. Baseline score may be provided on its own.")
 @pytest.mark.parametrize(
     "ScoreRangesModel",
     [
