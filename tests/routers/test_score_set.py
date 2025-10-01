@@ -1951,7 +1951,7 @@ def test_cannot_search_private_score_sets(
 
     response_data = response.json()
     assert (
-        "cannot search for private score sets except in the context of the current user's data" in response_data["detail"]
+        "Cannot search for private score sets except in the context of the current user's data." in response_data["detail"]
     )
 
 
