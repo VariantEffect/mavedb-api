@@ -148,7 +148,7 @@ def search_score_sets(
     if search.published is False:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Cannot search for sprivate score sets except in the context of the current user's data.",
+            detail="Cannot search for private score sets except in the context of the current user's data.",
         )
     search.published = True
 
