@@ -205,7 +205,9 @@ class BrnichScoreRangesBase(ScoreRangesBase):
 
         if baseline_score is not None:
             if not any(range_model.classification == "normal" for range_model in ranges):
-                raise ValidationError("A baseline score has been provided, but no normal classification range exists.")
+                # For now, we do not raise an error if a baseline score is provided but no normal range exists.
+                # raise ValidationError("A baseline score has been provided, but no normal classification range exists.")
+                return self
 
         normal_ranges = [range_model.range for range_model in ranges if range_model.classification == "normal"]
 
@@ -337,6 +339,90 @@ class ScottScoreRanges(BrnichScoreRanges, SavedScottScoreRanges):
 
 
 ##############################################################################################################
+# IGVF Coding Variant Focus Group (CVFG) range models
+##############################################################################################################
+
+# Controls: All Variants
+
+
+class IGVFCodingVariantFocusGroupControlScoreRangesBase(BrnichScoreRangesBase):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: All Variants"
+    research_use_only: bool = False
+
+
+class IGVFCodingVariantFocusGroupControlScoreRangesModify(
+    BrnichScoreRangesModify, IGVFCodingVariantFocusGroupControlScoreRangesBase
+):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: All Variants"
+    research_use_only: bool = False
+
+
+class IGVFCodingVariantFocusGroupControlScoreRangesCreate(
+    BrnichScoreRangesCreate, IGVFCodingVariantFocusGroupControlScoreRangesModify
+):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: All Variants"
+    research_use_only: bool = False
+
+
+class SavedIGVFCodingVariantFocusGroupControlScoreRanges(
+    SavedBrnichScoreRanges, IGVFCodingVariantFocusGroupControlScoreRangesBase
+):
+    record_type: str = None  # type: ignore
+
+    title: str = "IGVF Coding Variant Focus Group -- Controls: All Variants"
+    research_use_only: bool = False
+
+    _record_type_factory = record_type_validator()(set_record_type)
+
+
+class IGVFCodingVariantFocusGroupControlScoreRanges(
+    BrnichScoreRanges, SavedIGVFCodingVariantFocusGroupControlScoreRanges
+):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: All Variants"
+    research_use_only: bool = False
+
+
+# Controls: Missense Variants
+
+
+class IGVFCodingVariantFocusGroupMissenseScoreRangesBase(BrnichScoreRangesBase):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: Missense Variants Only"
+    research_use_only: bool = False
+
+
+class IGVFCodingVariantFocusGroupMissenseScoreRangesModify(
+    BrnichScoreRangesModify, IGVFCodingVariantFocusGroupMissenseScoreRangesBase
+):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: Missense Variants Only"
+    research_use_only: bool = False
+
+
+class IGVFCodingVariantFocusGroupMissenseScoreRangesCreate(
+    BrnichScoreRangesCreate, IGVFCodingVariantFocusGroupMissenseScoreRangesModify
+):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: Missense Variants Only"
+    research_use_only: bool = False
+
+
+class SavedIGVFCodingVariantFocusGroupMissenseScoreRanges(
+    SavedBrnichScoreRanges, IGVFCodingVariantFocusGroupMissenseScoreRangesBase
+):
+    record_type: str = None  # type: ignore
+
+    title: str = "IGVF Coding Variant Focus Group -- Controls: Missense Variants Only"
+    research_use_only: bool = False
+
+    _record_type_factory = record_type_validator()(set_record_type)
+
+
+class IGVFCodingVariantFocusGroupMissenseScoreRanges(
+    BrnichScoreRanges, SavedIGVFCodingVariantFocusGroupMissenseScoreRanges
+):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: Missense Variants Only"
+    research_use_only: bool = False
+
+
+##############################################################################################################
 # Zeiberg specific calibration models
 ##############################################################################################################
 
@@ -450,12 +536,20 @@ class ScoreSetRangesBase(BaseModel):
     investigator_provided: Optional[InvestigatorScoreRangesBase] = None
     scott_calibration: Optional[ScottScoreRangesBase] = None
     zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesBase] = None
+    cvfg_all_variants: Optional[IGVFCodingVariantFocusGroupControlScoreRangesBase] = None
+    cvfg_missense_variants: Optional[IGVFCodingVariantFocusGroupMissenseScoreRangesBase] = None
 
     _fields_to_exclude_for_validatation = {"record_type"}
 
     @model_validator(mode="after")
     def score_range_labels_must_be_unique(self: "ScoreSetRangesBase") -> "ScoreSetRangesBase":
-        for container in (self.investigator_provided, self.zeiberg_calibration, self.scott_calibration):
+        for container in (
+            self.investigator_provided,
+            self.zeiberg_calibration,
+            self.scott_calibration,
+            self.cvfg_all_variants,
+            self.cvfg_missense_variants,
+        ):
             if container is None:
                 continue
 
@@ -478,12 +572,16 @@ class ScoreSetRangesModify(ScoreSetRangesBase):
     investigator_provided: Optional[InvestigatorScoreRangesModify] = None
     scott_calibration: Optional[ScottScoreRangesModify] = None
     zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesModify] = None
+    cvfg_all_variants: Optional[IGVFCodingVariantFocusGroupControlScoreRangesModify] = None
+    cvfg_missense_variants: Optional[IGVFCodingVariantFocusGroupMissenseScoreRangesModify] = None
 
 
 class ScoreSetRangesCreate(ScoreSetRangesModify):
     investigator_provided: Optional[InvestigatorScoreRangesCreate] = None
     scott_calibration: Optional[ScottScoreRangesCreate] = None
     zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesCreate] = None
+    cvfg_all_variants: Optional[IGVFCodingVariantFocusGroupControlScoreRangesCreate] = None
+    cvfg_missense_variants: Optional[IGVFCodingVariantFocusGroupMissenseScoreRangesCreate] = None
 
 
 class SavedScoreSetRanges(ScoreSetRangesBase):
@@ -492,6 +590,8 @@ class SavedScoreSetRanges(ScoreSetRangesBase):
     investigator_provided: Optional[SavedInvestigatorScoreRanges] = None
     scott_calibration: Optional[SavedScottScoreRanges] = None
     zeiberg_calibration: Optional[SavedZeibergCalibrationScoreRanges] = None
+    cvfg_all_variants: Optional[SavedIGVFCodingVariantFocusGroupControlScoreRanges] = None
+    cvfg_missense_variants: Optional[SavedIGVFCodingVariantFocusGroupMissenseScoreRanges] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
 
@@ -500,3 +600,5 @@ class ScoreSetRanges(SavedScoreSetRanges):
     investigator_provided: Optional[InvestigatorScoreRanges] = None
     scott_calibration: Optional[ScottScoreRanges] = None
     zeiberg_calibration: Optional[ZeibergCalibrationScoreRanges] = None
+    cvfg_all_variants: Optional[IGVFCodingVariantFocusGroupControlScoreRanges] = None
+    cvfg_missense_variants: Optional[IGVFCodingVariantFocusGroupMissenseScoreRanges] = None
