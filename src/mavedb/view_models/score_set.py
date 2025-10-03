@@ -40,6 +40,8 @@ from mavedb.view_models.target_gene import (
 )
 from mavedb.view_models.user import SavedUser, User
 
+import logging
+logger = logging.getLogger(__name__)
 
 UnboundedRange = tuple[Union[float, None], Union[float, None]]
 
@@ -76,7 +78,6 @@ class ScoreSetModify(ScoreSetBase):
     doi_identifiers: Optional[list[DoiIdentifierCreate]] = None
     target_genes: list[TargetGeneCreate]
     score_ranges: Optional[ScoreSetRangesCreate] = None
-    dataset_columns: Optional[dict] = None
 
     @field_validator("title", "short_description", "abstract_text", "method_text")
     def validate_field_is_non_empty(cls, v: str) -> str:
@@ -275,6 +276,43 @@ class ScoreSetUpdate(ScoreSetModify):
 
     license_id: Optional[int] = None
 
+class DatasetColumnMetadata(BaseModel):
+    """Metadata for individual dataset columns."""
+
+    description: str
+    details: Optional[str] = None
+
+class DatasetColumns(BaseModel):
+    """Dataset columns view model representing the dataset columns property of a score set."""
+
+    score_columns: Optional[list[str]] = None
+    count_columns: Optional[list[str]] = None
+    score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None
+    count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None
+
+    @field_validator("score_columns_metadata", "count_columns_metadata")
+    def validate_dataset_columns_metadata(cls, v: Optional[dict[str, DatasetColumnMetadata]]) -> Optional[dict[str, DatasetColumnMetadata]]:
+        if not v:
+            return None
+        DatasetColumnMetadata.model_validate(v)
+        return v
+
+    @model_validator(mode="after")
+    def validate_dataset_columns_metadata_keys(self) -> Self:
+        if self.score_columns_metadata is not None and self.score_columns is None:
+            raise ValidationError("Score columns metadata cannot be provided without score columns.")
+        elif self.score_columns_metadata is not None and self.score_columns is not None:
+            for key in self.score_columns_metadata.keys():
+                if key not in self.score_columns:
+                    raise ValidationError(f"Score column metadata key '{key}' does not exist in score_columns list.")
+
+        if self.count_columns_metadata is not None and self.count_columns is None:
+            raise ValidationError("Count columns metadata cannot be provided without count columns.")
+        elif self.count_columns_metadata is not None and self.count_columns is not None:
+            for key in self.count_columns_metadata.keys():
+                if key not in self.count_columns:
+                    raise ValidationError(f"Count column metadata key '{key}' does not exist in count_columns list.")
+        return self
 
 class ShortScoreSet(BaseModel):
     """
@@ -358,7 +396,7 @@ class SavedScoreSet(ScoreSetBase):
     created_by: Optional[SavedUser] = None
     modified_by: Optional[SavedUser] = None
     target_genes: Sequence[SavedTargetGene]
-    dataset_columns: dict
+    dataset_columns: DatasetColumns
     external_links: dict[str, ExternalLink]
     contributors: Sequence[Contributor]
     score_ranges: Optional[SavedScoreSetRanges] = None

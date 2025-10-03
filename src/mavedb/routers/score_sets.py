@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import date
 from typing import Any, List, Optional, Sequence, Union
@@ -946,7 +947,9 @@ async def upload_score_set_variant_data(
     *,
     urn: str,
     counts_file: Optional[UploadFile] = File(None),
-    scores_file: UploadFile = File(...),
+    scores_file: Optional[UploadFile] = File(None),
+    count_columns_metadata_file: Optional[UploadFile] = File(None),
+    score_columns_metadata_file: Optional[UploadFile] = File(None),
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
     worker: ArqRedis = Depends(deps.get_worker),
@@ -966,16 +969,61 @@ async def upload_score_set_variant_data(
     assert_permission(user_data, item, Action.UPDATE)
     assert_permission(user_data, item, Action.SET_SCORES)
 
-    try:
-        scores_df = csv_data_to_df(scores_file.file)
-        counts_df = None
-        if counts_file and counts_file.filename:
-            counts_df = csv_data_to_df(counts_file.file)
-    # Handle non-utf8 file problem.
-    except UnicodeDecodeError as e:
-        raise HTTPException(status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values.")
+    # get existing column metadata for scores if no new file is provided
+    if score_columns_metadata_file and score_columns_metadata_file.file:
+        try:
+            scores_column_metadata = json.load(score_columns_metadata_file.file)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Error decoding scores metadata file: {e}. Ensure the file is valid JSON.")
+    else:
+        scores_column_metadata = item.dataset_columns.get("scores_column_metadata") if item.dataset_columns else None
 
-    if scores_file:
+    # get existing column metadata for counts if no new file is provided
+    if count_columns_metadata_file and count_columns_metadata_file.file:
+        try:
+            counts_column_metadata = json.load(count_columns_metadata_file.file)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Error decoding counts metadata file: {e}. Ensure the file is valid JSON.")
+    else:
+        counts_column_metadata = item.dataset_columns.get("counts_column_metadata") if item.dataset_columns else None
+
+
+    if scores_file and scores_file.file:
+        try:
+            scores_df = csv_data_to_df(scores_file.file)
+            counts_df = None
+            if counts_file and counts_file.filename:
+                counts_df = csv_data_to_df(counts_file.file)
+        # Handle non-utf8 file problem.
+        except UnicodeDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values.")
+    elif item.variants:
+        assert item.dataset_columns is not None
+        score_columns = [
+            "hgvs_nt",
+            "hgvs_splice",
+            "hgvs_pro",
+        ] + item.dataset_columns["score_columns"]
+        count_columns = [
+            "hgvs_nt",
+            "hgvs_splice",
+            "hgvs_pro",
+        ] + item.dataset_columns["count_columns"]
+
+        scores_df = pd.DataFrame(
+            variants_to_csv_rows(item.variants, columns=score_columns, dtype="score_data")
+        ).replace("NA", pd.NA)
+
+        if item.dataset_columns["count_columns"]:
+            counts_df = pd.DataFrame(
+                variants_to_csv_rows(item.variants, columns=count_columns, dtype="count_data")
+            ).replace("NA", pd.NA)
+        else:
+            counts_df = None
+    else:
+        scores_df = pd.DataFrame()
+
+    if not scores_df.empty:
         # Although this is also updated within the variant creation job, update it here
         # as well so that we can display the proper UI components (queue invocation delay
         # races the score set GET request).
@@ -989,6 +1037,8 @@ async def upload_score_set_variant_data(
             user_data.user.id,
             scores_df,
             counts_df,
+            scores_column_metadata,
+            counts_column_metadata,
         )
         if job is not None:
             save_to_logging_context({"worker_job_id": job.job_id})
@@ -1244,10 +1294,10 @@ async def update_score_set(
 
             # score_columns_metadata and count_columns_metadata are the only values of dataset_columns that can be set manually.
             # The others, scores_columns and count_columns, are calculated based on the uploaded data and should not be changed here.
-            if item_update.dataset_columns.get("countColumnsMetadata") is not None:
-                item.dataset_columns= {**item.dataset_columns, "count_columns_metadata": item_update.dataset_columns["countColumnsMetadata"]}
-            if item_update.dataset_columns.get("scoreColumnsMetadata") is not None:
-                item.dataset_columns = {**item.dataset_columns, "score_columns_metadata": item_update.dataset_columns["scoreColumnsMetadata"]}
+            # if item_update.dataset_columns.get("countColumnsMetadata") is not None:
+            #     item.dataset_columns= {**item.dataset_columns, "count_columns_metadata": item_update.dataset_columns["countColumnsMetadata"]}
+            # if item_update.dataset_columns.get("scoreColumnsMetadata") is not None:
+            #     item.dataset_columns = {**item.dataset_columns, "score_columns_metadata": item_update.dataset_columns["scoreColumnsMetadata"]}
 
             score_columns = [
                 "hgvs_nt",
@@ -1271,6 +1321,9 @@ async def update_score_set(
             else:
                 count_data = None
 
+            scores_column_metadata = item.dataset_columns.get("scores_column_metadata")
+            counts_column_metadata = item.dataset_columns.get("counts_column_metadata")
+
             # Although this is also updated within the variant creation job, update it here
             # as well so that we can display the proper UI components (queue invocation delay
             # races the score set GET request).
@@ -1284,6 +1337,8 @@ async def update_score_set(
                 user_data.user.id,
                 scores_data,
                 count_data,
+                scores_column_metadata,
+                counts_column_metadata,
             )
             if job is not None:
                 save_to_logging_context({"worker_job_id": job.job_id})

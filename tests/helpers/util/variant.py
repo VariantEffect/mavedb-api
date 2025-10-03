@@ -1,8 +1,10 @@
+import json
 from typing import Optional
 
 from arq import ArqRedis
 from cdot.hgvs.dataproviders import RESTDataProvider
 from fastapi.testclient import TestClient
+from mavedb.view_models.score_set import DatasetColumns
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from unittest.mock import patch
@@ -29,6 +31,8 @@ def mock_worker_variant_insertion(
     score_set: dict,
     scores_csv_path: str,
     counts_csv_path: Optional[str] = None,
+    scores_column_metadata_json_path: Optional[str] = None,
+    counts_column_metadata_json_path: Optional[str] = None,
 ) -> None:
     with (
         open(scores_csv_path, "rb") as score_file,
@@ -42,6 +46,18 @@ def mock_worker_variant_insertion(
         else:
             counts_file = None
 
+        if scores_column_metadata_json_path is not None:
+            scores_column_metadata_file = open(scores_column_metadata_json_path, "rb")
+            files["scores_column_metadata_file"] = (scores_column_metadata_json_path.name, scores_column_metadata_file, "rb")
+        else:
+            scores_column_metadata_file = None
+
+        if counts_column_metadata_json_path is not None:
+            counts_column_metadata_file = open(counts_column_metadata_json_path, "rb")
+            files["counts_column_metadata_file"] = (counts_column_metadata_json_path.name, counts_column_metadata_file, "rb")
+        else:
+            counts_column_metadata_file = None
+
         response = client.post(f"/api/v1/score-sets/{score_set['urn']}/variants/data", files=files)
 
         # Assert we have mocked a job being added to the queue, and that the request succeeded. The
@@ -49,8 +65,9 @@ def mock_worker_variant_insertion(
         worker_queue.assert_called_once()
         assert response.status_code == 200
 
-        if counts_file is not None:
-            counts_file.close()
+        for file in (counts_file, scores_column_metadata_file, counts_column_metadata_file):
+            if file is not None:
+                file.close()
 
     # Reopen files since their buffers are consumed while mocking the variant data post request.
     with open(scores_csv_path, "rb") as score_file:
@@ -62,22 +79,34 @@ def mock_worker_variant_insertion(
     else:
         counts_df = None
 
+    if scores_column_metadata_json_path is not None:
+        with open(scores_column_metadata_json_path, "rb") as scores_column_metadata_file:
+            scores_column_metadata = json.load(scores_column_metadata_file)
+    else:
+        scores_column_metadata = None
+
+    if counts_column_metadata_json_path is not None:
+        with open(counts_column_metadata_json_path, "rb") as counts_column_metadata_file:
+            counts_column_metadata = json.load(counts_column_metadata_file)
+    else:
+        counts_column_metadata = None
+
     # Insert variant manually, worker jobs are tested elsewhere separately.
     item = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set["urn"])).one_or_none()
     assert item is not None
 
-    scores, counts = validate_and_standardize_dataframe_pair(score_df, counts_df, item.target_genes, data_provider)
+    scores, counts, scores_column_metadata, counts_column_metadata = validate_and_standardize_dataframe_pair(score_df, counts_df, scores_column_metadata, counts_column_metadata, item.target_genes, data_provider)
     variants = create_variants_data(scores, counts, None)
     num_variants = create_variants(db, item, variants)
     assert num_variants == 3
 
     item.processing_state = ProcessingState.success
-    item.dataset_columns = {
-        "score_columns": columns_for_dataset(scores),
-        "count_columns": columns_for_dataset(counts),
-        "score_columns_metadata": item.dataset_columns.get("score_columns_metadata", {}) if item.dataset_columns else {},
-        "count_columns_metadata": item.dataset_columns.get("count_columns_metadata", {}) if item.dataset_columns else {},
-    }
+    item.dataset_columns = DatasetColumns(
+        score_columns=columns_for_dataset(scores),
+        count_columns=columns_for_dataset(counts),
+        score_columns_metadata=scores_column_metadata if scores_column_metadata is not None else {},
+        count_columns_metadata=counts_column_metadata if counts_column_metadata is not None else {},
+    )
 
     db.add(item)
     db.commit()

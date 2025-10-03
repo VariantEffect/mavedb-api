@@ -9,6 +9,7 @@ import pandas as pd
 from arq import ArqRedis
 from arq.jobs import Job, JobStatus
 from cdot.hgvs.dataproviders import RESTDataProvider
+from mavedb.view_models.score_set import DatasetColumnMetadata
 from sqlalchemy import cast, delete, null, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
@@ -121,7 +122,14 @@ async def enqueue_job_with_backoff(
 
 
 async def create_variants_for_score_set(
-    ctx, correlation_id: str, score_set_id: int, updater_id: int, scores: pd.DataFrame, counts: pd.DataFrame
+    ctx,
+    correlation_id: str,
+    score_set_id: int,
+    updater_id: int,
+    scores: pd.DataFrame,
+    counts: pd.DataFrame,
+    scores_column_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
+    counts_column_metadata: Optional[dict[str, DatasetColumnMetadata]] = None
 ):
     """
     Create variants for a score set. Intended to be run within a worker.
@@ -157,15 +165,15 @@ async def create_variants_for_score_set(
             )
             raise ValueError("Can't create variants when score set has no targets.")
 
-        validated_scores, validated_counts = validate_and_standardize_dataframe_pair(
-            scores, counts, score_set.target_genes, hdp
+        validated_scores, validated_counts, validated_scores_column_metadata, validated_counts_column_metadata = validate_and_standardize_dataframe_pair(
+            scores, counts, scores_column_metadata, counts_column_metadata, score_set.target_genes, hdp
         )
 
         score_set.dataset_columns = {
             "score_columns": columns_for_dataset(validated_scores),
             "count_columns": columns_for_dataset(validated_counts),
-            "score_columns_metadata": score_set.dataset_columns.get("score_columns_metadata", {}) if score_set.dataset_columns else {},
-            "count_columns_metadata": score_set.dataset_columns.get("count_columns_metadata", {}) if score_set.dataset_columns else {},
+            "score_columns_metadata": validated_scores_column_metadata if validated_scores_column_metadata is not None else {},
+            "count_columns_metadata": validated_counts_column_metadata if validated_counts_column_metadata is not None else {},
         }
 
         # Delete variants after validation occurs so we don't overwrite them in the case of a bad update.
