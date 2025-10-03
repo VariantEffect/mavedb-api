@@ -67,8 +67,11 @@ services:
       - settings/.env.dev
     depends_on:
       - redis
+      - seqrepo
     ports:
       - "8006:8000"
+    volumes:
+      - mavedb-seqrepo-dev:/usr/local/share/seqrepo
 
   db:
     image: postgres:14

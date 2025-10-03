@@ -12,7 +12,7 @@ from tests.helpers.constants import (
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+    TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
     TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     SAVED_PUBMED_PUBLICATION,
     TEST_BIORXIV_IDENTIFIER,
@@ -263,17 +263,17 @@ def test_cannot_create_score_set_with_investigator_provided_score_range_if_sourc
 
 
 @pytest.mark.parametrize("publication_key", ["primary_publication_identifiers", "secondary_publication_identifiers"])
-def test_can_create_score_set_with_pillar_project_score_range(publication_key):
+def test_can_create_score_set_with_zeiberg_calibration_score_range(publication_key):
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT)
+    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION)
     score_set_test[publication_key] = [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}]
 
     ScoreSetModify(**score_set_test)
 
 
-def test_cannot_create_score_set_with_pillar_project_score_range_if_source_not_in_score_set_publications():
+def test_cannot_create_score_set_with_zeiberg_calibration_score_range_if_source_not_in_score_set_publications():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT)
+    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION)
 
     with pytest.raises(
         ValueError,

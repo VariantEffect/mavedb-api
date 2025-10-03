@@ -11,8 +11,8 @@ from mavedb.lib.annotation.method import (
     mavedb_api_as_method,
     mavedb_vrs_releases_as_iri,
     mavedb_vrs_as_method,
-    pillar_project_calibrations_as_iri,
-    pillar_project_calibration_method,
+    zeiberg_calibrations_as_iri,
+    zeiberg_calibration_method,
     variant_interpretation_functional_guideline_as_iri,
     variant_interpretation_functional_guideline_method,
 )
@@ -93,15 +93,15 @@ def test_mavedb_vrs_as_method():
     assert method.reportedIn.root == MAVEDB_MAPPER_RELEASES_URL
 
 
-def test_pillar_project_calibrations_as_iri():
-    assert pillar_project_calibrations_as_iri().root == MAVEDB_CALIBRATION_URL
+def test_zeiberg_calibrations_as_iri():
+    assert zeiberg_calibrations_as_iri().root == MAVEDB_CALIBRATION_URL
 
 
 @pytest.mark.parametrize(
     "evidence_outcome", [VariantPathogenicityEvidenceLine.Criterion.BS3, VariantPathogenicityEvidenceLine.Criterion.PS3]
 )
-def test_pillar_project_calibration_method(evidence_outcome):
-    method = pillar_project_calibration_method(evidence_outcome)
+def test_zeiberg_calibration_method(evidence_outcome):
+    method = zeiberg_calibration_method(evidence_outcome)
     assert method.name == "Software version"
     assert method.reportedIn.root == MAVEDB_CALIBRATION_URL
     assert method.methodType == evidence_outcome.value

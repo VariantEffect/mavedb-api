@@ -86,7 +86,7 @@ def mavedb_vrs_as_method() -> Method:
     return Method(name="Software version", reportedIn=mavedb_vrs_releases_as_iri())
 
 
-def pillar_project_calibrations_as_iri() -> IRI:
+def zeiberg_calibrations_as_iri() -> IRI:
     """
     Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for the software used to generate pillar project calibrations. Within
     the context of VA-Spec, this IRI can be used interchangeably with an equivalent method object for brevity.
@@ -94,14 +94,14 @@ def pillar_project_calibrations_as_iri() -> IRI:
     return IRI("https://github.com/Dzeiberg/mave_calibration")
 
 
-def pillar_project_calibration_method(method: Optional[VariantPathogenicityEvidenceLine.Criterion]) -> Method:
+def zeiberg_calibration_method(method: Optional[VariantPathogenicityEvidenceLine.Criterion]) -> Method:
     """
     Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
     object for the pillar project calibration software distribution.
     """
     return Method(
         name="Software version",
-        reportedIn=pillar_project_calibrations_as_iri(),
+        reportedIn=zeiberg_calibrations_as_iri(),
         methodType=method.value if method else None,
     )
 
