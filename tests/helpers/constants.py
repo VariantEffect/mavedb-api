@@ -1614,6 +1614,7 @@ TEST_SCORE_SET_RANGE_WITH_SOURCE = {
     ],
     "research_use_only": False,
     "title": "Test Base Ranges with Source",
+    "primary": False,
     "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
 }
 
@@ -1666,6 +1667,7 @@ TEST_BRNICH_SCORE_SET_RANGE = {
     ],
     "research_use_only": False,
     "title": "Test Brnich Functional Ranges",
+    "primary": False,
     "odds_path_source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
     "source": None,
 }
@@ -1681,6 +1683,7 @@ TEST_SAVED_BRNICH_SCORE_SET_RANGE = {
     ],
     "researchUseOnly": False,
     "title": "Test Brnich Functional Ranges",
+    "primary": False,
     "oddsPathSource": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
     "source": None,
 }
@@ -1745,6 +1748,7 @@ TEST_SCOTT_SCORE_SET_RANGE = {
     ],
     "research_use_only": False,
     "title": "Test Scott Functional Ranges",
+    "primary": False,
     "odds_path_source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
     "source": None,
 }
@@ -1760,6 +1764,7 @@ TEST_SAVED_SCOTT_SCORE_SET_RANGE = {
     ],
     "researchUseOnly": False,
     "title": "Test Scott Functional Ranges",
+    "primary": False,
     "oddsPathSource": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
     "source": None,
 }
@@ -1824,6 +1829,7 @@ TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE = {
     ],
     "research_use_only": False,
     "title": "Test Investigator-provided Functional Ranges",
+    "primary": True,
     "odds_path_source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
     "source": None,
 }
@@ -1839,6 +1845,7 @@ TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE = {
     ],
     "researchUseOnly": False,
     "title": "Test Investigator-provided Functional Ranges",
+    "primary": True,
     "oddsPathSource": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
     "source": None,
 }
@@ -2039,6 +2046,7 @@ TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE = {
     ],
     "research_use_only": True,
     "title": "Test Zeiberg Calibration",
+    "primary": False,
     "parameter_sets": TEST_ZEIBERG_CALIBRATION_PARAMETER_SETS,
     "prior_probability_pathogenicity": 0.20,
     "source": None,
@@ -2059,6 +2067,7 @@ TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_RANGE = {
     ],
     "researchUseOnly": True,
     "title": "Test Zeiberg Calibration",
+    "primary": False,
     "parameterSets": TEST_SAVED_ZEIBERG_CALIBRATION_PARAMETER_SETS,
     "priorProbabilityPathogenicity": 0.20,
 }

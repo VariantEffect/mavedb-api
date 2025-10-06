@@ -148,10 +148,15 @@ class ScoreRangesCreate(ScoreRangesModify):
     ranges: Sequence[ScoreRangeCreate]
 
 
+class ScoreRangesAdminCreate(ScoreRangesCreate):
+    primary: bool = False
+
+
 class SavedScoreRanges(ScoreRangesBase):
     record_type: str = None  # type: ignore
 
     ranges: Sequence[SavedScoreRange]
+    primary: bool = False
 
     _record_type_factory = record_type_validator()(set_record_type)
 
@@ -237,10 +242,15 @@ class BrnichScoreRangesCreate(ScoreRangesCreate, BrnichScoreRangesModify):
     ranges: Sequence[BrnichScoreRangeCreate]
 
 
+class BrnichScoreRangesAdminCreate(ScoreRangesAdminCreate, BrnichScoreRangesCreate):
+    pass
+
+
 class SavedBrnichScoreRanges(SavedScoreRanges, BrnichScoreRangesBase):
     record_type: str = None  # type: ignore
 
     ranges: Sequence[SavedBrnichScoreRange]
+    primary: bool = False
 
     _record_type_factory = record_type_validator()(set_record_type)
 
@@ -290,11 +300,16 @@ class InvestigatorScoreRangesCreate(BrnichScoreRangesCreate, InvestigatorScoreRa
     research_use_only: bool = False
 
 
+class InvestigatorScoreRangesAdminCreate(ScoreRangesAdminCreate, InvestigatorScoreRangesCreate):
+    pass
+
+
 class SavedInvestigatorScoreRanges(SavedBrnichScoreRanges, InvestigatorScoreRangesBase):
     record_type: str = None  # type: ignore
 
     title: str = "Investigator-provided functional classes"
     research_use_only: bool = False
+    primary: bool = False
 
     _record_type_factory = record_type_validator()(set_record_type)
 
@@ -324,11 +339,16 @@ class ScottScoreRangesCreate(BrnichScoreRangesCreate, ScottScoreRangesModify):
     research_use_only: bool = False
 
 
+class ScottScoreRangesAdminCreate(ScoreRangesAdminCreate, ScottScoreRangesCreate):
+    pass
+
+
 class SavedScottScoreRanges(SavedBrnichScoreRanges, ScottScoreRangesBase):
     record_type: str = None  # type: ignore
 
     title: str = "Scott calibration"
     research_use_only: bool = False
+    primary: bool = False
 
     _record_type_factory = record_type_validator()(set_record_type)
 
@@ -364,6 +384,12 @@ class IGVFCodingVariantFocusGroupControlScoreRangesCreate(
     research_use_only: bool = False
 
 
+class IGVFCodingVariantFocusGroupControlScoreRangesAdminCreate(
+    ScoreRangesAdminCreate, IGVFCodingVariantFocusGroupControlScoreRangesCreate
+):
+    pass
+
+
 class SavedIGVFCodingVariantFocusGroupControlScoreRanges(
     SavedBrnichScoreRanges, IGVFCodingVariantFocusGroupControlScoreRangesBase
 ):
@@ -371,6 +397,7 @@ class SavedIGVFCodingVariantFocusGroupControlScoreRanges(
 
     title: str = "IGVF Coding Variant Focus Group -- Controls: All Variants"
     research_use_only: bool = False
+    primary: bool = False
 
     _record_type_factory = record_type_validator()(set_record_type)
 
@@ -404,6 +431,12 @@ class IGVFCodingVariantFocusGroupMissenseScoreRangesCreate(
     research_use_only: bool = False
 
 
+class IGVFCodingVariantFocusGroupMissenseScoreRangesAdminCreate(
+    ScoreRangesAdminCreate, IGVFCodingVariantFocusGroupMissenseScoreRangesCreate
+):
+    pass
+
+
 class SavedIGVFCodingVariantFocusGroupMissenseScoreRanges(
     SavedBrnichScoreRanges, IGVFCodingVariantFocusGroupMissenseScoreRangesBase
 ):
@@ -411,6 +444,7 @@ class SavedIGVFCodingVariantFocusGroupMissenseScoreRanges(
 
     title: str = "IGVF Coding Variant Focus Group -- Controls: Missense Variants Only"
     research_use_only: bool = False
+    primary: bool = False
 
     _record_type_factory = record_type_validator()(set_record_type)
 
@@ -507,11 +541,16 @@ class ZeibergCalibrationScoreRangesCreate(ScoreRangesCreate, ZeibergCalibrationS
     ranges: Sequence[ZeibergCalibrationScoreRangeCreate]
 
 
+class ZeibergCalibrationScoreRangesAdminCreate(ScoreRangesAdminCreate, ZeibergCalibrationScoreRangesCreate):
+    pass
+
+
 class SavedZeibergCalibrationScoreRanges(SavedScoreRanges, ZeibergCalibrationScoreRangesBase):
     record_type: str = None  # type: ignore
 
     title: str = "Zeiberg calibration"
     research_use_only: bool = True
+    primary: bool = False
     ranges: Sequence[SavedZeibergCalibrationScoreRange]
 
     _record_type_factory = record_type_validator()(set_record_type)
@@ -594,6 +633,33 @@ class SavedScoreSetRanges(ScoreSetRangesBase):
     cvfg_missense_variants: Optional[SavedIGVFCodingVariantFocusGroupMissenseScoreRanges] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
+
+    @model_validator(mode="after")
+    def one_and_only_one_primary_score_range_set(self: "SavedScoreSetRanges") -> "SavedScoreSetRanges":
+        primary_count = 0
+        for container in (
+            self.investigator_provided,
+            self.zeiberg_calibration,
+            self.scott_calibration,
+            self.cvfg_all_variants,
+            self.cvfg_missense_variants,
+        ):
+            if container is None:
+                continue
+            if getattr(container, "primary", False):
+                primary_count += 1
+
+        # Set the investigator provided score ranges as primary if no other primary is set.
+        if primary_count == 0 and self.investigator_provided is not None:
+            self.investigator_provided.primary = True
+
+        elif primary_count > 1:
+            raise ValidationError(
+                f"A maximum of one score range set must be marked as primary, but {primary_count} were.",
+                custom_loc=["body", "scoreRanges"],
+            )
+
+        return self
 
 
 class ScoreSetRanges(SavedScoreSetRanges):

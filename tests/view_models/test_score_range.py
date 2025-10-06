@@ -3,6 +3,7 @@ import pytest
 from pydantic import ValidationError
 
 from mavedb.view_models.score_range import (
+    SavedScoreSetRanges,
     ScoreRangeModify,
     ScoreRangeCreate,
     ScoreRange,
@@ -52,6 +53,8 @@ from tests.helpers.constants import (
     TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     TEST_SCORE_SET_NEGATIVE_INFINITY_RANGE,
     TEST_SCORE_SET_POSITIVE_INFINITY_RANGE,
+    TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
     TEST_BASELINE_SCORE,
 )
 
@@ -727,16 +730,21 @@ def test_score_ranges_brnich_baseline_type_score_provided_if_normal_range_exists
 
 
 @pytest.mark.parametrize(
-    "score_set_ranges_data",
+    "score_set_ranges_data, primary_key",
     [
-        TEST_SCORE_SET_RANGES_ONLY_SCOTT,
-        TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-        TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-        TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+        (TEST_SCORE_SET_RANGES_ONLY_SCOTT, "scott_calibration"),
+        (TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED, "investigator_provided"),
+        (TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION, "zeiberg_calibration"),
+        (TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT, "investigator_provided"),
     ],
 )
 @pytest.mark.parametrize("ScoreSetRangesModel", [ScoreSetRanges, ScoreSetRangesCreate, ScoreSetRangesModify])
-def test_score_set_ranges_valid_range(ScoreSetRangesModel, score_set_ranges_data):
+def test_score_set_ranges_valid_range(ScoreSetRangesModel, score_set_ranges_data, primary_key):
+    # ensure only one primary if primary_key is set if necessary
+    if primary_key and ScoreSetRangesModel == ScoreSetRanges:
+        score_set_ranges_data = deepcopy(score_set_ranges_data)
+        score_set_ranges_data[primary_key]["primary"] = True
+
     score_set_ranges = ScoreSetRangesModel(**score_set_ranges_data)
     assert isinstance(score_set_ranges, ScoreSetRangesModel), "ScoreSetRangesModel instantiation failed"
     # Ensure a ranges property exists. Data values are checked elsewhere in more detail.
@@ -792,5 +800,42 @@ def test_score_set_ranges_may_include_duplicate_labels_in_different_range_defini
     for key in score_set_ranges_data:
         range_schema = score_set_ranges_data[key]
         range_schema["ranges"][0]["label"] = "duplicated_label"
+
+    ScoreSetRangesModel(**score_set_ranges_data)
+
+
+@pytest.mark.parametrize(
+    "ScoreSetRangesModel",
+    [
+        SavedScoreSetRanges,
+        ScoreSetRanges,
+    ],
+)
+def test_saved_score_set_ranges_may_include_only_one_primary_definition(ScoreSetRangesModel):
+    # Add a duplicate label across all schemas
+    score_set_ranges_data = deepcopy(TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)
+    score_set_ranges_data["investigatorProvided"]["primary"] = True
+    score_set_ranges_data["scottCalibration"]["primary"] = True
+
+    with pytest.raises(
+        ValidationError,
+        match=r".*A maximum of one score range set must be marked as primary, but {} were\..*".format(2),
+    ):
+        ScoreSetRangesModel(**score_set_ranges_data)
+
+
+@pytest.mark.parametrize(
+    "ScoreSetRangesModel",
+    [
+        SavedScoreSetRanges,
+        ScoreSetRanges,
+    ],
+)
+def test_saved_score_set_ranges_may_include_no_primary_definition_if_investigator_provided_ranges_exist(
+    ScoreSetRangesModel,
+):
+    # Add a duplicate label across all schemas
+    score_set_ranges_data = deepcopy(TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)
+    score_set_ranges_data["investigatorProvided"]["primary"] = False
 
     ScoreSetRangesModel(**score_set_ranges_data)
