@@ -359,6 +359,45 @@ class ScottScoreRanges(BrnichScoreRanges, SavedScottScoreRanges):
 
 
 ##############################################################################################################
+# Fayer score range models
+##############################################################################################################
+
+
+class FayerScoreRangesBase(BrnichScoreRangesBase):
+    title: str = "Fayer calibration"
+    research_use_only: bool = False
+
+
+class FayerScoreRangesModify(BrnichScoreRangesModify, FayerScoreRangesBase):
+    title: str = "Fayer calibration"
+    research_use_only: bool = False
+
+
+class FayerScoreRangesCreate(BrnichScoreRangesCreate, FayerScoreRangesModify):
+    title: str = "Fayer calibration"
+    research_use_only: bool = False
+
+
+class FayerScoreRangesAdminCreate(ScoreRangesAdminCreate, FayerScoreRangesCreate):
+    pass
+
+
+class SavedFayerScoreRanges(SavedBrnichScoreRanges, FayerScoreRangesBase):
+    record_type: str = None  # type: ignore
+
+    title: str = "Fayer calibration"
+    research_use_only: bool = False
+    primary: bool = False
+
+    _record_type_factory = record_type_validator()(set_record_type)
+
+
+class FayerScoreRanges(BrnichScoreRanges, SavedFayerScoreRanges):
+    title: str = "Fayer calibration"
+    research_use_only: bool = False
+
+
+##############################################################################################################
 # IGVF Coding Variant Focus Group (CVFG) range models
 ##############################################################################################################
 
@@ -574,6 +613,7 @@ class ZeibergCalibrationScoreRanges(ScoreRanges, SavedZeibergCalibrationScoreRan
 class ScoreSetRangesBase(BaseModel):
     investigator_provided: Optional[InvestigatorScoreRangesBase] = None
     scott_calibration: Optional[ScottScoreRangesBase] = None
+    fayer_calibration: Optional[FayerScoreRangesBase] = None
     zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesBase] = None
     cvfg_all_variants: Optional[IGVFCodingVariantFocusGroupControlScoreRangesBase] = None
     cvfg_missense_variants: Optional[IGVFCodingVariantFocusGroupMissenseScoreRangesBase] = None
@@ -586,6 +626,7 @@ class ScoreSetRangesBase(BaseModel):
             self.investigator_provided,
             self.zeiberg_calibration,
             self.scott_calibration,
+            self.fayer_calibration,
             self.cvfg_all_variants,
             self.cvfg_missense_variants,
         ):
@@ -610,6 +651,7 @@ class ScoreSetRangesBase(BaseModel):
 class ScoreSetRangesModify(ScoreSetRangesBase):
     investigator_provided: Optional[InvestigatorScoreRangesModify] = None
     scott_calibration: Optional[ScottScoreRangesModify] = None
+    fayer_calibration: Optional[FayerScoreRangesModify] = None
     zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesModify] = None
     cvfg_all_variants: Optional[IGVFCodingVariantFocusGroupControlScoreRangesModify] = None
     cvfg_missense_variants: Optional[IGVFCodingVariantFocusGroupMissenseScoreRangesModify] = None
@@ -618,6 +660,7 @@ class ScoreSetRangesModify(ScoreSetRangesBase):
 class ScoreSetRangesCreate(ScoreSetRangesModify):
     investigator_provided: Optional[InvestigatorScoreRangesCreate] = None
     scott_calibration: Optional[ScottScoreRangesCreate] = None
+    fayer_calibration: Optional[FayerScoreRangesCreate] = None
     zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesCreate] = None
     cvfg_all_variants: Optional[IGVFCodingVariantFocusGroupControlScoreRangesCreate] = None
     cvfg_missense_variants: Optional[IGVFCodingVariantFocusGroupMissenseScoreRangesCreate] = None
@@ -628,6 +671,7 @@ class SavedScoreSetRanges(ScoreSetRangesBase):
 
     investigator_provided: Optional[SavedInvestigatorScoreRanges] = None
     scott_calibration: Optional[SavedScottScoreRanges] = None
+    fayer_calibration: Optional[SavedFayerScoreRanges] = None
     zeiberg_calibration: Optional[SavedZeibergCalibrationScoreRanges] = None
     cvfg_all_variants: Optional[SavedIGVFCodingVariantFocusGroupControlScoreRanges] = None
     cvfg_missense_variants: Optional[SavedIGVFCodingVariantFocusGroupMissenseScoreRanges] = None
@@ -665,6 +709,7 @@ class SavedScoreSetRanges(ScoreSetRangesBase):
 class ScoreSetRanges(SavedScoreSetRanges):
     investigator_provided: Optional[InvestigatorScoreRanges] = None
     scott_calibration: Optional[ScottScoreRanges] = None
+    fayer_calibration: Optional[FayerScoreRanges] = None
     zeiberg_calibration: Optional[ZeibergCalibrationScoreRanges] = None
     cvfg_all_variants: Optional[IGVFCodingVariantFocusGroupControlScoreRanges] = None
     cvfg_missense_variants: Optional[IGVFCodingVariantFocusGroupMissenseScoreRanges] = None
