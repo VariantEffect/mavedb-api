@@ -9,7 +9,7 @@ import pandas as pd
 from arq import ArqRedis
 from arq.jobs import Job, JobStatus
 from cdot.hgvs.dataproviders import RESTDataProvider
-from mavedb.view_models.score_set import DatasetColumnMetadata
+from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 from sqlalchemy import cast, delete, null, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session

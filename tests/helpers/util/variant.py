@@ -4,7 +4,7 @@ from typing import Optional
 from arq import ArqRedis
 from cdot.hgvs.dataproviders import RESTDataProvider
 from fastapi.testclient import TestClient
-from mavedb.view_models.score_set import DatasetColumns
+from mavedb.view_models.score_set_dataset_columns import DatasetColumnsCreate
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from unittest.mock import patch
@@ -101,12 +101,12 @@ def mock_worker_variant_insertion(
     assert num_variants == 3
 
     item.processing_state = ProcessingState.success
-    item.dataset_columns = DatasetColumns(
+    item.dataset_columns = DatasetColumnsCreate(
         score_columns=columns_for_dataset(scores),
         count_columns=columns_for_dataset(counts),
         score_columns_metadata=scores_column_metadata if scores_column_metadata is not None else {},
         count_columns_metadata=counts_column_metadata if counts_column_metadata is not None else {},
-    )
+    ).model_dump()
 
     db.add(item)
     db.commit()

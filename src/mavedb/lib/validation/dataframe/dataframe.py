@@ -1,6 +1,6 @@
 from typing import Any, Optional, Tuple, TYPE_CHECKING
 
-from mavedb.view_models.score_set import DatasetColumnMetadata
+from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 import numpy as np
 import pandas as pd
 

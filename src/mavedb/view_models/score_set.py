@@ -8,6 +8,7 @@ from typing_extensions import Self
 from copy import deepcopy
 
 from humps import camelize
+from mavedb.view_models.score_set_dataset_columns import DatasetColumnsCreate, SavedDatasetColumns, DatasetColumns
 from pydantic import field_validator, model_validator, create_model
 from pydantic.fields import FieldInfo
 from fastapi import Form
@@ -119,6 +120,7 @@ class ScoreSetModifyBase(ScoreSetBase):
     doi_identifiers: Optional[list[DoiIdentifierCreate]] = None
     target_genes: list[TargetGeneCreate]
     score_ranges: Optional[ScoreSetRangesCreate] = None
+    # dataset_columns: Optional[DatasetColumnsCreate] = {}
 
 class ScoreSetModify(ScoreSetModifyBase):
     """View model that adds custom validators to ScoreSetModifyBase."""
@@ -366,43 +368,6 @@ class ScoreSetUpdateAllOptional(ScoreSetUpdateBase):
             license_id=license_id,
         )
 
-class DatasetColumnMetadata(BaseModel):
-    """Metadata for individual dataset columns."""
-
-    description: str
-    details: Optional[str] = None
-
-class DatasetColumns(BaseModel):
-    """Dataset columns view model representing the dataset columns property of a score set."""
-
-    score_columns: Optional[list[str]] = None
-    count_columns: Optional[list[str]] = None
-    score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None
-    count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None
-
-    @field_validator("score_columns_metadata", "count_columns_metadata")
-    def validate_dataset_columns_metadata(cls, v: Optional[dict[str, DatasetColumnMetadata]]) -> Optional[dict[str, DatasetColumnMetadata]]:
-        if not v:
-            return None
-        DatasetColumnMetadata.model_validate(v)
-        return v
-
-    @model_validator(mode="after")
-    def validate_dataset_columns_metadata_keys(self) -> Self:
-        if self.score_columns_metadata is not None and self.score_columns is None:
-            raise ValidationError("Score columns metadata cannot be provided without score columns.")
-        elif self.score_columns_metadata is not None and self.score_columns is not None:
-            for key in self.score_columns_metadata.keys():
-                if key not in self.score_columns:
-                    raise ValidationError(f"Score column metadata key '{key}' does not exist in score_columns list.")
-
-        if self.count_columns_metadata is not None and self.count_columns is None:
-            raise ValidationError("Count columns metadata cannot be provided without count columns.")
-        elif self.count_columns_metadata is not None and self.count_columns is not None:
-            for key in self.count_columns_metadata.keys():
-                if key not in self.count_columns:
-                    raise ValidationError(f"Count column metadata key '{key}' does not exist in count_columns list.")
-        return self
 
 class ShortScoreSet(BaseModel):
     """
@@ -486,7 +451,7 @@ class SavedScoreSet(ScoreSetBase):
     created_by: Optional[SavedUser] = None
     modified_by: Optional[SavedUser] = None
     target_genes: Sequence[SavedTargetGene]
-    dataset_columns: DatasetColumns
+    dataset_columns: Optional[SavedDatasetColumns] = None
     external_links: dict[str, ExternalLink]
     contributors: Sequence[Contributor]
     score_ranges: Optional[SavedScoreSetRanges] = None
@@ -504,9 +469,9 @@ class SavedScoreSet(ScoreSetBase):
         assert isinstance(value, Collection), "Publication identifier lists must be a collection"
         return list(value)  # Re-cast into proper list-like type
 
-    @field_validator("dataset_columns")
-    def camelize_dataset_columns_keys(cls, value: dict) -> dict:
-        return camelize(value)
+    # @field_validator("dataset_columns")
+    # def camelize_dataset_columns_keys(cls, value: dict) -> dict:
+    #     return camelize(value)
 
     # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
     # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.
@@ -570,6 +535,7 @@ class ScoreSet(SavedScoreSet):
     mapping_state: Optional[MappingState] = None
     mapping_errors: Optional[dict] = None
     score_ranges: Optional[ScoreSetRanges] = None  # type: ignore[assignment]
+    dataset_columns: Optional[DatasetColumns] = None  # type: ignore[assignment]
 
 
 class ScoreSetWithVariants(ScoreSet):
