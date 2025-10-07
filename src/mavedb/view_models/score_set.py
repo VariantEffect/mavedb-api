@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Collection, Optional, Sequence, Union
+import json
+from typing import Any, Collection, Optional, Sequence, Union, Type, TypeVar, Callable
 from typing_extensions import Self
+from copy import deepcopy
 
 from humps import camelize
-from pydantic import field_validator, model_validator
+from pydantic import field_validator, model_validator, create_model
+from pydantic.fields import FieldInfo
+from fastapi import Form
 
 from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.exceptions import ValidationError
@@ -45,6 +49,44 @@ logger = logging.getLogger(__name__)
 
 UnboundedRange = tuple[Union[float, None], Union[float, None]]
 
+Model = TypeVar("Model", bound=Type[BaseModel])
+
+def partial_model(exclude_fields: Optional[list[str]] = None) -> Callable[[Model], Model]:
+    """A decorator that create a partial model.
+
+    Args:
+        model (Type[BaseModel]): BaseModel model.
+
+    Returns:
+        Type[BaseModel]: ModelBase partial model.
+    """
+    if exclude_fields is None:
+        exclude_fields = []
+
+    def wrapper(model: Type[Model]) -> Type[Model]:
+        base_model: Type[Model] = model
+
+        def make_field_optional(field: FieldInfo, default: Any = None) -> tuple[Any, FieldInfo]:
+            new = deepcopy(field)
+            new.default = default
+            new.annotation = Optional[field.annotation]
+            return new.annotation, new
+
+        if exclude_fields:
+            base_model = BaseModel
+
+        return create_model(
+            model.__name__,
+            __base__=base_model,
+            __module__=model.__module__,
+            **{
+                field_name: make_field_optional(field_info)
+                for field_name, field_info in model.model_fields.items()
+                if field_name not in exclude_fields
+            },
+        )
+
+    return wrapper
 
 class ExternalLink(BaseModel):
     url: Optional[str] = None
@@ -70,14 +112,16 @@ class ScoreSetBase(BaseModel):
     extra_metadata: Optional[dict] = None
     data_usage_policy: Optional[str] = None
 
-
-class ScoreSetModify(ScoreSetBase):
+class ScoreSetModifyBase(ScoreSetBase):
     contributors: Optional[list[ContributorCreate]] = None
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = None
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = None
     doi_identifiers: Optional[list[DoiIdentifierCreate]] = None
     target_genes: list[TargetGeneCreate]
     score_ranges: Optional[ScoreSetRangesCreate] = None
+
+class ScoreSetModify(ScoreSetModifyBase):
+    """View model that adds custom validators to ScoreSetModifyBase."""
 
     @field_validator("title", "short_description", "abstract_text", "method_text")
     def validate_field_is_non_empty(cls, v: str) -> str:
@@ -89,7 +133,7 @@ class ScoreSetModify(ScoreSetBase):
     def max_one_primary_publication_identifier(
         cls, v: list[PublicationIdentifierCreate]
     ) -> list[PublicationIdentifierCreate]:
-        if len(v) > 1:
+        if v is not None and len(v) > 1:
             raise ValidationError("Multiple primary publication identifiers are not allowed.")
         return v
 
@@ -270,11 +314,57 @@ class ScoreSetCreate(ScoreSetModify):
             raise ValidationError("experiment URN should not be supplied when your score set is a meta-analysis")
         return self
 
-
-class ScoreSetUpdate(ScoreSetModify):
-    """View model for updating a score set."""
+class ScoreSetUpdateBase(ScoreSetModifyBase):
+    """View model for updating a score set with no custom validators."""
 
     license_id: Optional[int] = None
+
+class ScoreSetUpdate(ScoreSetModify):
+    """View model for updating a score set that includes custom validators."""
+
+    license_id: Optional[int] = None
+
+
+@partial_model()
+class ScoreSetUpdateAllOptional(ScoreSetUpdateBase):
+    @classmethod
+    def as_form(
+        cls,
+
+        # ScoreSetBase fields
+        title: Optional[str]  = Form(None),
+        method_text: Optional[str] = Form(None),
+        abstract_text: Optional[str] = Form(None),
+        short_description: Optional[str] = Form(None),
+        extra_metadata: Optional[str] = Form(None),
+        data_usage_policy: Optional[str] = Form(None),
+
+        # ScoreSetModify fields
+        contributors: Optional[str] = Form(None),
+        primary_publication_identifiers: Optional[str] = Form(None),
+        secondary_publication_identifiers: Optional[str] = Form(None),
+        doi_identifiers: Optional[str] = Form(None),
+        target_genes: Optional[str] = Form(None),
+        score_ranges: Optional[str] = Form(None),
+
+        # ScoreSetUpdate fields
+        license_id: Optional[int] = Form(None),
+    ) -> "ScoreSetUpdateAllOptional":
+        return cls(
+            title=title,
+            method_text=method_text,
+            abstract_text=abstract_text,
+            short_description=short_description,
+            extra_metadata=json.loads(extra_metadata) if extra_metadata else None,
+            data_usage_policy=data_usage_policy,
+            contributors=[ContributorCreate.model_validate(c) for c in json.loads(contributors)] if contributors else None,
+            primary_publication_identifiers=[PublicationIdentifierCreate.model_validate(p) for p in json.loads(primary_publication_identifiers)] if primary_publication_identifiers else None,
+            secondary_publication_identifiers=[PublicationIdentifierCreate.model_validate(s) for s in json.loads(secondary_publication_identifiers)] if secondary_publication_identifiers else None,
+            doi_identifiers=[DoiIdentifierCreate.model_validate(d) for d in json.loads(doi_identifiers)] if doi_identifiers else None,
+            target_genes=[TargetGeneCreate.model_validate(t) for t in json.loads(target_genes)] if target_genes else None,
+            score_ranges=ScoreSetRangesCreate.model_validate(json.loads(score_ranges)) if score_ranges else None,
+            license_id=license_id,
+        )
 
 class DatasetColumnMetadata(BaseModel):
     """Metadata for individual dataset columns."""
