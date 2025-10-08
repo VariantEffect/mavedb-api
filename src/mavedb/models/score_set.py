@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from mavedb.models.collection import Collection
     from mavedb.models.target_gene import TargetGene
     from mavedb.models.variant import Variant
+    from mavedb.models.score_calibration import ScoreCalibration
 
 # from .raw_read_identifier import SraIdentifier
 from mavedb.lib.temp_urns import generate_temp_urn
@@ -183,6 +184,10 @@ class ScoreSet(Base):
 
     target_genes: Mapped[List["TargetGene"]] = relationship(back_populates="score_set", cascade="all, delete-orphan")
     score_ranges = Column(JSONB, nullable=True)
+
+    calibrations: Mapped[List["ScoreCalibration"]] = relationship(
+        "ScoreCalibration", back_populates="score_set", cascade="all, delete-orphan"
+    )
 
     collections: Mapped[list["Collection"]] = relationship(
         "Collection",
