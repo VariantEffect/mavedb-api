@@ -35,6 +35,7 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
+from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.refseq_identifier import RefseqIdentifier
 from mavedb.models.refseq_offset import RefseqOffset
@@ -407,6 +408,8 @@ def get_score_set_variants_as_csv(
     drop_na_columns: Optional[bool] = None,
     include_custom_columns: bool = True,
     include_post_mapped_hgvs: bool = False,
+    include_gnomad: bool = False,
+    gnomad_version: Optional[Literal["v4.1"]] = None,
 ) -> str:
     """
     Get the variant data from a score set as a CSV string.
@@ -430,6 +433,8 @@ def get_score_set_variants_as_csv(
     include_post_mapped_hgvs : bool, optional
         Whether to include post-mapped HGVS notations in the output. Defaults to False. If True, the output will include
         columns for both post-mapped HGVS genomic (g.) and protein (p.) notations.
+    include_gnomad: bool, optional
+        Whether to include gnomAD allele frequency data in the output. Defaults to False.
 
     Returns
     _______
@@ -444,6 +449,8 @@ def get_score_set_variants_as_csv(
     if include_post_mapped_hgvs:
         columns.append("post_mapped_hgvs_g")
         columns.append("post_mapped_hgvs_p")
+    if include_gnomad:
+        columns.append("gnomad_af")
 
     if include_custom_columns:
         custom_columns = [str(x) for x in list(score_set.dataset_columns.get(custom_columns_set, []))]
@@ -453,8 +460,45 @@ def get_score_set_variants_as_csv(
 
     variants: Sequence[Variant] = []
     mappings: Optional[list[Optional[MappedVariant]]] = None
+    gnomad_data: Optional[list[Optional[GnomADVariant]]] = None
 
-    if include_post_mapped_hgvs:
+    if include_gnomad:
+        variants_mappings_and_gnomad_query = (
+            select(Variant, MappedVariant, GnomADVariant)
+            .join(
+                MappedVariant,
+                and_(Variant.id == MappedVariant.variant_id, MappedVariant.current.is_(True)),
+                isouter=True,
+            )
+            .join(MappedVariant.gnomad_variants.of_type(GnomADVariant), isouter=True)
+            .where(
+                and_(
+                    Variant.score_set_id == score_set.id,
+                    or_(
+                        and_(
+                            GnomADVariant.db_name == "gnomAD",
+                            GnomADVariant.db_version == (gnomad_version if gnomad_version else "v4.1"),
+                        ),
+                        GnomADVariant.id.is_(None),
+                    ),
+                )
+            )
+            .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
+        )
+        if start:
+            variants_mappings_and_gnomad_query = variants_mappings_and_gnomad_query.offset(start)
+        if limit:
+            variants_mappings_and_gnomad_query = variants_mappings_and_gnomad_query.limit(limit)
+        variants_mappings_and_gnomad = db.execute(variants_mappings_and_gnomad_query).all()
+
+        variants = []
+        mappings = []
+        gnomad_data = []
+        for variant, mapping, gnomad in variants_mappings_and_gnomad:
+            variants.append(variant)
+            mappings.append(mapping)
+            gnomad_data.append(gnomad)
+    elif include_post_mapped_hgvs:
         variants_and_mappings_query = (
             select(Variant, MappedVariant)
             .join(
@@ -488,7 +532,9 @@ def get_score_set_variants_as_csv(
             variants_query = variants_query.limit(limit)
         variants = db.scalars(variants_query).all()
 
-    rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column, mappings=mappings)  # type: ignore
+    rows_data = variants_to_csv_rows(
+        variants, columns=columns, dtype=type_column, mappings=mappings, gnomad_data=gnomad_data
+    )  # type: ignore
     if drop_na_columns:
         rows_data, columns = drop_na_columns_from_csv_file_rows(rows_data, columns)
 
@@ -534,6 +580,7 @@ def variant_to_csv_row(
     columns: list[str],
     dtype: str,
     mapping: Optional[MappedVariant] = None,
+    gnomad_data: Optional[GnomADVariant] = None,
     na_rep="NA",
 ) -> dict[str, Any]:
     """
@@ -547,6 +594,10 @@ def variant_to_csv_row(
         Columns to serialize.
     dtype : str, {'scores', 'counts'}
         The type of data requested. Either the 'score_data' or 'count_data'.
+    mapping : variant.models.MappedVariant, optional
+        Mapped variant corresponding to the variant.
+    gnomad_data : variant.models.GnomADVariant, optional
+        gnomAD variant data corresponding to the variant.
     na_rep : str
         String to represent null values.
 
@@ -576,6 +627,8 @@ def variant_to_csv_row(
                 value = hgvs_str
             else:
                 value = ""
+        elif column_key == "gnomad_af":
+            value = str(gnomad_data.allele_frequency) if gnomad_data else ""
         else:
             parent = variant.data.get(dtype) if variant.data else None
             value = str(parent.get(column_key)) if parent else na_rep
@@ -591,6 +644,7 @@ def variants_to_csv_rows(
     columns: list[str],
     dtype: str,
     mappings: Optional[Sequence[Optional[MappedVariant]]] = None,
+    gnomad_data: Optional[Sequence[Optional[GnomADVariant]]] = None,
     na_rep="NA",
 ) -> Iterable[dict[str, Any]]:
     """
@@ -604,6 +658,10 @@ def variants_to_csv_rows(
         Columns to serialize.
     dtype : str, {'scores', 'counts'}
         The type of data requested. Either the 'score_data' or 'count_data'.
+    mappings : list[Optional[variant.models.MappedVariant]], optional
+        List of mapped variants corresponding to the variants.
+    gnomad_data : list[Optional[variant.models.GnomADVariant]], optional
+        List of gnomAD variant data corresponding to the variants.
     na_rep : str
         String to represent null values.
 
@@ -611,7 +669,14 @@ def variants_to_csv_rows(
     -------
     list[dict[str, Any]]
     """
-    if mappings is not None:
+    if mappings is not None and gnomad_data is not None:
+        return map(
+            lambda zipped: variant_to_csv_row(
+                zipped[0], columns, dtype, mapping=zipped[1], gnomad_data=zipped[2], na_rep=na_rep
+            ),
+            zip(variants, mappings, gnomad_data),
+        )
+    elif mappings is not None:
         return map(
             lambda pair: variant_to_csv_row(pair[0], columns, dtype, mapping=pair[1], na_rep=na_rep),
             zip(variants, mappings),
