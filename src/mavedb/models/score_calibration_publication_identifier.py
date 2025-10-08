@@ -19,7 +19,7 @@ class ScoreCalibrationPublicationIdentifierAssociation(Base):
         "score_calibration_id", Integer, ForeignKey("score_calibrations.id"), primary_key=True
     )
     publication_identifier_id = Column(Integer, ForeignKey("publication_identifiers.id"), primary_key=True)
-    relation = Column(
+    relation: Mapped["ScoreCalibrationRelation"] = Column(
         Enum(ScoreCalibrationRelation, native_enum=False, validate_strings=True, length=32),
         nullable=False,
         default=ScoreCalibrationRelation.threshold,

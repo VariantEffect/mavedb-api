@@ -183,7 +183,6 @@ class ScoreSet(Base):
     )
 
     target_genes: Mapped[List["TargetGene"]] = relationship(back_populates="score_set", cascade="all, delete-orphan")
-    score_ranges = Column(JSONB, nullable=True)
 
     score_calibrations: Mapped[List["ScoreCalibration"]] = relationship(
         "ScoreCalibration", back_populates="score_set", cascade="all, delete-orphan"
