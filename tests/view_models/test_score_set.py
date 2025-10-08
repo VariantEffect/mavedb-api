@@ -1,8 +1,6 @@
 import pytest
 from copy import deepcopy
 
-from humps import camelize
-
 from mavedb.view_models.publication_identifier import PublicationIdentifier, PublicationIdentifierCreate
 from mavedb.view_models.score_set import SavedScoreSet, ScoreSetCreate, ScoreSetModify
 from mavedb.view_models.target_gene import SavedTargetGene, TargetGeneCreate

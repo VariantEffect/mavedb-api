@@ -693,6 +693,12 @@ SAVED_SHORT_INACTIVE_LICENSE = {
     "active": TEST_INACTIVE_LICENSE["active"],
 }
 
+SAVED_MINIMAL_DATASET_COLUMNS = {
+    "recordType": "DatasetColumns",
+    "countColumns": [],
+    "scoreColumns": ["score"],
+}
+
 TEST_SEQ_SCORESET = {
     "title": "Test Score Set Title",
     "short_description": "Test score set",
@@ -805,7 +811,9 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
-    "datasetColumns": {},
+    "datasetColumns": {
+        "recordType": "DatasetColumns",
+    },
     "externalLinks": {},
     "private": True,
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
@@ -920,7 +928,9 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
-    "datasetColumns": {},
+    "datasetColumns": {
+        "recordType": "DatasetColumns",
+    },
     "private": True,
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
     # keys to be set after receiving response
@@ -1060,7 +1070,9 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
-    "datasetColumns": {},
+    "datasetColumns": {
+        "recordType": "DatasetColumns",
+    },
     "externalLinks": {},
     "private": True,
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,

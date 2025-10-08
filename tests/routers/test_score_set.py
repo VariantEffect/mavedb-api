@@ -29,6 +29,7 @@ from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
     EXTRA_USER,
     EXTRA_LICENSE,
+    SAVED_MINIMAL_DATASET_COLUMNS,
     TEST_CROSSREF_IDENTIFIER,
     TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION,
     TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION,
@@ -414,6 +415,7 @@ def test_can_update_score_set_data_before_publication(
         ("secondary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}], [SAVED_PUBMED_PUBLICATION]),
         ("doi_identifiers", [{"identifier": TEST_CROSSREF_IDENTIFIER}], [SAVED_DOI_IDENTIFIER]),
         ("license_id", EXTRA_LICENSE["id"], SAVED_SHORT_EXTRA_LICENSE),
+        ("dataset_columns", {"countColumns": [], "scoreColumns": ["score"]}, SAVED_MINIMAL_DATASET_COLUMNS)
     ],
 )
 @pytest.mark.parametrize(
@@ -455,7 +457,7 @@ def test_can_update_score_set_supporting_data_after_publication(
             "publishedDate": date.today().isoformat(),
             "numVariants": 3,
             "private": False,
-            "datasetColumns": {"countColumns": [], "scoreColumns": ["score"]},
+            "datasetColumns": SAVED_MINIMAL_DATASET_COLUMNS,
             "processingState": ProcessingState.success.name,
         }
     )
@@ -490,6 +492,7 @@ def test_can_update_score_set_supporting_data_after_publication(
             TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
             None,
         ),
+        ("dataset_columns", {"countColumns": [], "scoreColumns": ["score"]}, SAVED_MINIMAL_DATASET_COLUMNS),
     ],
 )
 @pytest.mark.parametrize(
@@ -531,7 +534,7 @@ def test_cannot_update_score_set_target_data_after_publication(
             "publishedDate": date.today().isoformat(),
             "numVariants": 3,
             "private": False,
-            "datasetColumns": {"countColumns": [], "scoreColumns": ["score"]},
+            "datasetColumns": SAVED_MINIMAL_DATASET_COLUMNS,
             "processingState": ProcessingState.success.name,
         }
     )
@@ -1086,7 +1089,7 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
             "publishedDate": date.today().isoformat(),
             "numVariants": 3,
             "private": False,
-            "datasetColumns": {"countColumns": [], "scoreColumns": ["score"]},
+            "datasetColumns": SAVED_MINIMAL_DATASET_COLUMNS,
             "processingState": ProcessingState.success.name,
         }
     )
@@ -1221,7 +1224,7 @@ def test_contributor_can_publish_other_users_score_set(session, data_provider, c
             "publishedDate": date.today().isoformat(),
             "numVariants": 3,
             "private": False,
-            "datasetColumns": {"countColumns": [], "scoreColumns": ["score"]},
+            "datasetColumns": SAVED_MINIMAL_DATASET_COLUMNS,
             "processingState": ProcessingState.success.name,
         }
     )

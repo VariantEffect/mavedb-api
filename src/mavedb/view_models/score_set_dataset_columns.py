@@ -46,7 +46,9 @@ class DatasetColumnsBase(BaseModel):
         return self
 
 class SavedDatasetColumns(DatasetColumnsBase):
-    pass
+    record_type: str = None # type: ignore
+
+    _record_type_factory = record_type_validator()(set_record_type)
 
 class DatasetColumns(SavedDatasetColumns):
     pass
