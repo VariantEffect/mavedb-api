@@ -243,7 +243,7 @@ class BrnichScoreRangesCreate(ScoreRangesCreate, BrnichScoreRangesModify):
 
 
 class BrnichScoreRangesAdminCreate(ScoreRangesAdminCreate, BrnichScoreRangesCreate):
-    pass
+    ranges: Sequence[BrnichScoreRangeCreate]
 
 
 class SavedBrnichScoreRanges(SavedScoreRanges, BrnichScoreRangesBase):
@@ -300,8 +300,9 @@ class InvestigatorScoreRangesCreate(BrnichScoreRangesCreate, InvestigatorScoreRa
     research_use_only: bool = False
 
 
-class InvestigatorScoreRangesAdminCreate(ScoreRangesAdminCreate, InvestigatorScoreRangesCreate):
-    pass
+class InvestigatorScoreRangesAdminCreate(BrnichScoreRangesAdminCreate, InvestigatorScoreRangesCreate):
+    title: str = "Investigator-provided functional classes"
+    research_use_only: bool = False
 
 
 class SavedInvestigatorScoreRanges(SavedBrnichScoreRanges, InvestigatorScoreRangesBase):
@@ -339,8 +340,9 @@ class ScottScoreRangesCreate(BrnichScoreRangesCreate, ScottScoreRangesModify):
     research_use_only: bool = False
 
 
-class ScottScoreRangesAdminCreate(ScoreRangesAdminCreate, ScottScoreRangesCreate):
-    pass
+class ScottScoreRangesAdminCreate(BrnichScoreRangesAdminCreate, ScottScoreRangesCreate):
+    title: str = "Scott calibration"
+    research_use_only: bool = False
 
 
 class SavedScottScoreRanges(SavedBrnichScoreRanges, ScottScoreRangesBase):
@@ -378,8 +380,9 @@ class FayerScoreRangesCreate(BrnichScoreRangesCreate, FayerScoreRangesModify):
     research_use_only: bool = False
 
 
-class FayerScoreRangesAdminCreate(ScoreRangesAdminCreate, FayerScoreRangesCreate):
-    pass
+class FayerScoreRangesAdminCreate(BrnichScoreRangesAdminCreate, FayerScoreRangesCreate):
+    title: str = "Fayer calibration"
+    research_use_only: bool = False
 
 
 class SavedFayerScoreRanges(SavedBrnichScoreRanges, FayerScoreRangesBase):
@@ -424,9 +427,10 @@ class IGVFCodingVariantFocusGroupControlScoreRangesCreate(
 
 
 class IGVFCodingVariantFocusGroupControlScoreRangesAdminCreate(
-    ScoreRangesAdminCreate, IGVFCodingVariantFocusGroupControlScoreRangesCreate
+    BrnichScoreRangesAdminCreate, IGVFCodingVariantFocusGroupControlScoreRangesCreate
 ):
-    pass
+    title: str = "IGVF Coding Variant Focus Group -- Controls: All Variants"
+    research_use_only: bool = False
 
 
 class SavedIGVFCodingVariantFocusGroupControlScoreRanges(
@@ -471,9 +475,10 @@ class IGVFCodingVariantFocusGroupMissenseScoreRangesCreate(
 
 
 class IGVFCodingVariantFocusGroupMissenseScoreRangesAdminCreate(
-    ScoreRangesAdminCreate, IGVFCodingVariantFocusGroupMissenseScoreRangesCreate
+    BrnichScoreRangesAdminCreate, IGVFCodingVariantFocusGroupMissenseScoreRangesCreate
 ):
-    pass
+    title: str = "IGVF Coding Variant Focus Group -- Controls: Missense Variants Only"
+    research_use_only: bool = False
 
 
 class SavedIGVFCodingVariantFocusGroupMissenseScoreRanges(
@@ -581,7 +586,9 @@ class ZeibergCalibrationScoreRangesCreate(ScoreRangesCreate, ZeibergCalibrationS
 
 
 class ZeibergCalibrationScoreRangesAdminCreate(ScoreRangesAdminCreate, ZeibergCalibrationScoreRangesCreate):
-    pass
+    title: str = "Zeiberg calibration"
+    research_use_only: bool = True
+    ranges: Sequence[ZeibergCalibrationScoreRangeCreate]
 
 
 class SavedZeibergCalibrationScoreRanges(SavedScoreRanges, ZeibergCalibrationScoreRangesBase):
@@ -664,6 +671,15 @@ class ScoreSetRangesCreate(ScoreSetRangesModify):
     zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesCreate] = None
     cvfg_all_variants: Optional[IGVFCodingVariantFocusGroupControlScoreRangesCreate] = None
     cvfg_missense_variants: Optional[IGVFCodingVariantFocusGroupMissenseScoreRangesCreate] = None
+
+
+class ScoreSetRangesAdminCreate(ScoreSetRangesModify):
+    investigator_provided: Optional[InvestigatorScoreRangesAdminCreate] = None
+    scott_calibration: Optional[ScottScoreRangesAdminCreate] = None
+    fayer_calibration: Optional[FayerScoreRangesAdminCreate] = None
+    zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesAdminCreate] = None
+    cvfg_all_variants: Optional[IGVFCodingVariantFocusGroupControlScoreRangesAdminCreate] = None
+    cvfg_missense_variants: Optional[IGVFCodingVariantFocusGroupMissenseScoreRangesAdminCreate] = None
 
 
 class SavedScoreSetRanges(ScoreSetRangesBase):
