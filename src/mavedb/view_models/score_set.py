@@ -50,9 +50,9 @@ logger = logging.getLogger(__name__)
 
 UnboundedRange = tuple[Union[float, None], Union[float, None]]
 
-Model = TypeVar("Model", bound=Type[BaseModel])
+Model = TypeVar("Model", bound=BaseModel)
 
-def partial_model(exclude_fields: Optional[list[str]] = None) -> Callable[[Model], Model]:
+def all_fields_optional_model() -> Callable[[Type[Model]], Type[Model]]:
     """A decorator that create a partial model.
 
     Args:
@@ -61,31 +61,24 @@ def partial_model(exclude_fields: Optional[list[str]] = None) -> Callable[[Model
     Returns:
         Type[BaseModel]: ModelBase partial model.
     """
-    if exclude_fields is None:
-        exclude_fields = []
 
     def wrapper(model: Type[Model]) -> Type[Model]:
-        base_model: Type[Model] = model
 
         def make_field_optional(field: FieldInfo, default: Any = None) -> tuple[Any, FieldInfo]:
             new = deepcopy(field)
             new.default = default
-            new.annotation = Optional[field.annotation]
+            new.annotation = Optional[field.annotation]  # type: ignore[assignment]
             return new.annotation, new
-
-        if exclude_fields:
-            base_model = BaseModel
 
         return create_model(
             model.__name__,
-            __base__=base_model,
+            __base__=model,
             __module__=model.__module__,
             **{
                 field_name: make_field_optional(field_info)
                 for field_name, field_info in model.model_fields.items()
-                if field_name not in exclude_fields
             },
-        )
+        )  # type: ignore[call-overload]
 
     return wrapper
 
@@ -327,7 +320,7 @@ class ScoreSetUpdate(ScoreSetModify):
     license_id: Optional[int] = None
 
 
-@partial_model()
+@all_fields_optional_model()
 class ScoreSetUpdateAllOptional(ScoreSetUpdateBase):
     @classmethod
     def as_form(
