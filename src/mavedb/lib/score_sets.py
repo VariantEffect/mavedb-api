@@ -35,6 +35,7 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
+from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.refseq_identifier import RefseqIdentifier
@@ -501,7 +502,7 @@ def find_publish_or_private_superseded_score_set_tail(
 def get_score_set_variants_as_csv(
     db: Session,
     score_set: ScoreSet,
-    namespaces: List[Literal["scores", "counts", "vep"]],
+    namespaces: List[Literal["scores", "counts", "vep", "gnomad"]],
     namespaced: Optional[bool] = None,
     start: Optional[int] = None,
     limit: Optional[int] = None,
@@ -518,8 +519,8 @@ def get_score_set_variants_as_csv(
         The database session to use.
     score_set : ScoreSet
         The score set to get the variants from.
-    namespaces : List[Literal["scores", "counts", "vep"]]
-        The namespaces for data. Now there are only scores, counts, and VEP. There will be ClinVar and gnomAD.
+    namespaces : List[Literal["scores", "counts", "vep", "gnomad"]]
+        The namespaces for data. Now there are only scores, counts, VEP, and gnomAD. ClinVar will be added in the future.
     namespaced: Optional[bool] = None
         Whether namespace the columns or not.
     start : int, optional
@@ -564,12 +565,51 @@ def get_score_set_variants_as_csv(
             ]
     elif "scores" in namespaced_score_set_columns:
         namespaced_score_set_columns["scores"].append(REQUIRED_SCORE_COLUMN)
-    elif "vep" in namespaced_score_set_columns:
+    if "vep" in namespaced_score_set_columns:
         namespaced_score_set_columns["vep"].append("vep_functional_consequence")
+    if "gnomad" in namespaced_score_set_columns:
+        namespaced_score_set_columns["gnomad"].append("gnomad_af")
     variants: Sequence[Variant] = []
     mappings: Optional[list[Optional[MappedVariant]]] = None
+    gnomad_data: Optional[list[Optional[GnomADVariant]]] = None
 
-    if include_post_mapped_hgvs:
+    if "gnomad" in namespaces and include_post_mapped_hgvs:
+        variants_mappings_and_gnomad_query = (
+            select(Variant, MappedVariant, GnomADVariant)
+            .join(
+                MappedVariant,
+                and_(Variant.id == MappedVariant.variant_id, MappedVariant.current.is_(True)),
+                isouter=True,
+            )
+            .join(MappedVariant.gnomad_variants.of_type(GnomADVariant), isouter=True)
+            .where(
+                and_(
+                    Variant.score_set_id == score_set.id,
+                    or_(
+                        and_(
+                            GnomADVariant.db_name == "gnomAD",
+                            GnomADVariant.db_version == "v4.1",
+                        ),
+                        GnomADVariant.id.is_(None),
+                    ),
+                )
+            )
+            .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
+        )
+        if start:
+            variants_mappings_and_gnomad_query = variants_mappings_and_gnomad_query.offset(start)
+        if limit:
+            variants_mappings_and_gnomad_query = variants_mappings_and_gnomad_query.limit(limit)
+        variants_mappings_and_gnomad = db.execute(variants_mappings_and_gnomad_query).all()
+
+        variants = []
+        mappings = []
+        gnomad_data = []
+        for variant, mapping, gnomad in variants_mappings_and_gnomad:
+            variants.append(variant)
+            mappings.append(mapping)
+            gnomad_data.append(gnomad)
+    elif include_post_mapped_hgvs:
         variants_and_mappings_query = (
             select(Variant, MappedVariant)
             .join(
@@ -591,6 +631,40 @@ def get_score_set_variants_as_csv(
         for variant, mapping in variants_and_mappings:
             variants.append(variant)
             mappings.append(mapping)
+    elif "gnomad" in namespaces:
+        variants_and_gnomad_query = (
+            select(Variant, GnomADVariant)
+            .join(
+                MappedVariant,
+                and_(Variant.id == MappedVariant.variant_id, MappedVariant.current.is_(True)),
+                isouter=True,
+            )
+            .join(MappedVariant.gnomad_variants.of_type(GnomADVariant), isouter=True)
+            .where(
+                and_(
+                    Variant.score_set_id == score_set.id,
+                    or_(
+                        and_(
+                            GnomADVariant.db_name == "gnomAD",
+                            GnomADVariant.db_version == "v4.1",
+                        ),
+                        GnomADVariant.id.is_(None),
+                    ),
+                )
+            )
+            .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
+        )
+        if start:
+            variants_and_gnomad_query = variants_and_gnomad_query.offset(start)
+        if limit:
+            variants_and_gnomad_query = variants_and_gnomad_query.limit(limit)
+        variants_and_gnomad = db.execute(variants_and_gnomad_query).all()
+
+        variants = []
+        gnomad_data = []
+        for variant, gnomad in variants_and_gnomad:
+            variants.append(variant)
+            gnomad_data.append(gnomad)
     else:
         variants_query = (
             select(Variant)
@@ -603,7 +677,11 @@ def get_score_set_variants_as_csv(
             variants_query = variants_query.limit(limit)
         variants = db.scalars(variants_query).all()
     rows_data = variants_to_csv_rows(
-        variants, columns=namespaced_score_set_columns, namespaced=namespaced, mappings=mappings
+        variants,
+        columns=namespaced_score_set_columns,
+        namespaced=namespaced,
+        mappings=mappings,
+        gnomad_data=gnomad_data,
     )  # type: ignore
     rows_columns = [
         (
@@ -659,6 +737,7 @@ def variant_to_csv_row(
     variant: Variant,
     columns: dict[str, list[str]],
     mapping: Optional[MappedVariant] = None,
+    gnomad_data: Optional[GnomADVariant] = None,
     namespaced: Optional[bool] = None,
     na_rep="NA",
 ) -> dict[str, Any]:
@@ -673,6 +752,10 @@ def variant_to_csv_row(
         Columns to serialize.
     namespaced: Optional[bool] = None
         Namespace the columns or not.
+    mapping : variant.models.MappedVariant, optional
+        Mapped variant corresponding to the variant.
+    gnomad_data : variant.models.GnomADVariant, optional
+        gnomAD variant data corresponding to the variant.
     na_rep : str
         String to represent null values.
 
@@ -719,6 +802,8 @@ def variant_to_csv_row(
                 value = vep_functional_consequence
             else:
                 value = na_rep
+        key = f"vep.{column_key}" if namespaced else column_key
+        row[key] = value
     for column_key in columns.get("scores", []):
         parent = variant.data.get("score_data") if variant.data else None
         value = str(parent.get(column_key)) if parent else na_rep
@@ -729,6 +814,15 @@ def variant_to_csv_row(
         value = str(parent.get(column_key)) if parent else na_rep
         key = f"counts.{column_key}" if namespaced else column_key
         row[key] = value
+    for column_key in columns.get("gnomad", []):
+        if column_key == "gnomad_af":
+            gnomad_af = gnomad_data.allele_frequency if gnomad_data else None
+            if gnomad_af is not None:
+                value = str(gnomad_af)
+            else:
+                value = na_rep
+        key = f"gnomad.{column_key}" if namespaced else column_key
+        row[key] = value
     return row
 
 
@@ -736,6 +830,7 @@ def variants_to_csv_rows(
     variants: Sequence[Variant],
     columns: dict[str, list[str]],
     mappings: Optional[Sequence[Optional[MappedVariant]]] = None,
+    gnomad_data: Optional[Sequence[Optional[GnomADVariant]]] = None,
     namespaced: Optional[bool] = None,
     na_rep="NA",
 ) -> Iterable[dict[str, Any]]:
@@ -750,6 +845,10 @@ def variants_to_csv_rows(
         Columns to serialize.
     namespaced: Optional[bool] = None
         Namespace the columns or not.
+    mappings : list[Optional[variant.models.MappedVariant]], optional
+        List of mapped variants corresponding to the variants.
+    gnomad_data : list[Optional[variant.models.GnomADVariant]], optional
+        List of gnomAD variant data corresponding to the variants.
     na_rep : str
         String to represent null values.
 
@@ -757,10 +856,24 @@ def variants_to_csv_rows(
     -------
     list[dict[str, Any]]
     """
-    if mappings is not None:
+    if mappings is not None and gnomad_data is not None:
+        return map(
+            lambda zipped: variant_to_csv_row(
+                zipped[0], columns, mapping=zipped[1], gnomad_data=zipped[2], namespaced=namespaced, na_rep=na_rep
+            ),
+            zip(variants, mappings, gnomad_data),
+        )
+    elif mappings is not None:
         return map(
             lambda pair: variant_to_csv_row(pair[0], columns, mapping=pair[1], namespaced=namespaced, na_rep=na_rep),
             zip(variants, mappings),
+        )
+    elif gnomad_data is not None:
+        return map(
+            lambda pair: variant_to_csv_row(
+                pair[0], columns, gnomad_data=pair[1], namespaced=namespaced, na_rep=na_rep
+            ),
+            zip(variants, gnomad_data),
         )
     return map(lambda v: variant_to_csv_row(v, columns, namespaced=namespaced, na_rep=na_rep), variants)
 
