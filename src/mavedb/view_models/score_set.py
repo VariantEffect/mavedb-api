@@ -7,11 +7,9 @@ from typing import Any, Collection, Optional, Sequence, Union, Type, TypeVar, Ca
 from typing_extensions import Self
 from copy import deepcopy
 
-from humps import camelize
-from mavedb.view_models.score_set_dataset_columns import DatasetColumnsCreate, SavedDatasetColumns, DatasetColumns
+from mavedb.view_models.score_set_dataset_columns import SavedDatasetColumns, DatasetColumns
 from pydantic import field_validator, model_validator, create_model
 from pydantic.fields import FieldInfo
-from fastapi import Form
 
 from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.exceptions import ValidationError
@@ -323,43 +321,32 @@ class ScoreSetUpdate(ScoreSetModify):
 @all_fields_optional_model()
 class ScoreSetUpdateAllOptional(ScoreSetUpdateBase):
     @classmethod
-    def as_form(
-        cls,
+    def as_form(cls, **kwargs: Any) -> "ScoreSetUpdateAllOptional":
+        """Create ScoreSetUpdateAllOptional from form data."""
 
-        # ScoreSetBase fields
-        title: Optional[str]  = Form(None),
-        method_text: Optional[str] = Form(None),
-        abstract_text: Optional[str] = Form(None),
-        short_description: Optional[str] = Form(None),
-        extra_metadata: Optional[str] = Form(None),
-        data_usage_policy: Optional[str] = Form(None),
+        # Define which fields need special JSON parsing
+        json_fields = {
+            'contributors': lambda data: [ContributorCreate.model_validate(c) for c in data] if data else None,
+            'primary_publication_identifiers': lambda data: [PublicationIdentifierCreate.model_validate(p) for p in data] if data else None,
+            'secondary_publication_identifiers': lambda data: [PublicationIdentifierCreate.model_validate(s) for s in data] if data else None,
+            'doi_identifiers': lambda data: [DoiIdentifierCreate.model_validate(d) for d in data] if data else None,
+            'target_genes': lambda data: [TargetGeneCreate.model_validate(t) for t in data] if data else None,
+            'score_ranges': lambda data: ScoreSetRangesCreate.model_validate(data) if data else None,
+            'extra_metadata': lambda data: data,
+        }
 
-        # ScoreSetModify fields
-        contributors: Optional[str] = Form(None),
-        primary_publication_identifiers: Optional[str] = Form(None),
-        secondary_publication_identifiers: Optional[str] = Form(None),
-        doi_identifiers: Optional[str] = Form(None),
-        target_genes: Optional[str] = Form(None),
-        score_ranges: Optional[str] = Form(None),
+        # Process all fields dynamically
+        processed_kwargs = {}
 
-        # ScoreSetUpdate fields
-        license_id: Optional[int] = Form(None),
-    ) -> "ScoreSetUpdateAllOptional":
-        return cls(
-            title=title,
-            method_text=method_text,
-            abstract_text=abstract_text,
-            short_description=short_description,
-            extra_metadata=json.loads(extra_metadata) if extra_metadata else None,
-            data_usage_policy=data_usage_policy,
-            contributors=[ContributorCreate.model_validate(c) for c in json.loads(contributors)] if contributors else None,
-            primary_publication_identifiers=[PublicationIdentifierCreate.model_validate(p) for p in json.loads(primary_publication_identifiers)] if primary_publication_identifiers else None,
-            secondary_publication_identifiers=[PublicationIdentifierCreate.model_validate(s) for s in json.loads(secondary_publication_identifiers)] if secondary_publication_identifiers else None,
-            doi_identifiers=[DoiIdentifierCreate.model_validate(d) for d in json.loads(doi_identifiers)] if doi_identifiers else None,
-            target_genes=[TargetGeneCreate.model_validate(t) for t in json.loads(target_genes)] if target_genes else None,
-            score_ranges=ScoreSetRangesCreate.model_validate(json.loads(score_ranges)) if score_ranges else None,
-            license_id=license_id,
-        )
+        for field_name, value in kwargs.items():
+            if field_name in json_fields and value is not None and isinstance(value, str):
+                parsed_value = json.loads(value)
+                processed_kwargs[field_name] = json_fields[field_name](parsed_value)
+            else:
+                # All other fields pass through as-is
+                processed_kwargs[field_name] = value
+
+        return cls(**processed_kwargs)
 
 
 class ShortScoreSet(BaseModel):

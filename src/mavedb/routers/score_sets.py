@@ -1,16 +1,20 @@
 import json
 import logging
 from datetime import date
-from typing import Any, List, Optional, Sequence, Union
+from typing import Any, List, Optional, Sequence, TypedDict, Union
 
 import pandas as pd
 from arq import ArqRedis
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import Statement, ExperimentalVariantFunctionalImpactStudyResult
+from mavedb.view_models.contributor import ContributorCreate
+from mavedb.view_models.doi_identifier import DoiIdentifierCreate
+from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
+from mavedb.view_models.target_gene import TargetGeneCreate
 from sqlalchemy import null, or_, select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.orm import contains_eager, Session
@@ -79,6 +83,299 @@ from mavedb.view_models.search import ScoreSetsSearch
 
 logger = logging.getLogger(__name__)
 
+async def enqueue_variant_creation(
+    *,
+    item: ScoreSet,
+    user_data: UserData,
+    worker: ArqRedis,
+) -> None:
+    assert item.dataset_columns is not None
+
+    # score_columns_metadata and count_columns_metadata are the only values of dataset_columns that can be set manually.
+    # The others, scores_columns and count_columns, are calculated based on the uploaded data and should not be changed here.
+    # if item_update.dataset_columns.get("countColumnsMetadata") is not None:
+    #     item.dataset_columns= {**item.dataset_columns, "count_columns_metadata": item_update.dataset_columns["countColumnsMetadata"]}
+    # if item_update.dataset_columns.get("scoreColumnsMetadata") is not None:
+    #     item.dataset_columns = {**item.dataset_columns, "score_columns_metadata": item_update.dataset_columns["scoreColumnsMetadata"]}
+
+    score_columns = [
+        "hgvs_nt",
+        "hgvs_splice",
+        "hgvs_pro",
+    ] + item.dataset_columns["score_columns"]
+    count_columns = [
+        "hgvs_nt",
+        "hgvs_splice",
+        "hgvs_pro",
+    ] + item.dataset_columns["count_columns"]
+
+    scores_data = pd.DataFrame(
+        variants_to_csv_rows(item.variants, columns=score_columns, dtype="score_data")
+    ).replace("NA", pd.NA)
+
+    if item.dataset_columns["count_columns"]:
+        count_data = pd.DataFrame(
+            variants_to_csv_rows(item.variants, columns=count_columns, dtype="count_data")
+        ).replace("NA", pd.NA)
+    else:
+        count_data = None
+
+    scores_column_metadata = item.dataset_columns.get("scores_column_metadata")
+    counts_column_metadata = item.dataset_columns.get("counts_column_metadata")
+
+    # Although this is also updated within the variant creation job, update it here
+    # as well so that we can display the proper UI components (queue invocation delay
+    # races the score set GET request).
+    item.processing_state = ProcessingState.processing
+
+    # await the insertion of this job into the worker queue, not the job itself.
+    job = await worker.enqueue_job(
+        "create_variants_for_score_set",
+        correlation_id_for_context(),
+        item.id,
+        user_data.user.id,
+        scores_data,
+        count_data,
+        scores_column_metadata,
+        counts_column_metadata,
+    )
+    if job is not None:
+        save_to_logging_context({"worker_job_id": job.job_id})
+    logger.info(msg="Enqueud variant creation job.", extra=logging_context())
+
+class ScoreSetUpdateResult(TypedDict):
+    item: ScoreSet
+    should_create_variants: bool
+
+async def score_set_update(
+    *,
+    db: Session,
+    urn: str,
+    item_update: score_set.ScoreSetUpdateAllOptional,
+    exclude_unset: bool = False,
+    user_data: UserData,
+) -> ScoreSetUpdateResult:
+    logger.info(msg="Updating score set.", extra=logging_context())
+
+    should_create_variants = False
+    item_update_dict: dict[str, Any] = item_update.model_dump(exclude_unset=exclude_unset)
+
+    item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
+    if not item:
+        logger.info(msg="Failed to update score set; The requested score set does not exist.", extra=logging_context())
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
+    assert_permission(user_data, item, Action.UPDATE)
+
+    for var, value in item_update_dict.items():
+        if var not in [
+            "contributors",
+            "score_ranges",
+            "doi_identifiers",
+            "experiment_urn",
+            "license_id",
+            "secondary_publication_identifiers",
+            "primary_publication_identifiers",
+            "target_genes",
+            "dataset_columns",
+        ]:
+            setattr(item, var, value) if value is not None else None
+
+    item_update_license_id = item_update_dict.get("license_id")
+    if item_update_license_id is not None:
+        save_to_logging_context({"license": item_update_license_id})
+        license_ = db.query(License).filter(License.id == item_update_license_id).one_or_none()
+
+        if not license_:
+            logger.info(
+                msg="Failed to update score set; The requested license does not exist.", extra=logging_context()
+            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
+
+            # Allow in-active licenses to be retained on update if they already exist on the item.
+        elif not license_.active and item.license.id != item_update_license_id:
+            logger.info(
+                msg="Failed to update score set license; The requested license is no longer active.",
+                extra=logging_context(),
+            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid license")
+
+        item.license = license_
+
+    if "doi_identifiers" in item_update_dict:
+        doi_identifiers_list = [DoiIdentifierCreate(**identifier) for identifier in item_update_dict.get("doi_identifiers") or []]
+        item.doi_identifiers = [
+            await find_or_create_doi_identifier(db, identifier.identifier)
+            for identifier in doi_identifiers_list
+        ]
+
+    if any(key in item_update_dict for key in ["primary_publication_identifiers", "secondary_publication_identifiers"]):
+        if "primary_publication_identifiers" in item_update_dict:
+            primary_publication_identifiers_list = [PublicationIdentifierCreate(**identifier) for identifier in item_update_dict.get("primary_publication_identifiers") or []]
+            primary_publication_identifiers = [
+                await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+                for identifier in primary_publication_identifiers_list
+            ]
+        else:
+            # set to existing primary publication identifiers if not provided in update
+            primary_publication_identifiers = [p for p in item.publication_identifiers if getattr(p, "primary", False)]
+
+        if "secondary_publication_identifiers" in item_update_dict:
+            secondary_publication_identifiers_list = [PublicationIdentifierCreate(**identifier) for identifier in item_update_dict.get("secondary_publication_identifiers") or []]
+            secondary_publication_identifiers = [
+                await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+                for identifier in secondary_publication_identifiers_list
+            ]
+        else:
+            # set to existing secondary publication identifiers if not provided in update
+            secondary_publication_identifiers = [p for p in item.publication_identifiers if not getattr(p, "primary", False)]
+
+        publication_identifiers = primary_publication_identifiers + secondary_publication_identifiers
+
+        # create a temporary `primary` attribute on each of our publications that indicates
+        # to our association proxy whether it is a primary publication or not
+        primary_identifiers = [p.identifier for p in primary_publication_identifiers]
+        for publication in publication_identifiers:
+            setattr(publication, "primary", publication.identifier in primary_identifiers)
+
+        item.publication_identifiers = publication_identifiers
+
+    if "contributors" in item_update_dict:
+        try:
+            contributors = [ContributorCreate(**contributor) for contributor in item_update_dict.get("contributors") or []]
+            item.contributors = [
+                await find_or_create_contributor(db, contributor.orcid_id) for contributor in contributors
+            ]
+        except NonexistentOrcidUserError as e:
+            logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
+            raise HTTPException(status_code=422, detail=str(e))
+
+    # Score set has not been published and attributes affecting scores may still be edited.
+    if item.private:
+        if "score_ranges" in item_update_dict:
+            item.score_ranges = item_update_dict.get("score_ranges", null())
+
+        # If item_update_dict includes target_genes, delete the old target gene, WT sequence, and reference map. These will be deleted when we set the score set's
+        # target_gene to None, because we have set cascade='all,delete-orphan' on ScoreSet.target_gene. (Since the
+        # relationship is defined with the target gene as owner, this is actually set up in the backref attribute of
+        # TargetGene.score_set.)
+        #
+        # We must flush our database queries now so that the old target gene will be deleted before inserting a new one
+        # with the same score_set_id.
+
+        if "target_genes" in item_update_dict:
+            item.target_genes = []
+            db.flush()
+
+            targets: List[TargetGene] = []
+            accessions = False
+
+            for tg in item_update_dict.get("target_genes", []):
+                gene = TargetGeneCreate(**tg)
+                if gene.target_sequence:
+                    if accessions and len(targets) > 0:
+                        logger.info(
+                            msg="Failed to update score set; Both a sequence and accession based target were detected.",
+                            extra=logging_context(),
+                        )
+
+                        raise MixedTargetError(
+                            "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
+                        )
+
+                    upload_taxonomy = gene.target_sequence.taxonomy
+                    save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.code})
+                    taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
+
+                    if not taxonomy:
+                        logger.info(
+                            msg="Failed to create score set; The requested taxonomy does not exist.",
+                            extra=logging_context(),
+                        )
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.code}",
+                        )
+
+                    # If the target sequence has a label, use it. Otherwise, use the name from the target gene as the label.
+                    # View model validation rules enforce that sequences must have a label defined if there are more than one
+                    # targets defined on a score set.
+                    seq_label = gene.target_sequence.label if gene.target_sequence.label is not None else gene.name
+                    target_sequence = TargetSequence(
+                        **jsonable_encoder(
+                            gene.target_sequence,
+                            by_alias=False,
+                            exclude={"taxonomy", "label"},
+                        ),
+                        taxonomy=taxonomy,
+                        label=seq_label,
+                    )
+                    target_gene = TargetGene(
+                        **jsonable_encoder(
+                            gene,
+                            by_alias=False,
+                            exclude={
+                                "external_identifiers",
+                                "target_sequence",
+                                "target_accession",
+                            },
+                        ),
+                        target_sequence=target_sequence,
+                    )
+
+                elif gene.target_accession:
+                    if not accessions and len(targets) > 0:
+                        logger.info(
+                            msg="Failed to create score set; Both a sequence and accession based target were detected.",
+                            extra=logging_context(),
+                        )
+                        raise MixedTargetError(
+                            "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
+                        )
+                    accessions = True
+                    target_accession = TargetAccession(**jsonable_encoder(gene.target_accession, by_alias=False))
+                    target_gene = TargetGene(
+                        **jsonable_encoder(
+                            gene,
+                            by_alias=False,
+                            exclude={
+                                "external_identifiers",
+                                "target_sequence",
+                                "target_accession",
+                            },
+                        ),
+                        target_accession=target_accession,
+                    )
+                else:
+                    save_to_logging_context({"failing_target": gene})
+                    logger.info(msg="Failed to create score set; Could not infer target type.", extra=logging_context())
+                    raise ValueError("One of either `target_accession` or `target_gene` should be present")
+
+                for external_gene_identifier_offset_create in gene.external_identifiers:
+                    offset = external_gene_identifier_offset_create.offset
+                    identifier_create = external_gene_identifier_offset_create.identifier
+                    await create_external_gene_identifier_offset(
+                        db,
+                        target_gene,
+                        identifier_create.db_name,
+                        identifier_create.identifier,
+                        offset,
+                    )
+
+                targets.append(target_gene)
+
+            item.target_genes = targets
+            should_create_variants = True if item.variants else False
+
+    else:
+        logger.debug(msg="Skipped score range and target gene update. Score set is published.", extra=logging_context())
+
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    save_to_logging_context({"updated_resource": item.urn})
+    return {"item": item, "should_create_variants": should_create_variants}
 
 async def fetch_score_set_by_urn(
     db, urn: str, user: Optional[UserData], owner_or_contributor: Optional[UserData], only_published: bool
@@ -1087,6 +1384,53 @@ async def update_score_set_range_data(
     return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
 
 
+@router.patch(
+    "/score-sets-with-variants/{urn}", response_model=score_set.ScoreSet, responses={422: {}}, response_model_exclude_none=True
+)
+async def update_score_set_with_variants(
+    *,
+    urn: str,
+    request: Request,
+
+    # Variants data and metadata files
+    counts_file: Optional[UploadFile] = File(None),
+    scores_file: Optional[UploadFile] = File(None),
+    count_columns_metadata_file: Optional[UploadFile] = File(None),
+    score_columns_metadata_file: Optional[UploadFile] = File(None),
+
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(require_current_user_with_email),
+    worker: ArqRedis = Depends(deps.get_worker),
+) -> Any:
+    """
+    Update a score set and variants.
+    """
+    logger.debug(msg="Began score set with variants update.", extra=logging_context())
+
+    try:
+        # Get all form data from the request
+        form_data = await request.form()
+
+        # Convert form data to dictionary, excluding file fields
+        form_dict = {
+            key: value for key, value in form_data.items()
+            if key not in ['counts_file', 'scores_file', 'count_columns_metadata_file', 'score_columns_metadata_file']
+        }
+
+        # Create the update object using **kwargs in as_form
+        item_update = score_set.ScoreSetUpdateAllOptional.as_form(**form_dict)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    itemUpdateResult = await score_set_update(db=db, urn=urn, item_update=item_update,  exclude_unset=True, user_data=user_data)
+    updatedItem = itemUpdateResult["item"]
+    # should_create_variants = itemUpdateResult["should_create_variants"]
+
+    # TODO handle uploaded files
+
+    enriched_experiment = enrich_experiment_with_num_score_sets(updatedItem.experiment, user_data)
+    return score_set.ScoreSet.model_validate(updatedItem).copy(update={"experiment": enriched_experiment})
+
 @router.put(
     "/score-sets/{urn}", response_model=score_set.ScoreSet, responses={422: {}}, response_model_exclude_none=True
 )
@@ -1104,256 +1448,16 @@ async def update_score_set(
     save_to_logging_context({"requested_resource": urn})
     logger.debug(msg="Began score set update.", extra=logging_context())
 
-    item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
-    if not item:
-        logger.info(msg="Failed to update score set; The requested score set does not exist.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+    score_set_update_item = score_set.ScoreSetUpdateAllOptional.model_validate(item_update.model_dump())
+    itemUpdateResult = await score_set_update(db=db, urn=urn, item_update=score_set_update_item,  exclude_unset=False, user_data=user_data)
+    updatedItem = itemUpdateResult["item"]
+    should_create_variants = itemUpdateResult["should_create_variants"]
 
-    assert_permission(user_data, item, Action.UPDATE)
+    if should_create_variants:
+        await enqueue_variant_creation(item=updatedItem, user_data=user_data, worker=worker)
 
-    for var, value in vars(item_update).items():
-        if var not in [
-            "contributors",
-            "score_ranges",
-            "doi_identifiers",
-            "experiment_urn",
-            "license_id",
-            "secondary_publication_identifiers",
-            "primary_publication_identifiers",
-            "target_genes",
-            "dataset_columns",
-        ]:
-            setattr(item, var, value) if value is not None else None
-
-    if item_update.license_id is not None:
-        save_to_logging_context({"license": item_update.license_id})
-        license_ = db.query(License).filter(License.id == item_update.license_id).one_or_none()
-
-        if not license_:
-            logger.info(
-                msg="Failed to update score set; The requested license does not exist.", extra=logging_context()
-            )
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
-
-            # Allow in-active licenses to be retained on update if they already exist on the item.
-        elif not license_.active and item.licence_id != item_update.license_id:
-            logger.info(
-                msg="Failed to update score set license; The requested license is no longer active.",
-                extra=logging_context(),
-            )
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid license")
-
-        item.license = license_
-
-    item.doi_identifiers = [
-        await find_or_create_doi_identifier(db, identifier.identifier)
-        for identifier in item_update.doi_identifiers or []
-    ]
-    primary_publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_update.primary_publication_identifiers or []
-    ]
-    publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_update.secondary_publication_identifiers or []
-    ] + primary_publication_identifiers
-
-    # create a temporary `primary` attribute on each of our publications that indicates
-    # to our association proxy whether it is a primary publication or not
-    primary_identifiers = [p.identifier for p in primary_publication_identifiers]
-    for publication in publication_identifiers:
-        setattr(publication, "primary", publication.identifier in primary_identifiers)
-
-    item.publication_identifiers = publication_identifiers
-
-    try:
-        item.contributors = [
-            await find_or_create_contributor(db, contributor.orcid_id) for contributor in item_update.contributors or []
-        ]
-    except NonexistentOrcidUserError as e:
-        logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise HTTPException(status_code=422, detail=str(e))
-
-    # Score set has not been published and attributes affecting scores may still be edited.
-    if item.private:
-        if item_update.score_ranges:
-            item.score_ranges = item_update.score_ranges.model_dump()
-        else:
-            item.score_ranges = null()
-
-        # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the score set's
-        # target_gene to None, because we have set cascade='all,delete-orphan' on ScoreSet.target_gene. (Since the
-        # relationship is defined with the target gene as owner, this is actually set up in the backref attribute of
-        # TargetGene.score_set.)
-        #
-        # We must flush our database queries now so that the old target gene will be deleted before inserting a new one
-        # with the same score_set_id.
-        item.target_genes = []
-        db.flush()
-
-        targets: List[TargetGene] = []
-        accessions = False
-        for gene in item_update.target_genes:
-            if gene.target_sequence:
-                if accessions and len(targets) > 0:
-                    logger.info(
-                        msg="Failed to update score set; Both a sequence and accession based target were detected.",
-                        extra=logging_context(),
-                    )
-
-                    raise MixedTargetError(
-                        "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
-                    )
-
-                upload_taxonomy = gene.target_sequence.taxonomy
-                save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.code})
-                taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
-
-                if not taxonomy:
-                    logger.info(
-                        msg="Failed to create score set; The requested taxonomy does not exist.",
-                        extra=logging_context(),
-                    )
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.code}",
-                    )
-
-                # If the target sequence has a label, use it. Otherwise, use the name from the target gene as the label.
-                # View model validation rules enforce that sequences must have a label defined if there are more than one
-                # targets defined on a score set.
-                seq_label = gene.target_sequence.label if gene.target_sequence.label is not None else gene.name
-                target_sequence = TargetSequence(
-                    **jsonable_encoder(
-                        gene.target_sequence,
-                        by_alias=False,
-                        exclude={"taxonomy", "label"},
-                    ),
-                    taxonomy=taxonomy,
-                    label=seq_label,
-                )
-                target_gene = TargetGene(
-                    **jsonable_encoder(
-                        gene,
-                        by_alias=False,
-                        exclude={
-                            "external_identifiers",
-                            "target_sequence",
-                            "target_accession",
-                        },
-                    ),
-                    target_sequence=target_sequence,
-                )
-
-            elif gene.target_accession:
-                if not accessions and len(targets) > 0:
-                    logger.info(
-                        msg="Failed to create score set; Both a sequence and accession based target were detected.",
-                        extra=logging_context(),
-                    )
-                    raise MixedTargetError(
-                        "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
-                    )
-                accessions = True
-                target_accession = TargetAccession(**jsonable_encoder(gene.target_accession, by_alias=False))
-                target_gene = TargetGene(
-                    **jsonable_encoder(
-                        gene,
-                        by_alias=False,
-                        exclude={
-                            "external_identifiers",
-                            "target_sequence",
-                            "target_accession",
-                        },
-                    ),
-                    target_accession=target_accession,
-                )
-            else:
-                save_to_logging_context({"failing_target": gene})
-                logger.info(msg="Failed to create score set; Could not infer target type.", extra=logging_context())
-                raise ValueError("One of either `target_accession` or `target_gene` should be present")
-
-            for external_gene_identifier_offset_create in gene.external_identifiers:
-                offset = external_gene_identifier_offset_create.offset
-                identifier_create = external_gene_identifier_offset_create.identifier
-                await create_external_gene_identifier_offset(
-                    db,
-                    target_gene,
-                    identifier_create.db_name,
-                    identifier_create.identifier,
-                    offset,
-                )
-
-            targets.append(target_gene)
-
-        item.target_genes = targets
-
-        # re-validate existing variants and clear them if they do not pass validation
-        if item.variants:
-            assert item.dataset_columns is not None
-
-            # score_columns_metadata and count_columns_metadata are the only values of dataset_columns that can be set manually.
-            # The others, scores_columns and count_columns, are calculated based on the uploaded data and should not be changed here.
-            # if item_update.dataset_columns.get("countColumnsMetadata") is not None:
-            #     item.dataset_columns= {**item.dataset_columns, "count_columns_metadata": item_update.dataset_columns["countColumnsMetadata"]}
-            # if item_update.dataset_columns.get("scoreColumnsMetadata") is not None:
-            #     item.dataset_columns = {**item.dataset_columns, "score_columns_metadata": item_update.dataset_columns["scoreColumnsMetadata"]}
-
-            score_columns = [
-                "hgvs_nt",
-                "hgvs_splice",
-                "hgvs_pro",
-            ] + item.dataset_columns["score_columns"]
-            count_columns = [
-                "hgvs_nt",
-                "hgvs_splice",
-                "hgvs_pro",
-            ] + item.dataset_columns["count_columns"]
-
-            scores_data = pd.DataFrame(
-                variants_to_csv_rows(item.variants, columns=score_columns, dtype="score_data")
-            ).replace("NA", pd.NA)
-
-            if item.dataset_columns["count_columns"]:
-                count_data = pd.DataFrame(
-                    variants_to_csv_rows(item.variants, columns=count_columns, dtype="count_data")
-                ).replace("NA", pd.NA)
-            else:
-                count_data = None
-
-            scores_column_metadata = item.dataset_columns.get("scores_column_metadata")
-            counts_column_metadata = item.dataset_columns.get("counts_column_metadata")
-
-            # Although this is also updated within the variant creation job, update it here
-            # as well so that we can display the proper UI components (queue invocation delay
-            # races the score set GET request).
-            item.processing_state = ProcessingState.processing
-
-            # await the insertion of this job into the worker queue, not the job itself.
-            job = await worker.enqueue_job(
-                "create_variants_for_score_set",
-                correlation_id_for_context(),
-                item.id,
-                user_data.user.id,
-                scores_data,
-                count_data,
-                scores_column_metadata,
-                counts_column_metadata,
-            )
-            if job is not None:
-                save_to_logging_context({"worker_job_id": job.job_id})
-            logger.info(msg="Enqueud variant creation job.", extra=logging_context())
-    else:
-        logger.debug(msg="Skipped score range and target gene update. Score set is published.", extra=logging_context())
-
-    db.add(item)
-    db.commit()
-    db.refresh(item)
-
-    save_to_logging_context({"updated_resource": item.urn})
-
-    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
+    enriched_experiment = enrich_experiment_with_num_score_sets(updatedItem.experiment, user_data)
+    return score_set.ScoreSet.model_validate(updatedItem).copy(update={"experiment": enriched_experiment})
 
 
 @router.delete("/score-sets/{urn}", responses={422: {}})

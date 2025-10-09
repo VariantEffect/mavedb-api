@@ -157,7 +157,7 @@ class TestValidateStandardizeDataFramePair(DfTestCase):
     def test_no_targets(self):
         with self.assertRaises(ValueError):
             validate_and_standardize_dataframe_pair(
-                self.dataframe, counts_df=None, targets=[], hdp=self.mocked_nt_human_data_provider
+                self.dataframe, counts_df=None, scores_column_metadata=None, counts_column_metadata=None, targets=[], hdp=self.mocked_nt_human_data_provider
             )
 
     # TODO: Add additional DataFrames. Realistically, if other unit tests pass this function is ok
