@@ -11,6 +11,7 @@ from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import Statement, ExperimentalVariantFunctionalImpactStudyResult
+from mavedb.lib.target_genes import find_or_create_target_gene_by_accession, find_or_create_target_gene_by_sequence
 from mavedb.view_models.contributor import ContributorCreate
 from mavedb.view_models.doi_identifier import DoiIdentifierCreate
 from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
@@ -123,11 +124,6 @@ async def enqueue_variant_creation(
     scores_column_metadata = item.dataset_columns.get("scores_column_metadata")
     counts_column_metadata = item.dataset_columns.get("counts_column_metadata")
 
-    # Although this is also updated within the variant creation job, update it here
-    # as well so that we can display the proper UI components (queue invocation delay
-    # races the score set GET request).
-    item.processing_state = ProcessingState.processing
-
     # await the insertion of this job into the worker queue, not the job itself.
     job = await worker.enqueue_job(
         "create_variants_for_score_set",
@@ -161,7 +157,7 @@ async def score_set_update(
     item_update_dict: dict[str, Any] = item_update.model_dump(exclude_unset=exclude_unset)
 
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
-    if not item:
+    if not item or item.id is None:
         logger.info(msg="Failed to update score set; The requested score set does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
@@ -255,17 +251,9 @@ async def score_set_update(
         if "score_ranges" in item_update_dict:
             item.score_ranges = item_update_dict.get("score_ranges", null())
 
-        # If item_update_dict includes target_genes, delete the old target gene, WT sequence, and reference map. These will be deleted when we set the score set's
-        # target_gene to None, because we have set cascade='all,delete-orphan' on ScoreSet.target_gene. (Since the
-        # relationship is defined with the target gene as owner, this is actually set up in the backref attribute of
-        # TargetGene.score_set.)
-        #
-        # We must flush our database queries now so that the old target gene will be deleted before inserting a new one
-        # with the same score_set_id.
-
         if "target_genes" in item_update_dict:
-            item.target_genes = []
-            db.flush()
+            assert all(tg.id is not None for tg in item.target_genes)
+            existing_target_ids: list[int] = [tg.id for tg in item.target_genes if tg.id is not None]
 
             targets: List[TargetGene] = []
             accessions = False
@@ -301,17 +289,11 @@ async def score_set_update(
                     # View model validation rules enforce that sequences must have a label defined if there are more than one
                     # targets defined on a score set.
                     seq_label = gene.target_sequence.label if gene.target_sequence.label is not None else gene.name
-                    target_sequence = TargetSequence(
-                        **jsonable_encoder(
-                            gene.target_sequence,
-                            by_alias=False,
-                            exclude={"taxonomy", "label"},
-                        ),
-                        taxonomy=taxonomy,
-                        label=seq_label,
-                    )
-                    target_gene = TargetGene(
-                        **jsonable_encoder(
+
+                    target_gene = target_gene = find_or_create_target_gene_by_sequence(
+                        db,
+                        score_set_id=item.id,
+                        tg=jsonable_encoder(
                             gene,
                             by_alias=False,
                             exclude={
@@ -320,7 +302,11 @@ async def score_set_update(
                                 "target_accession",
                             },
                         ),
-                        target_sequence=target_sequence,
+                        tg_sequence={
+                            **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"taxonomy", "label"}),
+                            "taxonomy": taxonomy,
+                            "label": seq_label,
+                        }
                     )
 
                 elif gene.target_accession:
@@ -333,9 +319,11 @@ async def score_set_update(
                             "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                         )
                     accessions = True
-                    target_accession = TargetAccession(**jsonable_encoder(gene.target_accession, by_alias=False))
-                    target_gene = TargetGene(
-                        **jsonable_encoder(
+
+                    target_gene = find_or_create_target_gene_by_accession(
+                        db,
+                        score_set_id=item.id,
+                        tg=jsonable_encoder(
                             gene,
                             by_alias=False,
                             exclude={
@@ -344,7 +332,7 @@ async def score_set_update(
                                 "target_accession",
                             },
                         ),
-                        target_accession=target_accession,
+                        tg_accession=jsonable_encoder(gene.target_accession, by_alias=False),
                     )
                 else:
                     save_to_logging_context({"failing_target": gene})
@@ -365,7 +353,13 @@ async def score_set_update(
                 targets.append(target_gene)
 
             item.target_genes = targets
-            should_create_variants = True if item.variants else False
+
+            assert all(tg.id is not None for tg in item.target_genes)
+            current_target_ids: list[int] = [tg.id for tg in item.target_genes if tg.id is not None]
+
+            if sorted(existing_target_ids) != sorted(current_target_ids):
+                logger.info(msg=f"Target genes have changed for score set {item.id}", extra=logging_context())
+                should_create_variants = True if item.variants else False
 
     else:
         logger.debug(msg="Skipped score range and target gene update. Score set is published.", extra=logging_context())
@@ -1131,6 +1125,7 @@ async def create_score_set(
             # View model validation rules enforce that sequences must have a label defined if there are more than one
             # targets defined on a score set.
             seq_label = gene.target_sequence.label if gene.target_sequence.label is not None else gene.name
+
             target_sequence = TargetSequence(
                 **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"taxonomy", "label"}),
                 taxonomy=taxonomy,
@@ -1454,7 +1449,16 @@ async def update_score_set(
     should_create_variants = itemUpdateResult["should_create_variants"]
 
     if should_create_variants:
+        # Although this is also updated within the variant creation job, update it here
+        # as well so that we can display the proper UI components (queue invocation delay
+        # races the score set GET request).
+        updatedItem.processing_state = ProcessingState.processing
+
         await enqueue_variant_creation(item=updatedItem, user_data=user_data, worker=worker)
+
+        db.add(updatedItem)
+        db.commit()
+        db.refresh(updatedItem)
 
     enriched_experiment = enrich_experiment_with_num_score_sets(updatedItem.experiment, user_data)
     return score_set.ScoreSet.model_validate(updatedItem).copy(update={"experiment": enriched_experiment})
