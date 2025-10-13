@@ -32,8 +32,8 @@ STANDARD_COLUMNS = (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, require
 def validate_and_standardize_dataframe_pair(
     scores_df: pd.DataFrame,
     counts_df: Optional[pd.DataFrame],
-    scores_column_metadata: Optional[dict[str, DatasetColumnMetadata]],
-    counts_column_metadata: Optional[dict[str, DatasetColumnMetadata]],
+    score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]],
+    count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]],
     targets: list[TargetGene],
     hdp: Optional["RESTDataProvider"],
 ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], Optional[dict[str, DatasetColumnMetadata]], Optional[dict[str, DatasetColumnMetadata]]]:
@@ -46,9 +46,9 @@ def validate_and_standardize_dataframe_pair(
         The scores dataframe
     counts_df : Optional[pandas.DataFrame]
         The counts dataframe, can be None if not present
-    scores_column_metadata: Optional[dict[str, DatasetColumnMetadata]]
+    score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]]
         The scores column metadata, can be None if not present
-    counts_column_metadata: Optional[dict[str, DatasetColumnMetadata]]
+    count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]]
         The counts column metadata, can be None if not present
     targets : str
         The target genes on which to validate dataframes
@@ -73,26 +73,26 @@ def validate_and_standardize_dataframe_pair(
 
     validate_dataframe(standardized_scores_df, "scores", targets, hdp)
 
-    if scores_column_metadata is not None:
-        standardized_scores_column_metadata = standardize_dict_keys(scores_column_metadata)
-        validate_df_column_metadata_match(standardized_scores_df, standardized_scores_column_metadata)
+    if score_columns_metadata is not None:
+        standardized_score_columns_metadata = standardize_dict_keys(score_columns_metadata)
+        validate_df_column_metadata_match(standardized_scores_df, standardized_score_columns_metadata)
     else:
-        standardized_scores_column_metadata = None
+        standardized_score_columns_metadata = None
 
     if standardized_counts_df is not None:
         validate_dataframe(standardized_counts_df, "counts", targets, hdp)
         validate_variant_columns_match(standardized_scores_df, standardized_counts_df)
-        if counts_column_metadata is not None:
-            standardized_scores_column_metadata = standardize_dict_keys(counts_column_metadata)
-            validate_df_column_metadata_match(standardized_counts_df, standardized_scores_column_metadata)
+        if count_columns_metadata is not None:
+            standardized_count_columns_metadata = standardize_dict_keys(count_columns_metadata)
+            validate_df_column_metadata_match(standardized_counts_df, standardized_count_columns_metadata)
         else:
-            standardized_counts_column_metadata = None
+            standardized_count_columns_metadata = None
     else:
-        if counts_column_metadata is not None:
+        if count_columns_metadata is not None and len(count_columns_metadata.keys()) > 0:
             raise ValidationError("Counts column metadata provided without counts dataframe")
-        standardized_counts_column_metadata = None
+        standardized_count_columns_metadata = None
 
-    return standardized_scores_df, standardized_counts_df, standardized_scores_column_metadata, standardized_counts_column_metadata
+    return standardized_scores_df, standardized_counts_df, standardized_score_columns_metadata, standardized_count_columns_metadata
 
 
 def validate_dataframe(

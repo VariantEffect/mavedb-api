@@ -128,8 +128,8 @@ async def create_variants_for_score_set(
     updater_id: int,
     scores: pd.DataFrame,
     counts: pd.DataFrame,
-    scores_column_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
-    counts_column_metadata: Optional[dict[str, DatasetColumnMetadata]] = None
+    score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
+    count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
 ):
     """
     Create variants for a score set. Intended to be run within a worker.
@@ -165,15 +165,15 @@ async def create_variants_for_score_set(
             )
             raise ValueError("Can't create variants when score set has no targets.")
 
-        validated_scores, validated_counts, validated_scores_column_metadata, validated_counts_column_metadata = validate_and_standardize_dataframe_pair(
-            scores, counts, scores_column_metadata, counts_column_metadata, score_set.target_genes, hdp
+        validated_scores, validated_counts, validated_score_columns_metadata, validated_count_columns_metadata = validate_and_standardize_dataframe_pair(
+            scores_df=scores, counts_df=counts, score_columns_metadata=score_columns_metadata, count_columns_metadata=count_columns_metadata, targets=score_set.target_genes, hdp=hdp
         )
 
         score_set.dataset_columns = {
             "score_columns": columns_for_dataset(validated_scores),
             "count_columns": columns_for_dataset(validated_counts),
-            "score_columns_metadata": validated_scores_column_metadata if validated_scores_column_metadata is not None else {},
-            "count_columns_metadata": validated_counts_column_metadata if validated_counts_column_metadata is not None else {},
+            "score_columns_metadata": validated_score_columns_metadata if validated_score_columns_metadata is not None else {},
+            "count_columns_metadata": validated_count_columns_metadata if validated_count_columns_metadata is not None else {},
         }
 
         # Delete variants after validation occurs so we don't overwrite them in the case of a bad update.

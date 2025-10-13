@@ -15,6 +15,7 @@ from mavedb.lib.target_genes import find_or_create_target_gene_by_accession, fin
 from mavedb.view_models.contributor import ContributorCreate
 from mavedb.view_models.doi_identifier import DoiIdentifierCreate
 from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
+from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 from mavedb.view_models.target_gene import TargetGeneCreate
 from sqlalchemy import null, or_, select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
@@ -88,56 +89,54 @@ async def enqueue_variant_creation(
     *,
     item: ScoreSet,
     user_data: UserData,
+    new_scores_df: Optional[pd.DataFrame] = None,
+    new_counts_df: Optional[pd.DataFrame] = None,
+    new_score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
+    new_count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
     worker: ArqRedis,
 ) -> None:
     assert item.dataset_columns is not None
 
-    # score_columns_metadata and count_columns_metadata are the only values of dataset_columns that can be set manually.
-    # The others, scores_columns and count_columns, are calculated based on the uploaded data and should not be changed here.
-    # if item_update.dataset_columns.get("countColumnsMetadata") is not None:
-    #     item.dataset_columns= {**item.dataset_columns, "count_columns_metadata": item_update.dataset_columns["countColumnsMetadata"]}
-    # if item_update.dataset_columns.get("scoreColumnsMetadata") is not None:
-    #     item.dataset_columns = {**item.dataset_columns, "score_columns_metadata": item_update.dataset_columns["scoreColumnsMetadata"]}
+    # create CSV from existing variants on the score set if no new dataframe provided
+    existing_scores_df = None
+    if new_scores_df is None:
+        score_columns = [
+            "hgvs_nt",
+            "hgvs_splice",
+            "hgvs_pro",
+        ] + item.dataset_columns.get("score_columns", [])
+        existing_scores_df = pd.DataFrame(
+            variants_to_csv_rows(item.variants, columns=score_columns, dtype="score_data")
+        ).replace("NA", pd.NA)
 
-    score_columns = [
-        "hgvs_nt",
-        "hgvs_splice",
-        "hgvs_pro",
-    ] + item.dataset_columns["score_columns"]
-    count_columns = [
-        "hgvs_nt",
-        "hgvs_splice",
-        "hgvs_pro",
-    ] + item.dataset_columns["count_columns"]
-
-    scores_data = pd.DataFrame(
-        variants_to_csv_rows(item.variants, columns=score_columns, dtype="score_data")
-    ).replace("NA", pd.NA)
-
-    if item.dataset_columns["count_columns"]:
-        count_data = pd.DataFrame(
+    # create CSV from existing variants on the score set if no new dataframe provided
+    existing_counts_df = None
+    if new_counts_df is None and item.dataset_columns.get("count_columns") is not None:
+        count_columns = [
+            "hgvs_nt",
+            "hgvs_splice",
+            "hgvs_pro",
+        ] + item.dataset_columns["count_columns"]
+        existing_counts_df = pd.DataFrame(
             variants_to_csv_rows(item.variants, columns=count_columns, dtype="count_data")
         ).replace("NA", pd.NA)
-    else:
-        count_data = None
 
-    scores_column_metadata = item.dataset_columns.get("scores_column_metadata")
-    counts_column_metadata = item.dataset_columns.get("counts_column_metadata")
-
-    # await the insertion of this job into the worker queue, not the job itself.
+    # Await the insertion of this job into the worker queue, not the job itself.
+    # Uses provided score and counts dataframes and metadata files, or falls back to existing data on the score set if not provided.
     job = await worker.enqueue_job(
         "create_variants_for_score_set",
         correlation_id_for_context(),
         item.id,
         user_data.user.id,
-        scores_data,
-        count_data,
-        scores_column_metadata,
-        counts_column_metadata,
+        existing_scores_df if new_scores_df is None else new_scores_df,
+        existing_counts_df if new_counts_df is None else new_counts_df,
+        item.dataset_columns.get("score_columns_metadata") if new_score_columns_metadata is None else new_score_columns_metadata,
+        item.dataset_columns.get("count_columns_metadata") if new_count_columns_metadata is None else new_count_columns_metadata,
     )
     if job is not None:
         save_to_logging_context({"worker_job_id": job.job_id})
-    logger.info(msg="Enqueud variant creation job.", extra=logging_context())
+        logger.info(msg="Enqueued variant creation job.", extra=logging_context())
+
 
 class ScoreSetUpdateResult(TypedDict):
     item: ScoreSet
@@ -252,6 +251,7 @@ async def score_set_update(
             item.score_ranges = item_update_dict.get("score_ranges", null())
 
         if "target_genes" in item_update_dict:
+            # stash existing target gene ids to compare after update, to determine if variants need to be re-created
             assert all(tg.id is not None for tg in item.target_genes)
             existing_target_ids: list[int] = [tg.id for tg in item.target_genes if tg.id is not None]
 
@@ -370,6 +370,59 @@ async def score_set_update(
 
     save_to_logging_context({"updated_resource": item.urn})
     return {"item": item, "should_create_variants": should_create_variants}
+
+class ParseScoreSetUpdate(TypedDict):
+    scores_df: Optional[pd.DataFrame]
+    counts_df: Optional[pd.DataFrame]
+    score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]]
+    count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]]
+
+async def parse_score_set_variants_uploads(
+    scores_file: Optional[UploadFile] = File(None),
+    counts_file: Optional[UploadFile] = File(None),
+    score_columns_metadata_file: Optional[UploadFile] = File(None),
+    count_columns_metadata_file: Optional[UploadFile] = File(None),
+) -> ParseScoreSetUpdate:
+    if scores_file and scores_file.file:
+        try:
+            scores_df = csv_data_to_df(scores_file.file)
+        # Handle non-utf8 file problem.
+        except UnicodeDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values.")
+    else:
+        scores_df = None
+
+    if counts_file and counts_file.file:
+        try:
+            counts_df = csv_data_to_df(counts_file.file)
+        # Handle non-utf8 file problem.
+        except UnicodeDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values.")
+    else:
+        counts_df = None
+
+    if score_columns_metadata_file and score_columns_metadata_file.file:
+        try:
+            score_columns_metadata = json.load(score_columns_metadata_file.file)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Error decoding scores metadata file: {e}. Ensure the file is valid JSON.")
+    else:
+        score_columns_metadata = None
+
+    if count_columns_metadata_file and count_columns_metadata_file.file:
+        try:
+            count_columns_metadata = json.load(count_columns_metadata_file.file)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Error decoding counts metadata file: {e}. Ensure the file is valid JSON.")
+    else:
+        count_columns_metadata = None
+
+    return {
+        "scores_df": scores_df,
+        "counts_df": counts_df,
+        "score_columns_metadata": score_columns_metadata,
+        "count_columns_metadata": count_columns_metadata,
+    }
 
 async def fetch_score_set_by_urn(
     db, urn: str, user: Optional[UserData], owner_or_contributor: Optional[UserData], only_published: bool
@@ -1261,87 +1314,39 @@ async def upload_score_set_variant_data(
     assert_permission(user_data, item, Action.UPDATE)
     assert_permission(user_data, item, Action.SET_SCORES)
 
-    # get existing column metadata for scores if no new file is provided
-    if score_columns_metadata_file and score_columns_metadata_file.file:
-        try:
-            scores_column_metadata = json.load(score_columns_metadata_file.file)
-        except json.JSONDecodeError as e:
-            raise HTTPException(status_code=400, detail=f"Error decoding scores metadata file: {e}. Ensure the file is valid JSON.")
-    else:
-        scores_column_metadata = item.dataset_columns.get("scores_column_metadata") if item.dataset_columns else None
+    score_set_variants_data = await parse_score_set_variants_uploads(
+        scores_file,
+        counts_file,
+        score_columns_metadata_file,
+        count_columns_metadata_file,
+    )
 
-    # get existing column metadata for counts if no new file is provided
-    if count_columns_metadata_file and count_columns_metadata_file.file:
-        try:
-            counts_column_metadata = json.load(count_columns_metadata_file.file)
-        except json.JSONDecodeError as e:
-            raise HTTPException(status_code=400, detail=f"Error decoding counts metadata file: {e}. Ensure the file is valid JSON.")
-    else:
-        counts_column_metadata = item.dataset_columns.get("counts_column_metadata") if item.dataset_columns else None
+    for key, val in score_set_variants_data.items():
+        logger.info(msg=f"{key}: {val}", extra=logging_context())
 
+    # Although this is also updated within the variant creation job, update it here
+    # as well so that we can display the proper UI components (queue invocation delay
+    # races the score set GET request).
+    item.processing_state = ProcessingState.processing
 
-    if scores_file and scores_file.file:
-        try:
-            scores_df = csv_data_to_df(scores_file.file)
-            counts_df = None
-            if counts_file and counts_file.filename:
-                counts_df = csv_data_to_df(counts_file.file)
-        # Handle non-utf8 file problem.
-        except UnicodeDecodeError as e:
-            raise HTTPException(status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values.")
-    elif item.variants:
-        assert item.dataset_columns is not None
-        score_columns = [
-            "hgvs_nt",
-            "hgvs_splice",
-            "hgvs_pro",
-        ] + item.dataset_columns["score_columns"]
-        count_columns = [
-            "hgvs_nt",
-            "hgvs_splice",
-            "hgvs_pro",
-        ] + item.dataset_columns["count_columns"]
+    logger.info(msg="Enqueuing variant creation job.", extra=logging_context())
 
-        scores_df = pd.DataFrame(
-            variants_to_csv_rows(item.variants, columns=score_columns, dtype="score_data")
-        ).replace("NA", pd.NA)
-
-        if item.dataset_columns["count_columns"]:
-            counts_df = pd.DataFrame(
-                variants_to_csv_rows(item.variants, columns=count_columns, dtype="count_data")
-            ).replace("NA", pd.NA)
-        else:
-            counts_df = None
-    else:
-        scores_df = pd.DataFrame()
-
-    if not scores_df.empty:
-        # Although this is also updated within the variant creation job, update it here
-        # as well so that we can display the proper UI components (queue invocation delay
-        # races the score set GET request).
-        item.processing_state = ProcessingState.processing
-
-        # await the insertion of this job into the worker queue, not the job itself.
-        job = await worker.enqueue_job(
-            "create_variants_for_score_set",
-            correlation_id_for_context(),
-            item.id,
-            user_data.user.id,
-            scores_df,
-            counts_df,
-            scores_column_metadata,
-            counts_column_metadata,
-        )
-        if job is not None:
-            save_to_logging_context({"worker_job_id": job.job_id})
-        logger.info(msg="Enqueud variant creation job.", extra=logging_context())
+    await enqueue_variant_creation(
+        item=item,
+        user_data=user_data,
+        new_scores_df=score_set_variants_data["scores_df"],
+        new_counts_df=score_set_variants_data["counts_df"],
+        new_score_columns_metadata=score_set_variants_data["score_columns_metadata"],
+        new_count_columns_metadata=score_set_variants_data["count_columns_metadata"],
+        worker=worker
+    )
 
     db.add(item)
     db.commit()
     db.refresh(item)
+
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
     return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
-
 
 @router.post(
     "/score-sets/{urn}/ranges/data",
@@ -1419,7 +1424,7 @@ async def update_score_set_with_variants(
 
     itemUpdateResult = await score_set_update(db=db, urn=urn, item_update=item_update,  exclude_unset=True, user_data=user_data)
     updatedItem = itemUpdateResult["item"]
-    # should_create_variants = itemUpdateResult["should_create_variants"]
+    should_create_variants = itemUpdateResult["should_create_variants"]
 
     # TODO handle uploaded files
 
@@ -1454,6 +1459,7 @@ async def update_score_set(
         # races the score set GET request).
         updatedItem.processing_state = ProcessingState.processing
 
+        logger.info(msg="Enqueuing variant creation job.", extra=logging_context())
         await enqueue_variant_creation(item=updatedItem, user_data=user_data, worker=worker)
 
         db.add(updatedItem)
