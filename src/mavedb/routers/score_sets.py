@@ -111,7 +111,7 @@ async def enqueue_variant_creation(
 
     # create CSV from existing variants on the score set if no new dataframe provided
     existing_counts_df = None
-    if new_counts_df is None and item.dataset_columns.get("count_columns") is not None:
+    if new_counts_df is None and item.dataset_columns.get("count_columns"):
         count_columns = [
             "hgvs_nt",
             "hgvs_splice",
@@ -1321,9 +1321,6 @@ async def upload_score_set_variant_data(
         count_columns_metadata_file,
     )
 
-    for key, val in score_set_variants_data.items():
-        logger.info(msg=f"{key}: {val}", extra=logging_context())
-
     # Although this is also updated within the variant creation job, update it here
     # as well so that we can display the proper UI components (queue invocation delay
     # races the score set GET request).
@@ -1424,9 +1421,35 @@ async def update_score_set_with_variants(
 
     itemUpdateResult = await score_set_update(db=db, urn=urn, item_update=item_update,  exclude_unset=True, user_data=user_data)
     updatedItem = itemUpdateResult["item"]
-    should_create_variants = itemUpdateResult["should_create_variants"]
+    should_create_variants = itemUpdateResult.get("should_create_variants", False)
 
-    # TODO handle uploaded files
+    # process uploaded files
+    score_set_variants_data = await parse_score_set_variants_uploads(
+        scores_file,
+        counts_file,
+        score_columns_metadata_file,
+        count_columns_metadata_file,
+    )
+
+    if should_create_variants or any([val is not None for val in score_set_variants_data.values()]):
+        assert_permission(user_data, updatedItem, Action.SET_SCORES)
+
+        updatedItem.processing_state = ProcessingState.processing
+        logger.info(msg="Enqueuing variant creation job.", extra=logging_context())
+
+        await enqueue_variant_creation(
+            item=updatedItem,
+            user_data=user_data,
+            worker=worker,
+            new_scores_df=score_set_variants_data["scores_df"],
+            new_counts_df=score_set_variants_data["counts_df"],
+            new_score_columns_metadata=score_set_variants_data["score_columns_metadata"],
+            new_count_columns_metadata=score_set_variants_data["count_columns_metadata"],
+        )
+
+    db.add(updatedItem)
+    db.commit()
+    db.refresh(updatedItem)
 
     enriched_experiment = enrich_experiment_with_num_score_sets(updatedItem.experiment, user_data)
     return score_set.ScoreSet.model_validate(updatedItem).copy(update={"experiment": enriched_experiment})
