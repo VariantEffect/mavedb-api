@@ -149,13 +149,14 @@ async def score_set_update(
     item_update: score_set.ScoreSetUpdateAllOptional,
     exclude_unset: bool = False,
     user_data: UserData,
+    existing_item: Optional[ScoreSet] = None,
 ) -> ScoreSetUpdateResult:
     logger.info(msg="Updating score set.", extra=logging_context())
 
     should_create_variants = False
     item_update_dict: dict[str, Any] = item_update.model_dump(exclude_unset=exclude_unset)
 
-    item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
+    item = existing_item or db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item or item.id is None:
         logger.info(msg="Failed to update score set; The requested score set does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
@@ -1415,11 +1416,23 @@ async def update_score_set_with_variants(
         }
 
         # Create the update object using **kwargs in as_form
-        item_update = score_set.ScoreSetUpdateAllOptional.as_form(**form_dict)
+        item_update_partial = score_set.ScoreSetUpdateAllOptional.as_form(**form_dict)
     except Exception as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-    itemUpdateResult = await score_set_update(db=db, urn=urn, item_update=item_update,  exclude_unset=True, user_data=user_data)
+    # get existing item from db
+    existing_item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
+
+    # merge existing item data with item_update data to validate against ScoreSetUpdate
+    if existing_item:
+        existing_item_data = score_set.ScoreSet.model_validate(existing_item).model_dump()
+        updated_data = {**existing_item_data, **item_update_partial.model_dump(exclude_unset=True)}
+        score_set.ScoreSetUpdate.model_validate(updated_data)
+    else:
+        logger.info(msg="Failed to update score set; The requested score set does not exist.", extra=logging_context())
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
+    itemUpdateResult = await score_set_update(db=db, urn=urn, item_update=item_update_partial,  exclude_unset=True, user_data=user_data, existing_item=existing_item)
     updatedItem = itemUpdateResult["item"]
     should_create_variants = itemUpdateResult.get("should_create_variants", False)
 
@@ -1471,6 +1484,8 @@ async def update_score_set(
     save_to_logging_context({"requested_resource": urn})
     logger.debug(msg="Began score set update.", extra=logging_context())
 
+    # this object will contain all required fields because item_update type is ScoreSetUpdate, but
+    # is converted to instance of ScoreSetUpdateAllOptional to match expected input of score_set_update function
     score_set_update_item = score_set.ScoreSetUpdateAllOptional.model_validate(item_update.model_dump())
     itemUpdateResult = await score_set_update(db=db, urn=urn, item_update=score_set_update_item,  exclude_unset=False, user_data=user_data)
     updatedItem = itemUpdateResult["item"]

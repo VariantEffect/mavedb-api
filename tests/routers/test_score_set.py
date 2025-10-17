@@ -449,6 +449,10 @@ def test_can_patch_score_set_data_before_publication(
         form_value = str(updated_data)
     data[attribute] = form_value
 
+    # The score ranges attribute requires a publication identifier source
+    if attribute == "score_ranges":
+        data["secondary_publication_identifiers"] = json.dumps([{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}])
+
     response = client.patch(f"/api/v1/score-sets-with-variants/{score_set['urn']}", data=data)
     assert response.status_code == 200
 

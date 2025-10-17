@@ -2,10 +2,13 @@ import pytest
 from copy import deepcopy
 
 from mavedb.view_models.publication_identifier import PublicationIdentifier, PublicationIdentifierCreate
-from mavedb.view_models.score_set import SavedScoreSet, ScoreSetCreate, ScoreSetModify
+from mavedb.view_models.score_set import SavedScoreSet, ScoreSetCreate, ScoreSetModify, ScoreSetUpdateAllOptional
 from mavedb.view_models.target_gene import SavedTargetGene, TargetGeneCreate
 
 from tests.helpers.constants import (
+    EXTRA_LICENSE,
+    EXTRA_USER,
+    TEST_CROSSREF_IDENTIFIER,
     TEST_PUBMED_IDENTIFIER,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET,
@@ -379,6 +382,28 @@ def test_saved_score_set_synthetic_properties():
             for publication in saved_score_set.secondary_publication_identifiers
         ]
     )
+
+@pytest.mark.parametrize(
+    "attribute,updated_data",
+    [
+        ("title", "Updated Title"),
+        ("method_text", "Updated Method Text"),
+        ("abstract_text", "Updated Abstract Text"),
+        ("short_description", "Updated Abstract Text"),
+        ("title", "Updated Title"),
+        ("extra_metadata", {"updated": "metadata"}),
+        ("data_usage_policy", "data_usage_policy"),
+        ("contributors", [{"orcid_id": EXTRA_USER["username"]}]),
+        ("primary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}]),
+        ("secondary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}]),
+        ("doi_identifiers", [{"identifier": TEST_CROSSREF_IDENTIFIER}]),
+        ("license_id", EXTRA_LICENSE["id"]),
+        ("target_genes", TEST_MINIMAL_SEQ_SCORESET["targetGenes"]),
+        ("score_ranges", TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
+    ],
+)
+def test_score_set_update_all_optional(attribute, updated_data):
+    ScoreSetUpdateAllOptional(**{attribute: updated_data})
 
 
 # def test_saved_score_set_data_set_columns_are_camelized():
