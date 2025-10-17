@@ -3,6 +3,7 @@
 from asyncio.unix_events import _UnixSelectorEventLoop
 from copy import deepcopy
 from datetime import date
+import json
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -118,15 +119,19 @@ async def setup_records_and_files(async_client, data_files, input_score_set):
     with (
         open(data_files / scores_fp, "rb") as score_file,
         open(data_files / counts_fp, "rb") as count_file,
+        open(data_files / "score_columns_metadata.json", "rb") as score_columns_file,
+        open(data_files / "count_columns_metadata.json", "rb") as count_columns_file,
     ):
         scores = csv_data_to_df(score_file)
         counts = csv_data_to_df(count_file)
+        score_columns_metadata = json.load(score_columns_file)
+        count_columns_metadata = json.load(count_columns_file)
 
-    return score_set["urn"], scores, counts
+    return score_set["urn"], scores, counts, score_columns_metadata, count_columns_metadata
 
 
 async def setup_records_files_and_variants(session, async_client, data_files, input_score_set, worker_ctx):
-    score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set_urn, scores, counts, score_columns_metadata, count_columns_metadata = await setup_records_and_files(async_client, data_files, input_score_set)
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     # Patch CDOT `_get_transcript`, in the event this function is called on an accesssion based scoreset.
@@ -135,7 +140,7 @@ async def setup_records_files_and_variants(session, async_client, data_files, in
         "_get_transcript",
         return_value=TEST_NT_CDOT_TRANSCRIPT,
     ):
-        result = await create_variants_for_score_set(worker_ctx, uuid4().hex, score_set.id, 1, scores, counts)
+        result = await create_variants_for_score_set(worker_ctx, uuid4().hex, score_set.id, 1, scores, counts, score_columns_metadata, count_columns_metadata)
 
     score_set_with_variants = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
@@ -248,7 +253,7 @@ async def test_create_variants_for_score_set_with_validation_error(
     session,
     data_files,
 ):
-    score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set_urn, scores, counts, score_columns_metadata, count_columns_metadata = await setup_records_and_files(async_client, data_files, input_score_set)
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     if input_score_set == TEST_MINIMAL_SEQ_SCORESET:
@@ -266,7 +271,7 @@ async def test_create_variants_for_score_set_with_validation_error(
         ) as hdp,
     ):
         result = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts, score_columns_metadata, count_columns_metadata
         )
 
         # Call data provider _get_transcript method if this is an accession based score set, otherwise do not.
@@ -298,7 +303,7 @@ async def test_create_variants_for_score_set_with_caught_exception(
     session,
     data_files,
 ):
-    score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set_urn, scores, counts, score_columns_metadata, count_columns_metadata = await setup_records_and_files(async_client, data_files, input_score_set)
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     # This is somewhat dumb and wouldn't actually happen like this, but it serves as an effective way to guarantee
@@ -307,7 +312,7 @@ async def test_create_variants_for_score_set_with_caught_exception(
         patch.object(pd.DataFrame, "isnull", side_effect=Exception) as mocked_exc,
     ):
         result = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts, score_columns_metadata, count_columns_metadata
         )
         mocked_exc.assert_called()
 
@@ -334,7 +339,7 @@ async def test_create_variants_for_score_set_with_caught_base_exception(
     session,
     data_files,
 ):
-    score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set_urn, scores, counts, score_columns_metadata, count_columns_metadata = await setup_records_and_files(async_client, data_files, input_score_set)
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     # This is somewhat (extra) dumb and wouldn't actually happen like this, but it serves as an effective way to guarantee
@@ -343,7 +348,7 @@ async def test_create_variants_for_score_set_with_caught_base_exception(
         patch.object(pd.DataFrame, "isnull", side_effect=BaseException),
     ):
         result = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts, score_columns_metadata, count_columns_metadata
         )
 
     db_variants = session.scalars(select(Variant)).all()
@@ -369,7 +374,7 @@ async def test_create_variants_for_score_set_with_existing_variants(
     session,
     data_files,
 ):
-    score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set_urn, scores, counts, score_columns_metadata, count_columns_metadata = await setup_records_and_files(async_client, data_files, input_score_set)
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     with patch.object(
@@ -378,7 +383,7 @@ async def test_create_variants_for_score_set_with_existing_variants(
         return_value=TEST_NT_CDOT_TRANSCRIPT,
     ) as hdp:
         result = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts, score_columns_metadata, count_columns_metadata
         )
 
         # Call data provider _get_transcript method if this is an accession based score set, otherwise do not.
@@ -401,7 +406,7 @@ async def test_create_variants_for_score_set_with_existing_variants(
         return_value=TEST_NT_CDOT_TRANSCRIPT,
     ) as hdp:
         result = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts, score_columns_metadata, count_columns_metadata
         )
 
     db_variants = session.scalars(select(Variant)).all()
@@ -427,7 +432,7 @@ async def test_create_variants_for_score_set_with_existing_exceptions(
     session,
     data_files,
 ):
-    score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set_urn, scores, counts, score_columns_metadata, count_columns_metadata = await setup_records_and_files(async_client, data_files, input_score_set)
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     # This is somewhat dumb and wouldn't actually happen like this, but it serves as an effective way to guarantee
@@ -440,7 +445,7 @@ async def test_create_variants_for_score_set_with_existing_exceptions(
         ) as mocked_exc,
     ):
         result = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts, score_columns_metadata, count_columns_metadata
         )
         mocked_exc.assert_called()
 
@@ -461,7 +466,7 @@ async def test_create_variants_for_score_set_with_existing_exceptions(
         return_value=TEST_NT_CDOT_TRANSCRIPT,
     ) as hdp:
         result = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts, score_columns_metadata, count_columns_metadata
         )
 
         # Call data provider _get_transcript method if this is an accession based score set, otherwise do not.
@@ -493,7 +498,7 @@ async def test_create_variants_for_score_set(
     session,
     data_files,
 ):
-    score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set_urn, scores, counts, score_columns_metadata, count_columns_metadata = await setup_records_and_files(async_client, data_files, input_score_set)
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     with patch.object(
@@ -502,7 +507,7 @@ async def test_create_variants_for_score_set(
         return_value=TEST_NT_CDOT_TRANSCRIPT,
     ) as hdp:
         result = await create_variants_for_score_set(
-            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts
+            standalone_worker_context, uuid4().hex, score_set.id, 1, scores, counts, score_columns_metadata, count_columns_metadata
         )
 
         # Call data provider _get_transcript method if this is an accession based score set, otherwise do not.
@@ -536,7 +541,7 @@ async def test_create_variants_for_score_set_enqueues_manager_and_successful_map
 ):
     score_set_is_seq = all(["targetSequence" in target for target in input_score_set["targetGenes"]])
     score_set_is_multi_target = len(input_score_set["targetGenes"]) > 1
-    score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set_urn, scores, counts, score_columns_metadata, count_columns_metadata = await setup_records_and_files(async_client, data_files, input_score_set)
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     async def dummy_mapping_job():
@@ -573,7 +578,7 @@ async def test_create_variants_for_score_set_enqueues_manager_and_successful_map
         patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", True),
     ):
-        await arq_redis.enqueue_job("create_variants_for_score_set", uuid4().hex, score_set.id, 1, scores, counts)
+        await arq_redis.enqueue_job("create_variants_for_score_set", uuid4().hex, score_set.id, 1, scores, counts, score_columns_metadata, count_columns_metadata)
         await arq_worker.async_run()
         await arq_worker.run_check()
 
@@ -612,11 +617,11 @@ async def test_create_variants_for_score_set_exception_skips_mapping(
     arq_worker,
     arq_redis,
 ):
-    score_set_urn, scores, counts = await setup_records_and_files(async_client, data_files, input_score_set)
+    score_set_urn, scores, counts, score_columns_metadata, count_columns_metadata = await setup_records_and_files(async_client, data_files, input_score_set)
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
 
     with patch.object(pd.DataFrame, "isnull", side_effect=Exception) as mocked_exc:
-        await arq_redis.enqueue_job("create_variants_for_score_set", uuid4().hex, score_set.id, 1, scores, counts)
+        await arq_redis.enqueue_job("create_variants_for_score_set", uuid4().hex, score_set.id, 1, scores, counts, score_columns_metadata, count_columns_metadata)
         await arq_worker.async_run()
         await arq_worker.run_check()
 
