@@ -25,7 +25,8 @@ class DatasetColumnsBase(BaseModel):
     def validate_dataset_columns_metadata(cls, v: Optional[dict[str, DatasetColumnMetadata]]) -> Optional[dict[str, DatasetColumnMetadata]]:
         if not v:
             return None
-        DatasetColumnMetadata.model_validate(v)
+        for val in v.values():
+            DatasetColumnMetadata.model_validate(val)
         return v
 
     @model_validator(mode="after")

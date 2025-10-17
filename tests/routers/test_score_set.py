@@ -1,5 +1,6 @@
 # ruff: noqa: E402
 
+import json
 import re
 from copy import deepcopy
 import csv
@@ -400,6 +401,98 @@ def test_can_update_score_set_data_before_publication(
 
     assert expected_response_data == response_data[camelize(attribute)]
 
+@pytest.mark.parametrize(
+    "attribute,updated_data,expected_response_data",
+    [
+        ("title", "Updated Title", "Updated Title"),
+        ("method_text", "Updated Method Text", "Updated Method Text"),
+        ("abstract_text", "Updated Abstract Text", "Updated Abstract Text"),
+        ("short_description", "Updated Abstract Text", "Updated Abstract Text"),
+        ("extra_metadata", {"updated": "metadata"}, {"updated": "metadata"}),
+        ("data_usage_policy", "data_usage_policy", "data_usage_policy"),
+        ("contributors", [{"orcid_id": EXTRA_USER["username"]}], [SAVED_EXTRA_CONTRIBUTOR]),
+        ("primary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}], [SAVED_PUBMED_PUBLICATION]),
+        ("secondary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}], [SAVED_PUBMED_PUBLICATION]),
+        ("doi_identifiers", [{"identifier": TEST_CROSSREF_IDENTIFIER}], [SAVED_DOI_IDENTIFIER]),
+        ("license_id", EXTRA_LICENSE["id"], SAVED_SHORT_EXTRA_LICENSE),
+        ("target_genes", TEST_MINIMAL_ACC_SCORESET["targetGenes"], TEST_MINIMAL_ACC_SCORESET_RESPONSE["targetGenes"]),
+        ("score_ranges", TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT, TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
+    ],
+)
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_patch_score_set_data_before_publication(
+    client, setup_router_db, attribute, updated_data, expected_response_data, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
+    )
+    expected_response["experiment"].update({"numScoreSets": 1})
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+
+    data = {}
+    if isinstance(updated_data, (dict, list)):
+        form_value = json.dumps(updated_data)
+    else:
+        form_value = str(updated_data)
+    data[attribute] = form_value
+
+    response = client.patch(f"/api/v1/score-sets-with-variants/{score_set['urn']}", data=data)
+    assert response.status_code == 200
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+
+    # Although the client provides the license id, the response includes the full license.
+    if attribute == "license_id":
+        attribute = "license"
+
+    assert expected_response_data == response_data[camelize(attribute)]
+
+@pytest.mark.parametrize(
+    "form_field,filename,mime_type",
+    [
+        ("scores_file", "scores.csv", "text/csv"),
+        ("counts_file", "counts.csv", "text/csv"),
+        ("score_columns_metadata_file", "score_columns_metadata.json", "application/json"),
+        ("count_columns_metadata_file", "count_columns_metadata.json", "application/json"),
+    ]
+)
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_patch_score_set_data_with_files_before_publication(
+    client, setup_router_db, form_field, filename, mime_type,data_files, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
+    )
+    expected_response["experiment"].update({"numScoreSets": 1})
+
+    data_file_path = data_files / filename
+    files = {form_field: (filename, open(data_file_path, "rb"), mime_type)}
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        response = client.patch(f"/api/v1/score-sets-with-variants/{score_set['urn']}", files=files)
+        worker_queue.assert_called_once()
+        assert response.status_code == 200
+
 
 @pytest.mark.parametrize(
     "attribute,updated_data,expected_response_data",
@@ -415,7 +508,7 @@ def test_can_update_score_set_data_before_publication(
         ("secondary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}], [SAVED_PUBMED_PUBLICATION]),
         ("doi_identifiers", [{"identifier": TEST_CROSSREF_IDENTIFIER}], [SAVED_DOI_IDENTIFIER]),
         ("license_id", EXTRA_LICENSE["id"], SAVED_SHORT_EXTRA_LICENSE),
-        ("dataset_columns", {"countColumns": [], "scoreColumns": ["score"]}, SAVED_MINIMAL_DATASET_COLUMNS)
+        ("dataset_columns", None, SAVED_MINIMAL_DATASET_COLUMNS)
     ],
 )
 @pytest.mark.parametrize(

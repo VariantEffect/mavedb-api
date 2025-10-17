@@ -696,7 +696,7 @@ SAVED_SHORT_INACTIVE_LICENSE = {
 SAVED_MINIMAL_DATASET_COLUMNS = {
     "recordType": "DatasetColumns",
     "countColumns": [],
-    "scoreColumns": ["score"],
+    "scoreColumns": ["score", "s_0", "s_1"],
 }
 
 TEST_SEQ_SCORESET = {
@@ -1080,6 +1080,19 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
     "urn": None,
     "processingState": ProcessingState.incomplete.name,
     "officialCollections": [],
+}
+
+TEST_SCORE_SET_DATASET_COLUMNS = {
+    "score_columns": ["score", "s_0", "s_1"],
+    "count_columns": ["c_0", "c_1"],
+    "score_columns_metadata": {
+        "s_0": {"description": "s_0 description", "details": "s_0 details"},
+        "s_1": {"description": "s_1 description", "details": "s_1 details"},
+    },
+    "count_columns_metadata": {
+        "c_0": {"description": "c_0 description", "details": "c_0 details"},
+        "c_1": {"description": "c_1 description", "details": "c_1 details"},
+    },
 }
 
 TEST_NT_CDOT_TRANSCRIPT = {

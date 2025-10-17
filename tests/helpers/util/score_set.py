@@ -88,10 +88,18 @@ def create_multi_target_score_set(
 
 
 def create_seq_score_set_with_mapped_variants(
-    client, db, data_provider, experiment_urn, scores_csv_path, update=None, counts_csv_path=None
+    client,
+    db,
+    data_provider,
+    experiment_urn,
+    scores_csv_path,
+    update=None,
+    counts_csv_path=None,
+    score_columns_metadata_json_path=None,
+    count_columns_metadata_json_path=None
 ):
     score_set = create_seq_score_set_with_variants(
-        client, db, data_provider, experiment_urn, scores_csv_path, update, counts_csv_path
+        client, db, data_provider, experiment_urn, scores_csv_path, update, counts_csv_path, score_columns_metadata_json_path, count_columns_metadata_json_path
     )
     score_set = mock_worker_vrs_mapping(client, db, score_set)
 
@@ -100,10 +108,18 @@ def create_seq_score_set_with_mapped_variants(
 
 
 def create_acc_score_set_with_mapped_variants(
-    client, db, data_provider, experiment_urn, scores_csv_path, update=None, counts_csv_path=None
+    client,
+    db,
+    data_provider,
+    experiment_urn,
+    scores_csv_path,
+    update=None,
+    counts_csv_path=None,
+    score_columns_metadata_json_path=None,
+    count_columns_metadata_json_path=None
 ):
     score_set = create_acc_score_set_with_variants(
-        client, db, data_provider, experiment_urn, scores_csv_path, update, counts_csv_path
+        client, db, data_provider, experiment_urn, scores_csv_path, update, counts_csv_path, score_columns_metadata_json_path, count_columns_metadata_json_path
     )
     score_set = mock_worker_vrs_mapping(client, db, score_set)
 
@@ -112,10 +128,20 @@ def create_acc_score_set_with_mapped_variants(
 
 
 def create_seq_score_set_with_variants(
-    client, db, data_provider, experiment_urn, scores_csv_path, update=None, counts_csv_path=None
+    client,
+    db,
+    data_provider,
+    experiment_urn,
+    scores_csv_path,
+    update=None,
+    counts_csv_path=None,
+    score_columns_metadata_json_path=None,
+    count_columns_metadata_json_path=None
 ):
     score_set = create_seq_score_set(client, experiment_urn, update)
-    score_set = mock_worker_variant_insertion(client, db, data_provider, score_set, scores_csv_path, counts_csv_path)
+    score_set = mock_worker_variant_insertion(
+        client, db, data_provider, score_set, scores_csv_path, counts_csv_path, score_columns_metadata_json_path, count_columns_metadata_json_path
+    )
 
     assert (
         score_set["numVariants"] == 3
@@ -126,10 +152,20 @@ def create_seq_score_set_with_variants(
 
 
 def create_acc_score_set_with_variants(
-    client, db, data_provider, experiment_urn, scores_csv_path, update=None, counts_csv_path=None
+    client,
+    db,
+    data_provider,
+    experiment_urn,
+    scores_csv_path,
+    update=None,
+    counts_csv_path=None,
+    score_columns_metadata_json_path=None,
+    count_columns_metadata_json_path=None
 ):
     score_set = create_acc_score_set(client, experiment_urn, update)
-    score_set = mock_worker_variant_insertion(client, db, data_provider, score_set, scores_csv_path, counts_csv_path)
+    score_set = mock_worker_variant_insertion(
+        client, db, data_provider, score_set, scores_csv_path, counts_csv_path, score_columns_metadata_json_path, count_columns_metadata_json_path
+    )
 
     assert (
         score_set["numVariants"] == 3
