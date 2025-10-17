@@ -1,6 +1,6 @@
 import logging
 from datetime import date
-from typing import Any, List, Optional, Sequence, Union
+from typing import Any, List, Literal, Optional, Sequence, Union
 
 import pandas as pd
 from arq import ArqRedis
@@ -249,7 +249,13 @@ def get_score_set_variants_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Maximum number of variants to return"),
+    data_types: List[Literal["scores", "counts", "clinVar", "gnomAD"]] = Query(
+        default=["scores"],
+        description="One or more data types to include: scores, counts, clinVar, gnomAD"
+    ),
     drop_na_columns: Optional[bool] = None,
+    include_custom_columns: Optional[bool] = None,
+    include_post_mapped_hgvs: Optional[bool] = None,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
@@ -261,9 +267,6 @@ def get_score_set_variants_csv(
 
     TODO (https://github.com/VariantEffect/mavedb-api/issues/446) We may want to turn this into a general-purpose CSV
     export endpoint, with options governing which columns to include.
-
-    Parameters
-    __________
 
     Parameters
     __________
@@ -312,12 +315,12 @@ def get_score_set_variants_csv(
     csv_str = get_score_set_variants_as_csv(
         db,
         score_set,
-        "scores",
+        data_types,
         start,
         limit,
         drop_na_columns,
-        include_custom_columns=False,
-        include_post_mapped_hgvs=True,
+        include_custom_columns,
+        include_post_mapped_hgvs,
     )
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
@@ -373,7 +376,7 @@ def get_score_set_scores_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_variants_as_csv(db, score_set, "scores", start, limit, drop_na_columns)
+    csv_str = get_score_set_variants_as_csv(db, score_set, ["scores"], start, limit, drop_na_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
@@ -428,7 +431,7 @@ async def get_score_set_counts_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_variants_as_csv(db, score_set, "counts", start, limit, drop_na_columns)
+    csv_str = get_score_set_variants_as_csv(db, score_set, ["counts"], start, limit, drop_na_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
@@ -1252,12 +1255,12 @@ async def update_score_set(
             ] + item.dataset_columns["count_columns"]
 
             scores_data = pd.DataFrame(
-                variants_to_csv_rows(item.variants, columns=score_columns, dtype="score_data")
+                variants_to_csv_rows(item.variants, columns=score_columns, dtype=["score_data"])
             ).replace("NA", pd.NA)
 
             if item.dataset_columns["count_columns"]:
                 count_data = pd.DataFrame(
-                    variants_to_csv_rows(item.variants, columns=count_columns, dtype="count_data")
+                    variants_to_csv_rows(item.variants, columns=count_columns, dtype=["count_data"])
                 ).replace("NA", pd.NA)
             else:
                 count_data = None

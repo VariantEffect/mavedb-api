@@ -3,7 +3,7 @@ import io
 import logging
 import re
 from operator import attrgetter
-from typing import Any, BinaryIO, Iterable, Optional, TYPE_CHECKING, Sequence, Literal
+from typing import Any, BinaryIO, Iterable, List, Optional, TYPE_CHECKING, Sequence, Literal
 
 from mavedb.models.mapped_variant import MappedVariant
 import numpy as np
@@ -401,12 +401,12 @@ def find_publish_or_private_superseded_score_set_tail(
 def get_score_set_variants_as_csv(
     db: Session,
     score_set: ScoreSet,
-    data_type: Literal["scores", "counts"],
+    data_types: List[Literal["scores", "counts", "clinVar", "gnomAD"]],
     start: Optional[int] = None,
     limit: Optional[int] = None,
     drop_na_columns: Optional[bool] = None,
-    include_custom_columns: bool = True,
-    include_post_mapped_hgvs: bool = False,
+    include_custom_columns: Optional[bool] = True,
+    include_post_mapped_hgvs: Optional[bool] = False,
 ) -> str:
     """
     Get the variant data from a score set as a CSV string.
@@ -417,8 +417,8 @@ def get_score_set_variants_as_csv(
         The database session to use.
     score_set : ScoreSet
         The score set to get the variants from.
-    data_type : {'scores', 'counts'}
-        The type of data to get. Either 'scores' or 'counts'.
+    data_types : List[Literal["scores", "counts", "clinVar", "gnomAD"]]
+        The data types to get. Either one of 'scores', 'counts', 'clinVar', 'gnomAD' or some of them.
     start : int, optional
         The index to start from. If None, starts from the beginning.
     limit : int, optional
@@ -437,18 +437,33 @@ def get_score_set_variants_as_csv(
         The CSV string containing the variant data.
     """
     assert type(score_set.dataset_columns) is dict
-    custom_columns_set = "score_columns" if data_type == "scores" else "count_columns"
-    type_column = "score_data" if data_type == "scores" else "count_data"
-
+    custom_columns = {
+        "scores": "score_columns",
+        "counts": "count_columns",
+    }
+    custom_columns_set = [custom_columns[dt] for dt in data_types if dt in custom_columns]
+    type_to_column = {
+        "scores": "score_data",
+        "counts": "count_data"
+    }
+    type_columns = [type_to_column[dt] for dt in data_types if dt in type_to_column]
     columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"]
     if include_post_mapped_hgvs:
         columns.append("post_mapped_hgvs_g")
         columns.append("post_mapped_hgvs_p")
 
     if include_custom_columns:
-        custom_columns = [str(x) for x in list(score_set.dataset_columns.get(custom_columns_set, []))]
-        columns += custom_columns
-    elif data_type == "scores":
+        for column in custom_columns_set:
+            dataset_columns = [str(x) for x in list(score_set.dataset_columns.get(column, []))]
+            if column == "score_columns":
+                for c in dataset_columns:
+                    prefixed = "scores." + c
+                    columns.append(prefixed)
+            elif column == "count_columns":
+                for c in dataset_columns:
+                    prefixed = "counts." + c
+                    columns.append(prefixed)
+    elif len(data_types) == 1 and data_types[0] == "scores":
         columns.append(REQUIRED_SCORE_COLUMN)
 
     variants: Sequence[Variant] = []
@@ -488,7 +503,35 @@ def get_score_set_variants_as_csv(
             variants_query = variants_query.limit(limit)
         variants = db.scalars(variants_query).all()
 
-    rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column, mappings=mappings)  # type: ignore
+    rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_columns, mappings=mappings)  # type: ignore
+
+    # TODO: will add len(data_types) == 1 and "scores"/"counts" are not in [data_types] and include_post_mapped_hgvs
+    #  case when we get the clinVar and gnomAD
+    if len(data_types) > 1 and include_post_mapped_hgvs:
+        rename_map = {}
+        rename_map["post_mapped_hgvs_g"] = "mavedb.post_mapped_hgvs_g"
+        rename_map["post_mapped_hgvs_p"] = "mavedb.post_mapped_hgvs_p"
+
+        # Update column order list (preserve original order)
+        columns = [rename_map.get(col, col) for col in columns]
+
+        # Rename keys in each row
+        renamed_rows_data = []
+        for row in rows_data:
+            renamed_row = {rename_map.get(k, k): v for k, v in row.items()}
+            renamed_rows_data.append(renamed_row)
+
+        rows_data = renamed_rows_data
+    elif len(data_types) == 1:
+        prefix = f"{data_types[0]}."
+        columns = [col[len(prefix):] if col.startswith(prefix) else col for col in columns]
+
+        # Rename rows to remove the same prefix from keys
+        renamed_rows_data = []
+        for row in rows_data:
+            renamed_row = {(k[len(prefix):] if k.startswith(prefix) else k): v for k, v in row.items()}
+            renamed_rows_data.append(renamed_row)
+        rows_data = renamed_rows_data
     if drop_na_columns:
         rows_data, columns = drop_na_columns_from_csv_file_rows(rows_data, columns)
 
@@ -532,7 +575,7 @@ def is_null(value):
 def variant_to_csv_row(
     variant: Variant,
     columns: list[str],
-    dtype: str,
+    dtype: list[str],
     mapping: Optional[MappedVariant] = None,
     na_rep="NA",
 ) -> dict[str, Any]:
@@ -546,7 +589,7 @@ def variant_to_csv_row(
     columns : list[str]
         Columns to serialize.
     dtype : str, {'scores', 'counts'}
-        The type of data requested. Either the 'score_data' or 'count_data'.
+        The type of data requested. ['score_data'], ['count_data'] or ['score_data', 'count_data'].
     na_rep : str
         String to represent null values.
 
@@ -577,8 +620,18 @@ def variant_to_csv_row(
             else:
                 value = ""
         else:
-            parent = variant.data.get(dtype) if variant.data else None
-            value = str(parent.get(column_key)) if parent else na_rep
+            for dt in dtype:
+                parent = variant.data.get(dt) if variant.data else None
+                if column_key.startswith("scores."):
+                    inner_key = column_key.replace("scores.", "")
+                elif column_key.startswith("counts."):
+                    inner_key = column_key.replace("counts.", "")
+                else:
+                    # fallback for non-prefixed columns
+                    inner_key = column_key
+                if parent and inner_key in parent:
+                    value = str(parent[inner_key])
+                    break
         if is_null(value):
             value = na_rep
         row[column_key] = value
@@ -589,7 +642,7 @@ def variant_to_csv_row(
 def variants_to_csv_rows(
     variants: Sequence[Variant],
     columns: list[str],
-    dtype: str,
+    dtype: List[str],
     mappings: Optional[Sequence[Optional[MappedVariant]]] = None,
     na_rep="NA",
 ) -> Iterable[dict[str, Any]]:
@@ -602,8 +655,8 @@ def variants_to_csv_rows(
         List of variants.
     columns : list[str]
         Columns to serialize.
-    dtype : str, {'scores', 'counts'}
-        The type of data requested. Either the 'score_data' or 'count_data'.
+    dtype : list, {'scores', 'counts'}
+        The type of data requested. ['score_data'], ['count_data'] or ['score_data', 'count_data'].
     na_rep : str
         String to represent null values.
 
