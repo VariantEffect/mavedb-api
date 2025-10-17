@@ -2473,7 +2473,7 @@ def test_download_variants_data_file(
         worker_queue.assert_called_once()
 
     download_scores_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?drop_na_columns=true&include_post_mapped_hgvs=true"
     )
     assert download_scores_csv_response.status_code == 200
     download_scores_csv = download_scores_csv_response.text
