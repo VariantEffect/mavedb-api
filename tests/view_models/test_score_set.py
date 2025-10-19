@@ -7,13 +7,14 @@ from mavedb.view_models.publication_identifier import PublicationIdentifier, Pub
 from mavedb.view_models.score_set import SavedScoreSet, ScoreSetCreate, ScoreSetModify
 from mavedb.view_models.target_gene import SavedTargetGene, TargetGeneCreate
 
+
 from tests.helpers.constants import (
     TEST_PUBMED_IDENTIFIER,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET,
-    TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-    TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    TEST_BRNICH_SCORE_CALIBRATION,
+    TEST_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION,
+    TEST_PATHOGENICITY_SCORE_CALIBRATION,
     SAVED_PUBMED_PUBLICATION,
     TEST_BIORXIV_IDENTIFIER,
     TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
@@ -230,65 +231,43 @@ def test_cannot_create_score_set_with_an_empty_method():
     assert "methodText" in str(exc_info.value)
 
 
-@pytest.mark.parametrize("publication_key", ["primary_publication_identifiers", "secondary_publication_identifiers"])
-def test_can_create_score_set_with_investigator_provided_score_range(publication_key):
+def test_can_create_score_set_with_investigator_provided_calibrations():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)
-    score_set_test[publication_key] = [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}]
+    score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
+    score_set_test["score_calibrations"] = [deepcopy(TEST_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION)]
 
-    ScoreSetModify(**score_set_test)
+    ScoreSetCreate(**score_set_test)
 
 
-def test_cannot_create_score_set_with_investigator_provided_score_range_if_odds_path_source_not_in_score_set_publications():
+@pytest.mark.parametrize(
+    "calibration", [deepcopy(TEST_BRNICH_SCORE_CALIBRATION), deepcopy(TEST_PATHOGENICITY_SCORE_CALIBRATION)]
+)
+def test_cannot_create_score_set_with_non_investigator_provided_calibrations(calibration):
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)
+    score_set_test["score_calibrations"] = [calibration]
 
-    with pytest.raises(
-        ValueError,
-        match=r".*Odds path source publication at index {} is not defined in score set publications.*".format(0),
-    ):
-        ScoreSetModify(**score_set_test)
+    with pytest.raises(ValueError) as ve:
+        ScoreSetCreate.model_validate(score_set_test)
+
+    errors = ve.value.errors()
+    assert len(errors) == 1
+    assert all(errors[i]["type"] == "literal_error" for i in range(len(errors)))
 
 
-def test_cannot_create_score_set_with_investigator_provided_score_range_if_source_not_in_score_set_publications():
+def test_cannot_create_score_set_when_some_calibrations_are_not_investigator_provided():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)
-    score_set_test["score_ranges"]["investigator_provided"]["odds_path_source"] = None
+    score_set_test["score_calibrations"] = [
+        deepcopy(TEST_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION),
+        deepcopy(TEST_BRNICH_SCORE_CALIBRATION),
+        deepcopy(TEST_PATHOGENICITY_SCORE_CALIBRATION),
+    ]
 
-    with pytest.raises(
-        ValueError,
-        match=r".*Score range source publication at index {} is not defined in score set publications.*".format(0),
-    ):
-        ScoreSetModify(**score_set_test)
+    with pytest.raises(ValueError) as ve:
+        ScoreSetCreate.model_validate(score_set_test)
 
-
-@pytest.mark.parametrize("publication_key", ["primary_publication_identifiers", "secondary_publication_identifiers"])
-def test_can_create_score_set_with_zeiberg_calibration_score_range(publication_key):
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION)
-    score_set_test[publication_key] = [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}]
-
-    ScoreSetModify(**score_set_test)
-
-
-def test_cannot_create_score_set_with_zeiberg_calibration_score_range_if_source_not_in_score_set_publications():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION)
-
-    with pytest.raises(
-        ValueError,
-        match=r".*Score range source publication at index {} is not defined in score set publications.*".format(0),
-    ):
-        ScoreSetModify(**score_set_test)
-
-
-@pytest.mark.parametrize("publication_key", ["primary_publication_identifiers", "secondary_publication_identifiers"])
-def test_can_create_score_set_with_ranges_and_calibrations(publication_key):
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)
-    score_set_test[publication_key] = [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}]
-
-    ScoreSetModify(**score_set_test)
+    errors = ve.value.errors()
+    assert len(errors) == 2
+    assert all(errors[i]["type"] == "literal_error" for i in range(len(errors)))
 
 
 def test_cannot_create_score_set_with_inconsistent_base_editor_flags():

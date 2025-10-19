@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 from mavedb.lib.annotation.annotate import variant_study_result
 from mavedb.lib.annotation.annotate import variant_functional_impact_statement
 from mavedb.lib.annotation.annotate import variant_pathogenicity_evidence
@@ -12,29 +14,31 @@ def test_variant_study_result(mock_mapped_variant):
     assert result.type == "ExperimentalVariantFunctionalImpactStudyResult"
 
 
-def test_variant_functional_impact_statement_no_score_ranges(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges = None
+def test_variant_functional_impact_statement_no_calibrations(mock_mapped_variant):
     result = variant_functional_impact_statement(mock_mapped_variant)
 
     assert result is None
 
 
-def test_variant_functional_impact_statement_no_score_range_data(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges["investigator_provided"]["ranges"] = []
-    result = variant_functional_impact_statement(mock_mapped_variant)
+def test_variant_functional_impact_statement_no_primary_calibrations(
+    mock_mapped_variant_with_functional_calibration_score_set,
+):
+    for calibration in mock_mapped_variant_with_functional_calibration_score_set.variant.score_set.score_calibrations:
+        calibration.primary = not calibration.primary
+
+    result = variant_functional_impact_statement(mock_mapped_variant_with_functional_calibration_score_set)
+    assert result is None
+
+
+def test_variant_functional_impact_statement_no_score(mock_mapped_variant_with_functional_calibration_score_set):
+    mock_mapped_variant_with_functional_calibration_score_set.variant.data = {"score_data": {"score": None}}
+    result = variant_functional_impact_statement(mock_mapped_variant_with_functional_calibration_score_set)
 
     assert result is None
 
 
-def test_variant_functional_impact_statement_no_score(mock_mapped_variant):
-    mock_mapped_variant.variant.data = {"score_data": {"score": None}}
-    result = variant_functional_impact_statement(mock_mapped_variant)
-
-    assert result is None
-
-
-def test_variant_functional_impact_statement_with_score_ranges(mock_mapped_variant):
-    result = variant_functional_impact_statement(mock_mapped_variant)
+def test_valid_variant_functional_impact_statement(mock_mapped_variant_with_functional_calibration_score_set):
+    result = variant_functional_impact_statement(mock_mapped_variant_with_functional_calibration_score_set)
 
     assert result is not None
     assert result.type == "Statement"
@@ -46,49 +50,47 @@ def test_variant_functional_impact_statement_with_score_ranges(mock_mapped_varia
     )
 
 
-def test_variant_pathogenicity_evidence_no_score_ranges_no_thresholds(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges = None
-    mock_mapped_variant.variant.score_set.score_calibrations = None
+def test_variant_pathogenicity_evidence_no_calibrations(mock_mapped_variant):
     result = variant_pathogenicity_evidence(mock_mapped_variant)
 
     assert result is None
 
 
-def test_variant_pathogenicity_evidence_no_score(mock_mapped_variant):
-    mock_mapped_variant.variant.data = {"score_data": {"score": None}}
-    result = variant_pathogenicity_evidence(mock_mapped_variant)
+def test_variant_pathogenicity_evidence_no_score(mock_mapped_variant_with_pathogenicity_calibration_score_set):
+    mock_mapped_variant_with_pathogenicity_calibration_score_set.variant.data = {"score_data": {"score": None}}
+    result = variant_pathogenicity_evidence(mock_mapped_variant_with_pathogenicity_calibration_score_set)
 
     assert result is None
 
 
-def test_variant_pathogenicity_evidence_no_score_ranges_with_thresholds(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges.pop("investigator_provided")
-    result = variant_pathogenicity_evidence(mock_mapped_variant)
+def test_variant_pathogenicity_evidence_with_no_primary_calibration(
+    mock_mapped_variant_with_pathogenicity_calibration_score_set,
+):
+    for (
+        calibration
+    ) in mock_mapped_variant_with_pathogenicity_calibration_score_set.variant.score_set.score_calibrations:
+        calibration.primary = not calibration.primary
 
-    assert result is not None
-    assert result.targetProposition.type == "VariantPathogenicityProposition"
-    assert all(
-        evidence_item.root.type == "ExperimentalVariantFunctionalImpactStudyResult"
-        for evidence_item in result.hasEvidenceItems
-    )
-
-
-def test_variant_pathogenicity_evidence_with_score_ranges_no_thresholds(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges.pop("zeiberg_calibration")
-    result = variant_pathogenicity_evidence(mock_mapped_variant)
-
+    result = variant_pathogenicity_evidence(mock_mapped_variant_with_pathogenicity_calibration_score_set)
     assert result is None
 
 
-def test_variant_pathogenicity_evidence_with_score_ranges_no_threshold_data(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges["zeiberg_calibration"]["ranges"] = []
-    result = variant_pathogenicity_evidence(mock_mapped_variant)
+def test_variant_pathogenicity_evidence_with_no_acmg_classifications(
+    mock_mapped_variant_with_pathogenicity_calibration_score_set,
+):
+    for (
+        calibration
+    ) in mock_mapped_variant_with_pathogenicity_calibration_score_set.variant.score_set.score_calibrations:
+        calibration.functional_ranges = [
+            {**deepcopy(r), "acmgClassification": None} for r in calibration.functional_ranges
+        ]
 
+    result = variant_pathogenicity_evidence(mock_mapped_variant_with_pathogenicity_calibration_score_set)
     assert result is None
 
 
-def test_variant_pathogenicity_evidence_with_score_ranges_with_thresholds(mock_mapped_variant):
-    result = variant_pathogenicity_evidence(mock_mapped_variant)
+def test_variant_pathogenicity_evidence_with_calibrations(mock_mapped_variant_with_pathogenicity_calibration_score_set):
+    result = variant_pathogenicity_evidence(mock_mapped_variant_with_pathogenicity_calibration_score_set)
 
     assert result is not None
     assert result.targetProposition.type == "VariantPathogenicityProposition"

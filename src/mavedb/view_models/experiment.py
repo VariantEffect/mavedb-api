@@ -7,7 +7,7 @@ from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.transform import (
     transform_experiment_set_to_urn,
     transform_score_set_list_to_urn_list,
-    transform_publication_identifiers_to_primary_and_secondary,
+    transform_record_publication_identifiers,
 )
 from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.utilities import is_null
@@ -136,7 +136,7 @@ class SavedExperiment(ExperimentBase):
             data, "secondary_publication_identifiers"
         ):
             try:
-                publication_identifiers = transform_publication_identifiers_to_primary_and_secondary(
+                publication_identifiers = transform_record_publication_identifiers(
                     data.publication_identifier_associations
                 )
                 data.__setattr__(

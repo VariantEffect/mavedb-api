@@ -6,9 +6,7 @@ from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
 
 from mavedb.models.mapped_variant import MappedVariant
-from mavedb.lib.annotation.constants import ZEIBERG_CALIBRATION_CALIBRATION_STRENGTH_OF_EVIDENCE_MAP
-from mavedb.lib.validation.utilities import inf_or_float
-from mavedb.view_models.score_range import ScoreSetRanges
+from mavedb.view_models.score_calibration import FunctionalRange
 
 logger = logging.getLogger(__name__)
 
@@ -24,18 +22,30 @@ class ExperimentalVariantFunctionalImpactClassification(StrEnum):
 def functional_classification_of_variant(
     mapped_variant: MappedVariant,
 ) -> ExperimentalVariantFunctionalImpactClassification:
-    if mapped_variant.variant.score_set.score_ranges is None:
+    """Classify a variant's functional impact as normal, abnormal, or indeterminate.
+
+    Uses the primary score calibration and its functional ranges.
+    Raises ValueError if required calibration or score is missing.
+    """
+    if not mapped_variant.variant.score_set.score_calibrations:
         raise ValueError(
-            f"Variant {mapped_variant.variant.urn} does not have a score set with score ranges."
+            f"Variant {mapped_variant.variant.urn} does not have a score set with score calibrations."
             " Unable to classify functional impact."
         )
 
-    # This view model object is much simpler to work with.
-    score_ranges = ScoreSetRanges(**mapped_variant.variant.score_set.score_ranges).investigator_provided
+    # TODO#494: Support for multiple calibrations (all non-research use only).
+    score_calibrations = mapped_variant.variant.score_set.score_calibrations or []
+    primary_calibration = next((c for c in score_calibrations if c.primary), None)
 
-    if not score_ranges or not score_ranges.ranges:
+    if not primary_calibration:
         raise ValueError(
-            f"Variant {mapped_variant.variant.urn} does not have investigator-provided score ranges."
+            f"Variant {mapped_variant.variant.urn} does not have a primary score calibration."
+            " Unable to classify functional impact."
+        )
+
+    if not primary_calibration.functional_ranges:
+        raise ValueError(
+            f"Variant {mapped_variant.variant.urn} does not have ranges defined in its primary score calibration."
             " Unable to classify functional impact."
         )
 
@@ -47,12 +57,14 @@ def functional_classification_of_variant(
             " Unable to classify functional impact."
         )
 
-    for range in score_ranges.ranges:
-        lower_bound, upper_bound = inf_or_float(range.range[0], lower=True), inf_or_float(range.range[1], lower=False)
-        if functional_score > lower_bound and functional_score <= upper_bound:
-            if range.classification == "normal":
+    for functional_range in primary_calibration.functional_ranges:
+        # It's easier to reason with the view model objects for functional ranges than the JSONB fields in the raw database object.
+        functional_range_view = FunctionalRange.model_validate(functional_range)
+
+        if functional_range_view.is_contained_by_range(functional_score):
+            if functional_range_view.classification == "normal":
                 return ExperimentalVariantFunctionalImpactClassification.NORMAL
-            elif range.classification == "abnormal":
+            elif functional_range_view.classification == "abnormal":
                 return ExperimentalVariantFunctionalImpactClassification.ABNORMAL
             else:
                 return ExperimentalVariantFunctionalImpactClassification.INDETERMINATE
@@ -60,20 +72,33 @@ def functional_classification_of_variant(
     return ExperimentalVariantFunctionalImpactClassification.INDETERMINATE
 
 
-def zeiberg_calibration_clinical_classification_of_variant(
+def pathogenicity_classification_of_variant(
     mapped_variant: MappedVariant,
 ) -> tuple[VariantPathogenicityEvidenceLine.Criterion, Optional[StrengthOfEvidenceProvided]]:
-    if mapped_variant.variant.score_set.score_ranges is None:
+    """Classify a variant's pathogenicity and evidence strength using clinical calibration.
+
+    Uses the first clinical score calibration and its functional ranges.
+    Raises ValueError if required calibration, score, or evidence strength is missing.
+    """
+    if not mapped_variant.variant.score_set.score_calibrations:
         raise ValueError(
-            f"Variant {mapped_variant.variant.urn} does not have a score set with score thresholds."
+            f"Variant {mapped_variant.variant.urn} does not have a score set with score calibrations."
             " Unable to classify clinical impact."
         )
 
-    score_ranges = ScoreSetRanges(**mapped_variant.variant.score_set.score_ranges).zeiberg_calibration
+    # TODO#494: Support multiple clinical calibrations.
+    score_calibrations = mapped_variant.variant.score_set.score_calibrations or []
+    primary_calibration = next((c for c in score_calibrations if c.primary), None)
 
-    if not score_ranges or not score_ranges.ranges:
+    if not primary_calibration:
         raise ValueError(
-            f"Variant {mapped_variant.variant.urn} does not have pillar project score ranges."
+            f"Variant {mapped_variant.variant.urn} does not have a primary score calibration."
+            " Unable to classify clinical impact."
+        )
+
+    if not primary_calibration.functional_ranges:
+        raise ValueError(
+            f"Variant {mapped_variant.variant.urn} does not have ranges defined in its primary score calibration."
             " Unable to classify clinical impact."
         )
 
@@ -85,9 +110,44 @@ def zeiberg_calibration_clinical_classification_of_variant(
             " Unable to classify clinical impact."
         )
 
-    for range in score_ranges.ranges:
-        lower_bound, upper_bound = inf_or_float(range.range[0], lower=True), inf_or_float(range.range[1], lower=False)
-        if functional_score > lower_bound and functional_score <= upper_bound:
-            return ZEIBERG_CALIBRATION_CALIBRATION_STRENGTH_OF_EVIDENCE_MAP[range.evidence_strength]
+    for pathogenicity_range in primary_calibration.functional_ranges:
+        # It's easier to reason with the view model objects for functional ranges than the JSONB fields in the raw database object.
+        pathogenicity_range_view = FunctionalRange.model_validate(pathogenicity_range)
 
-    return ZEIBERG_CALIBRATION_CALIBRATION_STRENGTH_OF_EVIDENCE_MAP[0]
+        if pathogenicity_range_view.is_contained_by_range(functional_score):
+            if pathogenicity_range_view.acmg_classification is None:
+                return (VariantPathogenicityEvidenceLine.Criterion.PS3, None)
+
+            # More of a type guard, as the ACMGClassification model we construct above enforces that
+            # criterion and evidence strength are mutually defined.
+            if (
+                pathogenicity_range_view.acmg_classification.evidence_strength is None
+                or pathogenicity_range_view.acmg_classification.criterion is None
+            ):  # pragma: no cover - enforced by model validators in FunctionalRange view model
+                return (VariantPathogenicityEvidenceLine.Criterion.PS3, None)
+
+            # TODO#540: Handle moderate+
+            if (
+                pathogenicity_range_view.acmg_classification.evidence_strength.name
+                not in StrengthOfEvidenceProvided._member_names_
+            ):
+                raise ValueError(
+                    f"Variant {mapped_variant.variant.urn} is contained in a clinical calibration range with an invalid evidence strength."
+                    " Unable to classify clinical impact."
+                )
+
+            if (
+                pathogenicity_range_view.acmg_classification.criterion.name
+                not in VariantPathogenicityEvidenceLine.Criterion._member_names_
+            ):  # pragma: no cover - enforced by model validators in FunctionalRange view model
+                raise ValueError(
+                    f"Variant {mapped_variant.variant.urn} is contained in a clinical calibration range with an invalid criterion."
+                    " Unable to classify clinical impact."
+                )
+
+            return (
+                VariantPathogenicityEvidenceLine.Criterion[pathogenicity_range_view.acmg_classification.criterion.name],
+                StrengthOfEvidenceProvided[pathogenicity_range_view.acmg_classification.evidence_strength.name],
+            )
+
+    return (VariantPathogenicityEvidenceLine.Criterion.PS3, None)

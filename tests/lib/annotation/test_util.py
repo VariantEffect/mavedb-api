@@ -1,19 +1,16 @@
+from copy import deepcopy
 import pytest
 
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.annotation.util import (
     variation_from_mapped_variant,
     _can_annotate_variant_base_assumptions,
-    _variant_score_ranges_have_required_keys_and_ranges_for_annotation,
+    _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation,
     can_annotate_variant_for_functional_statement,
     can_annotate_variant_for_pathogenicity_evidence,
 )
 
-from tests.helpers.constants import (
-    TEST_VALID_POST_MAPPED_VRS_ALLELE,
-    TEST_SEQUENCE_LOCATION_ACCESSION,
-    TEST_BRNICH_SCORE_SET_RANGE_WITH_SOURCE,
-)
+from tests.helpers.constants import TEST_VALID_POST_MAPPED_VRS_ALLELE, TEST_SEQUENCE_LOCATION_ACCESSION
 from unittest.mock import patch
 
 
@@ -53,88 +50,163 @@ def test_base_assumption_check_returns_true_when_all_conditions_met(mock_mapped_
 ## Test variant score ranges have required keys for annotation
 
 
-def test_score_range_check_returns_false_when_keys_are_none(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges = None
-    key_options = ["required_key1", "required_key2"]
-
-    assert _variant_score_ranges_have_required_keys_and_ranges_for_annotation(mock_mapped_variant, key_options) is False
-
-
-def test_score_range_check_returns_false_when_no_keys_present(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges = {"other_key": TEST_BRNICH_SCORE_SET_RANGE_WITH_SOURCE}
-    key_options = ["required_key1", "required_key2"]
-
-    assert _variant_score_ranges_have_required_keys_and_ranges_for_annotation(mock_mapped_variant, key_options) is False
+@pytest.mark.parametrize("kind", ["functional", "pathogenicity"])
+def test_score_range_check_returns_false_when_no_calibrations_present(mock_mapped_variant, kind):
+    assert (
+        _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(mock_mapped_variant, kind)
+        is False
+    )
 
 
-def test_score_range_check_returns_false_when_key_present_but_value_is_none(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges = {"required_key1": None}
-    key_options = ["required_key1", "required_key2"]
+@pytest.mark.parametrize(
+    "kind,variant_fixture",
+    [
+        ("functional", "mock_mapped_variant_with_functional_calibration_score_set"),
+        ("pathogenicity", "mock_mapped_variant_with_pathogenicity_calibration_score_set"),
+    ],
+)
+def test_score_range_check_returns_false_when_no_primary_calibration(kind, variant_fixture, request):
+    mock_mapped_variant = request.getfixturevalue(variant_fixture)
+    for calibration in mock_mapped_variant.variant.score_set.score_calibrations:
+        calibration.primary = False
 
-    assert _variant_score_ranges_have_required_keys_and_ranges_for_annotation(mock_mapped_variant, key_options) is False
+    assert (
+        _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(mock_mapped_variant, kind)
+        is False
+    )
 
 
-def test_score_range_check_returns_false_when_key_present_but_range_value_is_empty(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges = {"required_key1": {"ranges": []}}
-    key_options = ["required_key1", "required_key2"]
+@pytest.mark.parametrize(
+    "kind,variant_fixture",
+    [
+        ("functional", "mock_mapped_variant_with_functional_calibration_score_set"),
+        ("pathogenicity", "mock_mapped_variant_with_pathogenicity_calibration_score_set"),
+    ],
+)
+def test_score_range_check_returns_false_when_calibrations_present_with_empty_ranges(kind, variant_fixture, request):
+    mock_mapped_variant = request.getfixturevalue(variant_fixture)
 
-    assert _variant_score_ranges_have_required_keys_and_ranges_for_annotation(mock_mapped_variant, key_options) is False
+    for calibration in mock_mapped_variant.variant.score_set.score_calibrations:
+        calibration.functional_ranges = None
+
+    assert (
+        _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(mock_mapped_variant, kind)
+        is False
+    )
 
 
-def test_score_range_check_returns_none_when_at_least_one_key_has_value(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges = {"required_key1": TEST_BRNICH_SCORE_SET_RANGE_WITH_SOURCE}
-    key_options = ["required_key1", "required_key2"]
+def test_pathogenicity_range_check_returns_false_when_no_acmg_calibration(
+    mock_mapped_variant_with_pathogenicity_calibration_score_set,
+):
+    for (
+        calibration
+    ) in mock_mapped_variant_with_pathogenicity_calibration_score_set.variant.score_set.score_calibrations:
+        acmg_classification_removed = [deepcopy(r) for r in calibration.functional_ranges]
+        for fr in acmg_classification_removed:
+            fr["acmgClassification"] = None
 
-    assert _variant_score_ranges_have_required_keys_and_ranges_for_annotation(mock_mapped_variant, key_options) is True
+        calibration.functional_ranges = acmg_classification_removed
+
+    assert (
+        _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
+            mock_mapped_variant_with_pathogenicity_calibration_score_set, "pathogenicity"
+        )
+        is False
+    )
+
+
+def test_pathogenicity_range_check_returns_true_when_some_acmg_calibration(
+    mock_mapped_variant_with_pathogenicity_calibration_score_set,
+):
+    for (
+        calibration
+    ) in mock_mapped_variant_with_pathogenicity_calibration_score_set.variant.score_set.score_calibrations:
+        acmg_classification_removed = [deepcopy(r) for r in calibration.functional_ranges]
+        acmg_classification_removed[0]["acmgClassification"] = None
+
+        calibration.functional_ranges = acmg_classification_removed
+
+    assert (
+        _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
+            mock_mapped_variant_with_pathogenicity_calibration_score_set, "pathogenicity"
+        )
+        is True
+    )
+
+
+@pytest.mark.parametrize(
+    "kind,variant_fixture",
+    [
+        ("functional", "mock_mapped_variant_with_functional_calibration_score_set"),
+        ("pathogenicity", "mock_mapped_variant_with_pathogenicity_calibration_score_set"),
+    ],
+)
+def test_score_range_check_returns_true_when_calibration_kind_exists_with_ranges(kind, variant_fixture, request):
+    mock_mapped_variant = request.getfixturevalue(variant_fixture)
+
+    assert (
+        _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(mock_mapped_variant, kind)
+        is True
+    )
 
 
 ## Test clinical range check
 
 
-def test_clinical_range_check_returns_false_when_base_assumptions_fail(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges = None
-    result = can_annotate_variant_for_pathogenicity_evidence(mock_mapped_variant)
+def test_pathogenicity_range_check_returns_false_when_base_assumptions_fail(mock_mapped_variant):
+    with patch("mavedb.lib.annotation.util._can_annotate_variant_base_assumptions", return_value=False):
+        result = can_annotate_variant_for_pathogenicity_evidence(mock_mapped_variant)
 
     assert result is False
 
 
-@pytest.mark.parametrize("clinical_ranges", [["clinical_range"], ["other_clinical_range"]])
-def test_clinical_range_check_returns_false_when_clinical_ranges_check_fails(mock_mapped_variant, clinical_ranges):
-    mock_mapped_variant.variant.score_set.score_ranges = {"unrelated_key": TEST_BRNICH_SCORE_SET_RANGE_WITH_SOURCE}
-
-    with patch("mavedb.lib.annotation.util.CLINICAL_RANGES", clinical_ranges):
+def test_pathogenicity_range_check_returns_false_when_pathogenicity_ranges_check_fails(mock_mapped_variant):
+    with patch(
+        "mavedb.lib.annotation.util._variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation",
+        return_value=False,
+    ):
         result = can_annotate_variant_for_pathogenicity_evidence(mock_mapped_variant)
 
     assert result is False
 
 
 # The default mock_mapped_variant object should be valid
-def test_clinical_range_check_returns_true_when_all_conditions_met(mock_mapped_variant):
-    assert can_annotate_variant_for_pathogenicity_evidence(mock_mapped_variant) is True
+def test_pathogenicity_range_check_returns_true_when_all_conditions_met(
+    mock_mapped_variant_with_pathogenicity_calibration_score_set,
+):
+    assert (
+        can_annotate_variant_for_pathogenicity_evidence(mock_mapped_variant_with_pathogenicity_calibration_score_set)
+        is True
+    )
 
 
 ## Test functional range check
 
 
 def test_functional_range_check_returns_false_when_base_assumptions_fail(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges = None
-    result = can_annotate_variant_for_functional_statement(mock_mapped_variant)
+    with patch(
+        "mavedb.lib.annotation.util._can_annotate_variant_base_assumptions",
+        return_value=False,
+    ):
+        result = can_annotate_variant_for_functional_statement(mock_mapped_variant)
 
     assert result is False
 
 
-@pytest.mark.parametrize("functional_ranges", [["functional_range"], ["other_functional_range"]])
-def test_functional_range_check_returns_false_when_functional_ranges_check_fails(
-    mock_mapped_variant, functional_ranges
-):
-    mock_mapped_variant.variant.score_set.score_ranges = {"unrelated_key": TEST_BRNICH_SCORE_SET_RANGE_WITH_SOURCE}
-
-    with patch("mavedb.lib.annotation.util.FUNCTIONAL_RANGES", functional_ranges):
+def test_functional_range_check_returns_false_when_functional_ranges_check_fails(mock_mapped_variant):
+    with patch(
+        "mavedb.lib.annotation.util._variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation",
+        return_value=False,
+    ):
         result = can_annotate_variant_for_functional_statement(mock_mapped_variant)
 
     assert result is False
 
 
 # The default mock_mapped_variant object should be valid
-def test_functional_range_check_returns_true_when_all_conditions_met(mock_mapped_variant):
-    assert can_annotate_variant_for_functional_statement(mock_mapped_variant) is True
+def test_functional_range_check_returns_true_when_all_conditions_met(
+    mock_mapped_variant_with_functional_calibration_score_set,
+):
+    assert (
+        can_annotate_variant_for_functional_statement(mock_mapped_variant_with_functional_calibration_score_set) is True
+    )

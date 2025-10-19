@@ -1,8 +1,8 @@
 # ruff: noqa: E402
 
+import csv
 import re
 from copy import deepcopy
-import csv
 from datetime import date
 from io import StringIO
 from unittest.mock import patch
@@ -16,8 +16,8 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
-from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_EXPERIMENT_URN_RE
 from mavedb.lib.exceptions import NonexistentOrcidUserError
+from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
@@ -25,58 +25,57 @@ from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
-
 from tests.helpers.constants import (
-    EXTRA_USER,
     EXTRA_LICENSE,
-    TEST_CROSSREF_IDENTIFIER,
-    TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION,
-    TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION,
-    TEST_MINIMAL_ACC_SCORESET,
-    TEST_MINIMAL_SEQ_SCORESET,
-    TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
-    TEST_PUBMED_IDENTIFIER,
-    TEST_ORCID_ID,
-    TEST_MINIMAL_ACC_SCORESET_RESPONSE,
-    TEST_USER,
-    TEST_INACTIVE_LICENSE,
+    EXTRA_USER,
     SAVED_DOI_IDENTIFIER,
     SAVED_EXTRA_CONTRIBUTOR,
     SAVED_PUBMED_PUBLICATION,
     SAVED_SHORT_EXTRA_LICENSE,
+    TEST_BIORXIV_IDENTIFIER,
+    TEST_BRNICH_SCORE_CALIBRATION,
+    TEST_CROSSREF_IDENTIFIER,
+    TEST_GNOMAD_DATA_VERSION,
+    TEST_INACTIVE_LICENSE,
+    TEST_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION,
+    TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION,
+    TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION,
+    TEST_MINIMAL_ACC_SCORESET,
+    TEST_MINIMAL_ACC_SCORESET_RESPONSE,
+    TEST_MINIMAL_SEQ_SCORESET,
+    TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
+    TEST_ORCID_ID,
+    TEST_PATHOGENICITY_SCORE_CALIBRATION,
+    TEST_PUBMED_IDENTIFIER,
     TEST_SAVED_CLINVAR_CONTROL,
     TEST_SAVED_GENERIC_CLINICAL_CONTROL,
-    TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-    TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-    TEST_SCORE_SET_RANGES_ONLY_SCOTT,
-    TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT,
-    TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
-    TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
-    TEST_GNOMAD_DATA_VERSION,
     TEST_SAVED_GNOMAD_VARIANT,
+    TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION,
+    TEST_USER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
-from tests.helpers.util.common import update_expected_response_for_created_resources
+from tests.helpers.util.common import deepcamelize, update_expected_response_for_created_resources
 from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.license import change_to_inactive_license
+from tests.helpers.util.score_calibration import (
+    create_publish_and_promote_score_calibration,
+    create_test_score_calibration_in_score_set_via_client,
+)
 from tests.helpers.util.score_set import (
     create_seq_score_set,
     create_seq_score_set_with_mapped_variants,
+    create_seq_score_set_with_variants,
     link_clinical_controls_to_mapped_variants,
     link_gnomad_variants_to_mapped_variants,
     publish_score_set,
-    create_seq_score_set_with_variants,
 )
 from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import (
+    clear_first_mapped_variant_post_mapped,
     create_mapped_variants_for_score_set,
     mock_worker_variant_insertion,
-    clear_first_mapped_variant_post_mapped,
 )
-
 
 ########################################################################################################################
 # Score set schemas
@@ -96,7 +95,19 @@ def test_TEST_MINIMAL_ACC_SCORESET_is_valid():
 ########################################################################################################################
 
 
-def test_create_minimal_score_set(client, setup_router_db):
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        (
+            [
+                {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+                {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+            ]
+        )
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_create_minimal_score_set(client, mock_publication_fetch, setup_router_db):
     experiment = create_experiment(client)
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_post_payload["experimentUrn"] = experiment["urn"]
@@ -121,7 +132,19 @@ def test_create_minimal_score_set(client, setup_router_db):
     assert response.status_code == 200
 
 
-def test_create_score_set_with_contributor(client, setup_router_db):
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        (
+            [
+                {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+                {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+            ]
+        )
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_create_score_set_with_contributor(client, mock_publication_fetch, setup_router_db):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set["experimentUrn"] = experiment["urn"]
@@ -161,29 +184,22 @@ def test_create_score_set_with_contributor(client, setup_router_db):
 
 
 @pytest.mark.parametrize(
-    "score_ranges,saved_score_ranges",
-    [
-        (TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED, TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
-        (TEST_SCORE_SET_RANGES_ONLY_SCOTT, TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT),
-        (TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION, TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
-        (TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT, TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-    ],
-)
-@pytest.mark.parametrize(
     "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
     indirect=["mock_publication_fetch"],
 )
-def test_create_score_set_with_score_range(
-    client, mock_publication_fetch, setup_router_db, score_ranges, saved_score_ranges
-):
+def test_create_score_set_with_score_calibration(client, mock_publication_fetch, setup_router_db):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set["experimentUrn"] = experiment["urn"]
     score_set.update(
         {
-            "score_ranges": score_ranges,
-            "secondary_publication_identifiers": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+            "scoreCalibrations": [deepcamelize(TEST_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION)],
         }
     )
 
@@ -198,8 +214,11 @@ def test_create_score_set_with_score_range(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
     expected_response["experiment"].update({"numScoreSets": 1})
-    expected_response["scoreRanges"] = saved_score_ranges
-    expected_response["secondaryPublicationIdentifiers"] = [SAVED_PUBMED_PUBLICATION]
+    expected_calibration = deepcopy(TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION)
+    expected_calibration["urn"] = response_data["scoreCalibrations"][0]["urn"]
+    expected_calibration["private"] = True
+    expected_calibration["primary"] = False
+    expected_response["scoreCalibrations"] = [expected_calibration]
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -210,32 +229,18 @@ def test_create_score_set_with_score_range(
 
 
 @pytest.mark.parametrize(
-    "score_ranges",
+    "mock_publication_fetch",
     [
-        TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-        TEST_SCORE_SET_RANGES_ONLY_SCOTT,
-        TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-        TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+        (
+            [
+                {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+                {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+            ]
+        )
     ],
+    indirect=["mock_publication_fetch"],
 )
-def test_cannot_create_score_set_with_score_range_and_source_when_publication_not_in_publications(
-    client, setup_router_db, score_ranges
-):
-    experiment = create_experiment(client)
-    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
-    score_set["experimentUrn"] = experiment["urn"]
-    score_set.update({"score_ranges": score_ranges})
-
-    response = client.post("/api/v1/score-sets/", json=score_set)
-    assert response.status_code == 422
-
-    response_data = response.json()
-    assert (
-        "source publication at index 0 is not defined in score set publications." in response_data["detail"][0]["msg"]
-    )
-
-
-def test_cannot_create_score_set_with_nonexistent_contributor(client, setup_router_db):
+def test_cannot_create_score_set_with_nonexistent_contributor(client, mock_publication_fetch, setup_router_db):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set["experimentUrn"] = experiment["urn"]
@@ -253,62 +258,18 @@ def test_cannot_create_score_set_with_nonexistent_contributor(client, setup_rout
 
 
 @pytest.mark.parametrize(
-    "score_ranges,saved_score_ranges",
-    [
-        (TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED, TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
-        (TEST_SCORE_SET_RANGES_ONLY_SCOTT, TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT),
-        (TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION, TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
-        (TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT, TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-    ],
-)
-@pytest.mark.parametrize(
     "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    [
+        (
+            [
+                {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+                {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+            ]
+        )
+    ],
     indirect=["mock_publication_fetch"],
 )
-def test_remove_score_range_from_score_set(
-    client, setup_router_db, score_ranges, saved_score_ranges, mock_publication_fetch
-):
-    experiment = create_experiment(client)
-    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
-    score_set["experimentUrn"] = experiment["urn"]
-    score_set.update(
-        {
-            "score_ranges": score_ranges,
-            "secondary_publication_identifiers": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
-        }
-    )
-
-    response = client.post("/api/v1/score-sets/", json=score_set)
-    assert response.status_code == 200
-    response_data = response.json()
-
-    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
-    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
-
-    expected_response = update_expected_response_for_created_resources(
-        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
-    )
-    expected_response["experiment"].update({"numScoreSets": 1})
-    expected_response["scoreRanges"] = saved_score_ranges
-    expected_response["secondaryPublicationIdentifiers"] = [SAVED_PUBMED_PUBLICATION]
-
-    assert sorted(expected_response.keys()) == sorted(response_data.keys())
-    for key in expected_response:
-        assert (key, expected_response[key]) == (key, response_data[key])
-
-    score_set.pop("score_ranges")
-    response = client.put(f"/api/v1/score-sets/{response_data['urn']}", json=score_set)
-    assert response.status_code == 200
-    response_data = response.json()
-
-    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
-    assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
-
-    assert "scoreRanges" not in response_data.keys()
-
-
-def test_cannot_create_score_set_without_email(client, setup_router_db):
+def test_cannot_create_score_set_without_email(client, mock_publication_fetch, setup_router_db):
     experiment = create_experiment(client)
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_post_payload["experimentUrn"] = experiment["urn"]
@@ -319,7 +280,19 @@ def test_cannot_create_score_set_without_email(client, setup_router_db):
     assert response_data["detail"] in "There must be an email address associated with your account to use this feature."
 
 
-def test_cannot_create_score_set_with_invalid_target_gene_category(client, setup_router_db):
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        (
+            [
+                {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+                {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+            ]
+        )
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_score_set_with_invalid_target_gene_category(client, mock_publication_fetch, setup_router_db):
     experiment = create_experiment(client)
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_post_payload["experimentUrn"] = experiment["urn"]
@@ -351,7 +324,6 @@ def test_cannot_create_score_set_with_invalid_target_gene_category(client, setup
         ("doi_identifiers", [{"identifier": TEST_CROSSREF_IDENTIFIER}], [SAVED_DOI_IDENTIFIER]),
         ("license_id", EXTRA_LICENSE["id"], SAVED_SHORT_EXTRA_LICENSE),
         ("target_genes", TEST_MINIMAL_ACC_SCORESET["targetGenes"], TEST_MINIMAL_ACC_SCORESET_RESPONSE["targetGenes"]),
-        ("score_ranges", TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT, TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
     ],
 )
 @pytest.mark.parametrize(
@@ -487,7 +459,7 @@ def test_can_update_score_set_supporting_data_after_publication(
         ("target_genes", TEST_MINIMAL_ACC_SCORESET["targetGenes"], TEST_MINIMAL_SEQ_SCORESET_RESPONSE["targetGenes"]),
         (
             "score_ranges",
-            TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+            [TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION],
             None,
         ),
     ],
@@ -1140,6 +1112,40 @@ def test_publish_multiple_score_sets(session, data_provider, client, setup_route
         select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_3["urn"])
     ).scalars()
     assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_3_variants])
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_score_calibrations_remain_private_when_score_set_is_published(
+    session, data_provider, client, setup_router_db, data_files, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(
+        client,
+        experiment["urn"],
+    )
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+    )
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    # refresh score set to post worker state
+    score_set = (client.get(f"/api/v1/score-sets/{published_score_set['urn']}")).json()
+
+    for score_calibration in score_set["scoreCalibrations"]:
+        assert score_calibration["private"] is True
 
 
 def test_cannot_publish_score_set_without_variants(client, setup_router_db):
@@ -2336,95 +2342,7 @@ def test_show_correct_score_set_version_with_superseded_score_set_to_its_owner(
 ########################################################################################################################
 
 
-@pytest.mark.parametrize(
-    "score_ranges",
-    [
-        TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-        TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-        TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
-    ],
-)
-def test_anonymous_user_cannot_add_score_ranges_to_score_set(
-    client, setup_router_db, anonymous_app_overrides, score_ranges
-):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    range_payload = deepcopy(score_ranges)
-
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.post(f"/api/v1/score-sets/{score_set['urn']}/ranges/data", json=range_payload)
-        response_data = response.json()
-
-    assert response.status_code == 401
-    assert "score_calibrations" not in response_data
-
-
-@pytest.mark.parametrize(
-    "score_ranges",
-    [
-        TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-        TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-        TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
-    ],
-)
-def test_user_cannot_add_score_ranges_to_own_score_set(client, setup_router_db, anonymous_app_overrides, score_ranges):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    range_payload = deepcopy(score_ranges)
-
-    response = client.post(f"/api/v1/score-sets/{score_set['urn']}/ranges/data", json=range_payload)
-    response_data = response.json()
-
-    assert response.status_code == 401
-    assert "score_calibrations" not in response_data
-
-
-@pytest.mark.parametrize(
-    "score_ranges,saved_score_ranges",
-    [
-        (TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED, TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
-        (TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION, TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
-        (TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT, TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-    ],
-)
-def test_admin_can_add_score_ranges_to_score_set(
-    client, setup_router_db, admin_app_overrides, score_ranges, saved_score_ranges
-):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    range_payload = deepcopy(score_ranges)
-
-    with DependencyOverrider(admin_app_overrides):
-        response = client.post(f"/api/v1/score-sets/{score_set['urn']}/ranges/data", json=range_payload)
-        response_data = response.json()
-
-    expected_response = update_expected_response_for_created_resources(
-        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
-    )
-    expected_response["scoreRanges"] = deepcopy(saved_score_ranges)
-    expected_response["experiment"].update({"numScoreSets": 1})
-
-    assert response.status_code == 200
-    for key in expected_response:
-        assert (key, expected_response[key]) == (key, response_data[key])
-
-
-def test_score_set_not_found_for_non_existent_score_set_when_adding_score_calibrations(
-    client, setup_router_db, admin_app_overrides
-):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    range_payload = deepcopy(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)
-
-    with DependencyOverrider(admin_app_overrides):
-        response = client.post(
-            f"/api/v1/score-sets/{score_set['urn']+'xxx'}/ranges/data",
-            json=range_payload,
-        )
-        response_data = response.json()
-
-    assert response.status_code == 404
-    assert "score_calibrations" not in response_data
+# TODO
 
 
 ########################################################################################################################
@@ -2732,7 +2650,12 @@ def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
 
 @pytest.mark.parametrize(
     "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
     indirect=["mock_publication_fetch"],
 )
 def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
@@ -2745,11 +2668,8 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
-        },
     )
+    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
 
     # The contents of the annotated variants objects should be tested in more detail elsewhere.
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
@@ -2777,13 +2697,7 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thre
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
-        },
     )
-
-    print(score_set["scoreRanges"])
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
     response_data = response.json()
@@ -2795,38 +2709,7 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thre
         assert annotated_variant is None
 
 
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
-def test_annotated_pathogenicity_evidence_lines_exists_for_score_set_when_ranges_not_present(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
-):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_mapped_variants(
-        client,
-        session,
-        data_provider,
-        experiment["urn"],
-        data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
-        },
-    )
-
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
-    response_data = response.json()
-
-    assert response.status_code == 200
-    assert len(response_data) == score_set["numVariants"]
-
-    for variant_urn, annotated_variant in response_data.items():
-        assert f"Pathogenicity evidence line {variant_urn}" in annotated_variant.get("description")
-
-
-def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thresholds_and_ranges_not_present(
+def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_calibrations_not_present(
     client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
@@ -2850,7 +2733,12 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thre
 
 @pytest.mark.parametrize(
     "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
     indirect=["mock_publication_fetch"],
 )
 def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_variants_were_not_mapped(
@@ -2863,11 +2751,8 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_vari
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
-        },
     )
+    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
 
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
@@ -2886,7 +2771,12 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_vari
 
 @pytest.mark.parametrize(
     "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
     indirect=["mock_publication_fetch"],
 )
 def test_get_annotated_functional_impact_statement_for_score_set(
@@ -2899,11 +2789,8 @@ def test_get_annotated_functional_impact_statement_for_score_set(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
+    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
     response_data = response.json()
@@ -2920,38 +2807,7 @@ def test_get_annotated_functional_impact_statement_for_score_set(
     [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
     indirect=["mock_publication_fetch"],
 )
-def test_annotated_functional_impact_statement_exists_for_score_set_when_thresholds_not_present(
-    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
-):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_mapped_variants(
-        client,
-        session,
-        data_provider,
-        experiment["urn"],
-        data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
-        },
-    )
-
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
-    response_data = response.json()
-
-    assert response.status_code == 200
-    assert len(response_data) == score_set["numVariants"]
-
-    for _, annotated_variant in response_data.items():
-        assert annotated_variant.get("type") == "Statement"
-
-
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
-def test_nonetype_annotated_functional_impact_statement_for_score_set_when_ranges_not_present(
+def test_nonetype_annotated_functional_impact_statement_for_score_set_when_calibrations_not_present(
     client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
 ):
     experiment = create_experiment(client)
@@ -2963,7 +2819,7 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_range
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 
@@ -3001,7 +2857,12 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_thres
 
 @pytest.mark.parametrize(
     "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
     indirect=["mock_publication_fetch"],
 )
 def test_get_annotated_functional_impact_statement_for_score_set_when_some_variants_were_not_mapped(
@@ -3014,11 +2875,8 @@ def test_get_annotated_functional_impact_statement_for_score_set_when_some_varia
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
+    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
 
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
@@ -3050,10 +2908,6 @@ def test_get_annotated_functional_study_result_for_score_set(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
@@ -3083,7 +2937,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 
@@ -3114,7 +2968,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_ranges_not_
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 
@@ -3167,7 +3021,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_some_varian
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 

@@ -1,3 +1,4 @@
+from humps import decamelize
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -6,6 +7,7 @@ from shutil import copytree
 from unittest import mock
 
 from mavedb.models.enums.user_role import UserRole
+from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
@@ -35,7 +37,8 @@ from tests.helpers.constants import (
     VALID_SCORE_SET_URN,
     VALID_EXPERIMENT_URN,
     VALID_EXPERIMENT_SET_URN,
-    TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    TEST_SAVED_BRNICH_SCORE_CALIBRATION,
+    TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION,
     TEST_PUBMED_IDENTIFIER,
 )
 
@@ -121,6 +124,8 @@ def setup_lib_db_with_mapped_variant(session, setup_lib_db_with_variant):
 def mock_user():
     mv = mock.Mock(spec=User)
     mv.username = TEST_USER["username"]
+    mv.first_name = TEST_USER["first_name"]
+    mv.last_name = TEST_USER["last_name"]
     return mv
 
 
@@ -163,10 +168,40 @@ def mock_experiment():
 
 
 @pytest.fixture
+def mock_functional_calibration(mock_user):
+    calibration = mock.Mock(spec=ScoreCalibration)
+
+    for key, value in TEST_SAVED_BRNICH_SCORE_CALIBRATION.items():
+        setattr(calibration, decamelize(key), deepcopy(value))
+
+    calibration.primary = True  # Ensure functional calibration is primary for tests
+    calibration.notes = None
+    calibration.publication_identifier_associations = []
+    calibration.created_by = mock_user
+    calibration.modified_by = mock_user
+    return calibration
+
+
+@pytest.fixture
+def mock_pathogenicity_calibration(mock_user):
+    calibration = mock.Mock(spec=ScoreCalibration)
+
+    for key, value in TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION.items():
+        setattr(calibration, decamelize(key), deepcopy(value))
+
+    calibration.primary = True  # Ensure pathogenicity calibration is primary for tests
+    calibration.notes = None
+    calibration.publication_identifier_associations = []
+    calibration.created_by = mock_user
+    calibration.modified_by = mock_user
+    return calibration
+
+
+@pytest.fixture
 def mock_score_set(mock_user, mock_experiment, mock_publication_associations):
     score_set = mock.Mock(spec=ScoreSet)
+    score_set.score_calibrations = []
     score_set.urn = VALID_SCORE_SET_URN
-    score_set.score_ranges = deepcopy(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)
     score_set.license.short_name = "MIT"
     score_set.created_by = mock_user
     score_set.modified_by = mock_user
@@ -183,6 +218,18 @@ def mock_score_set(mock_user, mock_experiment, mock_publication_associations):
 
 
 @pytest.fixture
+def mock_score_set_with_functional_calibrations(mock_score_set, mock_functional_calibration):
+    mock_score_set.score_calibrations = [mock_functional_calibration]
+    return mock_score_set
+
+
+@pytest.fixture
+def mock_score_set_with_pathogenicity_calibrations(mock_score_set, mock_pathogenicity_calibration):
+    mock_score_set.score_calibrations = [mock_pathogenicity_calibration]
+    return mock_score_set
+
+
+@pytest.fixture
 def mock_variant(mock_score_set):
     variant = mock.Mock(spec=Variant)
     variant.urn = f"{VALID_SCORE_SET_URN}#1"
@@ -191,6 +238,18 @@ def mock_variant(mock_score_set):
     variant.creation_date = datetime(2023, 1, 2)
     variant.modification_date = datetime(2023, 1, 3)
     return variant
+
+
+@pytest.fixture
+def mock_variant_with_functional_calibration_score_set(mock_variant, mock_score_set_with_functional_calibrations):
+    mock_variant.score_set = mock_score_set_with_functional_calibrations
+    return mock_variant
+
+
+@pytest.fixture
+def mock_variant_with_pathogenicity_calibration_score_set(mock_variant, mock_score_set_with_pathogenicity_calibrations):
+    mock_variant.score_set = mock_score_set_with_pathogenicity_calibrations
+    return mock_variant
 
 
 @pytest.fixture
@@ -205,6 +264,22 @@ def mock_mapped_variant(mock_variant):
     mv.modification_date = datetime(2023, 1, 3)
     mv.clingen_allele_id = "CA123456"
     return mv
+
+
+@pytest.fixture
+def mock_mapped_variant_with_functional_calibration_score_set(
+    mock_mapped_variant, mock_variant_with_functional_calibration_score_set
+):
+    mock_mapped_variant.variant = mock_variant_with_functional_calibration_score_set
+    return mock_mapped_variant
+
+
+@pytest.fixture
+def mock_mapped_variant_with_pathogenicity_calibration_score_set(
+    mock_mapped_variant, mock_variant_with_pathogenicity_calibration_score_set
+):
+    mock_mapped_variant.variant = mock_variant_with_pathogenicity_calibration_score_set
+    return mock_mapped_variant
 
 
 @pytest.fixture

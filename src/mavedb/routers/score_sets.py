@@ -10,8 +10,8 @@ from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import Statement, ExperimentalVariantFunctionalImpactStudyResult
-from sqlalchemy import null, or_, select
-from sqlalchemy.exc import MultipleResultsFound, NoResultFound
+from sqlalchemy import or_, select
+from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import contains_eager, Session
 
 from mavedb import deps
@@ -23,7 +23,6 @@ from mavedb.lib.annotation.annotate import (
 )
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import (
-    RoleRequirer,
     get_current_user,
     require_current_user,
     require_current_user_with_email,
@@ -48,12 +47,11 @@ from mavedb.lib.score_sets import (
     find_meta_analyses_for_experiment_sets,
     get_score_set_variants_as_csv,
     variants_to_csv_rows,
-)
-from mavedb.lib.score_sets import (
     fetch_superseding_score_set_in_search_result,
     search_score_sets as _search_score_sets,
     refresh_variant_urns,
 )
+from mavedb.lib.score_calibrations import create_score_calibration
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.urns import (
     generate_experiment_set_urn,
@@ -63,17 +61,17 @@ from mavedb.lib.urns import (
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
-from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment import Experiment
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
-from mavedb.view_models import mapped_variant, score_set, clinical_control, score_range, gnomad_variant
+from mavedb.view_models import mapped_variant, score_set, clinical_control, gnomad_variant
 from mavedb.view_models.search import ScoreSetsSearch
 
 logger = logging.getLogger(__name__)
@@ -807,6 +805,12 @@ async def create_score_set(
     for publication in publication_identifiers:
         setattr(publication, "primary", publication.identifier in primary_identifiers)
 
+    score_calibrations: list[ScoreCalibration] = []
+    if item_create.score_calibrations:
+        for calibration_create in item_create.score_calibrations:
+            created_calibration_item = await create_score_calibration(db, calibration_create, user_data.user)
+            score_calibrations.append(created_calibration_item)
+
     targets: list[TargetGene] = []
     accessions = False
     for gene in item_create.target_genes:
@@ -909,7 +913,7 @@ async def create_score_set(
                 "secondary_publication_identifiers",
                 "superseded_score_set_urn",
                 "target_genes",
-                "score_ranges",
+                "score_calibrations",
             },
         ),
         experiment=experiment,
@@ -923,8 +927,8 @@ async def create_score_set(
         processing_state=ProcessingState.incomplete,
         created_by=user_data.user,
         modified_by=user_data.user,
-        score_ranges=item_create.score_ranges.model_dump() if item_create.score_ranges else null(),
-    )  # type: ignore
+        score_calibrations=score_calibrations,
+    )  # type: ignore[call-arg]
 
     db.add(item)
     db.commit()
@@ -1001,42 +1005,6 @@ async def upload_score_set_variant_data(
     return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
 
 
-@router.post(
-    "/score-sets/{urn}/ranges/data",
-    response_model=score_set.ScoreSet,
-    responses={422: {}},
-    response_model_exclude_none=True,
-)
-async def update_score_set_range_data(
-    *,
-    urn: str,
-    range_update: score_range.ScoreSetRangesModify,
-    db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(RoleRequirer([UserRole.admin])),
-):
-    """
-    Update score ranges / calibrations for a score set.
-    """
-    save_to_logging_context({"requested_resource": urn, "resource_property": "score_ranges"})
-
-    try:
-        item = db.scalars(select(ScoreSet).where(ScoreSet.urn == urn)).one()
-    except NoResultFound:
-        logger.info(msg="Failed to add score ranges; The requested score set does not exist.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
-
-    assert_permission(user_data, item, Action.UPDATE)
-
-    item.score_ranges = range_update.dict()
-    db.add(item)
-    db.commit()
-    db.refresh(item)
-
-    save_to_logging_context({"updated_resource": item.urn})
-    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
-
-
 @router.put(
     "/score-sets/{urn}", response_model=score_set.ScoreSet, responses={422: {}}, response_model_exclude_none=True
 )
@@ -1064,7 +1032,6 @@ async def update_score_set(
     for var, value in vars(item_update).items():
         if var not in [
             "contributors",
-            "score_ranges",
             "doi_identifiers",
             "experiment_urn",
             "license_id",
@@ -1125,11 +1092,6 @@ async def update_score_set(
 
     # Score set has not been published and attributes affecting scores may still be edited.
     if item.private:
-        if item_update.score_ranges:
-            item.score_ranges = item_update.score_ranges.model_dump()
-        else:
-            item.score_ranges = null()
-
         # Delete the old target gene, WT sequence, and reference map. These will be deleted when we set the score set's
         # target_gene to None, because we have set cascade='all,delete-orphan' on ScoreSet.target_gene. (Since the
         # relationship is defined with the target gene as owner, this is actually set up in the backref attribute of

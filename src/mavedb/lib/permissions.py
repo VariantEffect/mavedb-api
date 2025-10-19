@@ -10,6 +10,7 @@ from mavedb.models.enums.contribution_role import ContributionRole
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
+from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 
@@ -103,6 +104,21 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
         user_may_view_private = user_may_edit or (user_data is not None and (user_data.user.id in viewer_user_ids))
 
         save_to_logging_context({"resource_is_published": published})
+
+    if isinstance(item, ScoreCalibration):
+        assert item.private is not None
+        private = item.private
+        published = item.private is False
+        user_is_owner = item.created_by_id == user_data.user.id if user_data is not None else False
+
+        # If the calibration is investigator provided, treat permissions like score set permissions where contributors
+        # may also make changes to the calibration. Otherwise, only allow the calibration owner to edit the calibration.
+        if item.investigator_provided:
+            user_may_edit = user_is_owner or (
+                user_data is not None and user_data.user.username in [c.orcid_id for c in item.score_set.contributors]
+            )
+        else:
+            user_may_edit = user_is_owner
 
     if isinstance(item, User):
         user_is_self = item.id == user_data.user.id if user_data is not None else False
@@ -378,6 +394,59 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
         else:
             raise NotImplementedError(f"has_permission(User, ScoreSet, {action}, Role)")
+    elif isinstance(item, ScoreCalibration):
+        if action == Action.READ:
+            if user_may_edit or not private:
+                return PermissionResponse(True)
+            # Roles which may perform this operation.
+            elif roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            elif private:
+                # Do not acknowledge the existence of a private entity.
+                return PermissionResponse(False, 404, f"score calibration with URN '{item.urn}' not found")
+            elif user_data is None or user_data.user is None:
+                return PermissionResponse(False, 401, f"insufficient permissions for URN '{item.urn}'")
+            else:
+                return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
+        elif action == Action.UPDATE:
+            if user_may_edit:
+                return PermissionResponse(True)
+            # Roles which may perform this operation.
+            elif roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            elif private:
+                # Do not acknowledge the existence of a private entity.
+                return PermissionResponse(False, 404, f"score calibration with URN '{item.urn}' not found")
+            elif user_data is None or user_data.user is None:
+                return PermissionResponse(False, 401, f"insufficient permissions for URN '{item.urn}'")
+            else:
+                return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
+        elif action == Action.DELETE:
+            # Owner may only delete a calibration if it has not already been published.
+            if user_may_edit:
+                return PermissionResponse(not published, 403, f"insufficient permissions for URN '{item.urn}'")
+            # Roles which may perform this operation.
+            elif roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            elif private:
+                # Do not acknowledge the existence of a private entity.
+                return PermissionResponse(False, 404, f"score calibration with URN '{item.urn}' not found")
+            else:
+                return PermissionResponse(False)
+        # Only the owner may publish a private calibration.
+        elif action == Action.PUBLISH:
+            if user_may_edit:
+                return PermissionResponse(True)
+            elif roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            elif private:
+                # Do not acknowledge the existence of a private entity.
+                return PermissionResponse(False, 404, f"score calibration with URN '{item.urn}' not found")
+            else:
+                return PermissionResponse(False)
+
+        else:
+            raise NotImplementedError(f"has_permission(User, ScoreCalibration, {action}, Role)")
 
     elif isinstance(item, User):
         if action == Action.LOOKUP:
