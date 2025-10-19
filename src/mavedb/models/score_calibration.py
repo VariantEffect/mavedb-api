@@ -31,7 +31,6 @@ class ScoreCalibration(Base):
     score_set: Mapped["ScoreSet"] = relationship("ScoreSet", back_populates="score_calibrations")
 
     title = Column(String, nullable=False)
-    name = Column(String, nullable=False)
     research_use_only = Column(Boolean, nullable=False, default=False)
     primary = Column(Boolean, nullable=False, default=False)
     investigator_provided = Column(Boolean, nullable=False, default=False)

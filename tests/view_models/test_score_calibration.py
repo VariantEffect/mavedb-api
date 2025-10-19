@@ -173,7 +173,6 @@ def test_can_create_valid_score_calibration(valid_calibration):
     sc = ScoreCalibrationCreate.model_validate(valid_calibration)
 
     assert sc.title == valid_calibration["title"]
-    assert sc.name == valid_calibration["name"]
     assert sc.research_use_only == valid_calibration.get("research_use_only", False)
     assert sc.investigator_provided == valid_calibration.get("investigator_provided", False)
     assert sc.baseline_score == valid_calibration.get("baseline_score")
@@ -225,7 +224,6 @@ def test_can_create_valid_score_calibration_without_functional_ranges(valid_cali
     sc = ScoreCalibrationCreate.model_validate(valid_calibration)
 
     assert sc.title == valid_calibration["title"]
-    assert sc.name == valid_calibration["name"]
     assert sc.research_use_only == valid_calibration.get("research_use_only", False)
     assert sc.investigator_provided == valid_calibration.get("investigator_provided", False)
     assert sc.baseline_score == valid_calibration.get("baseline_score")
@@ -336,7 +334,6 @@ def test_can_create_valid_score_calibration_from_attributed_object(valid_calibra
     sc = ScoreCalibration.model_validate(dummy_attributed_object_from_dict(valid_calibration))
 
     assert sc.title == valid_calibration["title"]
-    assert sc.name == valid_calibration["name"]
     assert sc.research_use_only == valid_calibration.get("researchUseOnly", False)
     assert sc.primary == valid_calibration.get("primary", True)
     assert sc.investigator_provided == valid_calibration.get("investigatorProvided", False)
@@ -411,7 +408,6 @@ def test_can_create_score_calibration_from_association_style_publication_identif
     sc = ScoreCalibration.model_validate(dummy_attributed_object_from_dict(data))
 
     assert sc.title == orig_data["title"]
-    assert sc.name == orig_data["name"]
     assert sc.research_use_only == orig_data.get("research_use_only", False)
     assert sc.primary == orig_data.get("primary", False)
     assert sc.investigator_provided == orig_data.get("investigator_provided", False)
@@ -474,7 +470,6 @@ def test_score_calibration_with_score_set_urn_can_be_created_from_attributed_obj
     sc = ScoreCalibrationWithScoreSetUrn.model_validate(dummy_attributed_object_from_dict(data))
 
     assert sc.title == data["title"]
-    assert sc.name == data["name"]
     assert sc.score_set_urn == data["score_set"].urn
 
 

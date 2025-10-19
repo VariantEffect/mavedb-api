@@ -178,12 +178,12 @@ class ScoreCalibrationBase(BaseModel):
     """
 
     title: str
-    name: str
     investigator_provided: bool
     research_use_only: bool = False
 
     baseline_score: Optional[float] = None
     baseline_score_description: Optional[str] = None
+    notes: Optional[str] = None
 
     functional_ranges: Optional[Sequence[FunctionalRangeBase]] = None
     threshold_sources: Optional[Sequence[PublicationIdentifierBase]] = None
@@ -292,7 +292,6 @@ class InvestigatorProvidedScoreCalibrationCreate(ScoreCalibrationCreate):
     """Model used to create a new investigator-provided score calibration. Enforces fixed field values for certain properties."""
 
     investigator_provided: Literal[True] = True
-    name: Literal["investigator_provided"] = "investigator_provided"
 
 
 class SavedScoreCalibration(ScoreCalibrationBase):

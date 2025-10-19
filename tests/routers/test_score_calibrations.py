@@ -1683,7 +1683,6 @@ def test_can_update_score_calibration_as_score_set_owner(
     calibration_response = response.json()
     assert calibration_response["urn"] == calibration["urn"]
     assert calibration_response["scoreSetUrn"] == score_set["urn"]
-    assert calibration_response["name"] == TEST_PATHOGENICITY_SCORE_CALIBRATION["name"]
     assert calibration_response["private"] is True
 
 
@@ -1734,7 +1733,6 @@ def test_can_update_investigator_provided_score_calibration_as_score_set_contrib
     calibration_response = response.json()
     assert calibration_response["urn"] == calibration["urn"]
     assert calibration_response["scoreSetUrn"] == score_set["urn"]
-    assert calibration_response["name"] == TEST_PATHOGENICITY_SCORE_CALIBRATION["name"]
     assert calibration_response["private"] is True
 
 
@@ -1824,7 +1822,6 @@ def test_can_update_score_calibration_as_admin_user(
     calibration_response = response.json()
     assert calibration_response["urn"] == calibration["urn"]
     assert calibration_response["scoreSetUrn"] == score_set["urn"]
-    assert calibration_response["name"] == TEST_PATHOGENICITY_SCORE_CALIBRATION["name"]
     assert calibration_response["private"] is True
 
 

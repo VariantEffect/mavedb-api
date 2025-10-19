@@ -1485,7 +1485,6 @@ TEST_FUNCTIONAL_RANGE_INCLUDING_POSITIVE_INFINITY = {
 
 TEST_BRNICH_SCORE_CALIBRATION = {
     "title": "Test BRNICH Score Calibration",
-    "name": "brnich_style",
     "research_use_only": False,
     "investigator_provided": False,
     "baseline_score": TEST_BASELINE_SCORE,
@@ -1542,19 +1541,16 @@ TEST_SAVED_BRNICH_SCORE_CALIBRATION = {
 
 TEST_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION = {
     **TEST_BRNICH_SCORE_CALIBRATION,
-    "name": "investigator_provided",
     "investigator_provided": True,
 }
 
 TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION = {
     **TEST_SAVED_BRNICH_SCORE_CALIBRATION,
-    "name": "investigator_provided",
     "investigatorProvided": True,
 }
 
 TEST_PATHOGENICITY_SCORE_CALIBRATION = {
     "title": "Test Pathogenicity Score Calibration",
-    "name": "pathogenicity",
     "research_use_only": False,
     "investigator_provided": False,
     "baseline_score": TEST_BASELINE_SCORE,
