@@ -121,6 +121,8 @@ async def fetch_score_set_by_urn(
     if item.superseding_score_set and not has_permission(user, item.superseding_score_set, Action.READ).permitted:
         item.superseding_score_set = None
 
+    item.score_calibrations = [sc for sc in item.score_calibrations if has_permission(user, sc, Action.READ).permitted]
+
     return item
 
 

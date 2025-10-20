@@ -352,12 +352,6 @@ def test_can_update_score_set_data_before_publication(
     score_set_update_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_update_payload.update({camelize(attribute): updated_data})
 
-    # The score ranges attribute requires a publication identifier source
-    if attribute == "score_ranges":
-        score_set_update_payload.update(
-            {"secondaryPublicationIdentifiers": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}]}
-        )
-
     response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_update_payload)
     assert response.status_code == 200
 
@@ -457,11 +451,6 @@ def test_can_update_score_set_supporting_data_after_publication(
     "attribute,updated_data,expected_response_data",
     [
         ("target_genes", TEST_MINIMAL_ACC_SCORESET["targetGenes"], TEST_MINIMAL_SEQ_SCORESET_RESPONSE["targetGenes"]),
-        (
-            "score_ranges",
-            [TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION],
-            None,
-        ),
     ],
 )
 @pytest.mark.parametrize(
@@ -517,7 +506,6 @@ def test_cannot_update_score_set_target_data_after_publication(
     score_set_update_payload.update(
         {
             camelize(attribute): updated_data,
-            "secondaryPublicationIdentifiers": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
         }
     )
     response = client.put(f"/api/v1/score-sets/{published_urn}", json=score_set_update_payload)
@@ -693,6 +681,81 @@ def test_admin_can_get_other_user_private_score_set(session, client, admin_app_o
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        (
+            [
+                {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+                {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+            ]
+        )
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_extra_user_can_only_view_published_score_calibrations_in_score_set(
+    client, setup_router_db, extra_user_app_overrides, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    create_test_score_calibration_in_score_set_via_client(
+        client, published_score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+    )
+    public_calibration = create_publish_and_promote_score_calibration(
+        client,
+        published_score_set["urn"],
+        deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+    )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}")
+
+    assert response.status_code == 200
+    response_data = response.json()
+    assert len(response_data["scoreCalibrations"]) == 1
+    assert response_data["scoreCalibrations"][0]["urn"] == public_calibration["urn"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        (
+            [
+                {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+                {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+            ]
+        )
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_creating_user_can_view_all_score_calibrations_in_score_set(client, setup_router_db, mock_publication_fetch):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    private_calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+    )
+    public_calibration = create_publish_and_promote_score_calibration(
+        client,
+        score_set["urn"],
+        deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+
+    assert response.status_code == 200
+    response_data = response.json()
+    assert len(response_data["scoreCalibrations"]) == 2
+    urns = [calibration["urn"] for calibration in response_data["scoreCalibrations"]]
+    assert private_calibration["urn"] in urns
+    assert public_calibration["urn"] in urns
 
 
 ########################################################################################################################
