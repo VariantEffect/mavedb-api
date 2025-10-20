@@ -58,6 +58,7 @@ from mavedb.routers import (
     taxonomies,
     users,
     variants,
+    alphafold,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,7 @@ app.include_router(target_genes.router)
 app.include_router(taxonomies.router)
 app.include_router(users.router)
 app.include_router(variants.router)
+app.include_router(alphafold.router)
 
 
 @app.exception_handler(PermissionException)
