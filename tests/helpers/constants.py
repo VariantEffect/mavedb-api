@@ -1483,6 +1483,22 @@ TEST_FUNCTIONAL_RANGE_INCLUDING_POSITIVE_INFINITY = {
 }
 
 
+TEST_MINIMAL_CALIBRATION = {
+    "title": "Test BRNICH Score Calibration",
+    "research_use_only": False,
+    "investigator_provided": False,
+    "functional_ranges": [
+        TEST_FUNCTIONAL_RANGE_NORMAL,
+        TEST_FUNCTIONAL_RANGE_ABNORMAL,
+        TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED,
+    ],
+    "threshold_sources": [],
+    "classification_sources": [],
+    "method_sources": [],
+    "calibration_metadata": {},
+}
+
+
 TEST_BRNICH_SCORE_CALIBRATION = {
     "title": "Test BRNICH Score Calibration",
     "research_use_only": False,
