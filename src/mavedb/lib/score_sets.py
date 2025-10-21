@@ -25,7 +25,7 @@ from mavedb.lib.mave.constants import (
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.utilities import is_null as validate_is_null
-from mavedb.lib.variants import get_digest_from_post_mapped, get_hgvs_from_post_mapped, is_hgvs_g, is_hgvs_p
+from mavedb.lib.variants import get_digest_from_post_mapped
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
@@ -547,6 +547,8 @@ def get_score_set_variants_as_csv(
     if include_post_mapped_hgvs:
         namespaced_score_set_columns["mavedb"].append("post_mapped_hgvs_g")
         namespaced_score_set_columns["mavedb"].append("post_mapped_hgvs_p")
+        namespaced_score_set_columns["mavedb"].append("post_mapped_hgvs_c")
+        namespaced_score_set_columns["mavedb"].append("post_mapped_hgvs_at_assay_level")
         namespaced_score_set_columns["mavedb"].append("post_mapped_vrs_digest")
     for namespace in namespaces:
         namespaced_score_set_columns[namespace] = []
@@ -696,17 +698,13 @@ def variant_to_csv_row(
         row[column_key] = value
     for column_key in columns.get("mavedb", []):
         if column_key == "post_mapped_hgvs_g":
-            hgvs_str = get_hgvs_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
-            if hgvs_str is not None and is_hgvs_g(hgvs_str):
-                value = hgvs_str
-            else:
-                value = na_rep
+            value = str(mapping.hgvs_g) if mapping and mapping.hgvs_g else na_rep
         elif column_key == "post_mapped_hgvs_p":
-            hgvs_str = get_hgvs_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
-            if hgvs_str is not None and is_hgvs_p(hgvs_str):
-                value = hgvs_str
-            else:
-                value = na_rep
+            value = str(mapping.hgvs_p) if mapping and mapping.hgvs_p else ""
+        elif column_key == "post_mapped_hgvs_c":
+            value = str(mapping.hgvs_c) if mapping and mapping.hgvs_c else ""
+        elif column_key == "post_mapped_hgvs_at_assay_level":
+            value = str(mapping.hgvs_assay_level) if mapping and mapping.hgvs_assay_level else na_rep
         elif column_key == "post_mapped_vrs_digest":
             digest = get_digest_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
             value = digest if digest is not None else na_rep
