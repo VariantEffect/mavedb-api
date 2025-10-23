@@ -34,7 +34,9 @@ from tests.helpers.constants import (
     TEST_PUBMED_IDENTIFIER,
     TEST_SEQ_SCORESET,
     VALID_SCORE_SET_URN,
+    EXTRA_USER,
 )
+from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.score_calibration import create_test_score_calibration_in_score_set
 
 ################################################################################
@@ -86,6 +88,82 @@ async def test_create_score_calibration_in_score_set_creates_score_calibration_w
     calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), test_user)
     assert calibration is not None
     assert calibration.score_set == setup_lib_db_with_score_set
+
+
+@pytest.mark.asyncio
+async def test_create_score_calibration_in_score_set_investigator_provided_set_when_creator_is_owner(
+    setup_lib_db_with_score_set, session, mock_user
+):
+    test_user = session.execute(select(User)).scalars().first()
+
+    MockCalibrationCreate = create_model(
+        "MockCalibrationCreate",
+        score_set_urn=(str | None, setup_lib_db_with_score_set.urn),
+        threshold_sources=(list, []),
+        classification_sources=(list, []),
+        method_sources=(list, []),
+    )
+
+    calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), test_user)
+    assert calibration is not None
+    assert calibration.score_set == setup_lib_db_with_score_set
+    assert calibration.created_by == test_user
+    assert calibration.modified_by == test_user
+    assert calibration.investigator_provided is True
+
+
+@pytest.mark.asyncio
+async def test_create_score_calibration_in_score_set_investigator_provided_set_when_creator_is_contributor(
+    setup_lib_db_with_score_set, session
+):
+    extra_user = session.execute(select(User).where(User.username == EXTRA_USER["username"])).scalars().first()
+
+    add_contributor(
+        session,
+        setup_lib_db_with_score_set.urn,
+        ScoreSet,
+        EXTRA_USER["username"],
+        EXTRA_USER["first_name"],
+        EXTRA_USER["last_name"],
+    )
+
+    MockCalibrationCreate = create_model(
+        "MockCalibrationCreate",
+        score_set_urn=(str | None, setup_lib_db_with_score_set.urn),
+        threshold_sources=(list, []),
+        classification_sources=(list, []),
+        method_sources=(list, []),
+    )
+
+    calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), extra_user)
+    assert calibration is not None
+    assert calibration.score_set == setup_lib_db_with_score_set
+    assert calibration.created_by == extra_user
+    assert calibration.modified_by == extra_user
+    assert calibration.investigator_provided is True
+
+
+@pytest.mark.asyncio
+async def test_create_score_calibration_in_score_set_investigator_provided_not_set_when_creator_not_owner(
+    setup_lib_db_with_score_set, session
+):
+    MockCalibrationCreate = create_model(
+        "MockCalibrationCreate",
+        score_set_urn=(str | None, setup_lib_db_with_score_set.urn),
+        threshold_sources=(list, []),
+        classification_sources=(list, []),
+        method_sources=(list, []),
+    )
+
+    # invoke from a different user context
+    extra_user = session.execute(select(User).where(User.username == EXTRA_USER["username"])).scalars().first()
+
+    calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), extra_user)
+    assert calibration is not None
+    assert calibration.score_set == setup_lib_db_with_score_set
+    assert calibration.created_by == extra_user
+    assert calibration.modified_by == extra_user
+    assert calibration.investigator_provided is False
 
 
 ### create_score_calibration
@@ -605,7 +683,8 @@ async def test_modify_score_calibration_new_score_set(setup_lib_db_with_score_se
         experiment_id=existing_experiment.id,
         licence_id=TEST_LICENSE["id"],
     )
-
+    new_containing_score_set.created_by = setup_lib_db_with_score_set.created_by
+    new_containing_score_set.modified_by = setup_lib_db_with_score_set.modified_by
     session.add(new_containing_score_set)
     session.commit()
     session.refresh(new_containing_score_set)

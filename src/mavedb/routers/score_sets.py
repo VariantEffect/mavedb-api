@@ -811,6 +811,7 @@ async def create_score_set(
     if item_create.score_calibrations:
         for calibration_create in item_create.score_calibrations:
             created_calibration_item = await create_score_calibration(db, calibration_create, user_data.user)
+            created_calibration_item.investigator_provided = True  # necessarily true on score set creation
             score_calibrations.append(created_calibration_item)
 
     targets: list[TargetGene] = []

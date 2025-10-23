@@ -33,7 +33,7 @@ from mavedb.view_models.publication_identifier import (
 )
 from mavedb.view_models.score_calibration import (
     SavedScoreCalibration,
-    InvestigatorProvidedScoreCalibrationCreate,
+    ScoreCalibrationCreate,
     ScoreCalibration,
 )
 from mavedb.view_models.target_gene import (
@@ -178,7 +178,7 @@ class ScoreSetCreate(ScoreSetModify):
     #       If this propertie ever became available during calibration creation,
     #       validation criteria which enforces constraints on there being a single primary
     #       calibration per score set would need to be added at this model level.
-    score_calibrations: Optional[Sequence[InvestigatorProvidedScoreCalibrationCreate]] = None
+    score_calibrations: Optional[Sequence[ScoreCalibrationCreate]] = None
 
     @field_validator("superseded_score_set_urn")
     def validate_superseded_score_set_urn(cls, v: Optional[str]) -> Optional[str]:

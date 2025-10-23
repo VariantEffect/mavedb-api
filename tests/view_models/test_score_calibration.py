@@ -174,7 +174,6 @@ def test_can_create_valid_score_calibration(valid_calibration):
 
     assert sc.title == valid_calibration["title"]
     assert sc.research_use_only == valid_calibration.get("research_use_only", False)
-    assert sc.investigator_provided == valid_calibration.get("investigator_provided", False)
     assert sc.baseline_score == valid_calibration.get("baseline_score")
     assert sc.baseline_score_description == valid_calibration.get("baseline_score_description")
 
@@ -225,7 +224,6 @@ def test_can_create_valid_score_calibration_without_functional_ranges(valid_cali
 
     assert sc.title == valid_calibration["title"]
     assert sc.research_use_only == valid_calibration.get("research_use_only", False)
-    assert sc.investigator_provided == valid_calibration.get("investigator_provided", False)
     assert sc.baseline_score == valid_calibration.get("baseline_score")
     assert sc.baseline_score_description == valid_calibration.get("baseline_score_description")
 
@@ -408,9 +406,9 @@ def test_can_create_score_calibration_from_association_style_publication_identif
     sc = ScoreCalibration.model_validate(dummy_attributed_object_from_dict(data))
 
     assert sc.title == orig_data["title"]
-    assert sc.research_use_only == orig_data.get("research_use_only", False)
+    assert sc.research_use_only == orig_data.get("researchUseOnly", False)
     assert sc.primary == orig_data.get("primary", False)
-    assert sc.investigator_provided == orig_data.get("investigator_provided", False)
+    assert sc.investigator_provided == orig_data.get("investigatorProvided", False)
     assert sc.baseline_score == orig_data.get("baselineScore")
     assert sc.baseline_score_description == orig_data.get("baselineScoreDescription")
 

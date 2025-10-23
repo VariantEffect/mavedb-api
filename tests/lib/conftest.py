@@ -64,13 +64,18 @@ def setup_lib_db_with_score_set(session, setup_lib_db):
     """
     Sets up the lib test db with a user, reference, license, and a score set.
     """
+    user = session.query(User).filter(User.username == TEST_USER["username"]).first()
 
     experiment_set = ExperimentSet(**TEST_EXPERIMENT_SET, urn=VALID_EXPERIMENT_SET_URN)
+    experiment_set.created_by = user
+    experiment_set.modified_by = user
     session.add(experiment_set)
     session.commit()
     session.refresh(experiment_set)
 
     experiment = Experiment(**TEST_EXPERIMENT, urn=VALID_EXPERIMENT_URN, experiment_set_id=experiment_set.id)
+    experiment.created_by = user
+    experiment.modified_by = user
     session.add(experiment)
     session.commit()
     session.refresh(experiment)
@@ -80,7 +85,8 @@ def setup_lib_db_with_score_set(session, setup_lib_db):
     score_set = ScoreSet(
         **score_set_scaffold, urn=VALID_SCORE_SET_URN, experiment_id=experiment.id, licence_id=TEST_LICENSE["id"]
     )
-
+    score_set.created_by = user
+    score_set.modified_by = user
     session.add(score_set)
     session.commit()
     session.refresh(score_set)

@@ -145,6 +145,14 @@ async def create_score_calibration_in_score_set(
     calibration = await _create_score_calibration(db, calibration_create, user)
     calibration.score_set = containing_score_set
 
+    if user.username in [contributor.orcid_id for contributor in containing_score_set.contributors] + [
+        containing_score_set.created_by.username,
+        containing_score_set.modified_by.username,
+    ]:
+        calibration.investigator_provided = True
+    else:
+        calibration.investigator_provided = False
+
     db.add(calibration)
     return calibration
 

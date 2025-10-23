@@ -37,7 +37,6 @@ from tests.helpers.constants import (
     TEST_CROSSREF_IDENTIFIER,
     TEST_GNOMAD_DATA_VERSION,
     TEST_INACTIVE_LICENSE,
-    TEST_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION,
     TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION,
     TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION,
     TEST_MINIMAL_ACC_SCORESET,
@@ -50,7 +49,7 @@ from tests.helpers.constants import (
     TEST_SAVED_CLINVAR_CONTROL,
     TEST_SAVED_GENERIC_CLINICAL_CONTROL,
     TEST_SAVED_GNOMAD_VARIANT,
-    TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION,
+    TEST_SAVED_BRNICH_SCORE_CALIBRATION,
     TEST_USER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
@@ -199,7 +198,7 @@ def test_create_score_set_with_score_calibration(client, mock_publication_fetch,
     score_set["experimentUrn"] = experiment["urn"]
     score_set.update(
         {
-            "scoreCalibrations": [deepcamelize(TEST_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION)],
+            "scoreCalibrations": [deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)],
         }
     )
 
@@ -214,10 +213,11 @@ def test_create_score_set_with_score_calibration(client, mock_publication_fetch,
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
     expected_response["experiment"].update({"numScoreSets": 1})
-    expected_calibration = deepcopy(TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION)
+    expected_calibration = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION)
     expected_calibration["urn"] = response_data["scoreCalibrations"][0]["urn"]
     expected_calibration["private"] = True
     expected_calibration["primary"] = False
+    expected_calibration["investigatorProvided"] = True
     expected_response["scoreCalibrations"] = [expected_calibration]
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())

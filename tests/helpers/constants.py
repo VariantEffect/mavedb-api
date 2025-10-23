@@ -1502,7 +1502,6 @@ TEST_MINIMAL_CALIBRATION = {
 TEST_BRNICH_SCORE_CALIBRATION = {
     "title": "Test BRNICH Score Calibration",
     "research_use_only": False,
-    "investigator_provided": False,
     "baseline_score": TEST_BASELINE_SCORE,
     "baseline_score_description": "Test baseline score description",
     "functional_ranges": [
@@ -1536,6 +1535,7 @@ TEST_SAVED_BRNICH_SCORE_CALIBRATION = {
     "methodSources": [SAVED_PUBMED_PUBLICATION],
     "id": 1,
     "urn": VALID_CALIBRATION_URN,
+    "investigatorProvided": True,
     "primary": True,
     "private": False,
     "scoreSetId": 1,
@@ -1555,20 +1555,9 @@ TEST_SAVED_BRNICH_SCORE_CALIBRATION = {
     "modificationDate": date.today().isoformat(),
 }
 
-TEST_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION = {
-    **TEST_BRNICH_SCORE_CALIBRATION,
-    "investigator_provided": True,
-}
-
-TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION = {
-    **TEST_SAVED_BRNICH_SCORE_CALIBRATION,
-    "investigatorProvided": True,
-}
-
 TEST_PATHOGENICITY_SCORE_CALIBRATION = {
     "title": "Test Pathogenicity Score Calibration",
     "research_use_only": False,
-    "investigator_provided": False,
     "baseline_score": TEST_BASELINE_SCORE,
     "baseline_score_description": "Test baseline score description",
     "functional_ranges": [
@@ -1596,6 +1585,7 @@ TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION = {
     "classificationSources": None,
     "methodSources": None,
     "id": 2,
+    "investigatorProvided": True,
     "primary": False,
     "private": False,
     "urn": VALID_CALIBRATION_URN,

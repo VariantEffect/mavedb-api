@@ -178,7 +178,6 @@ class ScoreCalibrationBase(BaseModel):
     """
 
     title: str
-    investigator_provided: bool
     research_use_only: bool = False
 
     baseline_score: Optional[float] = None
@@ -225,7 +224,7 @@ class ScoreCalibrationBase(BaseModel):
                 if test_overlap(a, b):
                     raise ValidationError(
                         f"Score ranges may not overlap; `{a.label}` ({a.range}) overlaps with `{b.label}` ({b.range}).",
-                        custom_loc=["body", "scoreCalibration", "functionalRanges", i, "range"],
+                        custom_loc=["body", i, "range"],
                     )
         return field_value
 
@@ -236,16 +235,17 @@ class ScoreCalibrationBase(BaseModel):
             return self
 
         seen, dupes = set(), set()
-        for fr in self.functional_ranges:
+        for i, fr in enumerate(self.functional_ranges):
             fr.label = fr.label.strip()
             if fr.label in seen:
-                dupes.add(fr.label)
+                dupes.add((fr.label, i))
             else:
                 seen.add(fr.label)
 
         if dupes:
             raise ValidationError(
-                f"Detected repeated label(s): {', '.join(dupes)}. Functional range labels must be unique."
+                f"Detected repeated label(s): {', '.join(label for label, _ in dupes)}. Functional range labels must be unique.",
+                custom_loc=["body", "functionalRanges", dupes.pop()[1], "label"],
             )
 
         return self
@@ -261,8 +261,9 @@ class ScoreCalibrationBase(BaseModel):
 
         for fr in self.functional_ranges:
             if fr.is_contained_by_range(self.baseline_score) and fr.classification != "normal":
-                raise ValueError(
-                    f"The provided baseline score of {self.baseline_score} falls within a non-normal range ({fr.label}). Baseline scores may not fall within non-normal ranges."
+                raise ValidationError(
+                    f"The provided baseline score of {self.baseline_score} falls within a non-normal range ({fr.label}). Baseline scores may not fall within non-normal ranges.",
+                    custom_loc=["body", "baselineScore"],
                 )
 
         return self
@@ -288,12 +289,6 @@ class ScoreCalibrationCreate(ScoreCalibrationModify):
     method_sources: Optional[Sequence[PublicationIdentifierCreate]] = None
 
 
-class InvestigatorProvidedScoreCalibrationCreate(ScoreCalibrationCreate):
-    """Model used to create a new investigator-provided score calibration. Enforces fixed field values for certain properties."""
-
-    investigator_provided: Literal[True] = True
-
-
 class SavedScoreCalibration(ScoreCalibrationBase):
     """Persisted score calibration model (includes identifiers and source lists)."""
 
@@ -304,6 +299,7 @@ class SavedScoreCalibration(ScoreCalibrationBase):
 
     score_set_id: int
 
+    investigator_provided: bool
     primary: bool = False
     private: bool = True
 
@@ -338,7 +334,10 @@ class SavedScoreCalibration(ScoreCalibrationBase):
     def primary_calibrations_may_not_be_research_use_only(self: "SavedScoreCalibration") -> "SavedScoreCalibration":
         """Primary calibrations may not be marked as research use only."""
         if self.primary and self.research_use_only:
-            raise ValidationError("Primary score calibrations may not be marked as research use only.")
+            raise ValidationError(
+                "Primary score calibrations may not be marked as research use only.",
+                custom_loc=["body", "researchUseOnly"],
+            )
 
         return self
 
@@ -346,7 +345,9 @@ class SavedScoreCalibration(ScoreCalibrationBase):
     def primary_calibrations_may_not_be_private(self: "SavedScoreCalibration") -> "SavedScoreCalibration":
         """Primary calibrations may not be marked as private."""
         if self.primary and self.private:
-            raise ValidationError("Primary score calibrations may not be marked as private.")
+            raise ValidationError(
+                "Primary score calibrations may not be marked as private.", custom_loc=["body", "private"]
+            )
 
         return self
 

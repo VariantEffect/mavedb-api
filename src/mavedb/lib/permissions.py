@@ -28,6 +28,7 @@ class Action(Enum):
     ADD_ROLE = "add_role"
     PUBLISH = "publish"
     ADD_BADGE = "add_badge"
+    CHANGE_RANK = "change_rank"
 
 
 class PermissionResponse:
@@ -409,11 +410,12 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             else:
                 return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
         elif action == Action.UPDATE:
-            if user_may_edit:
+            if roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
-            # Roles which may perform this operation.
-            elif roles_permitted(active_roles, [UserRole.admin]):
-                return PermissionResponse(True)
+            # TODO#549: Allow editing of certain fields even if published. For now,
+            # Owner may only edit if a calibration is not published.
+            elif user_may_edit:
+                return PermissionResponse(not published, 403, f"insufficient permissions for URN '{item.urn}'")
             elif private:
                 # Do not acknowledge the existence of a private entity.
                 return PermissionResponse(False, 404, f"score calibration with URN '{item.urn}' not found")
@@ -422,12 +424,12 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             else:
                 return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
         elif action == Action.DELETE:
-            # Owner may only delete a calibration if it has not already been published.
-            if user_may_edit:
-                return PermissionResponse(not published, 403, f"insufficient permissions for URN '{item.urn}'")
             # Roles which may perform this operation.
-            elif roles_permitted(active_roles, [UserRole.admin]):
+            if roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
+            # Owner may only delete a calibration if it has not already been published.
+            elif user_may_edit:
+                return PermissionResponse(not published, 403, f"insufficient permissions for URN '{item.urn}'")
             elif private:
                 # Do not acknowledge the existence of a private entity.
                 return PermissionResponse(False, 404, f"score calibration with URN '{item.urn}' not found")
@@ -444,6 +446,13 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(False, 404, f"score calibration with URN '{item.urn}' not found")
             else:
                 return PermissionResponse(False)
+        elif action == Action.CHANGE_RANK:
+            if user_may_edit:
+                return PermissionResponse(True)
+            elif roles_permitted(active_roles, [UserRole.admin]):
+                return PermissionResponse(True)
+            else:
+                return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
 
         else:
             raise NotImplementedError(f"has_permission(User, ScoreCalibration, {action}, Role)")

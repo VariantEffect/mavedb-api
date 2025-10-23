@@ -6,7 +6,6 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
-from copy import deepcopy
 from unittest.mock import patch
 
 from mavedb.lib.permissions import Action
@@ -404,10 +403,8 @@ def test_contributor_gets_true_permission_from_others_investigator_provided_scor
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
-    calibration_data = deepcopy(TEST_MINIMAL_CALIBRATION)
-    calibration_data["investigator_provided"] = True
     score_calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(calibration_data)
+        client, score_set["urn"], deepcamelize(TEST_MINIMAL_CALIBRATION)
     )
     add_contributor(
         session,
@@ -431,10 +428,8 @@ def test_contributor_gets_true_permission_from_others_investigator_provided_scor
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
-    calibration_data = deepcopy(TEST_MINIMAL_CALIBRATION)
-    calibration_data["investigator_provided"] = True
     score_calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(calibration_data)
+        client, score_set["urn"], deepcamelize(TEST_MINIMAL_CALIBRATION)
     )
     add_contributor(
         session,

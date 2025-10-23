@@ -13,7 +13,6 @@ from tests.helpers.constants import (
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_BRNICH_SCORE_CALIBRATION,
-    TEST_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION,
     TEST_PATHOGENICITY_SCORE_CALIBRATION,
     SAVED_PUBMED_PUBLICATION,
     TEST_BIORXIV_IDENTIFIER,
@@ -231,43 +230,31 @@ def test_cannot_create_score_set_with_an_empty_method():
     assert "methodText" in str(exc_info.value)
 
 
-def test_can_create_score_set_with_investigator_provided_calibrations():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
-    score_set_test["score_calibrations"] = [deepcopy(TEST_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION)]
-
-    ScoreSetCreate(**score_set_test)
-
-
 @pytest.mark.parametrize(
     "calibration", [deepcopy(TEST_BRNICH_SCORE_CALIBRATION), deepcopy(TEST_PATHOGENICITY_SCORE_CALIBRATION)]
 )
-def test_cannot_create_score_set_with_non_investigator_provided_calibrations(calibration):
+def test_can_create_score_set_with_complete_and_valid_provided_calibrations(calibration):
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
     score_set_test["score_calibrations"] = [calibration]
 
-    with pytest.raises(ValueError) as ve:
-        ScoreSetCreate.model_validate(score_set_test)
+    score_set = ScoreSetCreate.model_validate(score_set_test)
 
-    errors = ve.value.errors()
-    assert len(errors) == 1
-    assert all(errors[i]["type"] == "literal_error" for i in range(len(errors)))
+    assert len(score_set.score_calibrations) == 1
 
 
-def test_cannot_create_score_set_when_some_calibrations_are_not_investigator_provided():
+def test_can_create_score_set_with_multiple_valid_calibrations():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
+    score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
     score_set_test["score_calibrations"] = [
-        deepcopy(TEST_INVESTIGATOR_PROVIDED_SCORE_CALIBRATION),
+        deepcopy(TEST_BRNICH_SCORE_CALIBRATION),
         deepcopy(TEST_BRNICH_SCORE_CALIBRATION),
         deepcopy(TEST_PATHOGENICITY_SCORE_CALIBRATION),
     ]
 
-    with pytest.raises(ValueError) as ve:
-        ScoreSetCreate.model_validate(score_set_test)
+    score_set = ScoreSetCreate.model_validate(score_set_test)
 
-    errors = ve.value.errors()
-    assert len(errors) == 2
-    assert all(errors[i]["type"] == "literal_error" for i in range(len(errors)))
+    assert len(score_set.score_calibrations) == 3
 
 
 def test_cannot_create_score_set_with_inconsistent_base_editor_flags():

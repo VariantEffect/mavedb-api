@@ -264,7 +264,7 @@ async def promote_score_calibration_to_primary_route(
         logger.debug("The requested score calibration does not exist", extra=logging_context())
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
 
-    assert_permission(user_data, item, Action.UPDATE)
+    assert_permission(user_data, item, Action.CHANGE_RANK)
 
     if item.primary:
         logger.debug("The requested score calibration is already primary", extra=logging_context())
@@ -293,7 +293,7 @@ async def promote_score_calibration_to_primary_route(
             detail="A primary score calibration already exists for this score set. Demote it first or pass demoteExistingPrimary=True.",
         )
     elif existing_primary_calibration and demote_existing_primary:
-        assert_permission(user_data, existing_primary_calibration, Action.UPDATE)
+        assert_permission(user_data, existing_primary_calibration, Action.CHANGE_RANK)
 
     promoted_calibration = promote_score_calibration_to_primary(db, item, user_data.user, demote_existing_primary)
     db.commit()
@@ -323,7 +323,7 @@ def demote_score_calibration_from_primary_route(
         logger.debug("The requested score calibration does not exist", extra=logging_context())
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
 
-    assert_permission(user_data, item, Action.UPDATE)
+    assert_permission(user_data, item, Action.CHANGE_RANK)
 
     if not item.primary:
         logger.debug("The requested score calibration is not primary", extra=logging_context())
