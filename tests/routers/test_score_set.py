@@ -8,7 +8,6 @@ from io import StringIO
 from unittest.mock import patch
 
 import jsonschema
-from mavedb.routers.score_sets import SCORE_SET_SEARCH_MAX_LIMIT, SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS
 import pytest
 from humps import camelize
 from sqlalchemy import select
@@ -1869,12 +1868,12 @@ def test_search_public_score_sets_invalid_limit(session, data_provider, client, 
         publish_score_set(client, score_set["urn"])
         worker_queue.assert_called_once()
 
-    search_payload = {"text": "fnord", "limit": SCORE_SET_SEARCH_MAX_LIMIT + 1}
+    search_payload = {"text": "fnord", "limit": 101}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     response_data = response.json()
     assert response.status_code == 422
     assert (
-        f"Cannot search for more than {SCORE_SET_SEARCH_MAX_LIMIT} score sets at a time. Please use the offset and limit parameters to run a paginated search."
+        f"Cannot search for more than 100 score sets at a time. Please use the offset and limit parameters to run a paginated search."
         in response_data["detail"]
     )
 
@@ -1888,7 +1887,7 @@ def test_search_public_score_sets_valid_limit(session, data_provider, client, se
         publish_score_set(client, score_set["urn"])
         worker_queue.assert_called_once()
 
-    search_payload = {"text": "fnord", "limit": SCORE_SET_SEARCH_MAX_LIMIT}
+    search_payload = {"text": "fnord", "limit": 100}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
     assert response.json()["numScoreSets"] == 1
@@ -1907,13 +1906,13 @@ def test_search_public_score_sets_too_many_publication_identifiers(
         publish_score_set(client, score_set["urn"])
         worker_queue.assert_called_once()
 
-    publication_identifier_search = [str(20711194 + i) for i in range(SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS + 1)]
+    publication_identifier_search = [str(20711194 + i) for i in range(41)]
     search_payload = {"text": "fnord", "publication_identifiers": publication_identifier_search}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     response_data = response.json()
     assert response.status_code == 422
     assert (
-        f"Cannot search for score sets belonging to more than {SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS} publication identifiers at once."
+        f"Cannot search for score sets belonging to more than 40 publication identifiers at once."
         in response_data["detail"]
     )
 
