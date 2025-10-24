@@ -78,6 +78,9 @@ from mavedb.view_models.search import ScoreSetsSearch, ScoreSetsSearchFilterOpti
 
 logger = logging.getLogger(__name__)
 
+SCORE_SET_SEARCH_MAX_LIMIT = 100
+SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS = 40
+
 
 async def fetch_score_set_by_urn(
     db, urn: str, user: Optional[UserData], owner_or_contributor: Optional[UserData], only_published: bool
@@ -152,14 +155,21 @@ def search_score_sets(
         )
     search.published = True
 
-    # Require a limit of at most 100 when the search query does not include publication identifiers. We allow unlimited
-    # searches with publication identifiers, presuming that such a search will not have excessive results.
-    if search.publication_identifiers is None and (search.limit is None or search.limit > 100):
-        search.limit = 100
+    # Require a limit of at most SCORE_SET_SEARCH_MAX_LIMIT when the search query does not include publication
+    # identifiers. We allow unlimited searches with publication identifiers, presuming that such a search will not have
+    # excessive results.
+    if search.publication_identifiers is None and (search.limit is None or search.limit > SCORE_SET_SEARCH_MAX_LIMIT):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Cannot search for more than {SCORE_SET_SEARCH_MAX_LIMIT} score sets at a time. Please use the offset and limit parameters to run a paginated search.",
+        )
 
-    # Also limit the search to at most 40 publication identifiers, to prevent artificially constructed searches that
-    # return very large result sets.
-    if search.publication_identifiers is not None and len(search.publication_identifiers) > 40:
+    # Also limit the search to at most SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS publication identifiers, to prevent
+    # artificially constructed searches that return very large result sets.
+    if (
+        search.publication_identifiers is not None
+        and len(search.publication_identifiers) > SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS
+    ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Cannot search for score sets belonging to more than 40 publication identifiers at once.",
