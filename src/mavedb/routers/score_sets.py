@@ -158,7 +158,9 @@ def search_score_sets(
     # Require a limit of at most SCORE_SET_SEARCH_MAX_LIMIT when the search query does not include publication
     # identifiers. We allow unlimited searches with publication identifiers, presuming that such a search will not have
     # excessive results.
-    if search.publication_identifiers is None and (search.limit is None or search.limit > SCORE_SET_SEARCH_MAX_LIMIT):
+    if search.publication_identifiers is None and search.limit is None:
+        search.limit = SCORE_SET_SEARCH_MAX_LIMIT
+    elif search.publication_identifiers is None and (search.limit is None or search.limit > SCORE_SET_SEARCH_MAX_LIMIT):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Cannot search for more than {SCORE_SET_SEARCH_MAX_LIMIT} score sets at a time. Please use the offset and limit parameters to run a paginated search.",
