@@ -8,6 +8,7 @@ from io import StringIO
 from unittest.mock import patch
 
 import jsonschema
+from mavedb.routers.score_sets import SCORE_SET_SEARCH_MAX_LIMIT, SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS
 import pytest
 from humps import camelize
 from sqlalchemy import select
@@ -1838,6 +1839,85 @@ def test_search_public_score_sets_match(session, data_provider, client, setup_ro
     assert response.json()["scoreSets"][0]["title"] == score_set["title"]
 
 
+def test_cannot_search_public_score_sets_with_published_false(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client, {"title": "Experiment 1"})
+    score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Test Fnord Score Set"})
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    search_payload = {"text": "fnord", "published": "false"}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    response_data = response.json()
+    assert response.status_code == 422
+    assert (
+        "Cannot search for private score sets except in the context of the current user's data."
+        in response_data["detail"]
+    )
+
+
+def test_search_public_score_sets_invalid_limit(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client, {"title": "Experiment 1"})
+    score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Test Fnord Score Set"})
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    search_payload = {"text": "fnord", "limit": SCORE_SET_SEARCH_MAX_LIMIT + 1}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    response_data = response.json()
+    assert response.status_code == 422
+    assert (
+        f"Cannot search for more than {SCORE_SET_SEARCH_MAX_LIMIT} score sets at a time. Please use the offset and limit parameters to run a paginated search."
+        in response_data["detail"]
+    )
+
+
+def test_search_public_score_sets_valid_limit(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client, {"title": "Experiment 1"})
+    score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Test Fnord Score Set"})
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    search_payload = {"text": "fnord", "limit": SCORE_SET_SEARCH_MAX_LIMIT}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert response.json()["numScoreSets"] == 1
+    assert len(response.json()["scoreSets"]) == 1
+    assert response.json()["scoreSets"][0]["title"] == score_set["title"]
+
+
+def test_search_public_score_sets_too_many_publication_identifiers(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client, {"title": "Experiment 1"})
+    score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Test Fnord Score Set"})
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    publication_identifier_search = [str(20711194 + i) for i in range(SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS + 1)]
+    search_payload = {"text": "fnord", "publication_identifiers": publication_identifier_search}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    response_data = response.json()
+    assert response.status_code == 422
+    assert (
+        f"Cannot search for score sets belonging to more than {SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS} publication identifiers at once."
+        in response_data["detail"]
+    )
+
+
 def test_search_public_score_sets_urn_with_space_match(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client, {"title": "Experiment 1"})
     score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 1"})
@@ -1932,9 +2012,8 @@ def test_search_others_public_score_sets_urn_with_space_match(
     assert len(response.json()["scoreSets"]) == 1
     assert response.json()["scoreSets"][0]["urn"] == published_score_set["urn"]
 
-def test_cannot_search_private_score_sets(
-    session, data_provider, client, setup_router_db, data_files
-):
+
+def test_cannot_search_private_score_sets(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client, {"title": "Experiment 1"})
     score_set_1 = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 1"})
     score_set_1 = mock_worker_variant_insertion(client, session, data_provider, score_set_1, data_files / "scores.csv")
@@ -1951,7 +2030,8 @@ def test_cannot_search_private_score_sets(
 
     response_data = response.json()
     assert (
-        "Cannot search for private score sets except in the context of the current user's data." in response_data["detail"]
+        "Cannot search for private score sets except in the context of the current user's data."
+        in response_data["detail"]
     )
 
 

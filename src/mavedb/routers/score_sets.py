@@ -174,7 +174,7 @@ def search_score_sets(
     ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Cannot search for score sets belonging to more than 40 publication identifiers at once.",
+            detail=f"Cannot search for score sets belonging to more than {SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS} publication identifiers at once.",
         )
 
     score_sets, num_score_sets = _search_score_sets(db, None, search).values()
