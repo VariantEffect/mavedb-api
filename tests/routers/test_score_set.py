@@ -1873,7 +1873,7 @@ def test_search_public_score_sets_invalid_limit(session, data_provider, client, 
     response_data = response.json()
     assert response.status_code == 422
     assert (
-        f"Cannot search for more than 100 score sets at a time. Please use the offset and limit parameters to run a paginated search."
+        "Cannot search for more than 100 score sets at a time. Please use the offset and limit parameters to run a paginated search."
         in response_data["detail"]
     )
 
@@ -1912,7 +1912,7 @@ def test_search_public_score_sets_too_many_publication_identifiers(
     response_data = response.json()
     assert response.status_code == 422
     assert (
-        f"Cannot search for score sets belonging to more than 40 publication identifiers at once."
+        "Cannot search for score sets belonging to more than 40 publication identifiers at once."
         in response_data["detail"]
     )
 
