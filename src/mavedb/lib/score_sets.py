@@ -293,6 +293,10 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
     return {"score_sets": score_sets, "num_score_sets": num_score_sets}
 
 
+def score_set_search_filter_options_from_counter(counter: Counter):
+    return [{"value": value, "count": count} for value, count in counter.items()]
+
+
 def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch):
     save_to_logging_context({"score_set_search_criteria": search.model_dump()})
 
@@ -330,11 +334,6 @@ def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Opt
             if accession:
                 target_accession_counter[accession] += 1
 
-    target_gene_categories = [{"value": value, "count": count} for value, count in target_category_counter.items()]
-    target_gene_names = [{"value": value, "count": count} for value, count in target_name_counter.items()]
-    target_organism_names = [{"value": value, "count": count} for value, count in target_organism_name_counter.items()]
-    target_accessions = [{"value": value, "count": count} for value, count in target_accession_counter.items()]
-
     publication_author_name_counter: Counter[str] = Counter()
     publication_db_name_counter: Counter[str] = Counter()
     publication_journal_counter: Counter[str] = Counter()
@@ -356,22 +355,16 @@ def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Opt
             if journal:
                 publication_journal_counter[journal] += 1
 
-    publication_author_names = [
-        {"value": value, "count": count} for value, count in publication_author_name_counter.items()
-    ]
-    publication_db_names = [{"value": value, "count": count} for value, count in publication_db_name_counter.items()]
-    publication_journals = [{"value": value, "count": count} for value, count in publication_journal_counter.items()]
-
     logger.debug(msg="Score set search filter options were fetched.", extra=logging_context())
 
     return {
-        "target_gene_categories": target_gene_categories,
-        "target_gene_names": target_gene_names,
-        "target_organism_names": target_organism_names,
-        "target_accessions": target_accessions,
-        "publication_author_names": publication_author_names,
-        "publication_db_names": publication_db_names,
-        "publication_journals": publication_journals,
+        "target_gene_categories": score_set_search_filter_options_from_counter(target_category_counter),
+        "target_gene_names": score_set_search_filter_options_from_counter(target_name_counter),
+        "target_organism_names": score_set_search_filter_options_from_counter(target_organism_name_counter),
+        "target_accessions": score_set_search_filter_options_from_counter(target_accession_counter),
+        "publication_author_names": score_set_search_filter_options_from_counter(publication_author_name_counter),
+        "publication_db_names": score_set_search_filter_options_from_counter(publication_db_name_counter),
+        "publication_journals": score_set_search_filter_options_from_counter(publication_journal_counter),
     }
 
 
