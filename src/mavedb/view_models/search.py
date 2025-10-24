@@ -27,6 +27,7 @@ class ScoreSetsSearch(BaseModel):
     publication_identifiers: Optional[list[str]] = None
     keywords: Optional[list[str]] = None
     text: Optional[str] = None
+    offset: Optional[int] = None
     limit: Optional[int] = None
 
 

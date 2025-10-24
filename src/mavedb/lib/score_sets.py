@@ -270,6 +270,7 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
             ),
         )
         .order_by(Experiment.title)
+        .offset(search.offset if search.offset is not None else None)
         .limit(search.limit + 1 if search.limit is not None else None)
         .all()
     )
