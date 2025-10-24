@@ -278,16 +278,14 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
 
     num_score_sets = len(score_sets)
     if search.limit is not None and num_score_sets > search.limit:
-        # Limit the results.
+        # In the main query, we have allowed limit + 1 results. The extra record tells us whether we need to run a count
+        # query.
         score_sets = score_sets[: search.limit]
-        count_query = db.query(ScoreSet)  # \
-        # .filter(ScoreSet.private.is_(False))
+        count_query = db.query(ScoreSet)
         build_search_score_sets_query_filter(db, count_query, owner_or_contributor, search)
         num_score_sets = count_query.order_by(None).limit(None).count()
 
-    # build_search_score_sets_query_filter(db, query, owner_or_contributor, search)
-
-    save_to_logging_context({"matching_resources": len(score_sets)})
+    save_to_logging_context({"matching_resources": num_score_sets})
     logger.debug(msg=f"Score set search yielded {len(score_sets)} matching resources.", extra=logging_context())
 
     return {"score_sets": score_sets, "num_score_sets": num_score_sets}
