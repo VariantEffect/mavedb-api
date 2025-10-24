@@ -277,8 +277,9 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
     if not score_sets:
         score_sets = []
 
-    num_score_sets = len(score_sets)
-    if search.limit is not None and num_score_sets > search.limit:
+    offset = search.offset if search.offset is not None else 0
+    num_score_sets = offset + len(score_sets)
+    if search.limit is not None and num_score_sets > offset + search.limit:
         # In the main query, we have allowed limit + 1 results. The extra record tells us whether we need to run a count
         # query.
         score_sets = score_sets[: search.limit]
