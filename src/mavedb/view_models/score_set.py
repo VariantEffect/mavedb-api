@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from copy import deepcopy
 from datetime import date
 from typing import Any, Callable, Collection, Optional, Sequence, Type, TypeVar, Union
@@ -43,8 +42,6 @@ from mavedb.view_models.target_gene import (
     TargetGeneCreate,
 )
 from mavedb.view_models.user import SavedUser, User
-
-logger = logging.getLogger(__name__)
 
 UnboundedRange = tuple[Union[float, None], Union[float, None]]
 
@@ -110,7 +107,6 @@ class ScoreSetModifyBase(ScoreSetBase):
     doi_identifiers: Optional[list[DoiIdentifierCreate]] = None
     target_genes: list[TargetGeneCreate]
     score_ranges: Optional[ScoreSetRangesCreate] = None
-    # dataset_columns: Optional[DatasetColumnsCreate] = {}
 
 
 class ScoreSetModify(ScoreSetModifyBase):
@@ -458,10 +454,6 @@ class SavedScoreSet(ScoreSetBase):
     def publication_identifiers_validator(cls, value: Any) -> list[PublicationIdentifier]:
         assert isinstance(value, Collection), "Publication identifier lists must be a collection"
         return list(value)  # Re-cast into proper list-like type
-
-    # @field_validator("dataset_columns")
-    # def camelize_dataset_columns_keys(cls, value: dict) -> dict:
-    #     return camelize(value)
 
     # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
     # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.

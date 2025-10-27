@@ -407,67 +407,6 @@ def test_score_set_update_all_optional(attribute, updated_data):
     ScoreSetUpdateAllOptional(**{attribute: updated_data})
 
 
-# def test_saved_score_set_data_set_columns_are_camelized():
-#     score_set = TEST_MINIMAL_SEQ_SCORESET_RESPONSE.copy()
-#     score_set["urn"] = "urn:score-set-xxx"
-
-#     # Remove pre-set synthetic properties
-#     score_set.pop("metaAnalyzesScoreSetUrns")
-#     score_set.pop("metaAnalyzedByScoreSetUrns")
-#     score_set.pop("primaryPublicationIdentifiers")
-#     score_set.pop("secondaryPublicationIdentifiers")
-#     score_set.pop("datasetColumns")
-
-#     # Convert fields expecting an object to attributed objects
-#     external_identifiers = {"refseq_offset": None, "ensembl_offset": None, "uniprot_offset": None}
-#     target_genes = [
-#         dummy_attributed_object_from_dict({**target, **external_identifiers}) for target in score_set["targetGenes"]
-#     ]
-#     score_set["targetGenes"] = [SavedTargetGene.model_validate(target) for target in target_genes]
-
-#     # Set synthetic properties with dummy attributed objects to mock SQLAlchemy model objects.
-#     score_set["meta_analyzes_score_sets"] = [
-#         dummy_attributed_object_from_dict({"urn": "urn:meta-analyzes-xxx", "superseding_score_set": None})
-#     ]
-#     score_set["meta_analyzed_by_score_sets"] = [
-#         dummy_attributed_object_from_dict({"urn": "urn:meta-analyzed-xxx", "superseding_score_set": None})
-#     ]
-#     score_set["publication_identifier_associations"] = [
-#         dummy_attributed_object_from_dict(
-#             {
-#                 "publication": PublicationIdentifier(**SAVED_PUBMED_PUBLICATION),
-#                 "primary": True,
-#             }
-#         ),
-#         dummy_attributed_object_from_dict(
-#             {
-#                 "publication": PublicationIdentifier(
-#                     **{**SAVED_PUBMED_PUBLICATION, **{"identifier": TEST_BIORXIV_IDENTIFIER}}
-#                 ),
-#                 "primary": False,
-#             }
-#         ),
-#         dummy_attributed_object_from_dict(
-#             {
-#                 "publication": PublicationIdentifier(
-#                     **{**SAVED_PUBMED_PUBLICATION, **{"identifier": TEST_BIORXIV_IDENTIFIER}}
-#                 ),
-#                 "primary": False,
-#             }
-#         ),
-#     ]
-
-#     # The camelized dataset columns we are testing
-#     score_set["dataset_columns"] = {"camelize_me": "test", "noNeed": "test"}
-
-#     score_set_attributed_object = dummy_attributed_object_from_dict(score_set)
-#     saved_score_set = SavedScoreSet.model_validate(score_set_attributed_object)
-
-#     assert sorted(list(saved_score_set.dataset_columns.keys())) == sorted(
-#         [camelize(k) for k in score_set["dataset_columns"].keys()]
-#     )
-
-
 @pytest.mark.parametrize(
     "exclude",
     ["publication_identifier_associations", "meta_analyzes_score_sets", "meta_analyzed_by_score_sets"],

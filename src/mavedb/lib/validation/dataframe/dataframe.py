@@ -29,6 +29,15 @@ if TYPE_CHECKING:
 STANDARD_COLUMNS = (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column, guide_sequence_column)
 
 
+def clean_col_name(col: str) -> str:
+    col = col.strip()
+    # Only remove quotes if the column name is fully quoted
+    if (col.startswith('"') and col.endswith('"')) or (col.startswith("'") and col.endswith("'")):
+        col = col[1:-1]
+
+    return col.strip()
+
+
 def validate_and_standardize_dataframe_pair(
     scores_df: pd.DataFrame,
     counts_df: Optional[pd.DataFrame],
@@ -212,15 +221,7 @@ def standardize_dict_keys(d: dict[str, Any]) -> dict[str, Any]:
         The standardized dictionary
     """
 
-    def clean_key(key: str) -> str:
-        key = key.strip()
-        # Only remove quotes if the key is fully quoted
-        if (key.startswith('"') and key.endswith('"')) or (key.startswith("'") and key.endswith("'")):
-            key = key[1:-1]
-
-        return key.strip()
-
-    return {clean_key(k): v for k, v in d.items()}
+    return {clean_col_name(k): v for k, v in d.items()}
 
 
 def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
@@ -246,15 +247,7 @@ def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         The standardized dataframe
     """
 
-    def clean_column(col: str) -> str:
-        col = col.strip()
-        # Only remove quotes if the column name is fully quoted
-        if (col.startswith('"') and col.endswith('"')) or (col.startswith("'") and col.endswith("'")):
-            col = col[1:-1]
-
-        return col.strip()
-
-    cleaned_columns = {c: clean_column(c) for c in df.columns}
+    cleaned_columns = {c: clean_col_name(c) for c in df.columns}
     df.rename(columns=cleaned_columns, inplace=True)
 
     column_mapper = {x: x.lower() for x in df.columns if x.lower() in STANDARD_COLUMNS}

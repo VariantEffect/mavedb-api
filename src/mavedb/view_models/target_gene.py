@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Any, Optional, Sequence
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 from typing_extensions import Self
 
 from mavedb.lib.validation.exceptions import ValidationError
@@ -24,8 +24,6 @@ class TargetGeneBase(BaseModel):
     name: str
     category: TargetCategory
     external_identifiers: Sequence[external_gene_identifier_offset.ExternalGeneIdentifierOffsetBase]
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 class TargetGeneModify(TargetGeneBase):
