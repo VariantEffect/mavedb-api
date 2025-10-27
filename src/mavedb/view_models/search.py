@@ -26,6 +26,7 @@ class ScoreSetsSearch(BaseModel):
     publication_identifiers: Optional[list[str]] = None
     keywords: Optional[list[str]] = None
     text: Optional[str] = None
+    include_experiment_score_set_urns_and_count: Optional[bool] = True
 
 
 class TextSearch(BaseModel):

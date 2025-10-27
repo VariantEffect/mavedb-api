@@ -145,14 +145,15 @@ def search_score_sets(
     """
     score_sets = _search_score_sets(db, None, search)
     updated_score_sets = fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
+
     enriched_score_sets = []
-    if updated_score_sets:
+    if search.include_experiment_score_set_urns_and_count and updated_score_sets:
         for u in updated_score_sets:
             enriched_experiment = enrich_experiment_with_num_score_sets(u.experiment, user_data)
             response_item = score_set.ScoreSet.model_validate(u).copy(update={"experiment": enriched_experiment})
             enriched_score_sets.append(response_item)
 
-    return enriched_score_sets
+    return enriched_score_sets if search.include_experiment_score_set_urns_and_count else updated_score_sets
 
 
 @router.get("/score-sets/mapped-genes", status_code=200, response_model=dict[str, list[str]])
