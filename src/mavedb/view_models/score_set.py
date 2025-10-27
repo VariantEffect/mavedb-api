@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import json
-from copy import deepcopy
 from datetime import date
-from typing import Any, Callable, Collection, Optional, Sequence, Type, TypeVar, Union
+from typing import Any, Collection, Optional, Sequence, Union
 
-from pydantic import create_model, field_validator, model_validator
-from pydantic.fields import FieldInfo
+from pydantic import field_validator, model_validator
 from typing_extensions import Self
 
 from mavedb.lib.validation import urn_re
@@ -42,37 +40,9 @@ from mavedb.view_models.target_gene import (
     TargetGeneCreate,
 )
 from mavedb.view_models.user import SavedUser, User
+from mavedb.view_models.utils import all_fields_optional_model
 
 UnboundedRange = tuple[Union[float, None], Union[float, None]]
-
-Model = TypeVar("Model", bound=BaseModel)
-
-
-def all_fields_optional_model() -> Callable[[Type[Model]], Type[Model]]:
-    """A decorator that create a partial model.
-
-    Args:
-        model (Type[BaseModel]): BaseModel model.
-
-    Returns:
-        Type[BaseModel]: ModelBase partial model.
-    """
-
-    def wrapper(model: Type[Model]) -> Type[Model]:
-        def make_field_optional(field: FieldInfo, default: Any = None) -> tuple[Any, FieldInfo]:
-            new = deepcopy(field)
-            new.default = default
-            new.annotation = Optional[field.annotation]  # type: ignore[assignment]
-            return new.annotation, new
-
-        return create_model(
-            model.__name__,
-            __base__=model,
-            __module__=model.__module__,
-            **{field_name: make_field_optional(field_info) for field_name, field_info in model.model_fields.items()},
-        )  # type: ignore[call-overload]
-
-    return wrapper
 
 
 class ExternalLink(BaseModel):
