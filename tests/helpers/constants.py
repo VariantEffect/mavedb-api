@@ -403,8 +403,20 @@ TEST_DB_KEYWORDS = [
         "description": "Description",
     },
     {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
-    {"key": "Phenotypic Assay Mechanism", "label": "Other", "code": None, "special": False, "description": "Description"},
-    {"key": "Phenotypic Assay Mechanism", "label": "Label", "code": "GO:1234567", "special": False, "description": "Description"},
+    {
+        "key": "Phenotypic Assay Mechanism",
+        "label": "Other",
+        "code": None,
+        "special": False,
+        "description": "Description",
+    },
+    {
+        "key": "Phenotypic Assay Mechanism",
+        "label": "Label",
+        "code": "GO:1234567",
+        "special": False,
+        "description": "Description",
+    },
 ]
 
 TEST_KEYWORDS = [
@@ -1298,6 +1310,7 @@ TEST_POST_MAPPED_VRS_WITH_HGVS_P_EXPRESSION = {
 TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION = {
     "pre_mapped": {},
     "post_mapped": TEST_POST_MAPPED_VRS_WITH_HGVS_G_EXPRESSION,
+    "vep_functional_consequence": "missense_variant",
     "modification_date": datetime.isoformat(datetime.now()),
     "mapped_date": datetime.isoformat(datetime.now()),
     "current": True,
@@ -1308,6 +1321,7 @@ TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION = {
 TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION = {
     "pre_mapped": {},
     "post_mapped": TEST_POST_MAPPED_VRS_WITH_HGVS_P_EXPRESSION,
+    "vep_functional_consequence": "missense_variant",
     "modification_date": datetime.isoformat(datetime.now()),
     "mapped_date": datetime.isoformat(datetime.now()),
     "current": True,

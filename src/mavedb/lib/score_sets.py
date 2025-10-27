@@ -428,8 +428,8 @@ def get_score_set_variants_as_csv(
     include_custom_columns : bool, optional
         Whether to include custom columns defined in the score set. Defaults to True.
     include_post_mapped_hgvs : bool, optional
-        Whether to include post-mapped HGVS notations in the output. Defaults to False. If True, the output will include
-        columns for both post-mapped HGVS genomic (g.) and protein (p.) notations.
+        Whether to include post-mapped HGVS notations and VEP functional consequence in the output. Defaults to False. If True, the output will include
+        columns for post-mapped HGVS genomic (g.) and protein (p.) notations, and VEP functional consequence.
 
     Returns
     _______
@@ -444,6 +444,7 @@ def get_score_set_variants_as_csv(
     if include_post_mapped_hgvs:
         columns.append("post_mapped_hgvs_g")
         columns.append("post_mapped_hgvs_p")
+        columns.append("vep_functional_consequence")
 
     if include_custom_columns:
         custom_columns = [str(x) for x in list(score_set.dataset_columns.get(custom_columns_set, []))]
@@ -574,6 +575,12 @@ def variant_to_csv_row(
             hgvs_str = get_hgvs_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
             if hgvs_str is not None and is_hgvs_p(hgvs_str):
                 value = hgvs_str
+            else:
+                value = ""
+        elif column_key == "vep_functional_consequence":
+            vep_functional_consequence = mapping.vep_functional_consequence if mapping else None
+            if vep_functional_consequence is not None:
+                value = vep_functional_consequence
             else:
                 value = ""
         else:

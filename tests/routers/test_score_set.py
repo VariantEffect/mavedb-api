@@ -2486,6 +2486,7 @@ def test_download_variants_data_file(
             "hgvs_pro",
             "post_mapped_hgvs_g",
             "post_mapped_hgvs_p",
+            "vep_functional_consequence",
             "score",
         ]
     )
