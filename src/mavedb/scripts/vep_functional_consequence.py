@@ -64,6 +64,43 @@ VEP_CONSEQUENCES = [
 ]
 
 
+def run_variant_recoder(missing_hgvs: Sequence[str]) -> dict[str, list[str]]:
+    """
+    Takes a list of input HGVS strings, calls the Variant Recoder API, and returns a mapping from input HGVS strings
+    to a list of genomic HGVS strings.
+    """
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    recoder_response = requests.post(
+        f"{ENSEMBL_API_URL}/variant_recoder/human",
+        headers=headers,
+        json={"ids": list(missing_hgvs)},
+    )
+    input_hgvs_to_recoded: dict[str, list[str]] = {}
+    if recoder_response.status_code == 200:
+        recoder_data = recoder_response.json()
+        for entry in recoder_data:
+            for variant, variant_data in entry.items():
+                input_hgvs = variant_data.get("input")
+                if not input_hgvs:
+                    continue
+                genomic_hgvs_list = []
+                genomic_strings = variant_data.get("hgvsg")
+                if genomic_strings:
+                    for genomic_hgvs in genomic_strings:
+                        if genomic_hgvs.startswith("NC_"):
+                            genomic_hgvs_list.append(genomic_hgvs)
+                if genomic_hgvs_list:
+                    if input_hgvs in input_hgvs_to_recoded:
+                        input_hgvs_to_recoded[input_hgvs].extend(genomic_hgvs_list)
+                    else:
+                        input_hgvs_to_recoded[input_hgvs] = genomic_hgvs_list
+    else:
+        logger.error(
+            f"Failed batch Variant Recoder API request: {recoder_response.status_code} {recoder_response.text}"
+        )
+    return input_hgvs_to_recoded
+
+
 def get_functional_consequence(hgvs_strings: Sequence[str]) -> dict[str, Optional[str]]:
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     result: dict[str, Optional[str]] = {}
@@ -90,72 +127,52 @@ def get_functional_consequence(hgvs_strings: Sequence[str]) -> dict[str, Optiona
 
     # Fallback for missing HGVS strings: batch POST to Variant Recoder
     if missing_hgvs:
-        recoder_response = requests.post(
-            f"{ENSEMBL_API_URL}/variant_recoder/human",
-            headers=headers,
-            json={"ids": list(missing_hgvs)},
-        )
-        recoder_found = set()
-        if recoder_response.status_code == 200:
-            recoder_data = recoder_response.json()
-            # recoder_data is a list of dicts, each with "input" and variant info
-            for entry in recoder_data:
-                hgvs_string = entry.get("input")
-                if not hgvs_string:
-                    continue
-                recoder_found.add(hgvs_string)
-                variants = []
-                for variant, variant_data in entry.items():
-                    genomic_strings = variant_data.get("hgvsg")
-                    if genomic_strings:
-                        for genomic_hgvs in genomic_strings:
-                            if genomic_hgvs.startswith("NC_"):
-                                variants.append(genomic_hgvs)
-                if not variants:
-                    logger.error(f"No genomic HGVS found in Variant Recoder response for {hgvs_string}.")
-                    result[hgvs_string] = None
-                    continue
-                consequences = []
-                for genomic_hgvs in variants:
-                    vep_response = requests.get(f"{ENSEMBL_API_URL}/vep/human/hgvs/{genomic_hgvs}", headers=headers)
-                    if vep_response.status_code != 200:
-                        logger.error(f"Failed VEP for {genomic_hgvs}: {vep_response.status_code}")
-                        # if any of the genomic variants fail, return None, because we don't want to miss the most severe consequence
-                        result[hgvs_string] = None
-                        break
-                    vep_data = vep_response.json()
-                    if isinstance(vep_data, list) and len(vep_data) == 1:
-                        most_severe_consequence = vep_data[0].get("most_severe_consequence")
-                        if most_severe_consequence:
-                            consequences.append(most_severe_consequence)
-                        else:
-                            logger.error(f"No consequence returned from VEP for {genomic_hgvs}")
-                            result[hgvs_string] = None
-                            break
-                    else:
-                        logger.error(f"Unexpected VEP format for {genomic_hgvs}: {vep_data}")
-                        result[hgvs_string] = None
-                        break
-                if consequences:
-                    # Return the most severe consequence among all genomic variants
-                    for consequence in VEP_CONSEQUENCES:
-                        if consequence in consequences:
-                            result[hgvs_string] = consequence
-                            break
-                    else:
-                        result[hgvs_string] = None
-                else:
-                    logger.error(f"No consequences found for any genomic variants derived from {hgvs_string}.")
-                    result[hgvs_string] = None
-        else:
-            logger.error(
-                f"Failed batch Variant Recoder API request: {recoder_response.status_code} {recoder_response.text}"
+        recoded_variants = run_variant_recoder(list(missing_hgvs))
+        # Assign None for any missing_hgvs not present in recoder response
+        for hgvs_string in missing_hgvs:
+            if hgvs_string not in recoded_variants:
+                result[hgvs_string] = None
+
+        # Collect all genomic HGVS strings for batch VEP request
+        all_recoded_hgvs = []
+        for input_variant, recoded in recoded_variants.items():
+            for variant in recoded:
+                all_recoded_hgvs.append(variant)
+
+        # Run VEP in batches of 200
+        vep_results: dict[str, str] = {}
+        for i in range(0, len(all_recoded_hgvs), 200):
+            batch = all_recoded_hgvs[i : i + 200]
+            vep_response = requests.post(
+                f"{ENSEMBL_API_URL}/vep/human/hgvs",
+                headers=headers,
+                json={"hgvs_notations": batch},
             )
 
-        # Assign None for any missing_hgvs not present in recoder_found
-        for hgvs_string in missing_hgvs:
-            if hgvs_string not in recoder_found:
-                result[hgvs_string] = None
+            if vep_response.status_code != 200:
+                logger.error(f"Failed batch VEP for genomic HGVS: {vep_response.status_code}")
+                continue
+            vep_data = vep_response.json()
+            for entry in vep_data:
+                recoded_input = entry.get("input")
+                most_severe_consequence = entry.get("most_severe_consequence")
+                if recoded_input and most_severe_consequence:
+                    vep_results[recoded_input] = most_severe_consequence
+
+        # For each original missing_hgvs, choose the most severe consequence among its genomic equivalents
+        for input_variant, recoded in recoded_variants.items():
+            consequences = []
+            for variant in recoded:
+                consequences.append(vep_results.get(variant))
+            if consequences:
+                for consequence in VEP_CONSEQUENCES:
+                    if consequence in consequences:
+                        result[input_variant] = consequence
+                        break
+                else:
+                    result[input_variant] = None
+            else:
+                result[input_variant] = None
 
     return result
 
