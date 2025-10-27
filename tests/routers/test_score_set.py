@@ -2712,6 +2712,7 @@ def test_download_variants_data_file(
             "mavedb.post_mapped_hgvs_p",
             "mavedb.post_mapped_vrs_digest",
             "scores.score",
+            "vep.vep_functional_consequence",
         ]
     )
     rows = list(reader)

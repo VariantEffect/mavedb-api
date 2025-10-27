@@ -518,8 +518,8 @@ def get_score_set_variants_as_csv(
         The database session to use.
     score_set : ScoreSet
         The score set to get the variants from.
-    namespaces : List[Literal["scores", "counts"]]
-        The namespaces for data. Now there are only scores and counts. There will be ClinVar and gnomAD.
+    namespaces : List[Literal["scores", "counts", "vep"]]
+        The namespaces for data. Now there are only scores, counts, and VEP. There will be ClinVar and gnomAD.
     namespaced: Optional[bool] = None
         Whether namespace the columns or not.
     start : int, optional
@@ -531,8 +531,8 @@ def get_score_set_variants_as_csv(
     include_custom_columns : bool, optional
         Whether to include custom columns defined in the score set. Defaults to True.
     include_post_mapped_hgvs : bool, optional
-        Whether to include post-mapped HGVS notations in the output. Defaults to False. If True, the output will include
-        columns for both post-mapped HGVS genomic (g.) and protein (p.) notations.
+        Whether to include post-mapped HGVS notations and VEP functional consequence in the output. Defaults to False. If True, the output will include
+        columns for post-mapped HGVS genomic (g.) and protein (p.) notations, and VEP functional consequence.
 
     Returns
     _______
@@ -550,6 +550,7 @@ def get_score_set_variants_as_csv(
         namespaced_score_set_columns["mavedb"].append("post_mapped_vrs_digest")
     for namespace in namespaces:
         namespaced_score_set_columns[namespace] = []
+
     if include_custom_columns:
         if "scores" in namespaced_score_set_columns:
             namespaced_score_set_columns["scores"] = [
@@ -561,6 +562,8 @@ def get_score_set_variants_as_csv(
             ]
     elif "scores" in namespaced_score_set_columns:
         namespaced_score_set_columns["scores"].append(REQUIRED_SCORE_COLUMN)
+    elif "vep" in namespaced_score_set_columns:
+        namespaced_score_set_columns["vep"].append("vep_functional_consequence")
     variants: Sequence[Variant] = []
     mappings: Optional[list[Optional[MappedVariant]]] = None
 
@@ -697,20 +700,27 @@ def variant_to_csv_row(
             if hgvs_str is not None and is_hgvs_g(hgvs_str):
                 value = hgvs_str
             else:
-                value = ""
+                value = na_rep
         elif column_key == "post_mapped_hgvs_p":
             hgvs_str = get_hgvs_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
             if hgvs_str is not None and is_hgvs_p(hgvs_str):
                 value = hgvs_str
             else:
-                value = ""
+                value = na_rep
         elif column_key == "post_mapped_vrs_digest":
             digest = get_digest_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
-            value = digest if digest is not None else ""
+            value = digest if digest is not None else na_rep
         if is_null(value):
             value = na_rep
         key = f"mavedb.{column_key}" if namespaced else column_key
         row[key] = value
+    for column_key in columns.get("vep", []):
+        if column_key == "vep_functional_consequence":
+            vep_functional_consequence = mapping.vep_functional_consequence if mapping else None
+            if vep_functional_consequence is not None:
+                value = vep_functional_consequence
+            else:
+                value = na_rep
     for column_key in columns.get("scores", []):
         parent = variant.data.get("score_data") if variant.data else None
         value = str(parent.get(column_key)) if parent else na_rep
