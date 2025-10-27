@@ -2710,6 +2710,8 @@ def test_download_variants_data_file(
             "hgvs_pro",
             "mavedb.post_mapped_hgvs_g",
             "mavedb.post_mapped_hgvs_p",
+            "mavedb.post_mapped_hgvs_c",
+            "mavedb.post_mapped_hgvs_at_assay_level",
             "mavedb.post_mapped_vrs_digest",
             "scores.score",
             "vep.vep_functional_consequence",
@@ -2718,13 +2720,20 @@ def test_download_variants_data_file(
     rows = list(reader)
     for row in rows:
         if has_hgvs_g:
-            assert row["mavedb.post_mapped_hgvs_g"] == mapped_variant["post_mapped"]["expressions"][0]["value"]
+            assert row["mavedb.post_mapped_hgvs_g"] == mapped_variant["hgvs_g"]
+            assert row["mavedb.post_mapped_hgvs_c"] == mapped_variant["hgvs_c"]
+            assert row["mavedb.post_mapped_hgvs_p"] == mapped_variant["hgvs_p"]
+            assert row["mavedb.post_mapped_hgvs_at_assay_level"] == mapped_variant["hgvs_assay_level"]
+        elif has_hgvs_p:
+            assert row["mavedb.post_mapped_hgvs_g"] == "NA"
+            assert row["mavedb.post_mapped_hgvs_c"] == "NA"
+            assert row["mavedb.post_mapped_hgvs_p"] == mapped_variant["hgvs_p"]
+            assert row["mavedb.post_mapped_hgvs_at_assay_level"] == mapped_variant["hgvs_assay_level"]
         else:
             assert row["mavedb.post_mapped_hgvs_g"] == "NA"
-        if has_hgvs_p:
-            assert row["mavedb.post_mapped_hgvs_p"] == mapped_variant["post_mapped"]["expressions"][0]["value"]
-        else:
+            assert row["mavedb.post_mapped_hgvs_c"] == "NA"
             assert row["mavedb.post_mapped_hgvs_p"] == "NA"
+            assert row["mavedb.post_mapped_hgvs_at_assay_level"] == "NA"
 
 
 # Test file doesn't have hgvs_splice so its values are all NA.

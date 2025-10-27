@@ -1320,64 +1320,34 @@ TEST_MINIMAL_MAPPED_VARIANT = {
 
 TEST_MINIMAL_MAPPED_VARIANT_CREATE = {**TEST_MINIMAL_MAPPED_VARIANT, "clinical_controls": [], "gnomad_variants": []}
 
-TEST_POST_MAPPED_VRS_WITH_HGVS_G_EXPRESSION = {
-    "id": "ga4gh:VA.fRW7u-kBQnAKitu1PoDMLvlECWZTHCos",
-    "type": "Allele",
-    "state": {"type": "LiteralSequenceExpression", "sequence": "G"},
-    "digest": "fRW7u-kBQnAKitu1PoDMLvlECWZTHCos",
-    "location": {
-        "id": "ga4gh:SL.99b3WBaSSmaSTs6YmJfIhl1ZDCV07VZY",
-        "end": 23536836,
-        "type": "SequenceLocation",
-        "start": 23536835,
-        "digest": "99b3WBaSSmaSTs6YmJfIhl1ZDCV07VZY",
-        "sequenceReference": {
-            "type": "SequenceReference",
-            "label": "NC_000018.10",
-            "refgetAccession": "SQ.vWwFhJ5lQDMhh-czg06YtlWqu0lvFAZV",
-        },
-    },
-    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "C"}],
-    "expressions": [{"value": "NC_000018.10:g.23536836C>G", "syntax": "hgvs.g"}],
-}
-
-TEST_POST_MAPPED_VRS_WITH_HGVS_P_EXPRESSION = {
-    "id": "ga4gh:VA.zkOAzZK5qG0D0mkJUfXlK1aS075OGSjh",
-    "type": "Allele",
-    "state": {"type": "LiteralSequenceExpression", "sequence": "R"},
-    "digest": "zkOAzZK5qG0D0mkJUfXlK1aS075OGSjh",
-    "location": {
-        "id": "ga4gh:SL.uUyRpJbrPttRThL7A2zeWAnTcb_7f1R2",
-        "end": 116,
-        "type": "SequenceLocation",
-        "start": 115,
-        "digest": "uUyRpJbrPttRThL7A2zeWAnTcb_7f1R2",
-        "sequenceReference": {"type": "SequenceReference", "refgetAccession": "SQ.StlJo3M4b8cS253ufe9nPpWqQHBDOSPs"},
-    },
-    "extensions": [{"name": "vrs_ref_allele_seq", "type": "Extension", "value": "Q"}],
-    "expressions": [{"value": "NP_002746.1:p.Gln116Arg", "syntax": "hgvs.p"}],
-}
-
 TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION = {
     "pre_mapped": {},
-    "post_mapped": TEST_POST_MAPPED_VRS_WITH_HGVS_G_EXPRESSION,
+    "post_mapped": {},
     "vep_functional_consequence": "missense_variant",
     "modification_date": datetime.isoformat(datetime.now()),
     "mapped_date": datetime.isoformat(datetime.now()),
     "current": True,
     "vrs_version": "2.0",
     "mapping_api_version": "pytest.0.0",
+    "hgvs_g": "NC_000018.10:g.23536836C>G",
+    "hgvs_p": "NP_000262.2:p.Gly1028Arg",
+    "hgvs_c": "NM_000271.5:c.3082G>C",
+    "hgvs_assay_level": "NC_000018.10:g.23536836C>G",
 }
 
 TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION = {
     "pre_mapped": {},
-    "post_mapped": TEST_POST_MAPPED_VRS_WITH_HGVS_P_EXPRESSION,
+    "post_mapped": {},
     "vep_functional_consequence": "missense_variant",
     "modification_date": datetime.isoformat(datetime.now()),
     "mapped_date": datetime.isoformat(datetime.now()),
     "current": True,
     "vrs_version": "2.0",
     "mapping_api_version": "pytest.0.0",
+    "hgvs_g": None,
+    "hgvs_p": "NP_002746.1:p.Gln116Arg",
+    "hgvs_c": None,
+    "hgvs_assay_level": "NP_002746.1:p.Gln116Arg",
 }
 
 TEST_BASELINE_SCORE = 1.0
