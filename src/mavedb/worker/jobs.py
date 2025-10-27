@@ -9,7 +9,6 @@ import pandas as pd
 from arq import ArqRedis
 from arq.jobs import Job, JobStatus
 from cdot.hgvs.dataproviders import RESTDataProvider
-from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 from sqlalchemy import cast, delete, null, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
@@ -18,42 +17,41 @@ from mavedb.data_providers.services import vrs_mapper
 from mavedb.db.view import refresh_all_mat_views
 from mavedb.lib.clingen.constants import (
     CAR_SUBMISSION_ENDPOINT,
+    CLIN_GEN_SUBMISSION_ENABLED,
     DEFAULT_LDH_SUBMISSION_BATCH_SIZE,
     LDH_SUBMISSION_ENDPOINT,
     LINKED_DATA_RETRY_THRESHOLD,
-    CLIN_GEN_SUBMISSION_ENABLED,
 )
 from mavedb.lib.clingen.content_constructors import construct_ldh_submission
 from mavedb.lib.clingen.services import (
     ClinGenAlleleRegistryService,
     ClinGenLdhService,
-    get_clingen_variation,
     clingen_allele_id_from_ldh_variation,
     get_allele_registry_associations,
+    get_clingen_variation,
 )
 from mavedb.lib.exceptions import (
-    MappingEnqueueError,
-    SubmissionEnqueueError,
     LinkingEnqueueError,
+    MappingEnqueueError,
     NonexistentMappingReferenceError,
     NonexistentMappingResultsError,
+    SubmissionEnqueueError,
     UniProtIDMappingEnqueueError,
     UniProtPollingEnqueueError,
 )
 from mavedb.lib.gnomad import gnomad_variant_data_for_caids, link_gnomad_variants_to_mapped_variants
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
-from mavedb.lib.mapping import ANNOTATION_LAYERS
+from mavedb.lib.mapping import ANNOTATION_LAYERS, extract_ids_from_post_mapped_metadata
 from mavedb.lib.score_sets import (
-    get_hgvs_from_post_mapped,
     columns_for_dataset,
     create_variants,
     create_variants_data,
+    get_hgvs_from_post_mapped,
 )
-from mavedb.lib.slack import send_slack_error, send_slack_message, log_and_send_slack_message
+from mavedb.lib.slack import log_and_send_slack_message, send_slack_error, send_slack_message
+from mavedb.lib.uniprot.constants import UNIPROT_ID_MAPPING_ENABLED
 from mavedb.lib.uniprot.id_mapping import UniProtIDMappingAPI
 from mavedb.lib.uniprot.utils import infer_db_name_from_sequence_accession
-from mavedb.lib.uniprot.constants import UNIPROT_ID_MAPPING_ENABLED
-from mavedb.lib.mapping import extract_ids_from_post_mapped_metadata
 from mavedb.lib.validation.dataframe.dataframe import (
     validate_and_standardize_dataframe_pair,
 )
@@ -65,6 +63,7 @@ from mavedb.models.published_variant import PublishedVariantsMV
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
+from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -165,15 +164,26 @@ async def create_variants_for_score_set(
             )
             raise ValueError("Can't create variants when score set has no targets.")
 
-        validated_scores, validated_counts, validated_score_columns_metadata, validated_count_columns_metadata = validate_and_standardize_dataframe_pair(
-            scores_df=scores, counts_df=counts, score_columns_metadata=score_columns_metadata, count_columns_metadata=count_columns_metadata, targets=score_set.target_genes, hdp=hdp
+        validated_scores, validated_counts, validated_score_columns_metadata, validated_count_columns_metadata = (
+            validate_and_standardize_dataframe_pair(
+                scores_df=scores,
+                counts_df=counts,
+                score_columns_metadata=score_columns_metadata,
+                count_columns_metadata=count_columns_metadata,
+                targets=score_set.target_genes,
+                hdp=hdp,
+            )
         )
 
         score_set.dataset_columns = {
             "score_columns": columns_for_dataset(validated_scores),
             "count_columns": columns_for_dataset(validated_counts),
-            "score_columns_metadata": validated_score_columns_metadata if validated_score_columns_metadata is not None else {},
-            "count_columns_metadata": validated_count_columns_metadata if validated_count_columns_metadata is not None else {},
+            "score_columns_metadata": validated_score_columns_metadata
+            if validated_score_columns_metadata is not None
+            else {},
+            "count_columns_metadata": validated_count_columns_metadata
+            if validated_count_columns_metadata is not None
+            else {},
         }
 
         # Delete variants after validation occurs so we don't overwrite them in the case of a bad update.
@@ -1284,9 +1294,9 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
         logging_context["linkage_failures"] = num_linkage_failures
         logging_context["linkage_successes"] = num_variant_urns - num_linkage_failures
 
-        assert (
-            len(linked_allele_ids) == num_variant_urns
-        ), f"{num_variant_urns - len(linked_allele_ids)} appear to not have been attempted to be linked."
+        assert len(linked_allele_ids) == num_variant_urns, (
+            f"{num_variant_urns - len(linked_allele_ids)} appear to not have been attempted to be linked."
+        )
 
         job_succeeded = False
         if not linkage_failures:
@@ -1378,7 +1388,7 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
                 extra=logging_context,
             )
             send_slack_message(
-                text=f"Failed to link {len(linkage_failures)} ({ratio_failed_linking*100}% of total mapped variants for {score_set.urn})."
+                text=f"Failed to link {len(linkage_failures)} ({ratio_failed_linking * 100}% of total mapped variants for {score_set.urn})."
                 f"This job was successfully retried. This was attempt {attempt}. Retry will occur in {backoff_time} seconds. URNs failed to link: {', '.join(linkage_failures)}."
             )
         elif new_job_id is None and not max_retries_exceeded:

@@ -1,16 +1,16 @@
 import logging
 from typing import Optional
 
-from mavedb.models.target_accession import TargetAccession
-from mavedb.models.target_sequence import TargetSequence
-from mavedb.models.taxonomy import Taxonomy
-from sqlalchemy import func, or_, and_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.models.contributor import Contributor
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
+from mavedb.models.target_sequence import TargetSequence
+from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
 from mavedb.view_models.search import TextSearch
 
@@ -44,12 +44,14 @@ def find_or_create_target_gene_by_accession(
             db.query(TargetGene)
             .filter(
                 and_(
-                    TargetGene.target_accession.has(and_(
-                        TargetAccession.accession == tg_accession["accession"],
-                        TargetAccession.assembly == tg_accession["assembly"],
-                        TargetAccession.gene == tg_accession["gene"],
-                        TargetAccession.is_base_editor == tg_accession.get("is_base_editor", False),
-                    )),
+                    TargetGene.target_accession.has(
+                        and_(
+                            TargetAccession.accession == tg_accession["accession"],
+                            TargetAccession.assembly == tg_accession["assembly"],
+                            TargetAccession.gene == tg_accession["gene"],
+                            TargetAccession.is_base_editor == tg_accession.get("is_base_editor", False),
+                        )
+                    ),
                     TargetGene.name == tg["name"],
                     TargetGene.category == tg["category"],
                     TargetGene.score_set_id == score_set_id,
@@ -59,9 +61,7 @@ def find_or_create_target_gene_by_accession(
         )
 
     if target_gene is None:
-        target_accession = TargetAccession(
-            **tg_accession
-        )
+        target_accession = TargetAccession(**tg_accession)
         target_gene = TargetGene(
             **tg,
             score_set_id=score_set_id,
@@ -110,14 +110,14 @@ def find_or_create_target_gene_by_sequence(
             db.query(TargetGene)
             .filter(
                 and_(
-                    TargetGene.target_sequence.has(and_(
-                        TargetSequence.sequence == tg_sequence["sequence"],
-                        TargetSequence.sequence_type == tg_sequence["sequence_type"],
-                        TargetSequence.taxonomy.has(
-                            Taxonomy.id == tg_sequence["taxonomy"].id
-                        ),
-                        TargetSequence.label == tg_sequence["label"],
-                    )),
+                    TargetGene.target_sequence.has(
+                        and_(
+                            TargetSequence.sequence == tg_sequence["sequence"],
+                            TargetSequence.sequence_type == tg_sequence["sequence_type"],
+                            TargetSequence.taxonomy.has(Taxonomy.id == tg_sequence["taxonomy"].id),
+                            TargetSequence.label == tg_sequence["label"],
+                        )
+                    ),
                     TargetGene.name == tg["name"],
                     TargetGene.category == tg["category"],
                     TargetGene.score_set_id == score_set_id,
@@ -127,9 +127,7 @@ def find_or_create_target_gene_by_sequence(
         )
 
     if target_gene is None:
-        target_sequence = TargetSequence(
-            **tg_sequence
-        )
+        target_sequence = TargetSequence(**tg_sequence)
         target_gene = TargetGene(
             **tg,
             score_set_id=score_set_id,
@@ -149,6 +147,7 @@ def find_or_create_target_gene_by_sequence(
         )
 
     return target_gene
+
 
 def search_target_genes(
     db: Session,

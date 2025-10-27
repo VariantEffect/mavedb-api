@@ -1,26 +1,26 @@
-from typing import Any, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional, Tuple
 
-from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 import numpy as np
 import pandas as pd
 
 from mavedb.lib.exceptions import MixedTargetError
 from mavedb.lib.validation.constants.general import (
+    guide_sequence_column,
     hgvs_nt_column,
     hgvs_pro_column,
     hgvs_splice_column,
-    guide_sequence_column,
     required_score_column,
+)
+from mavedb.lib.validation.dataframe.column import validate_data_column
+from mavedb.lib.validation.dataframe.variant import (
+    validate_guide_sequence_column,
+    validate_hgvs_genomic_column,
+    validate_hgvs_prefix_combinations,
+    validate_hgvs_transgenic_column,
 )
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.target_gene import TargetGene
-from mavedb.lib.validation.dataframe.column import validate_data_column
-from mavedb.lib.validation.dataframe.variant import (
-    validate_hgvs_transgenic_column,
-    validate_hgvs_genomic_column,
-    validate_guide_sequence_column,
-    validate_hgvs_prefix_combinations,
-)
+from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 
 if TYPE_CHECKING:
     from cdot.hgvs.dataproviders import RESTDataProvider
@@ -36,7 +36,12 @@ def validate_and_standardize_dataframe_pair(
     count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]],
     targets: list[TargetGene],
     hdp: Optional["RESTDataProvider"],
-) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], Optional[dict[str, DatasetColumnMetadata]], Optional[dict[str, DatasetColumnMetadata]]]:
+) -> Tuple[
+    pd.DataFrame,
+    Optional[pd.DataFrame],
+    Optional[dict[str, DatasetColumnMetadata]],
+    Optional[dict[str, DatasetColumnMetadata]],
+]:
     """
     Perform validation and standardization on a pair of score and count dataframes.
 
@@ -92,7 +97,12 @@ def validate_and_standardize_dataframe_pair(
             raise ValidationError("Counts column metadata provided without counts dataframe")
         standardized_count_columns_metadata = None
 
-    return standardized_scores_df, standardized_counts_df, standardized_score_columns_metadata, standardized_count_columns_metadata
+    return (
+        standardized_scores_df,
+        standardized_counts_df,
+        standardized_score_columns_metadata,
+        standardized_count_columns_metadata,
+    )
 
 
 def validate_dataframe(
@@ -185,6 +195,7 @@ def validate_dataframe(
         transgenic=score_set_is_sequence_based,
     )
 
+
 def standardize_dict_keys(d: dict[str, Any]) -> dict[str, Any]:
     """
     Standardize the keys of a dictionary by stripping leading and trailing whitespace
@@ -210,6 +221,7 @@ def standardize_dict_keys(d: dict[str, Any]) -> dict[str, Any]:
         return key.strip()
 
     return {clean_key(k): v for k, v in d.items()}
+
 
 def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """Standardize a dataframe by sorting the columns and changing the standard column names to lowercase.
@@ -415,6 +427,7 @@ def validate_variant_consistency(df: pd.DataFrame) -> None:
     # TODO
     pass
 
+
 def validate_df_column_metadata_match(df: pd.DataFrame, columnMetadata: dict[str, DatasetColumnMetadata]):
     """
     Checks that metadata keys match the dataframe column names and exclude standard column names.
@@ -439,6 +452,7 @@ def validate_df_column_metadata_match(df: pd.DataFrame, columnMetadata: dict[str
             raise ValidationError(f"standard column '{key}' cannot have metadata defined")
         elif key not in df.columns:
             raise ValidationError(f"column metadata key '{key}' does not match any dataframe column names")
+
 
 def validate_variant_columns_match(df1: pd.DataFrame, df2: pd.DataFrame):
     """

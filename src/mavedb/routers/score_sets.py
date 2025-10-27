@@ -5,29 +5,23 @@ from typing import Any, List, Optional, Sequence, TypedDict, Union
 
 import pandas as pd
 from arq import ArqRedis
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status, Request
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
-from ga4gh.va_spec.base.core import Statement, ExperimentalVariantFunctionalImpactStudyResult
-from mavedb.lib.target_genes import find_or_create_target_gene_by_accession, find_or_create_target_gene_by_sequence
-from mavedb.view_models.contributor import ContributorCreate
-from mavedb.view_models.doi_identifier import DoiIdentifierCreate
-from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
-from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
-from mavedb.view_models.target_gene import TargetGeneCreate
+from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from sqlalchemy import null, or_, select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
-from sqlalchemy.orm import contains_eager, Session
+from sqlalchemy.orm import Session, contains_eager
 
 from mavedb import deps
-from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.annotation.annotate import (
-    variant_pathogenicity_evidence,
     variant_functional_impact_statement,
+    variant_pathogenicity_evidence,
     variant_study_result,
 )
+from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import (
     RoleRequirer,
@@ -52,15 +46,16 @@ from mavedb.lib.logging.context import (
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_sets import (
     csv_data_to_df,
+    fetch_superseding_score_set_in_search_result,
     find_meta_analyses_for_experiment_sets,
     get_score_set_variants_as_csv,
+    refresh_variant_urns,
     variants_to_csv_rows,
 )
 from mavedb.lib.score_sets import (
-    fetch_superseding_score_set_in_search_result,
     search_score_sets as _search_score_sets,
-    refresh_variant_urns,
 )
+from mavedb.lib.target_genes import find_or_create_target_gene_by_accession, find_or_create_target_gene_by_sequence
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.urns import (
     generate_experiment_set_urn,
@@ -80,10 +75,16 @@ from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
-from mavedb.view_models import mapped_variant, score_set, clinical_control, score_range, gnomad_variant
+from mavedb.view_models import clinical_control, gnomad_variant, mapped_variant, score_range, score_set
+from mavedb.view_models.contributor import ContributorCreate
+from mavedb.view_models.doi_identifier import DoiIdentifierCreate
+from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
+from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 from mavedb.view_models.search import ScoreSetsSearch
+from mavedb.view_models.target_gene import TargetGeneCreate
 
 logger = logging.getLogger(__name__)
+
 
 async def enqueue_variant_creation(
     *,
@@ -130,8 +131,12 @@ async def enqueue_variant_creation(
         user_data.user.id,
         existing_scores_df if new_scores_df is None else new_scores_df,
         existing_counts_df if new_counts_df is None else new_counts_df,
-        item.dataset_columns.get("score_columns_metadata") if new_score_columns_metadata is None else new_score_columns_metadata,
-        item.dataset_columns.get("count_columns_metadata") if new_count_columns_metadata is None else new_count_columns_metadata,
+        item.dataset_columns.get("score_columns_metadata")
+        if new_score_columns_metadata is None
+        else new_score_columns_metadata,
+        item.dataset_columns.get("count_columns_metadata")
+        if new_count_columns_metadata is None
+        else new_count_columns_metadata,
     )
     if job is not None:
         save_to_logging_context({"worker_job_id": job.job_id})
@@ -141,6 +146,7 @@ async def enqueue_variant_creation(
 class ScoreSetUpdateResult(TypedDict):
     item: ScoreSet
     should_create_variants: bool
+
 
 async def score_set_update(
     *,
@@ -199,15 +205,19 @@ async def score_set_update(
         item.license = license_
 
     if "doi_identifiers" in item_update_dict:
-        doi_identifiers_list = [DoiIdentifierCreate(**identifier) for identifier in item_update_dict.get("doi_identifiers") or []]
+        doi_identifiers_list = [
+            DoiIdentifierCreate(**identifier) for identifier in item_update_dict.get("doi_identifiers") or []
+        ]
         item.doi_identifiers = [
-            await find_or_create_doi_identifier(db, identifier.identifier)
-            for identifier in doi_identifiers_list
+            await find_or_create_doi_identifier(db, identifier.identifier) for identifier in doi_identifiers_list
         ]
 
     if any(key in item_update_dict for key in ["primary_publication_identifiers", "secondary_publication_identifiers"]):
         if "primary_publication_identifiers" in item_update_dict:
-            primary_publication_identifiers_list = [PublicationIdentifierCreate(**identifier) for identifier in item_update_dict.get("primary_publication_identifiers") or []]
+            primary_publication_identifiers_list = [
+                PublicationIdentifierCreate(**identifier)
+                for identifier in item_update_dict.get("primary_publication_identifiers") or []
+            ]
             primary_publication_identifiers = [
                 await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
                 for identifier in primary_publication_identifiers_list
@@ -217,14 +227,19 @@ async def score_set_update(
             primary_publication_identifiers = [p for p in item.publication_identifiers if getattr(p, "primary", False)]
 
         if "secondary_publication_identifiers" in item_update_dict:
-            secondary_publication_identifiers_list = [PublicationIdentifierCreate(**identifier) for identifier in item_update_dict.get("secondary_publication_identifiers") or []]
+            secondary_publication_identifiers_list = [
+                PublicationIdentifierCreate(**identifier)
+                for identifier in item_update_dict.get("secondary_publication_identifiers") or []
+            ]
             secondary_publication_identifiers = [
                 await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
                 for identifier in secondary_publication_identifiers_list
             ]
         else:
             # set to existing secondary publication identifiers if not provided in update
-            secondary_publication_identifiers = [p for p in item.publication_identifiers if not getattr(p, "primary", False)]
+            secondary_publication_identifiers = [
+                p for p in item.publication_identifiers if not getattr(p, "primary", False)
+            ]
 
         publication_identifiers = primary_publication_identifiers + secondary_publication_identifiers
 
@@ -238,7 +253,9 @@ async def score_set_update(
 
     if "contributors" in item_update_dict:
         try:
-            contributors = [ContributorCreate(**contributor) for contributor in item_update_dict.get("contributors") or []]
+            contributors = [
+                ContributorCreate(**contributor) for contributor in item_update_dict.get("contributors") or []
+            ]
             item.contributors = [
                 await find_or_create_contributor(db, contributor.orcid_id) for contributor in contributors
             ]
@@ -307,7 +324,7 @@ async def score_set_update(
                             **jsonable_encoder(gene.target_sequence, by_alias=False, exclude={"taxonomy", "label"}),
                             "taxonomy": taxonomy,
                             "label": seq_label,
-                        }
+                        },
                     )
 
                 elif gene.target_accession:
@@ -372,11 +389,13 @@ async def score_set_update(
     save_to_logging_context({"updated_resource": item.urn})
     return {"item": item, "should_create_variants": should_create_variants}
 
+
 class ParseScoreSetUpdate(TypedDict):
     scores_df: Optional[pd.DataFrame]
     counts_df: Optional[pd.DataFrame]
     score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]]
     count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]]
+
 
 async def parse_score_set_variants_uploads(
     scores_file: Optional[UploadFile] = File(None),
@@ -389,7 +408,9 @@ async def parse_score_set_variants_uploads(
             scores_df = csv_data_to_df(scores_file.file)
         # Handle non-utf8 file problem.
         except UnicodeDecodeError as e:
-            raise HTTPException(status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values.")
+            raise HTTPException(
+                status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values."
+            )
     else:
         scores_df = None
 
@@ -398,7 +419,9 @@ async def parse_score_set_variants_uploads(
             counts_df = csv_data_to_df(counts_file.file)
         # Handle non-utf8 file problem.
         except UnicodeDecodeError as e:
-            raise HTTPException(status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values.")
+            raise HTTPException(
+                status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values."
+            )
     else:
         counts_df = None
 
@@ -406,7 +429,9 @@ async def parse_score_set_variants_uploads(
         try:
             score_columns_metadata = json.load(score_columns_metadata_file.file)
         except json.JSONDecodeError as e:
-            raise HTTPException(status_code=400, detail=f"Error decoding scores metadata file: {e}. Ensure the file is valid JSON.")
+            raise HTTPException(
+                status_code=400, detail=f"Error decoding scores metadata file: {e}. Ensure the file is valid JSON."
+            )
     else:
         score_columns_metadata = None
 
@@ -414,7 +439,9 @@ async def parse_score_set_variants_uploads(
         try:
             count_columns_metadata = json.load(count_columns_metadata_file.file)
         except json.JSONDecodeError as e:
-            raise HTTPException(status_code=400, detail=f"Error decoding counts metadata file: {e}. Ensure the file is valid JSON.")
+            raise HTTPException(
+                status_code=400, detail=f"Error decoding counts metadata file: {e}. Ensure the file is valid JSON."
+            )
     else:
         count_columns_metadata = None
 
@@ -424,6 +451,7 @@ async def parse_score_set_variants_uploads(
         "score_columns_metadata": score_columns_metadata,
         "count_columns_metadata": count_columns_metadata,
     }
+
 
 async def fetch_score_set_by_urn(
     db, urn: str, user: Optional[UserData], owner_or_contributor: Optional[UserData], only_published: bool
@@ -1336,7 +1364,7 @@ async def upload_score_set_variant_data(
         new_counts_df=score_set_variants_data["counts_df"],
         new_score_columns_metadata=score_set_variants_data["score_columns_metadata"],
         new_count_columns_metadata=score_set_variants_data["count_columns_metadata"],
-        worker=worker
+        worker=worker,
     )
 
     db.add(item)
@@ -1345,6 +1373,7 @@ async def upload_score_set_variant_data(
 
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
     return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
+
 
 @router.post(
     "/score-sets/{urn}/ranges/data",
@@ -1383,19 +1412,20 @@ async def update_score_set_range_data(
 
 
 @router.patch(
-    "/score-sets-with-variants/{urn}", response_model=score_set.ScoreSet, responses={422: {}}, response_model_exclude_none=True
+    "/score-sets-with-variants/{urn}",
+    response_model=score_set.ScoreSet,
+    responses={422: {}},
+    response_model_exclude_none=True,
 )
 async def update_score_set_with_variants(
     *,
     urn: str,
     request: Request,
-
     # Variants data and metadata files
     counts_file: Optional[UploadFile] = File(None),
     scores_file: Optional[UploadFile] = File(None),
     count_columns_metadata_file: Optional[UploadFile] = File(None),
     score_columns_metadata_file: Optional[UploadFile] = File(None),
-
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
     worker: ArqRedis = Depends(deps.get_worker),
@@ -1411,8 +1441,9 @@ async def update_score_set_with_variants(
 
         # Convert form data to dictionary, excluding file fields
         form_dict = {
-            key: value for key, value in form_data.items()
-            if key not in ['counts_file', 'scores_file', 'count_columns_metadata_file', 'score_columns_metadata_file']
+            key: value
+            for key, value in form_data.items()
+            if key not in ["counts_file", "scores_file", "count_columns_metadata_file", "score_columns_metadata_file"]
         }
 
         # Create the update object using **kwargs in as_form
@@ -1432,7 +1463,14 @@ async def update_score_set_with_variants(
         logger.info(msg="Failed to update score set; The requested score set does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
-    itemUpdateResult = await score_set_update(db=db, urn=urn, item_update=item_update_partial,  exclude_unset=True, user_data=user_data, existing_item=existing_item)
+    itemUpdateResult = await score_set_update(
+        db=db,
+        urn=urn,
+        item_update=item_update_partial,
+        exclude_unset=True,
+        user_data=user_data,
+        existing_item=existing_item,
+    )
     updatedItem = itemUpdateResult["item"]
     should_create_variants = itemUpdateResult.get("should_create_variants", False)
 
@@ -1467,6 +1505,7 @@ async def update_score_set_with_variants(
     enriched_experiment = enrich_experiment_with_num_score_sets(updatedItem.experiment, user_data)
     return score_set.ScoreSet.model_validate(updatedItem).copy(update={"experiment": enriched_experiment})
 
+
 @router.put(
     "/score-sets/{urn}", response_model=score_set.ScoreSet, responses={422: {}}, response_model_exclude_none=True
 )
@@ -1487,7 +1526,9 @@ async def update_score_set(
     # this object will contain all required fields because item_update type is ScoreSetUpdate, but
     # is converted to instance of ScoreSetUpdateAllOptional to match expected input of score_set_update function
     score_set_update_item = score_set.ScoreSetUpdateAllOptional.model_validate(item_update.model_dump())
-    itemUpdateResult = await score_set_update(db=db, urn=urn, item_update=score_set_update_item,  exclude_unset=False, user_data=user_data)
+    itemUpdateResult = await score_set_update(
+        db=db, urn=urn, item_update=score_set_update_item, exclude_unset=False, user_data=user_data
+    )
     updatedItem = itemUpdateResult["item"]
     should_create_variants = itemUpdateResult["should_create_variants"]
 

@@ -1,28 +1,28 @@
 # See https://pydantic-docs.helpmanual.io/usage/postponed_annotations/#self-referencing-models
 from __future__ import annotations
 
-from datetime import date
 import json
-from typing import Any, Collection, Optional, Sequence, Union, Type, TypeVar, Callable
-from typing_extensions import Self
+import logging
 from copy import deepcopy
+from datetime import date
+from typing import Any, Callable, Collection, Optional, Sequence, Type, TypeVar, Union
 
-from mavedb.view_models.score_set_dataset_columns import SavedDatasetColumns, DatasetColumns
-from pydantic import field_validator, model_validator, create_model
+from pydantic import create_model, field_validator, model_validator
 from pydantic.fields import FieldInfo
+from typing_extensions import Self
 
 from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.lib.validation.transform import (
+    transform_publication_identifiers_to_primary_and_secondary,
+    transform_score_set_list_to_urn_list,
+)
 from mavedb.lib.validation.utilities import is_null
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.contributor import Contributor, ContributorCreate
-from mavedb.lib.validation.transform import (
-    transform_score_set_list_to_urn_list,
-    transform_publication_identifiers_to_primary_and_secondary,
-)
 from mavedb.view_models.doi_identifier import (
     DoiIdentifier,
     DoiIdentifierCreate,
@@ -34,7 +34,8 @@ from mavedb.view_models.publication_identifier import (
     PublicationIdentifierCreate,
     SavedPublicationIdentifier,
 )
-from mavedb.view_models.score_range import SavedScoreSetRanges, ScoreSetRangesCreate, ScoreSetRanges
+from mavedb.view_models.score_range import SavedScoreSetRanges, ScoreSetRanges, ScoreSetRangesCreate
+from mavedb.view_models.score_set_dataset_columns import DatasetColumns, SavedDatasetColumns
 from mavedb.view_models.target_gene import (
     SavedTargetGene,
     ShortTargetGene,
@@ -43,12 +44,12 @@ from mavedb.view_models.target_gene import (
 )
 from mavedb.view_models.user import SavedUser, User
 
-import logging
 logger = logging.getLogger(__name__)
 
 UnboundedRange = tuple[Union[float, None], Union[float, None]]
 
 Model = TypeVar("Model", bound=BaseModel)
+
 
 def all_fields_optional_model() -> Callable[[Type[Model]], Type[Model]]:
     """A decorator that create a partial model.
@@ -61,7 +62,6 @@ def all_fields_optional_model() -> Callable[[Type[Model]], Type[Model]]:
     """
 
     def wrapper(model: Type[Model]) -> Type[Model]:
-
         def make_field_optional(field: FieldInfo, default: Any = None) -> tuple[Any, FieldInfo]:
             new = deepcopy(field)
             new.default = default
@@ -72,13 +72,11 @@ def all_fields_optional_model() -> Callable[[Type[Model]], Type[Model]]:
             model.__name__,
             __base__=model,
             __module__=model.__module__,
-            **{
-                field_name: make_field_optional(field_info)
-                for field_name, field_info in model.model_fields.items()
-            },
+            **{field_name: make_field_optional(field_info) for field_name, field_info in model.model_fields.items()},
         )  # type: ignore[call-overload]
 
     return wrapper
+
 
 class ExternalLink(BaseModel):
     url: Optional[str] = None
@@ -104,6 +102,7 @@ class ScoreSetBase(BaseModel):
     extra_metadata: Optional[dict] = None
     data_usage_policy: Optional[str] = None
 
+
 class ScoreSetModifyBase(ScoreSetBase):
     contributors: Optional[list[ContributorCreate]] = None
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = None
@@ -112,6 +111,7 @@ class ScoreSetModifyBase(ScoreSetBase):
     target_genes: list[TargetGeneCreate]
     score_ranges: Optional[ScoreSetRangesCreate] = None
     # dataset_columns: Optional[DatasetColumnsCreate] = {}
+
 
 class ScoreSetModify(ScoreSetModifyBase):
     """View model that adds custom validators to ScoreSetModifyBase."""
@@ -307,10 +307,12 @@ class ScoreSetCreate(ScoreSetModify):
             raise ValidationError("experiment URN should not be supplied when your score set is a meta-analysis")
         return self
 
+
 class ScoreSetUpdateBase(ScoreSetModifyBase):
     """View model for updating a score set with no custom validators."""
 
     license_id: Optional[int] = None
+
 
 class ScoreSetUpdate(ScoreSetModify):
     """View model for updating a score set that includes custom validators."""
@@ -326,13 +328,21 @@ class ScoreSetUpdateAllOptional(ScoreSetUpdateBase):
 
         # Define which fields need special JSON parsing
         json_fields = {
-            'contributors': lambda data: [ContributorCreate.model_validate(c) for c in data] if data else None,
-            'primary_publication_identifiers': lambda data: [PublicationIdentifierCreate.model_validate(p) for p in data] if data else None,
-            'secondary_publication_identifiers': lambda data: [PublicationIdentifierCreate.model_validate(s) for s in data] if data else None,
-            'doi_identifiers': lambda data: [DoiIdentifierCreate.model_validate(d) for d in data] if data else None,
-            'target_genes': lambda data: [TargetGeneCreate.model_validate(t) for t in data] if data else None,
-            'score_ranges': lambda data: ScoreSetRangesCreate.model_validate(data) if data else None,
-            'extra_metadata': lambda data: data,
+            "contributors": lambda data: [ContributorCreate.model_validate(c) for c in data] if data else None,
+            "primary_publication_identifiers": lambda data: [
+                PublicationIdentifierCreate.model_validate(p) for p in data
+            ]
+            if data
+            else None,
+            "secondary_publication_identifiers": lambda data: [
+                PublicationIdentifierCreate.model_validate(s) for s in data
+            ]
+            if data
+            else None,
+            "doi_identifiers": lambda data: [DoiIdentifierCreate.model_validate(d) for d in data] if data else None,
+            "target_genes": lambda data: [TargetGeneCreate.model_validate(t) for t in data] if data else None,
+            "score_ranges": lambda data: ScoreSetRangesCreate.model_validate(data) if data else None,
+            "extra_metadata": lambda data: data,
         }
 
         # Process all fields dynamically

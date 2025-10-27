@@ -4,7 +4,6 @@ from humps import camelize
 
 from mavedb.models.enums.processing_state import ProcessingState
 
-
 VALID_EXPERIMENT_SET_URN = "urn:mavedb:01234567"
 VALID_EXPERIMENT_URN = f"{VALID_EXPERIMENT_SET_URN}-a"
 VALID_SCORE_SET_URN = f"{VALID_EXPERIMENT_URN}-1"

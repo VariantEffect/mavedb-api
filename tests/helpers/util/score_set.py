@@ -1,10 +1,11 @@
-from datetime import date
 from copy import deepcopy
-from unittest.mock import patch
+from datetime import date
 from typing import Any, Dict, Optional
+from unittest.mock import patch
 
 import cdot.hgvs.dataproviders
 import jsonschema
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from mavedb.models.clinical_control import ClinicalControl as ClinicalControlDbModel
@@ -13,11 +14,10 @@ from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
-
 from tests.helpers.constants import (
     TEST_MINIMAL_ACC_SCORESET,
-    TEST_MINIMAL_SEQ_SCORESET,
     TEST_MINIMAL_MULTI_TARGET_SCORESET,
+    TEST_MINIMAL_SEQ_SCORESET,
     TEST_NT_CDOT_TRANSCRIPT,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_POST_MAPPED_VRS_CIS_PHASED_BLOCK,
@@ -25,7 +25,6 @@ from tests.helpers.constants import (
     TEST_VALID_PRE_MAPPED_VRS_CIS_PHASED_BLOCK,
 )
 from tests.helpers.util.variant import mock_worker_variant_insertion
-from fastapi.testclient import TestClient
 
 
 def create_seq_score_set(
@@ -96,10 +95,18 @@ def create_seq_score_set_with_mapped_variants(
     update=None,
     counts_csv_path=None,
     score_columns_metadata_json_path=None,
-    count_columns_metadata_json_path=None
+    count_columns_metadata_json_path=None,
 ):
     score_set = create_seq_score_set_with_variants(
-        client, db, data_provider, experiment_urn, scores_csv_path, update, counts_csv_path, score_columns_metadata_json_path, count_columns_metadata_json_path
+        client,
+        db,
+        data_provider,
+        experiment_urn,
+        scores_csv_path,
+        update,
+        counts_csv_path,
+        score_columns_metadata_json_path,
+        count_columns_metadata_json_path,
     )
     score_set = mock_worker_vrs_mapping(client, db, score_set)
 
@@ -116,10 +123,18 @@ def create_acc_score_set_with_mapped_variants(
     update=None,
     counts_csv_path=None,
     score_columns_metadata_json_path=None,
-    count_columns_metadata_json_path=None
+    count_columns_metadata_json_path=None,
 ):
     score_set = create_acc_score_set_with_variants(
-        client, db, data_provider, experiment_urn, scores_csv_path, update, counts_csv_path, score_columns_metadata_json_path, count_columns_metadata_json_path
+        client,
+        db,
+        data_provider,
+        experiment_urn,
+        scores_csv_path,
+        update,
+        counts_csv_path,
+        score_columns_metadata_json_path,
+        count_columns_metadata_json_path,
     )
     score_set = mock_worker_vrs_mapping(client, db, score_set)
 
@@ -136,16 +151,23 @@ def create_seq_score_set_with_variants(
     update=None,
     counts_csv_path=None,
     score_columns_metadata_json_path=None,
-    count_columns_metadata_json_path=None
+    count_columns_metadata_json_path=None,
 ):
     score_set = create_seq_score_set(client, experiment_urn, update)
     score_set = mock_worker_variant_insertion(
-        client, db, data_provider, score_set, scores_csv_path, counts_csv_path, score_columns_metadata_json_path, count_columns_metadata_json_path
+        client,
+        db,
+        data_provider,
+        score_set,
+        scores_csv_path,
+        counts_csv_path,
+        score_columns_metadata_json_path,
+        count_columns_metadata_json_path,
     )
 
-    assert (
-        score_set["numVariants"] == 3
-    ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
+    assert score_set["numVariants"] == 3, (
+        f"Could not create sequence based score set with variants within experiment {experiment_urn}"
+    )
 
     jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
@@ -160,16 +182,23 @@ def create_acc_score_set_with_variants(
     update=None,
     counts_csv_path=None,
     score_columns_metadata_json_path=None,
-    count_columns_metadata_json_path=None
+    count_columns_metadata_json_path=None,
 ):
     score_set = create_acc_score_set(client, experiment_urn, update)
     score_set = mock_worker_variant_insertion(
-        client, db, data_provider, score_set, scores_csv_path, counts_csv_path, score_columns_metadata_json_path, count_columns_metadata_json_path
+        client,
+        db,
+        data_provider,
+        score_set,
+        scores_csv_path,
+        counts_csv_path,
+        score_columns_metadata_json_path,
+        count_columns_metadata_json_path,
     )
 
-    assert (
-        score_set["numVariants"] == 3
-    ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
+    assert score_set["numVariants"] == 3, (
+        f"Could not create sequence based score set with variants within experiment {experiment_urn}"
+    )
 
     jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set

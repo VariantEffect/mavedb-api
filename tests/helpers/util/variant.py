@@ -1,26 +1,25 @@
 import json
 from typing import Optional
+from unittest.mock import patch
 
 from arq import ArqRedis
 from cdot.hgvs.dataproviders import RESTDataProvider
 from fastapi.testclient import TestClient
-from mavedb.view_models.score_set_dataset_columns import DatasetColumnsCreate
-from sqlalchemy.orm import Session
 from sqlalchemy import select
-from unittest.mock import patch
+from sqlalchemy.orm import Session
 
-from mavedb.lib.score_sets import create_variants, columns_for_dataset, create_variants_data, csv_data_to_df
+from mavedb.lib.score_sets import columns_for_dataset, create_variants, create_variants_data, csv_data_to_df
 from mavedb.lib.validation.dataframe.dataframe import validate_and_standardize_dataframe_pair
-from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.mapping_state import MappingState
+from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.variant import Variant
-
+from mavedb.view_models.score_set_dataset_columns import DatasetColumnsCreate
 from tests.helpers.constants import (
-    TEST_MINIMAL_PRE_MAPPED_METADATA,
     TEST_MINIMAL_POST_MAPPED_METADATA,
+    TEST_MINIMAL_PRE_MAPPED_METADATA,
 )
 
 
@@ -48,13 +47,21 @@ def mock_worker_variant_insertion(
 
         if score_columns_metadata_json_path is not None:
             score_columns_metadata_file = open(score_columns_metadata_json_path, "rb")
-            files["score_columns_metadata_file"] = (score_columns_metadata_json_path.name, score_columns_metadata_file, "rb")
+            files["score_columns_metadata_file"] = (
+                score_columns_metadata_json_path.name,
+                score_columns_metadata_file,
+                "rb",
+            )
         else:
             score_columns_metadata_file = None
 
         if count_columns_metadata_json_path is not None:
             count_columns_metadata_file = open(count_columns_metadata_json_path, "rb")
-            files["count_columns_metadata_file"] = (count_columns_metadata_json_path.name, count_columns_metadata_file, "rb")
+            files["count_columns_metadata_file"] = (
+                count_columns_metadata_json_path.name,
+                count_columns_metadata_file,
+                "rb",
+            )
         else:
             count_columns_metadata_file = None
 
@@ -95,7 +102,9 @@ def mock_worker_variant_insertion(
     item = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set["urn"])).one_or_none()
     assert item is not None
 
-    scores, counts, score_columns_metadata, count_columns_metadata = validate_and_standardize_dataframe_pair(score_df, counts_df, score_columns_metadata, count_columns_metadata, item.target_genes, data_provider)
+    scores, counts, score_columns_metadata, count_columns_metadata = validate_and_standardize_dataframe_pair(
+        score_df, counts_df, score_columns_metadata, count_columns_metadata, item.target_genes, data_provider
+    )
     variants = create_variants_data(scores, counts, None)
     num_variants = create_variants(db, item, variants)
     assert num_variants == 3

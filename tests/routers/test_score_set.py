@@ -1,9 +1,9 @@
 # ruff: noqa: E402
 
+import csv
 import json
 import re
 from copy import deepcopy
-import csv
 from datetime import date
 from io import StringIO
 from unittest.mock import patch
@@ -17,8 +17,8 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
-from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_EXPERIMENT_URN_RE
 from mavedb.lib.exceptions import NonexistentOrcidUserError
+from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
@@ -26,38 +26,37 @@ from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
-
 from tests.helpers.constants import (
-    EXTRA_USER,
     EXTRA_LICENSE,
+    EXTRA_USER,
+    SAVED_DOI_IDENTIFIER,
+    SAVED_EXTRA_CONTRIBUTOR,
     SAVED_MINIMAL_DATASET_COLUMNS,
+    SAVED_PUBMED_PUBLICATION,
+    SAVED_SHORT_EXTRA_LICENSE,
     TEST_CROSSREF_IDENTIFIER,
+    TEST_GNOMAD_DATA_VERSION,
+    TEST_INACTIVE_LICENSE,
     TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION,
     TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION,
     TEST_MINIMAL_ACC_SCORESET,
+    TEST_MINIMAL_ACC_SCORESET_RESPONSE,
     TEST_MINIMAL_SEQ_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
-    TEST_PUBMED_IDENTIFIER,
     TEST_ORCID_ID,
-    TEST_MINIMAL_ACC_SCORESET_RESPONSE,
-    TEST_USER,
-    TEST_INACTIVE_LICENSE,
-    SAVED_DOI_IDENTIFIER,
-    SAVED_EXTRA_CONTRIBUTOR,
-    SAVED_PUBMED_PUBLICATION,
-    SAVED_SHORT_EXTRA_LICENSE,
+    TEST_PUBMED_IDENTIFIER,
     TEST_SAVED_CLINVAR_CONTROL,
     TEST_SAVED_GENERIC_CLINICAL_CONTROL,
-    TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-    TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-    TEST_SCORE_SET_RANGES_ONLY_SCOTT,
-    TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT,
-    TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
-    TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
-    TEST_GNOMAD_DATA_VERSION,
     TEST_SAVED_GNOMAD_VARIANT,
+    TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+    TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT,
+    TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
+    TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+    TEST_SCORE_SET_RANGES_ONLY_SCOTT,
+    TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
+    TEST_USER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.common import update_expected_response_for_created_resources
@@ -67,18 +66,17 @@ from tests.helpers.util.license import change_to_inactive_license
 from tests.helpers.util.score_set import (
     create_seq_score_set,
     create_seq_score_set_with_mapped_variants,
+    create_seq_score_set_with_variants,
     link_clinical_controls_to_mapped_variants,
     link_gnomad_variants_to_mapped_variants,
     publish_score_set,
-    create_seq_score_set_with_variants,
 )
 from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import (
+    clear_first_mapped_variant_post_mapped,
     create_mapped_variants_for_score_set,
     mock_worker_variant_insertion,
-    clear_first_mapped_variant_post_mapped,
 )
-
 
 ########################################################################################################################
 # Score set schemas
@@ -401,6 +399,7 @@ def test_can_update_score_set_data_before_publication(
 
     assert expected_response_data == response_data[camelize(attribute)]
 
+
 @pytest.mark.parametrize(
     "attribute,updated_data,expected_response_data",
     [
@@ -451,7 +450,9 @@ def test_can_patch_score_set_data_before_publication(
 
     # The score ranges attribute requires a publication identifier source
     if attribute == "score_ranges":
-        data["secondary_publication_identifiers"] = json.dumps([{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}])
+        data["secondary_publication_identifiers"] = json.dumps(
+            [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}]
+        )
 
     response = client.patch(f"/api/v1/score-sets-with-variants/{score_set['urn']}", data=data)
     assert response.status_code == 200
@@ -466,6 +467,7 @@ def test_can_patch_score_set_data_before_publication(
 
     assert expected_response_data == response_data[camelize(attribute)]
 
+
 @pytest.mark.parametrize(
     "form_field,filename,mime_type",
     [
@@ -473,7 +475,7 @@ def test_can_patch_score_set_data_before_publication(
         ("counts_file", "counts.csv", "text/csv"),
         ("score_columns_metadata_file", "score_columns_metadata.json", "application/json"),
         ("count_columns_metadata_file", "count_columns_metadata.json", "application/json"),
-    ]
+    ],
 )
 @pytest.mark.parametrize(
     "mock_publication_fetch",
@@ -481,7 +483,7 @@ def test_can_patch_score_set_data_before_publication(
     indirect=["mock_publication_fetch"],
 )
 def test_can_patch_score_set_data_with_files_before_publication(
-    client, setup_router_db, form_field, filename, mime_type,data_files, mock_publication_fetch
+    client, setup_router_db, form_field, filename, mime_type, data_files, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -512,7 +514,7 @@ def test_can_patch_score_set_data_with_files_before_publication(
         ("secondary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}], [SAVED_PUBMED_PUBLICATION]),
         ("doi_identifiers", [{"identifier": TEST_CROSSREF_IDENTIFIER}], [SAVED_DOI_IDENTIFIER]),
         ("license_id", EXTRA_LICENSE["id"], SAVED_SHORT_EXTRA_LICENSE),
-        ("dataset_columns", None, SAVED_MINIMAL_DATASET_COLUMNS)
+        ("dataset_columns", None, SAVED_MINIMAL_DATASET_COLUMNS),
     ],
 )
 @pytest.mark.parametrize(
@@ -2518,7 +2520,7 @@ def test_score_set_not_found_for_non_existent_score_set_when_adding_score_calibr
 
     with DependencyOverrider(admin_app_overrides):
         response = client.post(
-            f"/api/v1/score-sets/{score_set['urn']+'xxx'}/ranges/data",
+            f"/api/v1/score-sets/{score_set['urn'] + 'xxx'}/ranges/data",
             json=range_payload,
         )
         response_data = response.json()
@@ -2715,11 +2717,11 @@ def test_cannot_fetch_clinical_controls_for_nonexistent_score_set(
     )
     link_clinical_controls_to_mapped_variants(session, score_set)
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/clinical-controls")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn'] + 'xxx'}/clinical-controls")
 
     assert response.status_code == 404
     response_data = response.json()
-    assert f"score set with URN '{score_set['urn']+'xxx'}' not found" in response_data["detail"]
+    assert f"score set with URN '{score_set['urn'] + 'xxx'}' not found" in response_data["detail"]
 
 
 def test_cannot_fetch_clinical_controls_for_score_set_when_none_exist(
@@ -2780,11 +2782,11 @@ def test_cannot_get_annotated_variants_for_nonexistent_score_set(client, setup_r
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/annotated-variants/{annotation_type}")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn'] + 'xxx'}/annotated-variants/{annotation_type}")
     response_data = response.json()
 
     assert response.status_code == 404
-    assert f"score set with URN {score_set['urn']+'xxx'} not found" in response_data["detail"]
+    assert f"score set with URN {score_set['urn'] + 'xxx'} not found" in response_data["detail"]
 
 
 @pytest.mark.parametrize(
@@ -3360,11 +3362,11 @@ def test_cannot_fetch_gnomad_variants_for_nonexistent_score_set(
     )
     link_gnomad_variants_to_mapped_variants(session, score_set)
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/gnomad-variants")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn'] + 'xxx'}/gnomad-variants")
 
     assert response.status_code == 404
     response_data = response.json()
-    assert f"score set with URN '{score_set['urn']+'xxx'}' not found" in response_data["detail"]
+    assert f"score set with URN '{score_set['urn'] + 'xxx'}' not found" in response_data["detail"]
 
 
 def test_cannot_fetch_gnomad_variants_for_score_set_when_none_exist(

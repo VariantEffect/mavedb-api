@@ -1,17 +1,19 @@
-
-from mavedb.view_models import record_type_validator, set_record_type
-from mavedb.view_models.base.base import BaseModel
 from typing import Optional
-from typing_extensions import Self
 
 from pydantic import field_validator, model_validator
+from typing_extensions import Self
+
 from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.view_models import record_type_validator, set_record_type
+from mavedb.view_models.base.base import BaseModel
+
 
 class DatasetColumnMetadata(BaseModel):
     """Metadata for individual dataset columns."""
 
     description: str
     details: Optional[str] = None
+
 
 class DatasetColumnsBase(BaseModel):
     """Dataset columns view model representing the dataset columns property of a score set."""
@@ -22,7 +24,9 @@ class DatasetColumnsBase(BaseModel):
     count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None
 
     @field_validator("score_columns_metadata", "count_columns_metadata")
-    def validate_dataset_columns_metadata(cls, v: Optional[dict[str, DatasetColumnMetadata]]) -> Optional[dict[str, DatasetColumnMetadata]]:
+    def validate_dataset_columns_metadata(
+        cls, v: Optional[dict[str, DatasetColumnMetadata]]
+    ) -> Optional[dict[str, DatasetColumnMetadata]]:
         if not v:
             return None
         for val in v.values():
@@ -46,16 +50,20 @@ class DatasetColumnsBase(BaseModel):
                     raise ValidationError(f"Count column metadata key '{key}' does not exist in count_columns list.")
         return self
 
+
 class SavedDatasetColumns(DatasetColumnsBase):
-    record_type: str = None # type: ignore
+    record_type: str = None  # type: ignore
 
     _record_type_factory = record_type_validator()(set_record_type)
+
 
 class DatasetColumns(SavedDatasetColumns):
     pass
 
+
 class DatasetColumnsCreate(DatasetColumnsBase):
     pass
+
 
 class DatasetColumnsModify(DatasetColumnsBase):
     pass

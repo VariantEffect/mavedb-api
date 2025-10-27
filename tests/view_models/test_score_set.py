@@ -1,23 +1,23 @@
-import pytest
 from copy import deepcopy
+
+import pytest
 
 from mavedb.view_models.publication_identifier import PublicationIdentifier, PublicationIdentifierCreate
 from mavedb.view_models.score_set import SavedScoreSet, ScoreSetCreate, ScoreSetModify, ScoreSetUpdateAllOptional
 from mavedb.view_models.target_gene import SavedTargetGene, TargetGeneCreate
-
 from tests.helpers.constants import (
     EXTRA_LICENSE,
     EXTRA_USER,
-    TEST_CROSSREF_IDENTIFIER,
-    TEST_PUBMED_IDENTIFIER,
-    TEST_MINIMAL_ACC_SCORESET,
-    TEST_MINIMAL_SEQ_SCORESET,
-    TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-    TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
     SAVED_PUBMED_PUBLICATION,
     TEST_BIORXIV_IDENTIFIER,
+    TEST_CROSSREF_IDENTIFIER,
+    TEST_MINIMAL_ACC_SCORESET,
+    TEST_MINIMAL_SEQ_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
+    TEST_PUBMED_IDENTIFIER,
+    TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+    TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
     VALID_EXPERIMENT_URN,
     VALID_SCORE_SET_URN,
     VALID_TMP_URN,
@@ -382,6 +382,7 @@ def test_saved_score_set_synthetic_properties():
             for publication in saved_score_set.secondary_publication_identifiers
         ]
     )
+
 
 @pytest.mark.parametrize(
     "attribute,updated_data",
