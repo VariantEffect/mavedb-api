@@ -30,23 +30,31 @@ def get_target_info(score_set: ScoreSet) -> tuple[bool, Optional[str]]:
             target_is_coding = True
             # only get transcript accession if coding
             # accession-based
-            if target.accession_id:
+            if target.target_accession and target.target_accession.accession:
                 # only use accession info if a transcript was specified
-                if target.accession_id.startswith(("NM", "ENST")):
-                    transcript_accession = target.accession_id
+                if target.target_accession.accession.startswith(("NM", "ENST")):
+                    transcript_accession = target.target_accession.accession
             # sequence-based
-            elif target.post_mapped_metadata and target.post_mapped_metadata.get("cdna", {}).get("sequence_accessions"):
-                if len(target.post_mapped_metadata["cdna"]["sequence_accessions"]) == 1:
-                    transcript_accession = target.post_mapped_metadata["cdna"]["sequence_accessions"][0]
+            if target.post_mapped_metadata:
+                # assert that post_mapped_metadata is a dict for mypy
+                assert isinstance(target.post_mapped_metadata, dict)
+                if target.post_mapped_metadata.get("cdna", {}).get("sequence_accessions"):
+                    if len(target.post_mapped_metadata["cdna"]["sequence_accessions"]) == 1:
+                        transcript_accession = target.post_mapped_metadata["cdna"]["sequence_accessions"][0]
+                    else:
+                        raise ValueError(
+                            f"Multiple cDNA accessions found in post-mapped metadata for target {target.name} in score set {score_set.urn}. Cannot determine which to use."
+                        )
+                # if sequence-based and no cDNA accession, warn that no transcript was specified
                 else:
-                    raise ValueError(
-                        f"Multiple cDNA accessions found in post-mapped metadata for target {target.urn} in score set {score_set.urn}. Cannot determine which to use."
+                    # for coding score sets, the mapper should have returned a cdna post mapped metadata entry. Use mane transcript from clingen for now, but warn that we are assuming transcript.
+                    logger.warning(
+                        f"No cDNA accession found in post-mapped metadata for target {target.name} in score set {score_set.urn}. This is expected if variants were only provided at the protein level. If variants are at the nucleotide level, will assume MANE transcript from ClinGen for coding variant."
                     )
-            # if sequence-based and no cDNA accession, warn that no transcript was specified
             else:
                 # for coding score sets, the mapper should have returned a cdna post mapped metadata entry. Use mane transcript from clingen for now, but warn that we are assuming transcript.
                 logger.warning(
-                    f"No cDNA accession found in post-mapped metadata for target {target.urn} in score set {score_set.urn}. This is expected if variants were only provided at the protein level. If variants are at the nucleotide level, will assume MANE transcript from ClinGen for coding variant."
+                    f"No post-mapped metadata for target {target.name} in score set {score_set.urn}. Will assume MANE transcript from ClinGen for coding variant."
                 )
         else:
             target_is_coding = False
