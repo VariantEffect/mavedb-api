@@ -151,8 +151,18 @@ def delete_my_access_key(
     """
     Delete one of the current user's access keys.
     """
-    item = db.query(AccessKey).filter(AccessKey.key_id == key_id).one_or_none()
-    if item and item.user.id == user_data.user.id:
-        db.delete(item)
-        db.commit()
-        logger.debug(msg="Successfully deleted provided API key.", extra=logging_context())
+    item = (
+        db.query(AccessKey).filter(AccessKey.key_id == key_id and AccessKey.user_id == user_data.user.id).one_or_none()
+    )
+
+    if not item:
+        logger.warning(
+            msg="Could not delete API key; Provided key ID does not exist and/or does not belong to the current user.",
+            extra=logging_context(),
+        )
+        # Never acknowledge the existence of an access key that doesn't belong to the user.
+        raise HTTPException(status_code=404, detail=f"Access key with ID {key_id} not found.")
+
+    db.delete(item)
+    db.commit()
+    logger.debug(msg="Successfully deleted provided API key.", extra=logging_context())
