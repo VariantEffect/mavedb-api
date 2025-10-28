@@ -23,7 +23,7 @@ from mavedb.lib.identifiers import (
 from mavedb.lib.keywords import search_keyword
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.lib.permissions import Action, assert_permission
+from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_sets import find_superseded_score_set_tail
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import validate_keyword_list
@@ -61,13 +61,13 @@ def list_experiments(
     """
     List experiments.
     """
+    if editable and user_data is None:
+        logger.debug(msg="User is anonymous; Cannot list their experiments.", extra=logging_context())
+        return []
+
     query = db.query(Experiment)
 
-    if editable:
-        if user_data is None or user_data.user is None:
-            logger.debug(msg="User is anonymous; Cannot list their experiments.", extra=logging_context())
-            return []
-
+    if editable and user_data is not None:
         logger.debug(msg="Listing experiments for the current user.", extra=logging_context())
         query = query.filter(
             or_(
@@ -77,7 +77,7 @@ def list_experiments(
         )
 
     items = query.order_by(Experiment.urn).all()
-    return items
+    return [item for item in items if has_permission(user_data, item, Action.READ).permitted]
 
 
 @router.post(
