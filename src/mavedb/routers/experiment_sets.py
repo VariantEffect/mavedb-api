@@ -10,7 +10,7 @@ from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.lib.permissions import Action, has_permission
+from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.view_models import experiment_set
 
@@ -52,7 +52,7 @@ def fetch_experiment_set(
     else:
         item.experiments.sort(key=attrgetter("urn"))
 
-    has_permission(user_data, item, Action.READ)
+    assert_permission(user_data, item, Action.READ)
 
     # Filter experiment sub-resources to only those experiments readable by the requesting user.
     item.experiments[:] = [exp for exp in item.experiments if has_permission(user_data, exp, Action.READ).permitted]
