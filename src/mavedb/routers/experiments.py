@@ -179,18 +179,16 @@ def get_experiment_score_sets(
         logger.info(msg="No score sets are associated with the requested experiment.", extra=logging_context())
 
         raise HTTPException(status_code=404, detail="no associated score sets")
-    else:
-        filtered_score_sets.sort(key=attrgetter("urn"))
-        save_to_logging_context({"associated_resources": [item.urn for item in score_set_result]})
-        enriched_score_sets = []
-        for fs in filtered_score_sets:
-            enriched_experiment = enrich_experiment_with_num_score_sets(fs.experiment, user_data)
-            response_item = score_set.ScoreSet.model_validate(fs).copy(update={"experiment": enriched_experiment})
-            enriched_score_sets.append(response_item)
 
-        return enriched_score_sets
+    filtered_score_sets.sort(key=attrgetter("urn"))
+    save_to_logging_context({"associated_resources": [item.urn for item in score_set_result]})
+    enriched_score_sets = []
+    for fs in filtered_score_sets:
+        enriched_experiment = enrich_experiment_with_num_score_sets(fs.experiment, user_data)
+        response_item = score_set.ScoreSet.model_validate(fs).copy(update={"experiment": enriched_experiment})
+        enriched_score_sets.append(response_item)
 
-    return filtered_score_sets
+    return enriched_score_sets
 
 
 @router.post(
