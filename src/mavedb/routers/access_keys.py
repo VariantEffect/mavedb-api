@@ -22,7 +22,7 @@ from mavedb.view_models import access_key
 router = APIRouter(
     prefix="/api/v1",
     tags=["Access Keys"],
-    responses={404: {"description": "Not found"}},
+    responses={404: {"description": "Not found"}, 500: {"description": "Internal server error"}},
     route_class=LoggedRoute,
 )
 
@@ -49,7 +49,10 @@ def generate_key_pair():
     "/users/me/access-keys",
     status_code=200,
     response_model=list[access_key.AccessKey],
-    responses={404: {}, 500: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+    },
+    summary="List my access keys",
 )
 def list_my_access_keys(*, user_data: UserData = Depends(require_current_user)) -> Any:
     """
@@ -62,7 +65,10 @@ def list_my_access_keys(*, user_data: UserData = Depends(require_current_user)) 
     "/users/me/access-keys",
     status_code=200,
     response_model=access_key.NewAccessKey,
-    responses={404: {}, 500: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+    },
+    summary="Create a new access key for myself",
 )
 def create_my_access_key(
     *,
@@ -88,7 +94,11 @@ def create_my_access_key(
     "/users/me/access-keys/{role}",
     status_code=200,
     response_model=access_key.NewAccessKey,
-    responses={404: {}, 500: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Create a new access key for myself with a specified role",
 )
 async def create_my_access_key_with_role(
     *,
@@ -125,7 +135,13 @@ async def create_my_access_key_with_role(
     return response_item
 
 
-@router.delete("/users/me/access-keys/{key_id}", status_code=200, responses={404: {}, 500: {}})
+@router.delete(
+    "/users/me/access-keys/{key_id}",
+    status_code=200,
+    responses={
+        401: {"description": "Not authenticated"},
+    },
+)
 def delete_my_access_key(
     *,
     key_id: str,
