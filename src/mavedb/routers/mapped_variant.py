@@ -70,17 +70,29 @@ async def fetch_mapped_variant_by_variant_urn(db: Session, user: Optional[UserDa
 router = APIRouter(
     prefix="/api/v1/mapped-variants",
     tags=["Mapped Variants"],
-    responses={404: {"description": "Not found"}},
+    responses={
+        404: {"description": "Not found"},
+        500: {"description": "Internal server error"},
+    },
     route_class=LoggedRoute,
 )
 
 
-@router.get("/{urn}", status_code=200, response_model=mapped_variant.MappedVariant, responses={404: {}, 500: {}})
+@router.get(
+    "/{urn}",
+    status_code=200,
+    response_model=mapped_variant.MappedVariant,
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Fetch mapped variant by URN",
+)
 async def show_mapped_variant(
     *, urn: str, db: Session = Depends(deps.get_db), user: Optional[UserData] = Depends(get_current_user)
 ) -> Any:
     """
-    Fetch a mapped variant by URN.
+    Fetch a single mapped variant by URN.
     """
     save_to_logging_context({"requested_resource": urn})
 
@@ -91,13 +103,17 @@ async def show_mapped_variant(
     "/{urn}/va/study-result",
     status_code=200,
     response_model=ExperimentalVariantFunctionalImpactStudyResult,
-    responses={404: {}, 500: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Construct a VA-Spec StudyResult from a mapped variant",
 )
 async def show_mapped_variant_study_result(
     *, urn: str, db: Session = Depends(deps.get_db), user: Optional[UserData] = Depends(get_current_user)
 ) -> ExperimentalVariantFunctionalImpactStudyResult:
     """
-    Construct a VA-Spec StudyResult from a mapped variant.
+    Construct a single VA-Spec StudyResult from a mapped variant by URN.
     """
     save_to_logging_context({"requested_resource": urn})
 
@@ -114,12 +130,21 @@ async def show_mapped_variant_study_result(
 
 
 # TODO#416: For now, this route supports only one statement per mapped variant. Eventually, we should support the possibility of multiple statements.
-@router.get("/{urn}/va/functional-impact", status_code=200, response_model=Statement, responses={404: {}, 500: {}})
+@router.get(
+    "/{urn}/va/functional-impact",
+    status_code=200,
+    response_model=Statement,
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Construct a VA-Spec Statement from a mapped variant",
+)
 async def show_mapped_variant_functional_impact_statement(
     *, urn: str, db: Session = Depends(deps.get_db), user: Optional[UserData] = Depends(get_current_user)
 ) -> Statement:
     """
-    Construct a VA-Spec Statement from a mapped variant.
+    Construct a single VA-Spec Statement from a mapped variant by URN.
     """
     save_to_logging_context({"requested_resource": urn})
 
@@ -154,13 +179,17 @@ async def show_mapped_variant_functional_impact_statement(
     "/{urn}/va/clinical-evidence",
     status_code=200,
     response_model=VariantPathogenicityEvidenceLine,
-    responses={404: {}, 500: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Construct a VA-Spec EvidenceLine from a mapped variant",
 )
 async def show_mapped_variant_acmg_evidence_line(
     *, urn: str, db: Session = Depends(deps.get_db), user: Optional[UserData] = Depends(get_current_user)
 ) -> VariantPathogenicityEvidenceLine:
     """
-    Construct a list of VA-Spec EvidenceLine(s) from a mapped variant.
+    Construct a list of VA-Spec EvidenceLine(s) from a mapped variant by URN.
     """
     save_to_logging_context({"requested_resource": urn})
 
@@ -194,7 +223,10 @@ async def show_mapped_variant_acmg_evidence_line(
     "/vrs/{identifier}",
     status_code=200,
     response_model=list[mapped_variant.MappedVariant],
-    responses={404: {}, 500: {}},
+    responses={
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Fetch mapped variants by VRS identifier",
 )
 async def show_mapped_variants_by_identifier(
     *,
@@ -211,7 +243,7 @@ async def show_mapped_variants_by_identifier(
     user: Optional[UserData] = Depends(get_current_user),
 ) -> list[MappedVariant]:
     """
-    Fetch a mapped variant by GA4GH identifier.
+    Fetch a single mapped variant by GA4GH identifier.
     """
     query = select(MappedVariant).where(
         or_(MappedVariant.pre_mapped["id"].astext == identifier, MappedVariant.post_mapped["id"].astext == identifier)
