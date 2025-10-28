@@ -8,14 +8,14 @@ from mavedb.lib.logging.context import logging_context, save_to_logging_context
 router = APIRouter(
     prefix="/api/v1/log",
     tags=["Log"],
-    responses={404: {"description": "Not found"}},
+    responses={404: {"description": "Not found"}, 500: {"description": "Internal server error"}},
     route_class=LoggedRoute,
 )
 
 
 # NOTE: Despite not containing any calls to a logger, this route will log posted context
 #       by nature of its inheritance from LoggedRoute.
-@router.post("/", status_code=200, response_model=str, responses={404: {}})
+@router.post("/", status_code=200, response_model=str, summary="Log an interaction")
 def log_it(log_context: dict) -> Any:
     """
     Log an interaction.
