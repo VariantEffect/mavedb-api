@@ -25,19 +25,38 @@ from mavedb.view_models.variant import (
 )
 
 router = APIRouter(
-    prefix="/api/v1", tags=["Variants"], responses={404: {"description": "Not found"}}, route_class=LoggedRoute
+    prefix="/api/v1",
+    tags=["Variants"],
+    responses={
+        404: {"description": "Not found"},
+        500: {"description": "Internal server error"},
+    },
+    route_class=LoggedRoute,
 )
 
 logger = logging.getLogger(__name__)
 
 
-@router.post("/variants/clingen-allele-id-lookups", response_model=list[ClingenAlleleIdVariantLookupResponse])
+@router.post(
+    "/variants/clingen-allele-id-lookups",
+    status_code=200,
+    response_model=list[ClingenAlleleIdVariantLookupResponse],
+    responses={
+        400: {"description": "Bad request"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Lookup variants by ClinGen Allele IDs",
+)
 def lookup_variants(
     *,
     request: ClingenAlleleIdVariantLookupsRequest,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(get_current_user),
 ):
+    """
+    Lookup variants by ClinGen Allele IDs.
+    """
     save_to_logging_context({"requested_resource": "clingen-allele-id-lookups"})
     save_to_logging_context({"clingen_allele_ids_to_lookup": request.clingen_allele_ids})
     logger.debug(msg="Looking up variants by Clingen Allele IDs", extra=logging_context())
@@ -409,8 +428,12 @@ def lookup_variants(
     "/variants/{urn}",
     status_code=200,
     response_model=VariantEffectMeasurementWithScoreSet,
-    responses={404: {}, 500: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
     response_model_exclude_none=True,
+    summary="Fetch variant by URN",
 )
 def get_variant(*, urn: str, db: Session = Depends(deps.get_db), user_data: UserData = Depends(get_current_user)):
     """
