@@ -28,7 +28,11 @@ logger = logging.getLogger(__name__)
     "/{urn}",
     status_code=200,
     response_model=experiment_set.ExperimentSet,
-    responses={404: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Fetch experiment set by URN",
 )
 def fetch_experiment_set(
     *, urn: str, db: Session = Depends(deps.get_db), user_data: UserData = Depends(get_current_user)

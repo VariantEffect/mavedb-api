@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/v1",
     tags=["Collections"],
-    responses={404: {"description": "Not found"}},
+    responses={404: {"description": "Not found"}, 500: {"description": "Internal server error"}},
     route_class=LoggedRoute,
 )
 
@@ -41,6 +41,10 @@ router = APIRouter(
     status_code=200,
     response_model=collection_bundle.CollectionBundle,
     response_model_exclude_none=True,
+    responses={
+        401: {"description": "Not authenticated"},
+    },
+    summary="List my collections",
 )
 def list_my_collections(
     *,
@@ -48,7 +52,8 @@ def list_my_collections(
     user_data: UserData = Depends(require_current_user),
 ) -> Dict[str, Sequence[Collection]]:
     """
-    List my collections.
+    List the current user's collections. These are all the collections the user either owns or
+    is listed as a contributor (in any role).
     """
     collection_bundle: Dict[str, Sequence[Collection]] = {}
     for role in ContributionRole:
@@ -91,8 +96,12 @@ def list_my_collections(
     "/collections/{urn}",
     status_code=200,
     response_model=collection.Collection,
-    responses={404: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
     response_model_exclude_none=True,
+    summary="Fetch a collection by URN",
 )
 def fetch_collection(
     *,
@@ -136,8 +145,13 @@ def fetch_collection(
 @router.post(
     "/collections/",
     response_model=collection.Collection,
-    responses={422: {}},
+    responses={
+        400: {"description": "Bad request"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
     response_model_exclude_none=True,
+    summary="Create a collection",
 )
 async def create_collection(
     *,
@@ -146,7 +160,7 @@ async def create_collection(
     user_data: UserData = Depends(require_current_user_with_email),
 ) -> Any:
     """
-    Create a collection.
+    Create a new collection owned by the current user.
     """
     logger.debug(msg="Began creation of new collection.", extra=logging_context())
 
@@ -252,8 +266,13 @@ async def create_collection(
 @router.patch(
     "/collections/{urn}",
     response_model=collection.Collection,
-    responses={422: {}},
+    responses={
+        400: {"description": "Bad request"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
     response_model_exclude_none=True,
+    summary="Update a collection",
 )
 async def update_collection(
     *,
@@ -327,7 +346,11 @@ async def update_collection(
 @router.post(
     "/collections/{collection_urn}/score-sets",
     response_model=collection.Collection,
-    responses={422: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Add a score set to a collection",
 )
 async def add_score_set_to_collection(
     *,
@@ -398,7 +421,12 @@ async def add_score_set_to_collection(
 @router.delete(
     "/collections/{collection_urn}/score-sets/{score_set_urn}",
     response_model=collection.Collection,
-    responses={422: {}},
+    responses={
+        400: {"description": "Bad request"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Remove a score set from a collection",
 )
 async def delete_score_set_from_collection(
     *,
@@ -408,7 +436,8 @@ async def delete_score_set_from_collection(
     user_data: UserData = Depends(require_current_user_with_email),
 ) -> Any:
     """
-    Remove a score set from an existing collection. Preserves the score set in the database, only removes the association between the score set and the collection.
+    Remove a score set from an existing collection. The score set will be preserved in the database. This endpoint will only remove
+    the association between the score set and the collection.
     """
     save_to_logging_context({"requested_resource": collection_urn})
 
@@ -434,7 +463,7 @@ async def delete_score_set_from_collection(
             extra=logging_context(),
         )
         raise HTTPException(
-            status_code=404,
+            status_code=400,
             detail=f"association between score set '{score_set_urn}' and collection '{collection_urn}' not found",
         )
 
@@ -477,7 +506,11 @@ async def delete_score_set_from_collection(
 @router.post(
     "/collections/{collection_urn}/experiments",
     response_model=collection.Collection,
-    responses={422: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Add an experiment to a collection",
 )
 async def add_experiment_to_collection(
     *,
@@ -548,7 +581,12 @@ async def add_experiment_to_collection(
 @router.delete(
     "/collections/{collection_urn}/experiments/{experiment_urn}",
     response_model=collection.Collection,
-    responses={422: {}},
+    responses={
+        400: {"description": "Bad request"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Remove an experiment from a collection",
 )
 async def delete_experiment_from_collection(
     *,
@@ -558,7 +596,8 @@ async def delete_experiment_from_collection(
     user_data: UserData = Depends(require_current_user_with_email),
 ) -> Any:
     """
-    Remove an experiment from an existing collection. Preserves the experiment in the database, only removes the association between the experiment and the collection.
+    Remove an experiment from an existing collection. The experiment will be preserved in the database. This endpoint will only remove
+    the association between the experiment and the collection.
     """
     save_to_logging_context({"requested_resource": collection_urn})
 
@@ -584,7 +623,7 @@ async def delete_experiment_from_collection(
             extra=logging_context(),
         )
         raise HTTPException(
-            status_code=404,
+            status_code=400,
             detail=f"association between experiment '{experiment_urn}' and collection '{collection_urn}' not found",
         )
 
@@ -627,7 +666,12 @@ async def delete_experiment_from_collection(
 @router.post(
     "/collections/{urn}/{role}s",
     response_model=collection.Collection,
-    responses={422: {}},
+    responses={
+        400: {"description": "Bad request"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Add a user to a collection role",
 )
 async def add_user_to_collection_role(
     *,
@@ -639,7 +683,7 @@ async def add_user_to_collection_role(
 ) -> Any:
     """
     Add an existing user to a collection under the specified role.
-    Removes the user from any other roles in this collection.
+    If a user is already in a role for this collection, this will remove the user from any other roles in this collection.
     """
     save_to_logging_context({"requested_resource": urn})
 
@@ -713,7 +757,12 @@ async def add_user_to_collection_role(
 @router.delete(
     "/collections/{urn}/{role}s/{orcid_id}",
     response_model=collection.Collection,
-    responses={422: {}},
+    responses={
+        400: {"description": "Bad request"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Remove a user from a collection role",
 )
 async def remove_user_from_collection_role(
     *,
@@ -724,7 +773,8 @@ async def remove_user_from_collection_role(
     user_data: UserData = Depends(require_current_user_with_email),
 ) -> Any:
     """
-    Remove a user from a collection role.
+    Remove a user from a collection role. Both the user and the role should be provided explicitly and match
+    the current assignment.
     """
     save_to_logging_context({"requested_resource": urn})
 
@@ -767,7 +817,7 @@ async def remove_user_from_collection_role(
             extra=logging_context(),
         )
         raise HTTPException(
-            status_code=404,
+            status_code=400,
             detail=f"user with ORCID iD '{orcid_id}' does not currently hold the role {role} for collection '{urn}'",
         )
 
@@ -793,7 +843,14 @@ async def remove_user_from_collection_role(
     return item
 
 
-@router.delete("/collections/{urn}", responses={422: {}})
+@router.delete(
+    "/collections/{urn}",
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Delete a collection",
+)
 async def delete_collection(
     *,
     urn: str,
