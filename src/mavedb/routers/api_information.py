@@ -12,10 +12,10 @@ router = APIRouter(
 )
 
 
-@router.get("/version", status_code=200, response_model=api_version.ApiVersion, responses={404: {}})
+@router.get("/version", status_code=200, response_model=api_version.ApiVersion, summary="Show API version")
 def show_version() -> Any:
     """
-    Describe the API version.
+    Describe the API version and project.
     """
 
     return api_version.ApiVersion(name=__project__, version=__version__)
