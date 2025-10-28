@@ -19,12 +19,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/v1/seqrepo",
     tags=["Seqrepo"],
-    responses={404: {"description": "not found"}},
+    responses={
+        404: {"description": "not found"},
+        500: {"description": "internal server error"},
+    },
     route_class=LoggedRoute,
 )
 
 
-@router.get("/sequence/{alias}")
+@router.get(
+    "/sequence/{alias}",
+    status_code=200,
+    responses={
+        200: {"description": "Successful response", "content": {"text/plain": {}}},
+    },
+    summary="Get sequence by alias",
+)
 def get_sequence(
     alias: str,
     start: Optional[int] = Query(None),
@@ -58,7 +68,7 @@ def get_sequence(
     return StreamingResponse(sequence_generator(sr, seq_ids[0], start, end), media_type="text/plain")
 
 
-@router.get("/metadata/{alias}", response_model=SeqRepoMetadata)
+@router.get("/metadata/{alias}", response_model=SeqRepoMetadata, summary="Get sequence metadata by alias")
 def get_metadata(alias: str, sr: SeqRepo = Depends(deps.get_seqrepo)) -> dict[str, Union[str, list[str]]]:
     save_to_logging_context({"requested_seqrepo_alias": alias, "requested_resource": "metadata"})
 
@@ -83,6 +93,6 @@ def get_metadata(alias: str, sr: SeqRepo = Depends(deps.get_seqrepo)) -> dict[st
     }
 
 
-@router.get("/version", response_model=SeqRepoVersions)
+@router.get("/version", response_model=SeqRepoVersions, summary="Get SeqRepo version information")
 def get_versions() -> dict[str, str]:
     return seqrepo_versions()
