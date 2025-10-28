@@ -28,12 +28,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/v1/refget",
     tags=["Refget"],
-    responses={404: {"description": "not found"}},
+    responses={
+        404: {"description": "not found"},
+        500: {"description": "internal server error"},
+    },
     route_class=LoggedRoute,
 )
 
 
-@router.get("/sequence/service-info", response_model=RefgetServiceInfo)
+@router.get("/sequence/service-info", response_model=RefgetServiceInfo, summary="Get Refget service information")
 def service_info() -> dict[str, Union[str, dict[str, Union[str, list[str], bool, None]]]]:
     """
     Returns information about the refget service.
@@ -59,8 +62,11 @@ def service_info() -> dict[str, Union[str, dict[str, Union[str, list[str], bool,
     }
 
 
-@router.get("/sequence/{alias}/metadata", response_model=RefgetMetadataResponse)
+@router.get("/sequence/{alias}/metadata", response_model=RefgetMetadataResponse, summary="Get Refget sequence metadata")
 def get_metadata(alias: str, sr: SeqRepo = Depends(deps.get_seqrepo)) -> dict[str, dict]:
+    """
+    Show metadata for a particular Refget sequence with the provided alias.
+    """
     save_to_logging_context({"requested_refget_alias": alias, "requested_resource": "metadata"})
 
     seq_ids = get_sequence_ids(sr, alias)
@@ -93,21 +99,32 @@ def get_metadata(alias: str, sr: SeqRepo = Depends(deps.get_seqrepo)) -> dict[st
     }
 
 
-@router.get("/sequence/{alias}")
+@router.get(
+    "/sequence/{alias}",
+    summary="Get Refget sequence",
+    responses={
+        200: {"description": "OK: Full sequence returned", "content": {"text/plain": {}}},
+        206: {"description": "Partial Content: Partial sequence returned", "content": {"text/plain": {}}},
+        400: {"description": "Bad request"},
+        416: {"description": "Requested Range Not Satisfiable"},
+        501: {"description": "Not Implemented"},
+    },
+)
 def get_sequence(
     alias: str,
     range_header: Optional[str] = Header(
         None,
         alias="Range",
-        description="""
-            Specify a substring as a single HTTP Range. One byte range is permitted, and is 0-based inclusive.
-            For example, 'Range: bytes=0-9' corresponds to '?start=0&end=10'.
-            """,
+        description="Specify a substring as a single HTTP Range. One byte range is permitted, "
+        "and is 0-based inclusive. For example, 'Range: bytes=0-9' corresponds to '?start=0&end=10'.",
     ),
     start: Optional[int] = Query(None, description="Request a subsequence of the data (0-based)."),
     end: Optional[int] = Query(None, description="Request a subsequence of the data by specifying the end."),
     sr: SeqRepo = Depends(deps.get_seqrepo),
 ) -> StreamingResponse:
+    """
+    Get a Refget sequence by alias.
+    """
     save_to_logging_context(
         {
             "requested_refget_alias": alias,
