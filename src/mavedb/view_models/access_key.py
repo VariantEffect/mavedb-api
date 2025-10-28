@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from mavedb.models.enums.user_role import UserRole
@@ -10,7 +10,7 @@ class AccessKeyBase(BaseModel):
     key_id: str
     name: Optional[str] = None
     expiration_date: Optional[date] = None
-    created_at: Optional[str] = None
+    creation_time: Optional[datetime] = None
 
 
 # Properties shared by models stored in DB
