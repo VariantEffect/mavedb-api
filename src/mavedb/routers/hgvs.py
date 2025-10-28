@@ -8,14 +8,12 @@ from hgvs import parser, validator
 from hgvs.exceptions import HGVSDataNotAvailableError, HGVSInvalidVariantError
 
 from mavedb.deps import hgvs_data_provider
+from mavedb.routers.shared import BASE_400_RESPONSE, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 
 router = APIRouter(
-    prefix="/api/v1/hgvs",
+    prefix=f"{ROUTER_BASE_PREFIX}/hgvs",
     tags=["Transcripts"],
-    responses={
-        404: {"description": "Not found"},
-        500: {"description": "Internal server error"},
-    },
+    responses={**PUBLIC_ERROR_RESPONSES},
 )
 
 
@@ -39,9 +37,7 @@ def hgvs_fetch(accession: str, hdp: RESTDataProvider = Depends(hgvs_data_provide
     "/validate",
     status_code=200,
     response_model=bool,
-    responses={
-        400: {"description": "Invalid variant"},
-    },
+    responses={**BASE_400_RESPONSE},
     summary="Validate a provided variant",
 )
 def hgvs_validate(variant: dict[str, str], hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> bool:

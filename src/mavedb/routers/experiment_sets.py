@@ -12,15 +12,13 @@ from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.models.experiment_set import ExperimentSet
+from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import experiment_set
 
 router = APIRouter(
-    prefix="/api/v1/experiment-sets",
+    prefix=f"{ROUTER_BASE_PREFIX}/experiment-sets",
     tags=["Experiment Sets"],
-    responses={
-        404: {"description": "Not found"},
-        500: {"description": "Internal server error"},
-    },
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
@@ -31,10 +29,7 @@ logger = logging.getLogger(__name__)
     "/{urn}",
     status_code=200,
     response_model=experiment_set.ExperimentSet,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "Not authorized"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Fetch experiment set by URN",
 )
 def fetch_experiment_set(

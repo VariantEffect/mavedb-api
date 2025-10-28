@@ -7,16 +7,14 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.lib.taxonomies import search_NCBI_taxonomy
 from mavedb.models.taxonomy import Taxonomy
+from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import taxonomy
 from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
-    prefix="/api/v1/taxonomies",
+    prefix=f"{ROUTER_BASE_PREFIX}/taxonomies",
     tags=["Taxonomies"],
-    responses={
-        404: {"description": "Not found"},
-        500: {"description": "Internal server error"},
-    },
+    responses={**PUBLIC_ERROR_RESPONSES},
 )
 
 

@@ -37,14 +37,12 @@ from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.user import User
+from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 
 router = APIRouter(
-    prefix="/api/v1/statistics",
+    prefix=f"{ROUTER_BASE_PREFIX}/statistics",
     tags=["Statistics"],
-    responses={
-        404: {"description": "Not found"},
-        500: {"description": "Internal server error"},
-    },
+    responses={**PUBLIC_ERROR_RESPONSES},
 )
 
 TARGET_ACCESSION_TAXONOMY = "Homo sapiens"

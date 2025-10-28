@@ -12,15 +12,13 @@ from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, assert_permission
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.user import User
+from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import user
 
 router = APIRouter(
-    prefix="/api/v1",
+    prefix=f"{ROUTER_BASE_PREFIX}",
     tags=["Users"],
-    responses={
-        404: {"description": "Not found"},
-        500: {"description": "Internal server error"},
-    },
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
@@ -47,10 +45,7 @@ register_url_convertor("orcid_id", OrcidIdConverter())
     "/users/",
     status_code=200,
     response_model=list[user.AdminUser],
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="List users",
 )
 async def list_users(
@@ -69,10 +64,7 @@ async def list_users(
     "/users/me",
     status_code=200,
     response_model=user.CurrentUser,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Show my user",
 )
 async def show_me(*, user_data: UserData = Depends(require_current_user)) -> User:
@@ -86,10 +78,7 @@ async def show_me(*, user_data: UserData = Depends(require_current_user)) -> Use
     "/users/{id:int}",
     status_code=200,
     response_model=user.AdminUser,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Show user by ID",
 )
 async def show_user_admin(
@@ -119,10 +108,7 @@ async def show_user_admin(
     "/users/{orcid_id:orcid_id}",
     status_code=200,
     response_model=user.User,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Show user by Orcid ID",
 )
 async def show_user(
@@ -153,10 +139,7 @@ async def show_user(
     "/users/me",
     status_code=200,
     response_model=user.CurrentUser,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Update my user",
 )
 async def update_me(
@@ -182,10 +165,7 @@ async def update_me(
     "/users/me/has-logged-in",
     status_code=200,
     response_model=user.CurrentUser,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Mark that the current user has logged in",
 )
 async def user_has_logged_in(
@@ -210,10 +190,7 @@ async def user_has_logged_in(
     "/users//{id}",
     status_code=200,
     response_model=user.AdminUser,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Update user by ID",
 )
 async def update_user(

@@ -12,17 +12,15 @@ from mavedb.lib.logging.context import (
     save_to_logging_context,
 )
 from mavedb.lib.seqrepo import get_sequence_ids, seqrepo_versions, sequence_generator
+from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models.seqrepo import SeqRepoMetadata, SeqRepoVersions
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/api/v1/seqrepo",
+    prefix=f"{ROUTER_BASE_PREFIX}/seqrepo",
     tags=["Seqrepo"],
-    responses={
-        404: {"description": "not found"},
-        500: {"description": "internal server error"},
-    },
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
@@ -63,7 +61,9 @@ def get_sequence(
         raise HTTPException(status_code=404, detail="Sequence not found")
     if len(seq_ids) > 1:
         logger.error(msg="Multiple sequences found for alias", extra=logging_context())
-        raise HTTPException(status_code=422, detail=f"Multiple sequences exist for alias '{alias}'")
+        raise HTTPException(
+            status_code=400, detail=f"Multiple sequences exist for alias '{alias}'. Use an explicit namespace."
+        )
 
     return StreamingResponse(sequence_generator(sr, seq_ids[0], start, end), media_type="text/plain")
 
@@ -79,7 +79,9 @@ def get_metadata(alias: str, sr: SeqRepo = Depends(deps.get_seqrepo)) -> dict[st
         raise HTTPException(status_code=404, detail="Sequence not found")
     if len(seq_ids) > 1:
         logger.error(msg="Multiple sequences found for alias", extra=logging_context())
-        raise HTTPException(status_code=422, detail=f"Multiple sequences exist for alias '{alias}'")
+        raise HTTPException(
+            status_code=400, detail=f"Multiple sequences exist for alias '{alias}'. Use an explicit namespace."
+        )
 
     seq_id = seq_ids[0]
     seq_info = sr.sequences.fetch_seqinfo(seq_id)

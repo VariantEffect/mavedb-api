@@ -1,8 +1,8 @@
 # ruff: noqa: E402
 
+import csv
 import re
 from copy import deepcopy
-import csv
 from datetime import date
 from io import StringIO
 from unittest.mock import patch
@@ -16,8 +16,8 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
-from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_EXPERIMENT_URN_RE
 from mavedb.lib.exceptions import NonexistentOrcidUserError
+from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
@@ -25,37 +25,36 @@ from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
-
 from tests.helpers.constants import (
-    EXTRA_USER,
     EXTRA_LICENSE,
-    TEST_CROSSREF_IDENTIFIER,
-    TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION,
-    TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION,
-    TEST_MINIMAL_ACC_SCORESET,
-    TEST_MINIMAL_SEQ_SCORESET,
-    TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
-    TEST_PUBMED_IDENTIFIER,
-    TEST_ORCID_ID,
-    TEST_MINIMAL_ACC_SCORESET_RESPONSE,
-    TEST_USER,
-    TEST_INACTIVE_LICENSE,
+    EXTRA_USER,
     SAVED_DOI_IDENTIFIER,
     SAVED_EXTRA_CONTRIBUTOR,
     SAVED_PUBMED_PUBLICATION,
     SAVED_SHORT_EXTRA_LICENSE,
+    TEST_CROSSREF_IDENTIFIER,
+    TEST_GNOMAD_DATA_VERSION,
+    TEST_INACTIVE_LICENSE,
+    TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION,
+    TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION,
+    TEST_MINIMAL_ACC_SCORESET,
+    TEST_MINIMAL_ACC_SCORESET_RESPONSE,
+    TEST_MINIMAL_SEQ_SCORESET,
+    TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
+    TEST_ORCID_ID,
+    TEST_PUBMED_IDENTIFIER,
     TEST_SAVED_CLINVAR_CONTROL,
     TEST_SAVED_GENERIC_CLINICAL_CONTROL,
-    TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-    TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-    TEST_SCORE_SET_RANGES_ONLY_SCOTT,
-    TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT,
-    TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
-    TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
-    TEST_GNOMAD_DATA_VERSION,
     TEST_SAVED_GNOMAD_VARIANT,
+    TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+    TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT,
+    TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
+    TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
+    TEST_SCORE_SET_RANGES_ONLY_SCOTT,
+    TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
+    TEST_USER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.common import update_expected_response_for_created_resources
@@ -65,18 +64,17 @@ from tests.helpers.util.license import change_to_inactive_license
 from tests.helpers.util.score_set import (
     create_seq_score_set,
     create_seq_score_set_with_mapped_variants,
+    create_seq_score_set_with_variants,
     link_clinical_controls_to_mapped_variants,
     link_gnomad_variants_to_mapped_variants,
     publish_score_set,
-    create_seq_score_set_with_variants,
 )
 from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import (
+    clear_first_mapped_variant_post_mapped,
     create_mapped_variants_for_score_set,
     mock_worker_variant_insertion,
-    clear_first_mapped_variant_post_mapped,
 )
-
 
 ########################################################################################################################
 # Score set schemas
@@ -247,7 +245,7 @@ def test_cannot_create_score_set_with_nonexistent_contributor(client, setup_rout
     ):
         response = client.post("/api/v1/score-sets/", json=score_set)
 
-    assert response.status_code == 422
+    assert response.status_code == 404
     response_data = response.json()
     assert "No ORCID user was found for ORCID ID 1111-1111-1111-1111." in response_data["detail"]
 
@@ -314,7 +312,7 @@ def test_cannot_create_score_set_without_email(client, setup_router_db):
     score_set_post_payload["experimentUrn"] = experiment["urn"]
     client.put("api/v1/users/me", json={"email": None})
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
-    assert response.status_code == 400
+    assert response.status_code == 403
     response_data = response.json()
     assert response_data["detail"] in "There must be an email address associated with your account to use this feature."
 
@@ -577,7 +575,7 @@ def test_cannot_update_score_set_with_nonexistent_contributor(
     ):
         response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_update_payload)
 
-    assert response.status_code == 422
+    assert response.status_code == 404
     response_data = response.json()
     assert "No ORCID user was found for ORCID ID 1111-1111-1111-1111." in response_data["detail"]
 
@@ -844,7 +842,7 @@ def test_cannot_add_scores_to_score_set_without_email(session, client, setup_rou
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
             files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
         )
-    assert response.status_code == 400
+    assert response.status_code == 403
     response_data = response.json()
     assert response_data["detail"] in "There must be an email address associated with your account to use this feature."
 
@@ -1148,7 +1146,7 @@ def test_cannot_publish_score_set_without_variants(client, setup_router_db):
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
-        assert response.status_code == 422
+        assert response.status_code == 409
         worker_queue.assert_not_called()
         response_data = response.json()
 
@@ -1576,7 +1574,7 @@ def test_cannot_add_score_set_to_meta_analysis_experiment(session, data_provider
 
     response = client.post("/api/v1/score-sets/", json=score_set_2)
     response_data = response.json()
-    assert response.status_code == 403
+    assert response.status_code == 409
     assert "Score sets may not be added to a meta-analysis experiment." in response_data["detail"]
 
 
@@ -2179,7 +2177,7 @@ def test_cannot_create_score_set_with_inactive_license(session, client, setup_ro
     score_set_post_payload["experimentUrn"] = experiment["urn"]
     score_set_post_payload["licenseId"] = TEST_INACTIVE_LICENSE["id"]
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
-    assert response.status_code == 400
+    assert response.status_code == 409
 
 
 def test_cannot_modify_score_set_to_inactive_license(session, client, setup_router_db):
@@ -2188,7 +2186,7 @@ def test_cannot_modify_score_set_to_inactive_license(session, client, setup_rout
     score_set_post_payload = score_set.copy()
     score_set_post_payload.update({"licenseId": TEST_INACTIVE_LICENSE["id"], "urn": score_set["urn"]})
     response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_post_payload)
-    assert response.status_code == 400
+    assert response.status_code == 409
 
 
 def test_can_modify_metadata_for_score_set_with_inactive_license(session, client, setup_router_db):
@@ -2375,7 +2373,7 @@ def test_user_cannot_add_score_ranges_to_own_score_set(client, setup_router_db, 
     response = client.post(f"/api/v1/score-sets/{score_set['urn']}/ranges/data", json=range_payload)
     response_data = response.json()
 
-    assert response.status_code == 401
+    assert response.status_code == 403
     assert "score_calibrations" not in response_data
 
 

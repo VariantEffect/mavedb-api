@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import APIRouter, Depends
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
+from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from mavedb import deps
@@ -17,12 +18,13 @@ from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.models.access_key import AccessKey
 from mavedb.models.enums.user_role import UserRole
+from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import access_key
 
 router = APIRouter(
-    prefix="/api/v1",
+    prefix=f"{ROUTER_BASE_PREFIX}",
     tags=["Access Keys"],
-    responses={404: {"description": "Not found"}, 500: {"description": "Internal server error"}},
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
@@ -49,9 +51,7 @@ def generate_key_pair():
     "/users/me/access-keys",
     status_code=200,
     response_model=list[access_key.AccessKey],
-    responses={
-        401: {"description": "Not authenticated"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="List my access keys",
 )
 def list_my_access_keys(*, user_data: UserData = Depends(require_current_user)) -> Any:
@@ -65,9 +65,7 @@ def list_my_access_keys(*, user_data: UserData = Depends(require_current_user)) 
     "/users/me/access-keys",
     status_code=200,
     response_model=access_key.NewAccessKey,
-    responses={
-        401: {"description": "Not authenticated"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Create a new access key for myself",
 )
 def create_my_access_key(
@@ -94,10 +92,7 @@ def create_my_access_key(
     "/users/me/access-keys/{role}",
     status_code=200,
     response_model=access_key.NewAccessKey,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Create a new access key for myself with a specified role",
 )
 async def create_my_access_key_with_role(
@@ -138,9 +133,8 @@ async def create_my_access_key_with_role(
 @router.delete(
     "/users/me/access-keys/{key_id}",
     status_code=200,
-    responses={
-        401: {"description": "Not authenticated"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Delete one of my access keys",
 )
 def delete_my_access_key(
     *,
@@ -152,7 +146,9 @@ def delete_my_access_key(
     Delete one of the current user's access keys.
     """
     item = (
-        db.query(AccessKey).filter(AccessKey.key_id == key_id and AccessKey.user_id == user_data.user.id).one_or_none()
+        db.query(AccessKey)
+        .filter(and_(AccessKey.key_id == key_id, AccessKey.user_id == user_data.user.id))
+        .one_or_none()
     )
 
     if not item:

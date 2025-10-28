@@ -18,6 +18,12 @@ from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.models.variant_translation import VariantTranslation
+from mavedb.routers.shared import (
+    ACCESS_CONTROL_ERROR_RESPONSES,
+    BASE_400_RESPONSE,
+    PUBLIC_ERROR_RESPONSES,
+    ROUTER_BASE_PREFIX,
+)
 from mavedb.view_models.variant import (
     ClingenAlleleIdVariantLookupResponse,
     ClingenAlleleIdVariantLookupsRequest,
@@ -25,12 +31,9 @@ from mavedb.view_models.variant import (
 )
 
 router = APIRouter(
-    prefix="/api/v1",
+    prefix=f"{ROUTER_BASE_PREFIX}",
     tags=["Variants"],
-    responses={
-        404: {"description": "Not found"},
-        500: {"description": "Internal server error"},
-    },
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
@@ -42,9 +45,8 @@ logger = logging.getLogger(__name__)
     status_code=200,
     response_model=list[ClingenAlleleIdVariantLookupResponse],
     responses={
-        400: {"description": "Bad request"},
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
+        **BASE_400_RESPONSE,
+        **ACCESS_CONTROL_ERROR_RESPONSES,
     },
     summary="Lookup variants by ClinGen Allele IDs",
 )
@@ -428,10 +430,7 @@ def lookup_variants(
     "/variants/{urn}",
     status_code=200,
     response_model=VariantEffectMeasurementWithScoreSet,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     response_model_exclude_none=True,
     summary="Fetch variant by URN",
 )
@@ -444,9 +443,7 @@ def get_variant(*, urn: str, db: Session = Depends(deps.get_db), user_data: User
         query = db.query(Variant).filter(Variant.urn == urn)
         variant = query.one_or_none()
     except MultipleResultsFound:
-        logger.info(
-            msg="Could not fetch the requested score set; Multiple such variants exist.", extra=logging_context()
-        )
+        logger.info(msg="Could not fetch the requested variant; Multiple such variants exist.", extra=logging_context())
         raise HTTPException(status_code=500, detail=f"multiple variants with URN '{urn}' were found")
 
     if not variant:

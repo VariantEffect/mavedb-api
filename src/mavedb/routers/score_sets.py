@@ -5,7 +5,7 @@ from typing import Any, List, Optional, Sequence, Union
 import pandas as pd
 import requests
 from arq import ArqRedis
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
@@ -74,6 +74,14 @@ from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
+from mavedb.routers.shared import (
+    ACCESS_CONTROL_ERROR_RESPONSES,
+    BASE_400_RESPONSE,
+    BASE_409_RESPONSE,
+    GATEWAY_ERROR_RESPONSES,
+    PUBLIC_ERROR_RESPONSES,
+    ROUTER_BASE_PREFIX,
+)
 from mavedb.view_models import clinical_control, gnomad_variant, mapped_variant, score_range, score_set
 from mavedb.view_models.search import ScoreSetsSearch
 
@@ -128,9 +136,9 @@ async def fetch_score_set_by_urn(
 
 
 router = APIRouter(
-    prefix="/api/v1",
+    prefix=f"{ROUTER_BASE_PREFIX}",
     tags=["Score Sets"],
-    responses={404: {"description": "not found"}, 500: {"description": "Internal server error"}},
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
@@ -140,10 +148,7 @@ router = APIRouter(
     status_code=200,
     response_model=list[score_set.ShortScoreSet],
     summary="Search score sets",
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
 )
 def search_score_sets(
     search: ScoreSetsSearch,
@@ -170,9 +175,7 @@ def search_score_sets(
     status_code=200,
     response_model=dict[str, list[str]],
     summary="Get score set to mapped gene symbol mapping",
-    responses={
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
 )
 def score_set_mapped_gene_mapping(
     db: Session = Depends(deps.get_db), user_data: UserData = Depends(get_current_user)
@@ -209,10 +212,7 @@ def score_set_mapped_gene_mapping(
     status_code=200,
     response_model=list[score_set.ShortScoreSet],
     summary="Search my score sets",
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
 )
 def search_my_score_sets(
     search: ScoreSetsSearch,  # = Body(..., embed=True),
@@ -238,10 +238,7 @@ def search_my_score_sets(
     "/score-sets/{urn}",
     status_code=200,
     response_model=score_set.ScoreSet,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     response_model_exclude_none=True,
     summary="Fetch score set by URN",
 )
@@ -269,9 +266,8 @@ async def show_score_set(
             "description": """Variant data in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
             """ and hgvs_splice), plus score columns defined by the score set.""",
         },
-        400: {"description": "Bad request"},
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
+        **BASE_400_RESPONSE,
+        **ACCESS_CONTROL_ERROR_RESPONSES,
     },
     summary="Get score set variant data in CSV format",
 )
@@ -328,10 +324,10 @@ def get_score_set_variants_csv(
 
     if start and start < 0:
         logger.info(msg="Could not fetch scores with negative start index.", extra=logging_context())
-        raise HTTPException(status_code=400, detail="Start index must be non-negative")
+        raise HTTPException(status_code=422, detail="Start index must be non-negative")
     if limit is not None and limit <= 0:
         logger.info(msg="Could not fetch scores with non-positive limit.", extra=logging_context())
-        raise HTTPException(status_code=400, detail="Limit must be positive")
+        raise HTTPException(status_code=422, detail="Limit must be positive")
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -362,9 +358,8 @@ def get_score_set_variants_csv(
             "description": """Variant scores in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
             """ and hgvs_splice), plus score columns defined by the score set.""",
         },
-        400: {"description": "Bad request"},
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
+        **BASE_400_RESPONSE,
+        **ACCESS_CONTROL_ERROR_RESPONSES,
     },
     summary="Get score set scores in CSV format",
 )
@@ -421,9 +416,8 @@ def get_score_set_scores_csv(
             "description": """Variant counts in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
             """ and hgvs_splice), plus score columns defined by the score set.""",
         },
-        400: {"description": "Bad request"},
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
+        **BASE_400_RESPONSE,
+        **ACCESS_CONTROL_ERROR_RESPONSES,
     },
     summary="Get score set counts in CSV format",
 )
@@ -475,10 +469,7 @@ async def get_score_set_counts_csv(
     "/score-sets/{urn}/mapped-variants",
     status_code=200,
     response_model=list[mapped_variant.MappedVariant],
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Get mapped variants from score set by URN",
 )
 def get_score_set_mapped_variants(
@@ -524,10 +515,7 @@ def get_score_set_mapped_variants(
     status_code=200,
     response_model=dict[str, Optional[VariantPathogenicityEvidenceLine]],
     response_model_exclude_none=True,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Get pathogenicity evidence line annotations for mapped variants within a score set",
 )
 def get_score_set_annotated_variants(
@@ -586,10 +574,7 @@ def get_score_set_annotated_variants(
     status_code=200,
     response_model=dict[str, Optional[Statement]],
     response_model_exclude_none=True,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Get functional impact statement annotations for mapped variants within a score set",
 )
 def get_score_set_annotated_variants_functional_statement(
@@ -648,10 +633,7 @@ def get_score_set_annotated_variants_functional_statement(
     status_code=200,
     response_model=dict[str, Optional[ExperimentalVariantFunctionalImpactStudyResult]],
     response_model_exclude_none=True,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Get functional study result annotations for mapped variants within a score set",
 )
 def get_score_set_annotated_variants_functional_study_result(
@@ -709,12 +691,7 @@ def get_score_set_annotated_variants_functional_study_result(
     "/score-sets/",
     response_model=score_set.ScoreSet,
     response_model_exclude_none=True,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-        502: {"description": "Bad gateway"},
-        504: {"description": "Gateway timeout"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE, **GATEWAY_ERROR_RESPONSES},
     summary="Create a score set",
 )
 async def create_score_set(
@@ -735,11 +712,11 @@ async def create_score_set(
             logger.info(
                 msg="Failed to create score set; The requested experiment does not exist.", extra=logging_context()
             )
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
+            raise HTTPException(status_code=404, detail="The requested experiment does not exist")
         # Not allow add score set in meta-analysis experiments.
         if any(s.meta_analyzes_score_sets for s in experiment.score_sets):
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
+                status_code=409,
                 detail="Score sets may not be added to a meta-analysis experiment.",
             )
 
@@ -751,12 +728,15 @@ async def create_score_set(
 
     if not license_:
         logger.info(msg="Failed to create score set; The requested license does not exist.", extra=logging_context())
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
+        raise HTTPException(status_code=404, detail="The requested license does not exist")
     elif not license_.active:
         logger.info(
             msg="Failed to create score set; The requested license is no longer active.", extra=logging_context()
         )
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid license")
+        raise HTTPException(
+            status_code=409,
+            detail="Invalid license. The requested license is not active and may no longer be attached to score sets.",
+        )
 
     save_to_logging_context({"requested_superseded_score_set": item_create.superseded_score_set_urn})
     if item_create.superseded_score_set_urn is not None:
@@ -770,8 +750,8 @@ async def create_score_set(
                 extra=logging_context(),
             )
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Unknown superseded score set",
+                status_code=404,
+                detail="The requested superseded score set does not exist",
             )
     else:
         superseded_score_set = None
@@ -794,7 +774,7 @@ async def create_score_set(
                 extra=logging_context(),
             )
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=404,
                 detail=f"Unknown meta-analyzed score set {distinct_meta_analyzes_score_set_urns[i]}",
             )
 
@@ -851,7 +831,7 @@ async def create_score_set(
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e))
 
     try:
         doi_identifiers = [
@@ -907,7 +887,7 @@ async def create_score_set(
                 logger.info(
                     msg="Failed to create score set; The requested taxonomy does not exist.", extra=logging_context()
                 )
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown taxonomy")
+                raise HTTPException(status_code=404, detail="The requested taxonomy does not exist")
 
             # If the target sequence has a label, use it. Otherwise, use the name from the target gene as the label.
             # View model validation rules enforce that sequences must have a label defined if there are more than one
@@ -1020,11 +1000,7 @@ async def create_score_set(
     "/score-sets/{urn}/variants/data",
     response_model=score_set.ScoreSet,
     response_model_exclude_none=True,
-    responses={
-        400: {"description": "Bad request"},
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**BASE_400_RESPONSE, **ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Upload score and variant count files for a score set",
 )
 async def upload_score_set_variant_data(
@@ -1090,10 +1066,7 @@ async def upload_score_set_variant_data(
     "/score-sets/{urn}/ranges/data",
     response_model=score_set.ScoreSet,
     response_model_exclude_none=True,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Update score ranges / calibrations for a score set",
 )
 async def update_score_set_range_data(
@@ -1130,13 +1103,7 @@ async def update_score_set_range_data(
     "/score-sets/{urn}",
     response_model=score_set.ScoreSet,
     response_model_exclude_none=True,
-    responses={
-        400: {"description": "Bad request"},
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-        502: {"description": "Bad gateway"},
-        504: {"description": "Gateway timeout"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE, **GATEWAY_ERROR_RESPONSES},
     summary="Update a score set",
 )
 async def update_score_set(
@@ -1181,7 +1148,7 @@ async def update_score_set(
             logger.info(
                 msg="Failed to update score set; The requested license does not exist.", extra=logging_context()
             )
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
+            raise HTTPException(status_code=404, detail="The requested license does not exist")
 
             # Allow in-active licenses to be retained on update if they already exist on the item.
         elif not license_.active and item.licence_id != item_update.license_id:
@@ -1189,7 +1156,10 @@ async def update_score_set(
                 msg="Failed to update score set license; The requested license is no longer active.",
                 extra=logging_context(),
             )
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid license")
+            raise HTTPException(
+                status_code=409,
+                detail="Invalid license. The requested license is no longer active and may not be used.",
+            )
 
         item.license = license_
 
@@ -1234,7 +1204,7 @@ async def update_score_set(
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e))
 
     # Score set has not been published and attributes affecting scores may still be edited.
     if item.private:
@@ -1277,7 +1247,7 @@ async def update_score_set(
                         extra=logging_context(),
                     )
                     raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
+                        status_code=404,
                         detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.code}",
                     )
 
@@ -1408,10 +1378,7 @@ async def update_score_set(
 @router.delete(
     "/score-sets/{urn}",
     status_code=200,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Delete a score set",
 )
 async def delete_score_set(
@@ -1451,12 +1418,7 @@ async def delete_score_set(
     status_code=200,
     response_model=score_set.ScoreSet,
     response_model_exclude_none=True,
-    responses={
-        400: {"description": "Bad request"},
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-        409: {"description": "Conflict"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE},
 )
 async def publish_score_set(
     *,
@@ -1503,7 +1465,7 @@ async def publish_score_set(
             extra=logging_context(),
         )
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=409,
             detail="cannot publish score set without variant scores",
         )
 
@@ -1559,10 +1521,7 @@ async def publish_score_set(
     status_code=200,
     response_model=list[clinical_control.ClinicalControlWithMappedVariants],
     response_model_exclude_none=True,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Get clinical controls for a score set",
 )
 async def get_clinical_controls_for_score_set(
@@ -1632,10 +1591,7 @@ async def get_clinical_controls_for_score_set(
     status_code=200,
     response_model=list[clinical_control.ClinicalControlOptions],
     response_model_exclude_none=True,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Get clinical control options for a score set",
 )
 async def get_clinical_controls_options_for_score_set(
@@ -1696,10 +1652,7 @@ async def get_clinical_controls_options_for_score_set(
     status_code=200,
     response_model=list[gnomad_variant.GnomADVariantWithMappedVariants],
     response_model_exclude_none=True,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Get gnomad variants for a score set",
 )
 async def get_gnomad_variants_for_score_set(

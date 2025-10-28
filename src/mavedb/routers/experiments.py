@@ -32,18 +32,21 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
+from mavedb.routers.shared import (
+    ACCESS_CONTROL_ERROR_RESPONSES,
+    GATEWAY_ERROR_RESPONSES,
+    PUBLIC_ERROR_RESPONSES,
+    ROUTER_BASE_PREFIX,
+)
 from mavedb.view_models import experiment, score_set
 from mavedb.view_models.search import ExperimentsSearch
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/api/v1",
+    prefix=f"{ROUTER_BASE_PREFIX}",
     tags=["Experiments"],
-    responses={
-        404: {"description": "Not found"},
-        500: {"description": "Internal server error"},
-    },
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
@@ -54,6 +57,7 @@ router = APIRouter(
     status_code=200,
     response_model=list[experiment.Experiment],
     response_model_exclude_none=True,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="List experiments",
 )
 def list_experiments(
@@ -102,6 +106,7 @@ def search_experiments(search: ExperimentsSearch, db: Session = Depends(deps.get
     "/me/experiments/search",
     status_code=200,
     response_model=list[experiment.ShortExperiment],
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Search my experiments",
 )
 def search_my_experiments(
@@ -120,10 +125,7 @@ def search_my_experiments(
     "/experiments/{urn}",
     status_code=200,
     response_model=experiment.Experiment,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Fetch experiment by URN",
     response_model_exclude_none=True,
 )
@@ -152,10 +154,7 @@ def fetch_experiment(
     "/experiments/{urn}/score-sets",
     status_code=200,
     response_model=list[score_set.ScoreSet],
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Get score sets for an experiment",
     response_model_exclude_none=True,
 )
@@ -210,10 +209,8 @@ def get_experiment_score_sets(
     status_code=200,
     response_model=experiment.Experiment,
     responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-        502: {"description": "Bad Gateway"},
-        504: {"description": "Gateway Timeout"},
+        **ACCESS_CONTROL_ERROR_RESPONSES,
+        **GATEWAY_ERROR_RESPONSES,
     },
     response_model_exclude_none=True,
 )
@@ -254,7 +251,7 @@ async def create_experiment(
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e))
 
     try:
         doi_identifiers = [
@@ -355,10 +352,8 @@ async def create_experiment(
     status_code=200,
     response_model=experiment.Experiment,
     responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-        502: {"description": "Bad Gateway"},
-        504: {"description": "Gateway Timeout"},
+        **ACCESS_CONTROL_ERROR_RESPONSES,
+        **GATEWAY_ERROR_RESPONSES,
     },
     response_model_exclude_none=True,
 )
@@ -407,7 +402,7 @@ async def update_experiment(
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e))
 
     try:
         doi_identifiers = [
@@ -480,10 +475,7 @@ async def update_experiment(
     "/experiments/{urn}",
     status_code=200,
     response_model=None,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Delete an experiment",
 )
 async def delete_experiment(

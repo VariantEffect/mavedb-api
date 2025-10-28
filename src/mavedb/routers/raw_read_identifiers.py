@@ -6,16 +6,14 @@ from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.models.raw_read_identifier import RawReadIdentifier
+from mavedb.routers.shared import BASE_400_RESPONSE, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import raw_read_identifier
 from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
-    prefix="/api/v1/raw-read-identifiers",
+    prefix=f"{ROUTER_BASE_PREFIX}/raw-read-identifiers",
     tags=["Raw Read Identifiers"],
-    responses={
-        404: {"description": "Not found"},
-        500: {"description": "Internal server error"},
-    },
+    responses={**PUBLIC_ERROR_RESPONSES},
 )
 
 
@@ -23,9 +21,7 @@ router = APIRouter(
     "/search",
     status_code=200,
     response_model=List[raw_read_identifier.RawReadIdentifier],
-    responses={
-        400: {"description": "Bad request"},
-    },
+    responses={**BASE_400_RESPONSE},
     summary="Search Raw Read identifiers",
 )
 def search_raw_read_identifiers(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:

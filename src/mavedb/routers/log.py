@@ -4,11 +4,12 @@ from fastapi import APIRouter
 
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 
 router = APIRouter(
-    prefix="/api/v1/log",
+    prefix=f"{ROUTER_BASE_PREFIX}/log",
     tags=["Log"],
-    responses={404: {"description": "Not found"}, 500: {"description": "Internal server error"}},
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 

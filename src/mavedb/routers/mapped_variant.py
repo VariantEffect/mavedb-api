@@ -27,6 +27,7 @@ from mavedb.lib.logging.context import (
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
+from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import mapped_variant
 
 logger = logging.getLogger(__name__)
@@ -68,12 +69,9 @@ async def fetch_mapped_variant_by_variant_urn(db: Session, user: Optional[UserDa
 
 
 router = APIRouter(
-    prefix="/api/v1/mapped-variants",
+    prefix=f"{ROUTER_BASE_PREFIX}/mapped-variants",
     tags=["Mapped Variants"],
-    responses={
-        404: {"description": "Not found"},
-        500: {"description": "Internal server error"},
-    },
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
@@ -82,10 +80,7 @@ router = APIRouter(
     "/{urn}",
     status_code=200,
     response_model=mapped_variant.MappedVariant,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Fetch mapped variant by URN",
 )
 async def show_mapped_variant(
@@ -103,10 +98,7 @@ async def show_mapped_variant(
     "/{urn}/va/study-result",
     status_code=200,
     response_model=ExperimentalVariantFunctionalImpactStudyResult,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Construct a VA-Spec StudyResult from a mapped variant",
 )
 async def show_mapped_variant_study_result(
@@ -126,7 +118,7 @@ async def show_mapped_variant_study_result(
             msg=f"Could not construct a study result for mapped variant {urn}: {e}",
             extra=logging_context(),
         )
-        raise HTTPException(status_code=404, detail=f"Could not construct a study result for mapped variant {urn}: {e}")
+        raise HTTPException(status_code=404, detail=f"No study result exists for mapped variant {urn}: {e}")
 
 
 # TODO#416: For now, this route supports only one statement per mapped variant. Eventually, we should support the possibility of multiple statements.
@@ -134,10 +126,7 @@ async def show_mapped_variant_study_result(
     "/{urn}/va/functional-impact",
     status_code=200,
     response_model=Statement,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Construct a VA-Spec Statement from a mapped variant",
 )
 async def show_mapped_variant_functional_impact_statement(
@@ -158,7 +147,7 @@ async def show_mapped_variant_functional_impact_statement(
             extra=logging_context(),
         )
         raise HTTPException(
-            status_code=404, detail=f"Could not construct a functional impact statement for mapped variant {urn}: {e}"
+            status_code=404, detail=f"No functional impact statement exists for mapped variant {urn}: {e}"
         )
 
     if not functional_impact:
@@ -168,7 +157,7 @@ async def show_mapped_variant_functional_impact_statement(
         )
         raise HTTPException(
             status_code=404,
-            detail=f"Could not construct a functional impact statement for mapped variant {urn}. Variant does not have sufficient evidence to evaluate its functional impact.",
+            detail=f"No functional impact statement exists for mapped variant {urn}. Variant does not have sufficient evidence to evaluate its functional impact.",
         )
 
     return functional_impact
@@ -179,10 +168,7 @@ async def show_mapped_variant_functional_impact_statement(
     "/{urn}/va/clinical-evidence",
     status_code=200,
     response_model=VariantPathogenicityEvidenceLine,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Construct a VA-Spec EvidenceLine from a mapped variant",
 )
 async def show_mapped_variant_acmg_evidence_line(
@@ -203,7 +189,7 @@ async def show_mapped_variant_acmg_evidence_line(
             extra=logging_context(),
         )
         raise HTTPException(
-            status_code=404, detail=f"Could not construct a pathogenicity evidence line for mapped variant {urn}: {e}"
+            status_code=404, detail=f"No pathogenicity evidence line exists for mapped variant {urn}: {e}"
         )
 
     if not pathogenicity_evidence:
@@ -213,7 +199,7 @@ async def show_mapped_variant_acmg_evidence_line(
         )
         raise HTTPException(
             status_code=404,
-            detail=f"Could not construct a pathogenicity evidence line for mapped variant {urn}; Variant does not have sufficient evidence to evaluate its pathogenicity.",
+            detail=f"No pathogenicity evidence line exists for mapped variant {urn}; Variant does not have sufficient evidence to evaluate its pathogenicity.",
         )
 
     return pathogenicity_evidence
@@ -223,9 +209,7 @@ async def show_mapped_variant_acmg_evidence_line(
     "/vrs/{identifier}",
     status_code=200,
     response_model=list[mapped_variant.MappedVariant],
-    responses={
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Fetch mapped variants by VRS identifier",
 )
 async def show_mapped_variants_by_identifier(

@@ -19,6 +19,13 @@ from mavedb import __version__, deps
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.seqrepo import base64url_to_hex, get_sequence_ids, sequence_generator
+from mavedb.routers.shared import (
+    BASE_400_RESPONSE,
+    BASE_416_RESPONSE,
+    BASE_501_RESPONSE,
+    PUBLIC_ERROR_RESPONSES,
+    ROUTER_BASE_PREFIX,
+)
 from mavedb.view_models.refget import RefgetMetadataResponse, RefgetServiceInfo
 
 RANGE_HEADER_REGEX = r"^bytes=(\d+)-(\d+)$"
@@ -26,12 +33,9 @@ RANGE_HEADER_REGEX = r"^bytes=(\d+)-(\d+)$"
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/api/v1/refget",
+    prefix=f"{ROUTER_BASE_PREFIX}/refget",
     tags=["Refget"],
-    responses={
-        404: {"description": "not found"},
-        500: {"description": "internal server error"},
-    },
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
@@ -76,7 +80,9 @@ def get_metadata(alias: str, sr: SeqRepo = Depends(deps.get_seqrepo)) -> dict[st
         raise HTTPException(status_code=404, detail="Sequence not found")
     if len(seq_ids) > 1:
         logger.error(msg="Multiple sequences found for alias", extra=logging_context())
-        raise HTTPException(status_code=422, detail=f"Multiple sequences exist for alias '{alias}'")
+        raise HTTPException(
+            status_code=400, detail=f"Multiple sequences exist for alias '{alias}'. Use an explicit namespace"
+        )
 
     seq_id = seq_ids[0]
     seqinfo = sr.sequences.fetch_seqinfo(seq_id)
@@ -105,9 +111,9 @@ def get_metadata(alias: str, sr: SeqRepo = Depends(deps.get_seqrepo)) -> dict[st
     responses={
         200: {"description": "OK: Full sequence returned", "content": {"text/plain": {}}},
         206: {"description": "Partial Content: Partial sequence returned", "content": {"text/plain": {}}},
-        400: {"description": "Bad request"},
-        416: {"description": "Requested Range Not Satisfiable"},
-        501: {"description": "Not Implemented"},
+        **BASE_400_RESPONSE,
+        **BASE_416_RESPONSE,
+        **BASE_501_RESPONSE,
     },
 )
 def get_sequence(
@@ -165,7 +171,9 @@ def get_sequence(
         raise HTTPException(status_code=404, detail="Sequence not found")
     if len(seq_ids) > 1:
         logger.error(msg="Multiple sequences found for alias", extra=logging_context())
-        raise HTTPException(status_code=422, detail=f"Multiple sequences exist for alias '{alias}'")
+        raise HTTPException(
+            status_code=400, detail=f"Multiple sequences exist for alias '{alias}'. Use an explicit namespace."
+        )
 
     seq_id = seq_ids[0]
     seqinfo = sr.sequences.fetch_seqinfo(seq_id)

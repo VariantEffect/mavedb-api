@@ -11,6 +11,12 @@ from mavedb import deps
 from mavedb.lib.identifiers import find_generic_article
 from mavedb.lib.validation.constants.publication import valid_dbnames
 from mavedb.models.publication_identifier import PublicationIdentifier
+from mavedb.routers.shared import (
+    BASE_400_RESPONSE,
+    GATEWAY_ERROR_RESPONSES,
+    PUBLIC_ERROR_RESPONSES,
+    ROUTER_BASE_PREFIX,
+)
 from mavedb.view_models import publication_identifier
 from mavedb.view_models.search import TextSearch
 
@@ -19,12 +25,9 @@ PublicationDatabases = Enum("PublicationDataBases", ((x, x) for x in valid_dbnam
 
 
 router = APIRouter(
-    prefix="/api/v1/publication-identifiers",
+    prefix=f"{ROUTER_BASE_PREFIX}/publication-identifiers",
     tags=["Publication Identifiers"],
-    responses={
-        404: {"description": "Not found"},
-        500: {"description": "Internal server error"},
-    },
+    responses={**PUBLIC_ERROR_RESPONSES},
 )
 
 
@@ -176,9 +179,7 @@ def search_publication_identifier_identifiers(search: TextSearch, db: Session = 
     "/search/doi",
     status_code=200,
     response_model=list[publication_identifier.PublicationIdentifier],
-    responses={
-        400: {"description": "Bad request"},
-    },
+    responses={**BASE_400_RESPONSE},
     summary="Search publication DOIs",
 )
 def search_publication_identifier_dois(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
@@ -284,9 +285,8 @@ async def search_publications_by_identifier_and_db(
     status_code=200,
     response_model=List[publication_identifier.ExternalPublicationIdentifier],
     responses={
-        400: {"description": "Bad request"},
-        502: {"description": "External service error"},
-        504: {"description": "External service timeout"},
+        **BASE_400_RESPONSE,
+        **GATEWAY_ERROR_RESPONSES,
     },
     summary="Search external publication identifiers",
 )

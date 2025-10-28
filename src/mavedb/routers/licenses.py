@@ -5,15 +5,13 @@ from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.models.license import License
+from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import license
 
 router = APIRouter(
-    prefix="/api/v1/licenses",
+    prefix=f"{ROUTER_BASE_PREFIX}/licenses",
     tags=["Licenses"],
-    responses={
-        404: {"description": "Not found"},
-        500: {"description": "Internal server error"},
-    },
+    responses={**PUBLIC_ERROR_RESPONSES},
 )
 
 

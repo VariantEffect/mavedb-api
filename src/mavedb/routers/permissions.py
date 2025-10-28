@@ -14,14 +14,12 @@ from mavedb.models.collection import Collection
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
+from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 
 router = APIRouter(
-    prefix="/api/v1/permissions",
+    prefix=f"{ROUTER_BASE_PREFIX}/permissions",
     tags=["Permissions"],
-    responses={
-        404: {"description": "Not found"},
-        500: {"description": "Internal server error"},
-    },
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
@@ -39,9 +37,7 @@ class ModelName(str, Enum):
     "/user-is-permitted/{model_name}/{urn}/{action}",
     status_code=200,
     response_model=bool,
-    responses={
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Check user permissions on a resource",
 )
 async def check_permission(

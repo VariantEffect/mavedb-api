@@ -9,7 +9,6 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from sqlalchemy.orm import configure_mappers
-from starlette import status
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette_context.plugins import (
@@ -119,7 +118,7 @@ async def permission_exception_handler(request: Request, exc: PermissionExceptio
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     response = JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=422,
         content=jsonable_encoder({"detail": list(map(lambda error: customize_validation_error(error), exc.errors()))}),
     )
     save_to_logging_context(format_raised_exception_info_as_dict(exc))

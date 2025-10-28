@@ -6,12 +6,13 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.lib.keywords import search_keyword as _search_keyword
 from mavedb.models.controlled_keyword import ControlledKeyword
+from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import keyword
 
 router = APIRouter(
-    prefix="/api/v1/controlled-keywords",
+    prefix=f"{ROUTER_BASE_PREFIX}/controlled-keywords",
     tags=["Controlled Keywords"],
-    responses={404: {"description": "Not found"}, 500: {"description": "Internal server error"}},
+    responses={**PUBLIC_ERROR_RESPONSES},
 )
 
 

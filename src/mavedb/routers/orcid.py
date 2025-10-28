@@ -11,14 +11,21 @@ from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.orcid import fetch_orcid_user
 from mavedb.models.user import User
+from mavedb.routers.shared import (
+    ACCESS_CONTROL_ERROR_RESPONSES,
+    BASE_401_RESPONSE,
+    GATEWAY_ERROR_RESPONSES,
+    PUBLIC_ERROR_RESPONSES,
+    ROUTER_BASE_PREFIX,
+)
 from mavedb.view_models import orcid
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/api/v1/orcid",
+    prefix=f"{ROUTER_BASE_PREFIX}/orcid",
     tags=["Orcid"],
-    responses={404: {"description": "Not found"}, 500: {"description": "Internal server error"}},
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
@@ -30,12 +37,7 @@ ORCID_CLIENT_SECRET = os.getenv("ORCID_CLIENT_SECRET")
     "/users/{orcid_id}",
     status_code=200,
     response_model=orcid.OrcidUser,
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-        502: {"description": "Bad gateway"},
-        504: {"description": "Gateway timeout"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES, **GATEWAY_ERROR_RESPONSES},
     summary="Look up an ORCID user by ORCID ID",
 )
 def lookup_orcid_user(
@@ -65,9 +67,7 @@ def lookup_orcid_user(
     "/token",
     status_code=200,
     response_model=orcid.OrcidAuthTokenResponse,
-    responses={
-        401: {"description": "Authentication error"},
-    },
+    responses={**BASE_401_RESPONSE},
     summary="Exchange an ORCID authorization code for an access token",
     include_in_schema=False,
 )

@@ -3,12 +3,13 @@ from typing import Any
 from fastapi import APIRouter
 
 from mavedb import __project__, __version__
+from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import api_version
 
 router = APIRouter(
-    prefix="/api/v1/api",
+    prefix=f"{ROUTER_BASE_PREFIX}/api",
     tags=["API Information"],
-    responses={404: {"description": "Not found"}, 500: {"description": "Internal server error"}},
+    responses={**PUBLIC_ERROR_RESPONSES},
 )
 
 

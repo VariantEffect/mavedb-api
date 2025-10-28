@@ -6,13 +6,14 @@ from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.models.doi_identifier import DoiIdentifier
+from mavedb.routers.shared import BASE_400_RESPONSE, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import doi_identifier
 from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
-    prefix="/api/v1/doi-identifiers",
+    prefix=f"{ROUTER_BASE_PREFIX}/doi-identifiers",
     tags=["DOI Identifiers"],
-    responses={404: {"description": "Not found"}, 500: {"description": "Internal server error"}},
+    responses={**PUBLIC_ERROR_RESPONSES},
 )
 
 
@@ -20,9 +21,7 @@ router = APIRouter(
     "/search",
     status_code=200,
     response_model=List[doi_identifier.DoiIdentifier],
-    responses={
-        400: {"description": "Bad request"},
-    },
+    responses={**BASE_400_RESPONSE},
     summary="Search DOI identifiers",
 )
 def search_doi_identifiers(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:

@@ -6,13 +6,14 @@ from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.identifiers import EXTERNAL_GENE_IDENTIFIER_CLASSES
+from mavedb.routers.shared import BASE_400_RESPONSE, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import external_gene_identifier
 from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
-    prefix="/api/v1/target-gene-identifiers",
+    prefix=f"{ROUTER_BASE_PREFIX}/target-gene-identifiers",
     tags=["Target Gene Identifiers"],
-    responses={404: {"description": "Not found"}, 500: {"description": "Internal server error"}},
+    responses={**PUBLIC_ERROR_RESPONSES},
 )
 
 
@@ -21,9 +22,7 @@ router = APIRouter(
     status_code=200,
     response_model=List[external_gene_identifier.ExternalGeneIdentifier],
     summary="Search target gene identifiers",
-    responses={
-        400: {"description": "Bad request"},
-    },
+    responses={**BASE_400_RESPONSE},
 )
 def search_target_gene_identifiers(db_name: str, search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
@@ -31,7 +30,7 @@ def search_target_gene_identifiers(db_name: str, search: TextSearch, db: Session
     """
     if db_name not in EXTERNAL_GENE_IDENTIFIER_CLASSES:
         raise HTTPException(
-            status_code=404,
+            status_code=422,
             detail=f"Unexpected db_name: {db_name}. Expected one of: {list(EXTERNAL_GENE_IDENTIFIER_CLASSES.keys())}",
         )
 

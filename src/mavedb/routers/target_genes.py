@@ -13,16 +13,14 @@ from mavedb.lib.target_genes import (
 )
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
+from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import target_gene
 from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
-    prefix="/api/v1",
+    prefix=f"{ROUTER_BASE_PREFIX}",
     tags=["Target Genes"],
-    responses={
-        404: {"description": "Not found"},
-        500: {"description": "Internal server error"},
-    },
+    responses={**PUBLIC_ERROR_RESPONSES},
 )
 
 
@@ -30,10 +28,7 @@ router = APIRouter(
     "/me/target-genes/search",
     status_code=200,
     response_model=List[target_gene.TargetGeneWithScoreSetUrn],
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Search my target genes",
 )
 def search_my_target_genes(
@@ -51,10 +46,7 @@ def search_my_target_genes(
     "/target-genes",
     status_code=200,
     response_model=List[target_gene.TargetGeneWithScoreSetUrn],
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="List target genes",
 )
 def list_target_genes(
@@ -134,10 +126,7 @@ def fetch_target_gene(
     "/target-genes/search",
     status_code=200,
     response_model=List[target_gene.TargetGeneWithScoreSetUrn],
-    responses={
-        401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
-    },
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Search target genes",
 )
 def search_target_genes(
