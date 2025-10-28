@@ -9,7 +9,9 @@ from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.view_models import keyword
 
 router = APIRouter(
-    prefix="/api/v1/controlled-keywords", tags=["Controlled Keywords"], responses={404: {"description": "Not found"}}
+    prefix="/api/v1/controlled-keywords",
+    tags=["Controlled Keywords"],
+    responses={404: {"description": "Not found"}, 500: {"description": "Internal server error"}},
 )
 
 
@@ -17,8 +19,8 @@ router = APIRouter(
     "/{key}",
     status_code=200,
     response_model=list[keyword.Keyword],
-    responses={404: {}},
     response_model_exclude_none=True,
+    summary="Fetch keywords by category",
 )
 def fetch_keywords_by_key(
     *,
@@ -26,7 +28,7 @@ def fetch_keywords_by_key(
     db: Session = Depends(deps.get_db),
 ) -> list[ControlledKeyword]:
     """
-    Fetch keywords by category.
+    Fetch the controlled keywords for a given key.
     """
     lower_key = key.lower()
     items = (
@@ -40,9 +42,11 @@ def fetch_keywords_by_key(
     return items
 
 
-@router.post("/search/{key}/{value}", status_code=200, response_model=keyword.Keyword)
+@router.post(
+    "/search/{key}/{value}", status_code=200, response_model=keyword.Keyword, summary="Search keyword by key and value"
+)
 def search_keyword_by_key_and_value(key: str, label: str, db: Session = Depends(deps.get_db)) -> ControlledKeyword:
     """
-    Search keywords.
+    Search controlled keywords by key and label.
     """
     return _search_keyword(db, key, label)
