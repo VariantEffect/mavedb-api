@@ -10,7 +10,7 @@ from mavedb.models.taxonomy import Taxonomy
 from mavedb.view_models import taxonomy
 from mavedb.view_models.search import TextSearch
 
-router = APIRouter(prefix="/api/v1/taxonomies", tags=["taxonomies"], responses={404: {"description": "Not found"}})
+router = APIRouter(prefix="/api/v1/taxonomies", tags=["Taxonomies"], responses={404: {"description": "Not found"}})
 
 
 @router.get("/", status_code=200, response_model=List[taxonomy.Taxonomy], responses={404: {}})

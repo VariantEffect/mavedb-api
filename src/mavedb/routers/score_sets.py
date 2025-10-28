@@ -9,18 +9,18 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
-from ga4gh.va_spec.base.core import Statement, ExperimentalVariantFunctionalImpactStudyResult
+from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from sqlalchemy import null, or_, select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
-from sqlalchemy.orm import contains_eager, Session
+from sqlalchemy.orm import Session, contains_eager
 
 from mavedb import deps
-from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.annotation.annotate import (
-    variant_pathogenicity_evidence,
     variant_functional_impact_statement,
+    variant_pathogenicity_evidence,
     variant_study_result,
 )
+from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import (
     RoleRequirer,
@@ -45,14 +45,14 @@ from mavedb.lib.logging.context import (
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_sets import (
     csv_data_to_df,
+    fetch_superseding_score_set_in_search_result,
     find_meta_analyses_for_experiment_sets,
     get_score_set_variants_as_csv,
+    refresh_variant_urns,
     variants_to_csv_rows,
 )
 from mavedb.lib.score_sets import (
-    fetch_superseding_score_set_in_search_result,
     search_score_sets as _search_score_sets,
-    refresh_variant_urns,
 )
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.urns import (
@@ -73,7 +73,7 @@ from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
-from mavedb.view_models import mapped_variant, score_set, clinical_control, score_range, gnomad_variant
+from mavedb.view_models import clinical_control, gnomad_variant, mapped_variant, score_range, score_set
 from mavedb.view_models.search import ScoreSetsSearch
 
 logger = logging.getLogger(__name__)
@@ -128,7 +128,7 @@ async def fetch_score_set_by_urn(
 
 router = APIRouter(
     prefix="/api/v1",
-    tags=["score sets"],
+    tags=["Score Sets"],
     responses={404: {"description": "not found"}},
     route_class=LoggedRoute,
 )

@@ -7,7 +7,7 @@ from mavedb import deps
 from mavedb.models.license import License
 from mavedb.view_models import license
 
-router = APIRouter(prefix="/api/v1/licenses", tags=["licenses"], responses={404: {"description": "Not found"}})
+router = APIRouter(prefix="/api/v1/licenses", tags=["Licenses"], responses={404: {"description": "Not found"}})
 
 
 @router.get("/", status_code=200, response_model=List[license.ShortLicense], responses={404: {}})

@@ -11,7 +11,7 @@ from mavedb.deps import hgvs_data_provider
 
 router = APIRouter(
     prefix="/api/v1/hgvs",
-    tags=["transcripts"],
+    tags=["Transcripts"],
     responses={404: {"description": "Not found"}},
 )
 

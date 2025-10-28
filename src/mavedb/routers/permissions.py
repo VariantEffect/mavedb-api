@@ -17,7 +17,7 @@ from mavedb.models.score_set import ScoreSet
 
 router = APIRouter(
     prefix="/api/v1/permissions",
-    tags=["permissions"],
+    tags=["Permissions"],
     responses={404: {"description": "Not found"}},
     route_class=LoggedRoute,
 )

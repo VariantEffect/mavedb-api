@@ -11,7 +11,7 @@ from mavedb.view_models.search import TextSearch
 
 router = APIRouter(
     prefix="/api/v1/target-gene-identifiers",
-    tags=["target gene identifiers"],
+    tags=["Target Gene Identifiers"],
     responses={404: {"description": "Not found"}},
 )
 

@@ -4,28 +4,28 @@ import re
 
 from fastapi import APIRouter, Depends
 from fastapi.exceptions import HTTPException
-from mavedb.lib.authentication import UserData, get_current_user
-from mavedb.lib.permissions import Action, assert_permission, has_permission
 from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.sql import or_
 
 from mavedb import deps
+from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.models.score_set import ScoreSet
+from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.models.variant_translation import VariantTranslation
 from mavedb.view_models.variant import (
-    ClingenAlleleIdVariantLookupsRequest,
     ClingenAlleleIdVariantLookupResponse,
+    ClingenAlleleIdVariantLookupsRequest,
     VariantEffectMeasurementWithScoreSet,
 )
 
 router = APIRouter(
-    prefix="/api/v1", tags=["access keys"], responses={404: {"description": "Not found"}}, route_class=LoggedRoute
+    prefix="/api/v1", tags=["Variants"], responses={404: {"description": "Not found"}}, route_class=LoggedRoute
 )
 
 logger = logging.getLogger(__name__)

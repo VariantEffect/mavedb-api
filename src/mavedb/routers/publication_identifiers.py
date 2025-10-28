@@ -20,7 +20,7 @@ PublicationDatabases = Enum("PublicationDataBases", ((x, x) for x in valid_dbnam
 
 router = APIRouter(
     prefix="/api/v1/publication-identifiers",
-    tags=["publication identifiers"],
+    tags=["Publication Identifiers"],
     responses={404: {"description": "Not found"}},
 )
 

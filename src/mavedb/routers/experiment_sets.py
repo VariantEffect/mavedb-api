@@ -16,7 +16,7 @@ from mavedb.view_models import experiment_set
 
 router = APIRouter(
     prefix="/api/v1/experiment-sets",
-    tags=["experiment-sets"],
+    tags=["Experiment Sets"],
     responses={404: {"description": "Not found"}},
     route_class=LoggedRoute,
 )

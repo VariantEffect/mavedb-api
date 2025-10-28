@@ -9,7 +9,7 @@ from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.view_models import keyword
 
 router = APIRouter(
-    prefix="/api/v1/controlled-keywords", tags=["controlled-keywords"], responses={404: {"description": "Not found"}}
+    prefix="/api/v1/controlled-keywords", tags=["Controlled Keywords"], responses={404: {"description": "Not found"}}
 )
 
 

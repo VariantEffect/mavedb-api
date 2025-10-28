@@ -7,7 +7,7 @@ from mavedb.lib.logging.context import logging_context, save_to_logging_context
 
 router = APIRouter(
     prefix="/api/v1/log",
-    tags=["log"],
+    tags=["Log"],
     responses={404: {"description": "Not found"}},
     route_class=LoggedRoute,
 )

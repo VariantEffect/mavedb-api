@@ -8,20 +8,18 @@ on Refget standards
 import logging
 import os
 import re
-
-from biocommons.seqrepo import SeqRepo, __version__ as seqrepo_dep_version
-from fastapi import APIRouter, Depends, Query, HTTPException, Header
-from fastapi.responses import StreamingResponse
 from typing import Optional, Union
 
-from mavedb import deps
+from biocommons.seqrepo import SeqRepo
+from biocommons.seqrepo import __version__ as seqrepo_dep_version
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import StreamingResponse
+
+from mavedb import __version__, deps
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.lib.seqrepo import get_sequence_ids, base64url_to_hex, sequence_generator
+from mavedb.lib.seqrepo import base64url_to_hex, get_sequence_ids, sequence_generator
 from mavedb.view_models.refget import RefgetMetadataResponse, RefgetServiceInfo
-
-from mavedb import __version__
-
 
 RANGE_HEADER_REGEX = r"^bytes=(\d+)-(\d+)$"
 
@@ -29,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/v1/refget",
-    tags=["refget"],
+    tags=["Refget"],
     responses={404: {"description": "not found"}},
     route_class=LoggedRoute,
 )

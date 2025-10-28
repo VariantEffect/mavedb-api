@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/v1/orcid",
-    tags=["orcid"],
+    tags=["Orcid"],
     responses={404: {"description": "Not found"}},
     route_class=LoggedRoute,
 )

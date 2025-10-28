@@ -16,7 +16,7 @@ from mavedb.models.target_gene import TargetGene
 from mavedb.view_models import target_gene
 from mavedb.view_models.search import TextSearch
 
-router = APIRouter(prefix="/api/v1", tags=["target-genes"], responses={404: {"description": "Not found"}})
+router = APIRouter(prefix="/api/v1", tags=["Target Genes"], responses={404: {"description": "Not found"}})
 
 
 @router.post("/me/target-genes/search", status_code=200, response_model=List[target_gene.TargetGeneWithScoreSetUrn])

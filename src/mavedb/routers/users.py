@@ -17,7 +17,7 @@ from mavedb.view_models import user
 
 router = APIRouter(
     prefix="/api/v1",
-    tags=["access keys"],
+    tags=["Users"],
     responses={404: {"description": "Not found"}},
     route_class=LoggedRoute,
 )

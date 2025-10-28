@@ -1,9 +1,9 @@
 import logging
+from typing import Optional, Union
 
 from biocommons.seqrepo import SeqRepo
-from fastapi import APIRouter, Query, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from typing import Optional, Union
 
 from mavedb import deps
 from mavedb.lib.logging import LoggedRoute
@@ -12,15 +12,13 @@ from mavedb.lib.logging.context import (
     save_to_logging_context,
 )
 from mavedb.lib.seqrepo import get_sequence_ids, seqrepo_versions, sequence_generator
-
 from mavedb.view_models.seqrepo import SeqRepoMetadata, SeqRepoVersions
-
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/v1/seqrepo",
-    tags=["seqrepo"],
+    tags=["Seqrepo"],
     responses={404: {"description": "not found"}},
     route_class=LoggedRoute,
 )

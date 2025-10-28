@@ -24,14 +24,13 @@ from mavedb.models.enums.contribution_role import ContributionRole
 from mavedb.models.experiment import Experiment
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
-from mavedb.view_models import collection
-from mavedb.view_models import collection_bundle
+from mavedb.view_models import collection, collection_bundle
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/v1",
-    tags=["collections"],
+    tags=["Collections"],
     responses={404: {"description": "Not found"}},
     route_class=LoggedRoute,
 )

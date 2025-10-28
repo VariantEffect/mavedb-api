@@ -1,10 +1,10 @@
 import itertools
-from collections import OrderedDict, Counter
+from collections import Counter, OrderedDict
 from enum import Enum
-from typing import Any, Union, Optional
+from typing import Any, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import Table, func, select, Select
+from sqlalchemy import Select, Table, func, select
 from sqlalchemy.orm import Session
 
 from mavedb.deps import get_db
@@ -40,7 +40,7 @@ from mavedb.models.user import User
 
 router = APIRouter(
     prefix="/api/v1/statistics",
-    tags=["statistics"],
+    tags=["Statistics"],
     responses={404: {"description": "Not found"}},
 )
 

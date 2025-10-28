@@ -4,28 +4,27 @@ from typing import Annotated, Any, Optional
 from fastapi import APIRouter, Depends, Path
 from fastapi.exceptions import HTTPException
 from ga4gh.core.identifiers import GA4GH_IR_REGEXP
-from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
+from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from sqlalchemy import or_, select
 from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.annotation.annotate import (
-    variant_study_result,
     variant_functional_impact_statement,
     variant_pathogenicity_evidence,
+    variant_study_result,
 )
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import get_current_user
-from mavedb.lib.permissions import has_permission
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
     logging_context,
     save_to_logging_context,
 )
-from mavedb.lib.permissions import Action, assert_permission
+from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
 from mavedb.view_models import mapped_variant
@@ -70,7 +69,7 @@ async def fetch_mapped_variant_by_variant_urn(db: Session, user: Optional[UserDa
 
 router = APIRouter(
     prefix="/api/v1/mapped-variants",
-    tags=["mapped variants"],
+    tags=["Mapped Variants"],
     responses={404: {"description": "Not found"}},
     route_class=LoggedRoute,
 )
