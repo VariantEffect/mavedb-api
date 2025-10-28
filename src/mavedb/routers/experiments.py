@@ -40,7 +40,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/v1",
     tags=["Experiments"],
-    responses={404: {"description": "Not found"}},
+    responses={
+        404: {"description": "Not found"},
+        500: {"description": "Internal server error"},
+    },
     route_class=LoggedRoute,
 )
 
@@ -51,6 +54,7 @@ router = APIRouter(
     status_code=200,
     response_model=list[experiment.Experiment],
     response_model_exclude_none=True,
+    summary="List experiments",
 )
 def list_experiments(
     *,
@@ -59,7 +63,7 @@ def list_experiments(
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> list[Experiment]:
     """
-    List experiments.
+    List all experiments viewable by the current user.
     """
     if editable and user_data is None:
         logger.debug(msg="User is anonymous; Cannot list their experiments.", extra=logging_context())
@@ -84,6 +88,7 @@ def list_experiments(
     "/experiments/search",
     status_code=200,
     response_model=list[experiment.ShortExperiment],
+    summary="Search experiments",
 )
 def search_experiments(search: ExperimentsSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
@@ -97,6 +102,7 @@ def search_experiments(search: ExperimentsSearch, db: Session = Depends(deps.get
     "/me/experiments/search",
     status_code=200,
     response_model=list[experiment.ShortExperiment],
+    summary="Search my experiments",
 )
 def search_my_experiments(
     search: ExperimentsSearch,
@@ -114,7 +120,11 @@ def search_my_experiments(
     "/experiments/{urn}",
     status_code=200,
     response_model=experiment.Experiment,
-    responses={404: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Fetch experiment by URN",
     response_model_exclude_none=True,
 )
 def fetch_experiment(
@@ -142,7 +152,11 @@ def fetch_experiment(
     "/experiments/{urn}/score-sets",
     status_code=200,
     response_model=list[score_set.ScoreSet],
-    responses={404: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Get score sets for an experiment",
     response_model_exclude_none=True,
 )
 def get_experiment_score_sets(
@@ -193,8 +207,14 @@ def get_experiment_score_sets(
 
 @router.post(
     "/experiments/",
+    status_code=200,
     response_model=experiment.Experiment,
-    responses={422: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+        502: {"description": "Bad Gateway"},
+        504: {"description": "Gateway Timeout"},
+    },
     response_model_exclude_none=True,
 )
 async def create_experiment(
@@ -256,11 +276,17 @@ async def create_experiment(
 
     except requests.exceptions.ConnectTimeout:
         logger.error(msg="Gateway timed out while creating experiment identifiers.", extra=logging_context())
-        raise HTTPException(status_code=504, detail="Gateway Timeout")
+        raise HTTPException(
+            status_code=504,
+            detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+        )
 
     except requests.exceptions.HTTPError:
         logger.error(msg="Encountered bad gateway while creating experiment identifiers.", extra=logging_context())
-        raise HTTPException(status_code=502, detail="Bad Gateway")
+        raise HTTPException(
+            status_code=502,
+            detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+        )
 
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
@@ -326,8 +352,14 @@ async def create_experiment(
 
 @router.put(
     "/experiments/{urn}",
+    status_code=200,
     response_model=experiment.Experiment,
-    responses={422: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+        502: {"description": "Bad Gateway"},
+        504: {"description": "Gateway Timeout"},
+    },
     response_model_exclude_none=True,
 )
 async def update_experiment(
@@ -377,23 +409,38 @@ async def update_experiment(
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
         raise HTTPException(status_code=422, detail=str(e))
 
-    doi_identifiers = [
-        await find_or_create_doi_identifier(db, identifier.identifier)
-        for identifier in item_update.doi_identifiers or []
-    ]
-    raw_read_identifiers = [
-        await find_or_create_raw_read_identifier(db, identifier.identifier)
-        for identifier in item_update.raw_read_identifiers or []
-    ]
+    try:
+        doi_identifiers = [
+            await find_or_create_doi_identifier(db, identifier.identifier)
+            for identifier in item_update.doi_identifiers or []
+        ]
+        raw_read_identifiers = [
+            await find_or_create_raw_read_identifier(db, identifier.identifier)
+            for identifier in item_update.raw_read_identifiers or []
+        ]
 
-    primary_publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_update.primary_publication_identifiers or []
-    ]
-    publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_update.secondary_publication_identifiers or []
-    ] + primary_publication_identifiers
+        primary_publication_identifiers = [
+            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            for identifier in item_update.primary_publication_identifiers or []
+        ]
+        publication_identifiers = [
+            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            for identifier in item_update.secondary_publication_identifiers or []
+        ] + primary_publication_identifiers
+
+    except requests.exceptions.ConnectTimeout:
+        logger.error(msg="Gateway timed out while creating experiment identifiers.", extra=logging_context())
+        raise HTTPException(
+            status_code=504,
+            detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+        )
+
+    except requests.exceptions.HTTPError:
+        logger.error(msg="Encountered bad gateway while creating experiment identifiers.", extra=logging_context())
+        raise HTTPException(
+            status_code=502,
+            detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+        )
 
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
@@ -429,7 +476,16 @@ async def update_experiment(
     return enrich_experiment_with_num_score_sets(item, user_data)
 
 
-@router.delete("/experiments/{urn}", response_model=None, responses={422: {}})
+@router.delete(
+    "/experiments/{urn}",
+    status_code=200,
+    response_model=None,
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Delete an experiment",
+)
 async def delete_experiment(
     *,
     urn: str,
@@ -437,17 +493,7 @@ async def delete_experiment(
     user_data: UserData = Depends(require_current_user),
 ) -> None:
     """
-    Delete a experiment .
-
-    Raises
-
-    Returns
-    _______
-    Does not return anything
-    string : HTTP code 200 successful but returning content
-    or
-    communitcate to client whether the operation succeeded
-    204 if successful but not returning content - likely going with this
+    Delete an experiment.
     """
     save_to_logging_context({"requested_resource": urn})
 
