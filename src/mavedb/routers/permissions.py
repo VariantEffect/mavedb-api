@@ -18,7 +18,10 @@ from mavedb.models.score_set import ScoreSet
 router = APIRouter(
     prefix="/api/v1/permissions",
     tags=["Permissions"],
-    responses={404: {"description": "Not found"}},
+    responses={
+        404: {"description": "Not found"},
+        500: {"description": "Internal server error"},
+    },
     route_class=LoggedRoute,
 )
 
@@ -36,6 +39,10 @@ class ModelName(str, Enum):
     "/user-is-permitted/{model_name}/{urn}/{action}",
     status_code=200,
     response_model=bool,
+    responses={
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Check user permissions on a resource",
 )
 async def check_permission(
     *,
@@ -46,7 +53,7 @@ async def check_permission(
     user_data: UserData = Depends(get_current_user),
 ) -> bool:
     """
-    Check whether users have authorizations in adding/editing/deleting/publishing experiment or score set.
+    Check whether users have permission to perform a given action on a resource.
     """
     save_to_logging_context({"requested_resource": urn})
 
