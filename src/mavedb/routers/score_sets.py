@@ -3,6 +3,7 @@ from datetime import date
 from typing import Any, List, Optional, Sequence, Union
 
 import pandas as pd
+import requests
 from arq import ArqRedis
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
@@ -129,12 +130,21 @@ async def fetch_score_set_by_urn(
 router = APIRouter(
     prefix="/api/v1",
     tags=["Score Sets"],
-    responses={404: {"description": "not found"}},
+    responses={404: {"description": "not found"}, 500: {"description": "Internal server error"}},
     route_class=LoggedRoute,
 )
 
 
-@router.post("/score-sets/search", status_code=200, response_model=list[score_set.ShortScoreSet])
+@router.post(
+    "/score-sets/search",
+    status_code=200,
+    response_model=list[score_set.ShortScoreSet],
+    summary="Search score sets",
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+)
 def search_score_sets(
     search: ScoreSetsSearch,
     db: Session = Depends(deps.get_db),
@@ -155,7 +165,15 @@ def search_score_sets(
     return enriched_score_sets
 
 
-@router.get("/score-sets/mapped-genes", status_code=200, response_model=dict[str, list[str]])
+@router.get(
+    "/score-sets/mapped-genes",
+    status_code=200,
+    response_model=dict[str, list[str]],
+    summary="Get score set to mapped gene symbol mapping",
+    responses={
+        403: {"description": "User lacks necessary permissions"},
+    },
+)
 def score_set_mapped_gene_mapping(
     db: Session = Depends(deps.get_db), user_data: UserData = Depends(get_current_user)
 ) -> Any:
@@ -190,6 +208,11 @@ def score_set_mapped_gene_mapping(
     "/me/score-sets/search",
     status_code=200,
     response_model=list[score_set.ShortScoreSet],
+    summary="Search my score sets",
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
 )
 def search_my_score_sets(
     search: ScoreSetsSearch,  # = Body(..., embed=True),
@@ -215,8 +238,12 @@ def search_my_score_sets(
     "/score-sets/{urn}",
     status_code=200,
     response_model=score_set.ScoreSet,
-    responses={404: {}, 500: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
     response_model_exclude_none=True,
+    summary="Fetch score set by URN",
 )
 async def show_score_set(
     *,
@@ -241,8 +268,12 @@ async def show_score_set(
             "content": {"text/csv": {}},
             "description": """Variant data in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
             """ and hgvs_splice), plus score columns defined by the score set.""",
-        }
+        },
+        400: {"description": "Bad request"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
     },
+    summary="Get score set variant data in CSV format",
 )
 def get_score_set_variants_csv(
     *,
@@ -330,8 +361,12 @@ def get_score_set_variants_csv(
             "content": {"text/csv": {}},
             "description": """Variant scores in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
             """ and hgvs_splice), plus score columns defined by the score set.""",
-        }
+        },
+        400: {"description": "Bad request"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
     },
+    summary="Get score set scores in CSV format",
 )
 def get_score_set_scores_csv(
     *,
@@ -385,8 +420,12 @@ def get_score_set_scores_csv(
             "content": {"text/csv": {}},
             "description": """Variant counts in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
             """ and hgvs_splice), plus score columns defined by the score set.""",
-        }
+        },
+        400: {"description": "Bad request"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
     },
+    summary="Get score set counts in CSV format",
 )
 async def get_score_set_counts_csv(
     *,
@@ -436,13 +475,18 @@ async def get_score_set_counts_csv(
     "/score-sets/{urn}/mapped-variants",
     status_code=200,
     response_model=list[mapped_variant.MappedVariant],
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Get mapped variants from score set by URN",
 )
 def get_score_set_mapped_variants(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
-) -> Any:
+) -> list[MappedVariant]:
     """
     Return mapped variants from a score set, identified by URN.
     """
@@ -480,6 +524,11 @@ def get_score_set_mapped_variants(
     status_code=200,
     response_model=dict[str, Optional[VariantPathogenicityEvidenceLine]],
     response_model_exclude_none=True,
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Get pathogenicity evidence line annotations for mapped variants within a score set",
 )
 def get_score_set_annotated_variants(
     *,
@@ -537,6 +586,11 @@ def get_score_set_annotated_variants(
     status_code=200,
     response_model=dict[str, Optional[Statement]],
     response_model_exclude_none=True,
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Get functional impact statement annotations for mapped variants within a score set",
 )
 def get_score_set_annotated_variants_functional_statement(
     *,
@@ -594,6 +648,11 @@ def get_score_set_annotated_variants_functional_statement(
     status_code=200,
     response_model=dict[str, Optional[ExperimentalVariantFunctionalImpactStudyResult]],
     response_model_exclude_none=True,
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Get functional study result annotations for mapped variants within a score set",
 )
 def get_score_set_annotated_variants_functional_study_result(
     *,
@@ -649,8 +708,14 @@ def get_score_set_annotated_variants_functional_study_result(
 @router.post(
     "/score-sets/",
     response_model=score_set.ScoreSet,
-    responses={422: {}},
     response_model_exclude_none=True,
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+        502: {"description": "Bad gateway"},
+        504: {"description": "Gateway timeout"},
+    },
+    summary="Create a score set",
 )
 async def create_score_set(
     *,
@@ -788,18 +853,33 @@ async def create_score_set(
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
         raise HTTPException(status_code=422, detail=str(e))
 
-    doi_identifiers = [
-        await find_or_create_doi_identifier(db, identifier.identifier)
-        for identifier in item_create.doi_identifiers or []
-    ]
-    primary_publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_create.primary_publication_identifiers or []
-    ]
-    publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_create.secondary_publication_identifiers or []
-    ] + primary_publication_identifiers
+    try:
+        doi_identifiers = [
+            await find_or_create_doi_identifier(db, identifier.identifier)
+            for identifier in item_create.doi_identifiers or []
+        ]
+        primary_publication_identifiers = [
+            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            for identifier in item_create.primary_publication_identifiers or []
+        ]
+        publication_identifiers = [
+            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            for identifier in item_create.secondary_publication_identifiers or []
+        ] + primary_publication_identifiers
+
+    except requests.exceptions.ConnectTimeout:
+        logger.error(msg="Gateway timed out while creating experiment identifiers.", extra=logging_context())
+        raise HTTPException(
+            status_code=504,
+            detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+        )
+
+    except requests.exceptions.HTTPError:
+        logger.error(msg="Encountered bad gateway while creating experiment identifiers.", extra=logging_context())
+        raise HTTPException(
+            status_code=502,
+            detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+        )
 
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
@@ -939,8 +1019,13 @@ async def create_score_set(
 @router.post(
     "/score-sets/{urn}/variants/data",
     response_model=score_set.ScoreSet,
-    responses={422: {}},
     response_model_exclude_none=True,
+    responses={
+        400: {"description": "Bad request"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Upload score and variant count files for a score set",
 )
 async def upload_score_set_variant_data(
     *,
@@ -1004,8 +1089,12 @@ async def upload_score_set_variant_data(
 @router.post(
     "/score-sets/{urn}/ranges/data",
     response_model=score_set.ScoreSet,
-    responses={422: {}},
     response_model_exclude_none=True,
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Update score ranges / calibrations for a score set",
 )
 async def update_score_set_range_data(
     *,
@@ -1038,7 +1127,17 @@ async def update_score_set_range_data(
 
 
 @router.put(
-    "/score-sets/{urn}", response_model=score_set.ScoreSet, responses={422: {}}, response_model_exclude_none=True
+    "/score-sets/{urn}",
+    response_model=score_set.ScoreSet,
+    response_model_exclude_none=True,
+    responses={
+        400: {"description": "Bad request"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+        502: {"description": "Bad gateway"},
+        504: {"description": "Gateway timeout"},
+    },
+    summary="Update a score set",
 )
 async def update_score_set(
     *,
@@ -1094,19 +1193,33 @@ async def update_score_set(
 
         item.license = license_
 
-    item.doi_identifiers = [
-        await find_or_create_doi_identifier(db, identifier.identifier)
-        for identifier in item_update.doi_identifiers or []
-    ]
-    primary_publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_update.primary_publication_identifiers or []
-    ]
-    publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_update.secondary_publication_identifiers or []
-    ] + primary_publication_identifiers
+    try:
+        item.doi_identifiers = [
+            await find_or_create_doi_identifier(db, identifier.identifier)
+            for identifier in item_update.doi_identifiers or []
+        ]
+        primary_publication_identifiers = [
+            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            for identifier in item_update.primary_publication_identifiers or []
+        ]
+        publication_identifiers = [
+            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            for identifier in item_update.secondary_publication_identifiers or []
+        ] + primary_publication_identifiers
 
+    except requests.exceptions.ConnectTimeout:
+        logger.error(msg="Gateway timed out while creating experiment identifiers.", extra=logging_context())
+        raise HTTPException(
+            status_code=504,
+            detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+        )
+
+    except requests.exceptions.HTTPError:
+        logger.error(msg="Encountered bad gateway while creating experiment identifiers.", extra=logging_context())
+        raise HTTPException(
+            status_code=502,
+            detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+        )
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
     primary_identifiers = [p.identifier for p in primary_publication_identifiers]
@@ -1292,7 +1405,15 @@ async def update_score_set(
     return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
 
 
-@router.delete("/score-sets/{urn}", responses={422: {}})
+@router.delete(
+    "/score-sets/{urn}",
+    status_code=200,
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Delete a score set",
+)
 async def delete_score_set(
     *,
     urn: str,
@@ -1330,6 +1451,12 @@ async def delete_score_set(
     status_code=200,
     response_model=score_set.ScoreSet,
     response_model_exclude_none=True,
+    responses={
+        400: {"description": "Bad request"},
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+        409: {"description": "Conflict"},
+    },
 )
 async def publish_score_set(
     *,
@@ -1356,7 +1483,7 @@ async def publish_score_set(
             extra=logging_context(),
         )
         raise HTTPException(
-            status_code=500,
+            status_code=409,
             detail="This score set does not belong to an experiment and cannot be published.",
         )
     if not item.experiment.experiment_set:
@@ -1365,7 +1492,7 @@ async def publish_score_set(
             extra=logging_context(),
         )
         raise HTTPException(
-            status_code=500,
+            status_code=409,
             detail="This score set's experiment does not belong to an experiment set and cannot be published.",
         )
     # TODO This can probably be done more efficiently; at least, it's worth checking the SQL query that SQLAlchemy
@@ -1432,6 +1559,11 @@ async def publish_score_set(
     status_code=200,
     response_model=list[clinical_control.ClinicalControlWithMappedVariants],
     response_model_exclude_none=True,
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Get clinical controls for a score set",
 )
 async def get_clinical_controls_for_score_set(
     *,
@@ -1500,6 +1632,11 @@ async def get_clinical_controls_for_score_set(
     status_code=200,
     response_model=list[clinical_control.ClinicalControlOptions],
     response_model_exclude_none=True,
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Get clinical control options for a score set",
 )
 async def get_clinical_controls_options_for_score_set(
     *,
@@ -1559,6 +1696,11 @@ async def get_clinical_controls_options_for_score_set(
     status_code=200,
     response_model=list[gnomad_variant.GnomADVariantWithMappedVariants],
     response_model_exclude_none=True,
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Get gnomad variants for a score set",
 )
 async def get_gnomad_variants_for_score_set(
     *,
