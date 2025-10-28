@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/v1/orcid",
     tags=["Orcid"],
-    responses={404: {"description": "Not found"}},
+    responses={404: {"description": "Not found"}, 500: {"description": "Internal server error"}},
     route_class=LoggedRoute,
 )
 
@@ -26,7 +26,18 @@ ORCID_CLIENT_ID = os.getenv("ORCID_CLIENT_ID")
 ORCID_CLIENT_SECRET = os.getenv("ORCID_CLIENT_SECRET")
 
 
-@router.get("/users/{orcid_id}", status_code=200, response_model=orcid.OrcidUser)
+@router.get(
+    "/users/{orcid_id}",
+    status_code=200,
+    response_model=orcid.OrcidUser,
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+        502: {"description": "Bad gateway"},
+        504: {"description": "Gateway timeout"},
+    },
+    summary="Look up an ORCID user by ORCID ID",
+)
 def lookup_orcid_user(
     orcid_id: str,
     user: User = Depends(require_current_user),
@@ -54,7 +65,10 @@ def lookup_orcid_user(
     "/token",
     status_code=200,
     response_model=orcid.OrcidAuthTokenResponse,
-    responses={404: {}, 500: {}},
+    responses={
+        401: {"description": "Authentication error"},
+    },
+    summary="Exchange an ORCID authorization code for an access token",
     include_in_schema=False,
 )
 async def get_token_from_code(*, request: orcid.OrcidAuthTokenRequest) -> Any:
