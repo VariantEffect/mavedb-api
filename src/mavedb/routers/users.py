@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -18,7 +17,10 @@ from mavedb.view_models import user
 router = APIRouter(
     prefix="/api/v1",
     tags=["Users"],
-    responses={404: {"description": "Not found"}},
+    responses={
+        404: {"description": "Not found"},
+        500: {"description": "Internal server error"},
+    },
     route_class=LoggedRoute,
 )
 
@@ -41,12 +43,21 @@ register_url_convertor("orcid_id", OrcidIdConverter())
 
 
 # Trailing slash is deliberate
-@router.get("/users/", status_code=200, response_model=list[user.AdminUser], responses={404: {}})
+@router.get(
+    "/users/",
+    status_code=200,
+    response_model=list[user.AdminUser],
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="List users",
+)
 async def list_users(
     *,
     db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(RoleRequirer([UserRole.admin])),
-) -> Any:
+    _: UserData = Depends(RoleRequirer([UserRole.admin])),
+) -> list[User]:
     """
     List users.
     """
@@ -58,9 +69,13 @@ async def list_users(
     "/users/me",
     status_code=200,
     response_model=user.CurrentUser,
-    responses={404: {}, 500: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Show my user",
 )
-async def show_me(*, user_data: UserData = Depends(require_current_user)) -> Any:
+async def show_me(*, user_data: UserData = Depends(require_current_user)) -> User:
     """
     Return the current user.
     """
@@ -71,14 +86,18 @@ async def show_me(*, user_data: UserData = Depends(require_current_user)) -> Any
     "/users/{id:int}",
     status_code=200,
     response_model=user.AdminUser,
-    responses={404: {}, 500: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Show user by ID",
 )
 async def show_user_admin(
     *,
     id: int,
     user_data: UserData = Depends(RoleRequirer([UserRole.admin])),
     db: Session = Depends(deps.get_db),
-) -> Any:
+) -> User:
     """
     Fetch a single user by ID. Returns admin view of requested user.
     """
@@ -100,14 +119,18 @@ async def show_user_admin(
     "/users/{orcid_id:orcid_id}",
     status_code=200,
     response_model=user.User,
-    responses={404: {}, 500: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Show user by Orcid ID",
 )
 async def show_user(
     *,
     orcid_id: str,
     user_data: UserData = Depends(require_current_user),
     db: Session = Depends(deps.get_db),
-) -> Any:
+) -> User:
     """
     Fetch a single user by Orcid ID. Returns limited view of user.
     """
@@ -130,14 +153,18 @@ async def show_user(
     "/users/me",
     status_code=200,
     response_model=user.CurrentUser,
-    responses={404: {}, 500: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Update my user",
 )
 async def update_me(
     *,
     user_update: user.CurrentUserUpdate,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
-) -> Any:
+) -> User:
     """
     Update the current user.
     """
@@ -155,13 +182,17 @@ async def update_me(
     "/users/me/has-logged-in",
     status_code=200,
     response_model=user.CurrentUser,
-    responses={404: {}, 500: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Mark that the current user has logged in",
 )
 async def user_has_logged_in(
     *,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
-) -> Any:
+) -> User:
     """
     Update the current users log in state.
     """
@@ -179,7 +210,11 @@ async def user_has_logged_in(
     "/users//{id}",
     status_code=200,
     response_model=user.AdminUser,
-    responses={404: {}, 500: {}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Update user by ID",
 )
 async def update_user(
     *,
@@ -187,7 +222,7 @@ async def update_user(
     item_update: user.AdminUserUpdate,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
-) -> Any:
+) -> User:
     """
     Update a user.
     """
