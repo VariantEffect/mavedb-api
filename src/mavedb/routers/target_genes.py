@@ -16,10 +16,26 @@ from mavedb.models.target_gene import TargetGene
 from mavedb.view_models import target_gene
 from mavedb.view_models.search import TextSearch
 
-router = APIRouter(prefix="/api/v1", tags=["Target Genes"], responses={404: {"description": "Not found"}})
+router = APIRouter(
+    prefix="/api/v1",
+    tags=["Target Genes"],
+    responses={
+        404: {"description": "Not found"},
+        500: {"description": "Internal server error"},
+    },
+)
 
 
-@router.post("/me/target-genes/search", status_code=200, response_model=List[target_gene.TargetGeneWithScoreSetUrn])
+@router.post(
+    "/me/target-genes/search",
+    status_code=200,
+    response_model=List[target_gene.TargetGeneWithScoreSetUrn],
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Search my target genes",
+)
 def search_my_target_genes(
     search: TextSearch, db: Session = Depends(deps.get_db), user_data: UserData = Depends(require_current_user)
 ) -> Any:
@@ -32,7 +48,14 @@ def search_my_target_genes(
 
 
 @router.get(
-    "/target-genes", status_code=200, response_model=List[target_gene.TargetGeneWithScoreSetUrn], responses={404: {}}
+    "/target-genes",
+    status_code=200,
+    response_model=List[target_gene.TargetGeneWithScoreSetUrn],
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="List target genes",
 )
 def list_target_genes(
     *,
@@ -56,7 +79,7 @@ def list_target_genes(
     return sorted(validated_items, key=lambda i: i.name)
 
 
-@router.get("/target-genes/names", status_code=200, response_model=List[str], responses={404: {}})
+@router.get("/target-genes/names", status_code=200, response_model=List[str], summary="List target gene names")
 def list_target_gene_names(
     *,
     db: Session = Depends(deps.get_db),
@@ -70,7 +93,9 @@ def list_target_gene_names(
     return sorted(list(set(names)))
 
 
-@router.get("/target-genes/categories", status_code=200, response_model=List[str], responses={404: {}})
+@router.get(
+    "/target-genes/categories", status_code=200, response_model=List[str], summary="List target gene categories"
+)
 def list_target_gene_categories(
     *,
     db: Session = Depends(deps.get_db),
@@ -88,7 +113,7 @@ def list_target_gene_categories(
     "/target-genes/{item_id}",
     status_code=200,
     response_model=target_gene.TargetGeneWithScoreSetUrn,
-    responses={404: {}},
+    summary="Fetch target gene by ID",
 )
 def fetch_target_gene(
     *,
@@ -105,7 +130,16 @@ def fetch_target_gene(
     return item
 
 
-@router.post("/target-genes/search", status_code=200, response_model=List[target_gene.TargetGeneWithScoreSetUrn])
+@router.post(
+    "/target-genes/search",
+    status_code=200,
+    response_model=List[target_gene.TargetGeneWithScoreSetUrn],
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "User lacks necessary permissions"},
+    },
+    summary="Search target genes",
+)
 def search_target_genes(
     search: TextSearch, db: Session = Depends(deps.get_db), user_data: Optional[UserData] = Depends(get_current_user)
 ) -> Any:
