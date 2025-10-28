@@ -17,7 +17,10 @@ from mavedb.view_models import experiment_set
 router = APIRouter(
     prefix="/api/v1/experiment-sets",
     tags=["Experiment Sets"],
-    responses={404: {"description": "Not found"}},
+    responses={
+        404: {"description": "Not found"},
+        500: {"description": "Internal server error"},
+    },
     route_class=LoggedRoute,
 )
 
@@ -30,7 +33,7 @@ logger = logging.getLogger(__name__)
     response_model=experiment_set.ExperimentSet,
     responses={
         401: {"description": "Not authenticated"},
-        403: {"description": "User lacks necessary permissions"},
+        403: {"description": "Not authorized"},
     },
     summary="Fetch experiment set by URN",
 )
