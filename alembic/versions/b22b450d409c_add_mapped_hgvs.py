@@ -1,7 +1,7 @@
 """Add mapped hgvs
 
 Revision ID: b22b450d409c
-Revises: 019eb75ad9ae
+Revises: 1e08b947679d
 Create Date: 2025-10-09 09:53:47.903249
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "b22b450d409c"
-down_revision = "019eb75ad9ae"
+down_revision = "1e08b947679d"
 branch_labels = None
 depends_on = None
 
