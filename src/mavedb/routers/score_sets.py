@@ -179,7 +179,7 @@ def search_score_sets(
 
     score_sets, num_score_sets = _search_score_sets(db, None, search).values()
     enriched_score_sets = []
-    if search.include_experiment_score_set_urns_and_count and updated_score_sets:
+    if search.include_experiment_score_set_urns_and_count:
         for ss in score_sets:
             enriched_experiment = enrich_experiment_with_num_score_sets(ss.experiment, user_data)
             response_item = score_set.ScoreSet.model_validate(ss).copy(update={"experiment": enriched_experiment})
