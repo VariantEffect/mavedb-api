@@ -7,7 +7,7 @@ import pandas as pd
 from arq import ArqRedis
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
 from fastapi.encoders import jsonable_encoder
-from fastapi.exceptions import HTTPException
+from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import StreamingResponse
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
@@ -181,7 +181,7 @@ async def score_set_update(
             "target_genes",
             "dataset_columns",
         ]:
-            setattr(item, var, value) if value is not None else None
+            setattr(item, var, value)
 
     item_update_license_id = item_update_dict.get("license_id")
     if item_update_license_id is not None:
@@ -393,15 +393,11 @@ async def score_set_update(
 class ParseScoreSetUpdate(TypedDict):
     scores_df: Optional[pd.DataFrame]
     counts_df: Optional[pd.DataFrame]
-    score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]]
-    count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]]
 
 
 async def parse_score_set_variants_uploads(
     scores_file: Optional[UploadFile] = File(None),
     counts_file: Optional[UploadFile] = File(None),
-    score_columns_metadata_file: Optional[UploadFile] = File(None),
-    count_columns_metadata_file: Optional[UploadFile] = File(None),
 ) -> ParseScoreSetUpdate:
     if scores_file and scores_file.file:
         try:
@@ -425,31 +421,9 @@ async def parse_score_set_variants_uploads(
     else:
         counts_df = None
 
-    if score_columns_metadata_file and score_columns_metadata_file.file:
-        try:
-            score_columns_metadata = json.load(score_columns_metadata_file.file)
-        except json.JSONDecodeError as e:
-            raise HTTPException(
-                status_code=400, detail=f"Error decoding scores metadata file: {e}. Ensure the file is valid JSON."
-            )
-    else:
-        score_columns_metadata = None
-
-    if count_columns_metadata_file and count_columns_metadata_file.file:
-        try:
-            count_columns_metadata = json.load(count_columns_metadata_file.file)
-        except json.JSONDecodeError as e:
-            raise HTTPException(
-                status_code=400, detail=f"Error decoding counts metadata file: {e}. Ensure the file is valid JSON."
-            )
-    else:
-        count_columns_metadata = None
-
     return {
         "scores_df": scores_df,
         "counts_df": counts_df,
-        "score_columns_metadata": score_columns_metadata,
-        "count_columns_metadata": count_columns_metadata,
     }
 
 
@@ -1320,10 +1294,11 @@ async def create_score_set(
 async def upload_score_set_variant_data(
     *,
     urn: str,
+    data: Request,
     counts_file: Optional[UploadFile] = File(None),
     scores_file: Optional[UploadFile] = File(None),
-    count_columns_metadata_file: Optional[UploadFile] = File(None),
-    score_columns_metadata_file: Optional[UploadFile] = File(None),
+    # count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
+    # score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
     worker: ArqRedis = Depends(deps.get_worker),
@@ -1334,6 +1309,19 @@ async def upload_score_set_variant_data(
     """
     save_to_logging_context({"requested_resource": urn, "resource_property": "variants"})
 
+    try:
+        score_set_variants_data = await parse_score_set_variants_uploads(scores_file, counts_file)
+
+        form_data = await data.form()
+        # Parse variants dataset column metadata JSON strings
+        dataset_column_metadata = {
+            key: json.loads(str(value))
+            for key, value in form_data.items()
+            if key in ["count_columns_metadata", "score_columns_metadata"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
     # item = db.query(ScoreSet).filter(ScoreSet.urn == urn).filter(ScoreSet.private.is_(False)).one_or_none()
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item or not item.urn:
@@ -1342,13 +1330,6 @@ async def upload_score_set_variant_data(
 
     assert_permission(user_data, item, Action.UPDATE)
     assert_permission(user_data, item, Action.SET_SCORES)
-
-    score_set_variants_data = await parse_score_set_variants_uploads(
-        scores_file,
-        counts_file,
-        score_columns_metadata_file,
-        count_columns_metadata_file,
-    )
 
     # Although this is also updated within the variant creation job, update it here
     # as well so that we can display the proper UI components (queue invocation delay
@@ -1362,8 +1343,8 @@ async def upload_score_set_variant_data(
         user_data=user_data,
         new_scores_df=score_set_variants_data["scores_df"],
         new_counts_df=score_set_variants_data["counts_df"],
-        new_score_columns_metadata=score_set_variants_data["score_columns_metadata"],
-        new_count_columns_metadata=score_set_variants_data["count_columns_metadata"],
+        new_score_columns_metadata=dataset_column_metadata.get("score_columns_metadata", {}),
+        new_count_columns_metadata=dataset_column_metadata.get("count_columns_metadata", {}),
         worker=worker,
     )
 
@@ -1421,11 +1402,9 @@ async def update_score_set_with_variants(
     *,
     urn: str,
     request: Request,
-    # Variants data and metadata files
+    # Variants data files
     counts_file: Optional[UploadFile] = File(None),
     scores_file: Optional[UploadFile] = File(None),
-    count_columns_metadata_file: Optional[UploadFile] = File(None),
-    score_columns_metadata_file: Optional[UploadFile] = File(None),
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
     worker: ArqRedis = Depends(deps.get_worker),
@@ -1433,21 +1412,33 @@ async def update_score_set_with_variants(
     """
     Update a score set and variants.
     """
-    logger.debug(msg="Began score set with variants update.", extra=logging_context())
+    logger.info(msg="Began score set with variants update.", extra=logging_context())
 
     try:
         # Get all form data from the request
         form_data = await request.form()
 
-        # Convert form data to dictionary, excluding file fields
+        # Convert form data to dictionary, excluding file and associated column metadata fields
         form_dict = {
             key: value
             for key, value in form_data.items()
-            if key not in ["counts_file", "scores_file", "count_columns_metadata_file", "score_columns_metadata_file"]
+            if key not in ["counts_file", "scores_file", "count_columns_metadata", "score_columns_metadata"]
         }
-
         # Create the update object using **kwargs in as_form
         item_update_partial = score_set.ScoreSetUpdateAllOptional.as_form(**form_dict)
+
+        # parse uploaded CSV files
+        score_set_variants_data = await parse_score_set_variants_uploads(
+            scores_file,
+            counts_file,
+        )
+
+        # Parse variants dataset column metadata JSON strings
+        dataset_column_metadata = {
+            key: json.loads(str(value))
+            for key, value in form_data.items()
+            if key in ["count_columns_metadata", "score_columns_metadata"]
+        }
     except Exception as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -1455,10 +1446,16 @@ async def update_score_set_with_variants(
     existing_item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
 
     # merge existing item data with item_update data to validate against ScoreSetUpdate
+
     if existing_item:
         existing_item_data = score_set.ScoreSet.model_validate(existing_item).model_dump()
         updated_data = {**existing_item_data, **item_update_partial.model_dump(exclude_unset=True)}
-        score_set.ScoreSetUpdate.model_validate(updated_data)
+        try:
+            score_set.ScoreSetUpdate.model_validate(updated_data)
+        except Exception as e:
+            # format as fastapi validation error
+            raise RequestValidationError(errors=e.errors())
+            # raise HTTPException(status_code=422, detail=e.errors())
     else:
         logger.info(msg="Failed to update score set; The requested score set does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
@@ -1474,15 +1471,24 @@ async def update_score_set_with_variants(
     updatedItem = itemUpdateResult["item"]
     should_create_variants = itemUpdateResult.get("should_create_variants", False)
 
-    # process uploaded files
-    score_set_variants_data = await parse_score_set_variants_uploads(
-        scores_file,
-        counts_file,
-        score_columns_metadata_file,
-        count_columns_metadata_file,
+    existing_score_columns_metadata = (existing_item.dataset_columns or {}).get("score_columns_metadata", {})
+    existing_count_columns_metadata = (existing_item.dataset_columns or {}).get("count_columns_metadata", {})
+
+    did_score_columns_metadata_change = (
+        dataset_column_metadata.get("score_columns_metadata", {}) != existing_score_columns_metadata
+    )
+    did_count_columns_metadata_change = (
+        dataset_column_metadata.get("count_columns_metadata", {}) != existing_count_columns_metadata
     )
 
-    if should_create_variants or any([val is not None for val in score_set_variants_data.values()]):
+    # run variant creation job only if targets have changed (indicated by "should_create_variants"), new score
+    # or count files were uploaded, or dataset column metadata has changed
+    if (
+        should_create_variants
+        or did_score_columns_metadata_change
+        or did_count_columns_metadata_change
+        or any([val is not None for val in score_set_variants_data.values()])
+    ):
         assert_permission(user_data, updatedItem, Action.SET_SCORES)
 
         updatedItem.processing_state = ProcessingState.processing
@@ -1494,8 +1500,12 @@ async def update_score_set_with_variants(
             worker=worker,
             new_scores_df=score_set_variants_data["scores_df"],
             new_counts_df=score_set_variants_data["counts_df"],
-            new_score_columns_metadata=score_set_variants_data["score_columns_metadata"],
-            new_count_columns_metadata=score_set_variants_data["count_columns_metadata"],
+            new_score_columns_metadata=dataset_column_metadata.get("score_columns_metadata")
+            if did_score_columns_metadata_change
+            else existing_score_columns_metadata,
+            new_count_columns_metadata=dataset_column_metadata.get("count_columns_metadata")
+            if did_count_columns_metadata_change
+            else existing_count_columns_metadata,
         )
 
     db.add(updatedItem)
