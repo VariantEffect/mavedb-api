@@ -11,6 +11,7 @@ from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import StreamingResponse
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
+from pydantic import ValidationError
 from sqlalchemy import null, or_, select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.orm import Session, contains_eager
@@ -1452,10 +1453,9 @@ async def update_score_set_with_variants(
         updated_data = {**existing_item_data, **item_update_partial.model_dump(exclude_unset=True)}
         try:
             score_set.ScoreSetUpdate.model_validate(updated_data)
-        except Exception as e:
-            # format as fastapi validation error
+        except ValidationError as e:
+            # format as fastapi request validation error
             raise RequestValidationError(errors=e.errors())
-            # raise HTTPException(status_code=422, detail=e.errors())
     else:
         logger.info(msg="Failed to update score set; The requested score set does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")

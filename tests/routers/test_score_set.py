@@ -492,12 +492,19 @@ def test_can_patch_score_set_data_with_files_before_publication(
     )
     expected_response["experiment"].update({"numScoreSets": 1})
 
-    data_file_path = data_files / filename
-    files = {form_field: (filename, open(data_file_path, "rb"), mime_type)}
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        response = client.patch(f"/api/v1/score-sets-with-variants/{score_set['urn']}", files=files)
-        worker_queue.assert_called_once()
-        assert response.status_code == 200
+    if form_field == "counts_file" or form_field == "scores_file":
+        data_file_path = data_files / filename
+        files = {form_field: (filename, open(data_file_path, "rb"), mime_type)}
+        with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+            response = client.patch(f"/api/v1/score-sets-with-variants/{score_set['urn']}", files=files)
+            worker_queue.assert_called_once()
+            assert response.status_code == 200
+    elif form_field == "score_columns_metadata_file" or form_field == "count_columns_metadata_file":
+        data_file_path = data_files / filename
+        with open(data_file_path, "rb") as f:
+            data = json.load(f)
+            response = client.patch(f"/api/v1/score-sets-with-variants/{score_set['urn']}", data=data)
+            assert response.status_code == 200
 
 
 @pytest.mark.parametrize(
@@ -869,6 +876,47 @@ def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setu
             files={
                 "scores_file": (scores_csv_path.name, scores_file, "text/csv"),
                 "counts_file": (counts_csv_path.name, counts_file, "text/csv"),
+            },
+        )
+        queue.assert_called_once()
+
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
+
+    # We test the worker process that actually adds the variant data separately. Here, we take it as
+    # fact that it would have succeeded.
+    score_set.update({"processingState": "processing"})
+    assert score_set == response_data
+
+
+def test_add_score_set_variants_scores_counts_and_column_metadata_endpoint(
+    session, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+    counts_csv_path = data_files / "counts.csv"
+    score_columns_metadata_path = data_files / "score_columns_metadata.json"
+    count_columns_metadata_path = data_files / "count_columns_metadata.json"
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        open(counts_csv_path, "rb") as counts_file,
+        open(score_columns_metadata_path, "rb") as score_columns_metadata_file,
+        open(count_columns_metadata_path, "rb") as count_columns_metadata_file,
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+    ):
+        score_columns_metadata = json.load(score_columns_metadata_file)
+        count_columns_metadata = json.load(count_columns_metadata_file)
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={
+                "scores_file": (scores_csv_path.name, scores_file, "text/csv"),
+                "counts_file": (counts_csv_path.name, counts_file, "text/csv"),
+            },
+            data={
+                "score_columns_metadata": json.dumps(score_columns_metadata),
+                "count_columns_metadata": json.dumps(count_columns_metadata),
             },
         )
         queue.assert_called_once()
@@ -2544,7 +2592,7 @@ def test_upload_a_non_utf8_file(session, client, setup_router_db, data_files):
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
             files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
         )
-    assert response.status_code == 400
+    assert response.status_code == 422
     response_data = response.json()
     assert (
         "Error decoding file: 'utf-8' codec can't decode byte 0xdd in position 10: invalid continuation byte. "
