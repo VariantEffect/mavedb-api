@@ -85,6 +85,7 @@ from mavedb.routers.shared import (
 from mavedb.view_models import clinical_control, gnomad_variant, mapped_variant, score_range, score_set
 from mavedb.view_models.search import ScoreSetsSearch
 
+TAG_NAME = "Score Sets"
 logger = logging.getLogger(__name__)
 
 
@@ -137,10 +138,19 @@ async def fetch_score_set_by_urn(
 
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}",
-    tags=["Score Sets"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Manage and retrieve Score Sets and their associated data.",
+    "externalDocs": {
+        "description": "Score Sets Documentation",
+        "url": "https://mavedb.org/docs/mavedb/record_types.html#score-sets",
+    },
+}
 
 
 @router.post(

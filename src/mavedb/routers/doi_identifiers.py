@@ -10,11 +10,18 @@ from mavedb.routers.shared import BASE_400_RESPONSE, PUBLIC_ERROR_RESPONSES, ROU
 from mavedb.view_models import doi_identifier
 from mavedb.view_models.search import TextSearch
 
+TAG_NAME = "DOI Identifiers"
+
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/doi-identifiers",
-    tags=["DOI Identifiers"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Search and retrieve DOI identifiers associated with MaveDB records.",
+}
 
 
 @router.post(

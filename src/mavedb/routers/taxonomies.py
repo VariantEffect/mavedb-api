@@ -11,11 +11,18 @@ from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import taxonomy
 from mavedb.view_models.search import TextSearch
 
+TAG_NAME = "Taxonomies"
+
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/taxonomies",
-    tags=["Taxonomies"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Search and retrieve taxonomies associated with MaveDB records.",
+}
 
 
 @router.get("/", status_code=200, response_model=List[taxonomy.Taxonomy], summary="List taxonomies")

@@ -8,11 +8,22 @@ from mavedb.models.license import License
 from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import license
 
+TAG_NAME = "Licenses"
+
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/licenses",
-    tags=["Licenses"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Retrieve information about licenses supported by MaveDB.",
+    "externalDocs": {
+        "description": "Licenses Documentation",
+        "url": "https://mavedb.org/docs/mavedb/data_licensing.html",
+    },
+}
 
 
 @router.get("/", status_code=200, response_model=List[license.ShortLicense], summary="List all licenses")

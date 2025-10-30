@@ -15,14 +15,20 @@ from mavedb.lib.seqrepo import get_sequence_ids, seqrepo_versions, sequence_gene
 from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models.seqrepo import SeqRepoMetadata, SeqRepoVersions
 
+TAG_NAME = "Seqrepo"
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/seqrepo",
-    tags=["Seqrepo"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Provides REST interfaces for biological sequences and their metadata stored in MaveDBs Seqrepo repository.",
+}
 
 
 @router.get(

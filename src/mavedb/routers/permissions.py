@@ -16,12 +16,19 @@ from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
 from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 
+TAG_NAME = "Permissions"
+
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/permissions",
-    tags=["Permissions"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Check user permissions on various MaveDB resources.",
+}
 
 logger = logging.getLogger(__name__)
 

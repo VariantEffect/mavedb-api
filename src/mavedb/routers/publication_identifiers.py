@@ -20,15 +20,22 @@ from mavedb.routers.shared import (
 from mavedb.view_models import publication_identifier
 from mavedb.view_models.search import TextSearch
 
+TAG_NAME = "Publication Identifiers"
+
 # I don't think we can escape the type: ignore hint here on a dynamically created enumerated type.
 PublicationDatabases = Enum("PublicationDataBases", ((x, x) for x in valid_dbnames))  # type: ignore
 
 
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/publication-identifiers",
-    tags=["Publication Identifiers"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Search and retrieve publication identifiers associated with MaveDB records and their metadata.",
+}
 
 
 @router.get(

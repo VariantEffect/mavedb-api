@@ -30,6 +30,8 @@ from mavedb.models.variant import Variant
 from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import mapped_variant
 
+TAG_NAME = "Mapped Variants"
+
 logger = logging.getLogger(__name__)
 
 
@@ -70,10 +72,15 @@ async def fetch_mapped_variant_by_variant_urn(db: Session, user: Optional[UserDa
 
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/mapped-variants",
-    tags=["Mapped Variants"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Retrieve mapped variants and their associated variant annotations.",
+}
 
 
 @router.get(

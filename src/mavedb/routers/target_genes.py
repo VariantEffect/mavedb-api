@@ -17,11 +17,22 @@ from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_R
 from mavedb.view_models import target_gene
 from mavedb.view_models.search import TextSearch
 
+TAG_NAME = "Target Genes"
+
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}",
-    tags=["Target Genes"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Search and retrieve target genes associated with MaveDB records.",
+    "externalDocs": {
+        "description": "Target Genes Documentation",
+        "url": "https://mavedb.org/docs/mavedb/target_sequences.html",
+    },
+}
 
 
 @router.post(

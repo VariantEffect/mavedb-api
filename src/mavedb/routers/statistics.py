@@ -39,13 +39,19 @@ from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.user import User
 from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 
+TAG_NAME = "Statistics"
+TARGET_ACCESSION_TAXONOMY = "Homo sapiens"
+
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/statistics",
-    tags=["Statistics"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
 )
 
-TARGET_ACCESSION_TAXONOMY = "Homo sapiens"
+metadata = {
+    "name": TAG_NAME,
+    "description": "Provides statistics and analytics for MaveDB records.",
+}
 
 ## Union types
 

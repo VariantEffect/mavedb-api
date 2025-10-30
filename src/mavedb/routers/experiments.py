@@ -41,14 +41,25 @@ from mavedb.routers.shared import (
 from mavedb.view_models import experiment, score_set
 from mavedb.view_models.search import ExperimentsSearch
 
+TAG_NAME = "Experiments"
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}",
-    tags=["Experiments"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Manage and retrieve experiments and their associated data.",
+    "externalDocs": {
+        "description": "Experiments Documentation",
+        "url": "https://mavedb.org/docs/mavedb/record_types.html#experiments",
+    },
+}
 
 
 # None of any part calls this function. Feel free to modify it if we need it in the future.

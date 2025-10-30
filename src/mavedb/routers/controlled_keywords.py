@@ -9,11 +9,22 @@ from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import keyword
 
+TAG_NAME = "Controlled Keywords"
+
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/controlled-keywords",
-    tags=["Controlled Keywords"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Retrieve controlled keywords used for annotating MaveDB records.",
+    "externalDocs": {
+        "description": "Controlled Keywords Schema",
+        "url": "https://github.com/ave-dcd/mave_vocabulary?tab=readme-ov-file",
+    },
+}
 
 
 @router.get(

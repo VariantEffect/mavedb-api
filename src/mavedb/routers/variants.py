@@ -30,14 +30,21 @@ from mavedb.view_models.variant import (
     VariantEffectMeasurementWithScoreSet,
 )
 
+TAG_NAME = "Variants"
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}",
-    tags=["Variants"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
-logger = logging.getLogger(__name__)
+metadata = {
+    "name": TAG_NAME,
+    "description": "Search and retrieve variants associated with MaveDB records.",
+}
 
 
 @router.post(

@@ -29,15 +29,22 @@ from mavedb.routers.shared import (
 from mavedb.view_models.refget import RefgetMetadataResponse, RefgetServiceInfo
 
 RANGE_HEADER_REGEX = r"^bytes=(\d+)-(\d+)$"
+TAG_NAME = "Refget"
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/refget",
-    tags=["Refget"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Implementation of the Refget sequences API for MaveDB.",
+    "externalDocs": {"description": "Refget API Documentation", "url": "https://ga4gh.github.io/refget/sequences"},
+}
 
 
 @router.get("/sequence/service-info", response_model=RefgetServiceInfo, summary="Get Refget service information")

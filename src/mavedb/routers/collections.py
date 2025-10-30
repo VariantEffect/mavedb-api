@@ -33,14 +33,21 @@ from mavedb.routers.shared import (
 )
 from mavedb.view_models import collection, collection_bundle
 
+TAG_NAME = "Collections"
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}",
-    tags=["Collections"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Manage the members and permissions of data set collections.",
+}
 
 
 @router.get(

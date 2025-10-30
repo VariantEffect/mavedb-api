@@ -10,11 +10,18 @@ from mavedb.routers.shared import BASE_400_RESPONSE, PUBLIC_ERROR_RESPONSES, ROU
 from mavedb.view_models import external_gene_identifier
 from mavedb.view_models.search import TextSearch
 
+TAG_NAME = "Target Gene Identifiers"
+
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/target-gene-identifiers",
-    tags=["Target Gene Identifiers"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Search and retrieve target gene identifiers associated with MaveDB records.",
+}
 
 
 @router.post(

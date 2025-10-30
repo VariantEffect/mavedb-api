@@ -20,14 +20,21 @@ from mavedb.routers.shared import (
 )
 from mavedb.view_models import orcid
 
+TAG_NAME = "Orcid"
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/orcid",
-    tags=["Orcid"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Look up ORCID users and handle ORCID authentication.",
+}
 
 ORCID_CLIENT_ID = os.getenv("ORCID_CLIENT_ID")
 ORCID_CLIENT_SECRET = os.getenv("ORCID_CLIENT_SECRET")

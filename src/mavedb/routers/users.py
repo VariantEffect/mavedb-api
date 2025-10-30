@@ -15,12 +15,19 @@ from mavedb.models.user import User
 from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import user
 
+TAG_NAME = "Users"
+
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}",
-    tags=["Users"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Manage and retrieve MaveDB users.",
+}
 
 logger = logging.getLogger(__name__)
 

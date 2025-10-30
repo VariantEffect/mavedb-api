@@ -15,12 +15,23 @@ from mavedb.models.experiment_set import ExperimentSet
 from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import experiment_set
 
+TAG_NAME = "Experiment Sets"
+
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/experiment-sets",
-    tags=["Experiment Sets"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Retrieve experiment sets and their associated experiments.",
+    "externalDocs": {
+        "description": "Experiment Sets Documentation",
+        "url": "https://mavedb.org/docs/mavedb/record_types.html#experiment-sets",
+    },
+}
 
 logger = logging.getLogger(__name__)
 

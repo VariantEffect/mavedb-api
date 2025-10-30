@@ -6,12 +6,19 @@ from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 
+TAG_NAME = "Log"
+
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/log",
-    tags=["Log"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Log interactions with the MaveDB API for auditing and debugging purposes.",
+}
 
 
 # NOTE: Despite not containing any calls to a logger, this route will log posted context

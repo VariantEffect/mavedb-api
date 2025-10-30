@@ -10,11 +10,18 @@ from hgvs.exceptions import HGVSDataNotAvailableError, HGVSInvalidVariantError
 from mavedb.deps import hgvs_data_provider
 from mavedb.routers.shared import BASE_400_RESPONSE, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 
+TAG_NAME = "Transcripts"
+
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/hgvs",
-    tags=["Transcripts"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Retrieve transcript information and validate HGVS variants.",
+}
 
 
 @router.get(

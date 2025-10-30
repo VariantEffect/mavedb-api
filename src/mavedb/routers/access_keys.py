@@ -21,12 +21,23 @@ from mavedb.models.enums.user_role import UserRole
 from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import access_key
 
+TAG_NAME = "Access Keys"
+
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}",
-    tags=["Access Keys"],
+    tags=[TAG_NAME],
     responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Manage API access keys for programmatic access to the MaveDB API.",
+    "externalDocs": {
+        "description": "Access Keys Documentation",
+        "url": "https://mavedb.org/docs/mavedb/accounts.html#api-access-tokens",
+    },
+}
 
 logger = logging.getLogger(__name__)
 
