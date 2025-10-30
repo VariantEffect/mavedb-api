@@ -17,42 +17,41 @@ from mavedb.data_providers.services import vrs_mapper
 from mavedb.db.view import refresh_all_mat_views
 from mavedb.lib.clingen.constants import (
     CAR_SUBMISSION_ENDPOINT,
+    CLIN_GEN_SUBMISSION_ENABLED,
     DEFAULT_LDH_SUBMISSION_BATCH_SIZE,
     LDH_SUBMISSION_ENDPOINT,
     LINKED_DATA_RETRY_THRESHOLD,
-    CLIN_GEN_SUBMISSION_ENABLED,
 )
 from mavedb.lib.clingen.content_constructors import construct_ldh_submission
 from mavedb.lib.clingen.services import (
     ClinGenAlleleRegistryService,
     ClinGenLdhService,
-    get_clingen_variation,
     clingen_allele_id_from_ldh_variation,
     get_allele_registry_associations,
+    get_clingen_variation,
 )
 from mavedb.lib.exceptions import (
-    MappingEnqueueError,
-    SubmissionEnqueueError,
     LinkingEnqueueError,
+    MappingEnqueueError,
     NonexistentMappingReferenceError,
     NonexistentMappingResultsError,
+    SubmissionEnqueueError,
     UniProtIDMappingEnqueueError,
     UniProtPollingEnqueueError,
 )
 from mavedb.lib.gnomad import gnomad_variant_data_for_caids, link_gnomad_variants_to_mapped_variants
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
-from mavedb.lib.mapping import ANNOTATION_LAYERS
+from mavedb.lib.mapping import ANNOTATION_LAYERS, extract_ids_from_post_mapped_metadata
 from mavedb.lib.score_sets import (
-    get_hgvs_from_post_mapped,
     columns_for_dataset,
     create_variants,
     create_variants_data,
+    get_hgvs_from_post_mapped,
 )
-from mavedb.lib.slack import send_slack_error, send_slack_message, log_and_send_slack_message
+from mavedb.lib.slack import log_and_send_slack_message, send_slack_error, send_slack_message
+from mavedb.lib.uniprot.constants import UNIPROT_ID_MAPPING_ENABLED
 from mavedb.lib.uniprot.id_mapping import UniProtIDMappingAPI
 from mavedb.lib.uniprot.utils import infer_db_name_from_sequence_accession
-from mavedb.lib.uniprot.constants import UNIPROT_ID_MAPPING_ENABLED
-from mavedb.lib.mapping import extract_ids_from_post_mapped_metadata
 from mavedb.lib.validation.dataframe.dataframe import (
     validate_and_standardize_dataframe_pair,
 )
@@ -790,6 +789,7 @@ async def refresh_materialized_views(ctx: dict):
     logging_context = setup_job_state(ctx, None, None, None)
     logger.debug(msg="Began refresh materialized views.", extra=logging_context)
     refresh_all_mat_views(ctx["db"])
+    ctx["db"].commit()
     logger.debug(msg="Done refreshing materialized views.", extra=logging_context)
     return {"success": True}
 
@@ -798,7 +798,8 @@ async def refresh_published_variants_view(ctx: dict, correlation_id: str):
     logging_context = setup_job_state(ctx, None, None, correlation_id)
     logger.debug(msg="Began refresh of published variants materialized view.", extra=logging_context)
     PublishedVariantsMV.refresh(ctx["db"])
-    logger.debug(msg="Done refreshing of published variants materialized view.", extra=logging_context)
+    ctx["db"].commit()
+    logger.debug(msg="Done refreshing published variants materialized view.", extra=logging_context)
     return {"success": True}
 
 
