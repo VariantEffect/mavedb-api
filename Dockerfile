@@ -2,7 +2,7 @@
 # python-base
 # Set up shared environment variables
 ################################
-FROM --platform=amd64 python:3.11 AS python-base
+FROM python:3.11 AS python-base
 
     # Poetry
     # https://python-poetry.org/docs/configuration/#using-environment-variables
