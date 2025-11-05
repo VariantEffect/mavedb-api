@@ -45,12 +45,12 @@ from mavedb.lib.logging.context import (
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_sets import (
     csv_data_to_df,
+    fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
     get_score_set_variants_as_csv,
     variants_to_csv_rows,
 )
 from mavedb.lib.score_sets import (
-    fetch_superseding_score_set_in_search_result,
     search_score_sets as _search_score_sets,
     refresh_variant_urns,
 )
@@ -74,9 +74,12 @@ from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
 from mavedb.view_models import mapped_variant, score_set, clinical_control, score_range, gnomad_variant
-from mavedb.view_models.search import ScoreSetsSearch
+from mavedb.view_models.search import ScoreSetsSearch, ScoreSetsSearchFilterOptionsResponse, ScoreSetsSearchResponse
 
 logger = logging.getLogger(__name__)
+
+SCORE_SET_SEARCH_MAX_LIMIT = 100
+SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS = 40
 
 
 async def fetch_score_set_by_urn(
@@ -134,26 +137,64 @@ router = APIRouter(
 )
 
 
-@router.post("/score-sets/search", status_code=200, response_model=list[score_set.ShortScoreSet])
+@router.post("/score-sets/search", status_code=200, response_model=ScoreSetsSearchResponse)
 def search_score_sets(
     search: ScoreSetsSearch,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
-) -> Any:  # = Body(..., embed=True),
+) -> Any:
     """
     Search score sets.
     """
-    score_sets = _search_score_sets(db, None, search)
-    updated_score_sets = fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
 
+    # Disallow searches for unpublished score sets via this endpoint.
+    if search.published is False:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cannot search for private score sets except in the context of the current user's data.",
+        )
+    search.published = True
+
+    # Require a limit of at most SCORE_SET_SEARCH_MAX_LIMIT when the search query does not include publication
+    # identifiers. We allow unlimited searches with publication identifiers, presuming that such a search will not have
+    # excessive results.
+    if search.publication_identifiers is None and search.limit is None:
+        search.limit = SCORE_SET_SEARCH_MAX_LIMIT
+    elif search.publication_identifiers is None and (search.limit is None or search.limit > SCORE_SET_SEARCH_MAX_LIMIT):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Cannot search for more than {SCORE_SET_SEARCH_MAX_LIMIT} score sets at a time. Please use the offset and limit parameters to run a paginated search.",
+        )
+
+    # Also limit the search to at most SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS publication identifiers, to prevent
+    # artificially constructed searches that return very large result sets.
+    if (
+        search.publication_identifiers is not None
+        and len(search.publication_identifiers) > SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Cannot search for score sets belonging to more than {SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS} publication identifiers at once.",
+        )
+
+    score_sets, num_score_sets = _search_score_sets(db, None, search).values()
     enriched_score_sets = []
-    if search.include_experiment_score_set_urns_and_count and updated_score_sets:
-        for u in updated_score_sets:
-            enriched_experiment = enrich_experiment_with_num_score_sets(u.experiment, user_data)
-            response_item = score_set.ScoreSet.model_validate(u).copy(update={"experiment": enriched_experiment})
+    if search.include_experiment_score_set_urns_and_count:
+        for ss in score_sets:
+            enriched_experiment = enrich_experiment_with_num_score_sets(ss.experiment, user_data)
+            response_item = score_set.ScoreSet.model_validate(ss).copy(update={"experiment": enriched_experiment})
             enriched_score_sets.append(response_item)
+        score_sets = enriched_score_sets
 
-    return enriched_score_sets if search.include_experiment_score_set_urns_and_count else updated_score_sets
+    return {"score_sets": score_sets, "num_score_sets": num_score_sets}
+
+
+@router.post("/score-sets/search/filter-options", status_code=200, response_model=ScoreSetsSearchFilterOptionsResponse)
+def get_filter_options_for_search(
+    search: ScoreSetsSearch,
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    return fetch_score_set_search_filter_options(db, None, search)
 
 
 @router.get("/score-sets/mapped-genes", status_code=200, response_model=dict[str, list[str]])
@@ -190,26 +231,24 @@ def score_set_mapped_gene_mapping(
 @router.post(
     "/me/score-sets/search",
     status_code=200,
-    response_model=list[score_set.ShortScoreSet],
+    response_model=ScoreSetsSearchResponse,
 )
 def search_my_score_sets(
-    search: ScoreSetsSearch,  # = Body(..., embed=True),
+    search: ScoreSetsSearch,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
 ) -> Any:
     """
     Search score sets created by the current user..
     """
-    score_sets = _search_score_sets(db, user_data.user, search)
-    updated_score_sets = fetch_superseding_score_set_in_search_result(score_sets, user_data, search)
+    score_sets, num_score_sets = _search_score_sets(db, user_data.user, search).values()
     enriched_score_sets = []
-    if updated_score_sets:
-        for u in updated_score_sets:
-            enriched_experiment = enrich_experiment_with_num_score_sets(u.experiment, user_data)
-            response_item = score_set.ScoreSet.model_validate(u).copy(update={"experiment": enriched_experiment})
-            enriched_score_sets.append(response_item)
+    for ss in score_sets:
+        enriched_experiment = enrich_experiment_with_num_score_sets(ss.experiment, user_data)
+        response_item = score_set.ScoreSet.model_validate(ss).copy(update={"experiment": enriched_experiment})
+        enriched_score_sets.append(response_item)
 
-    return enriched_score_sets
+    return {"score_sets": enriched_score_sets, "num_score_sets": num_score_sets}
 
 
 @router.get(
