@@ -186,7 +186,7 @@ def search_score_sets(
             enriched_score_sets.append(response_item)
         score_sets = enriched_score_sets
 
-    return {"score_sets": enriched_score_sets, "num_score_sets": num_score_sets}
+    return {"score_sets": score_sets, "num_score_sets": num_score_sets}
 
 
 @router.post("/score-sets/search/filter-options", status_code=200, response_model=ScoreSetsSearchFilterOptionsResponse)
