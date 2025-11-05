@@ -5,34 +5,37 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Column, Date, Enum, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, Date, Float, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
 from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
-from mavedb.models.enums.score_calibration_kind import ScoreCalibrationKind
+from mavedb.lib.urns import generate_calibration_urn
 from mavedb.models.score_calibration_publication_identifier import ScoreCalibrationPublicationIdentifierAssociation
 
 if TYPE_CHECKING:
     from mavedb.models.publication_identifier import PublicationIdentifier
     from mavedb.models.score_set import ScoreSet
+    from mavedb.models.user import User
 
 
 class ScoreCalibration(Base):
     __tablename__ = "score_calibrations"
+    # TODO#544: Add a partial unique index to enforce only one primary calibration per score set.
 
     id = Column(Integer, primary_key=True)
+    urn = Column(String(64), nullable=True, default=generate_calibration_urn, unique=True, index=True)
 
     score_set_id = Column(Integer, ForeignKey("scoresets.id"), nullable=False)
-    score_set: Mapped["ScoreSet"] = relationship("ScoreSet", back_populates="calibrations")
+    score_set: Mapped["ScoreSet"] = relationship("ScoreSet", back_populates="score_calibrations")
 
     title = Column(String, nullable=False)
-    name = Column(String, nullable=False)
-    kind = Column(Enum(ScoreCalibrationKind, native_enum=False, validate_strings=True, length=32), nullable=False)
     research_use_only = Column(Boolean, nullable=False, default=False)
     primary = Column(Boolean, nullable=False, default=False)
     investigator_provided = Column(Boolean, nullable=False, default=False)
+    private = Column(Boolean, nullable=False, default=True)
+    notes = Column(String, nullable=True)
 
     baseline_score = Column(Float, nullable=True)
     baseline_score_description = Column(String, nullable=True)
@@ -40,7 +43,6 @@ class ScoreCalibration(Base):
     # Ranges and sources are stored as JSONB (intersection structure) to avoid complex joins for now.
     # ranges: list[ { label, description?, classification, range:[lower,upper], inclusive_lower_bound, inclusive_upper_bound } ]
     functional_ranges = Column(JSONB(none_as_null=True), nullable=True)
-    odds_paths = Column(JSONB(none_as_null=True), nullable=True)
 
     publication_identifier_associations: Mapped[list[ScoreCalibrationPublicationIdentifierAssociation]] = relationship(
         "ScoreCalibrationPublicationIdentifierAssociation",
@@ -55,11 +57,15 @@ class ScoreCalibration(Base):
 
     calibration_metadata = Column(JSONB(none_as_null=True), nullable=True)
 
+    created_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    created_by: Mapped["User"] = relationship("User", foreign_keys="ScoreCalibration.created_by_id")
+    modified_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    modified_by: Mapped["User"] = relationship("User", foreign_keys="ScoreCalibration.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
     def __repr__(self) -> str:  # pragma: no cover - repr utility
         return (
             f"<ScoreCalibration id={self.id} score_set_id={self.score_set_id} "
-            f"title={self.title!r} kind={self.kind} primary={self.primary}>"
+            f"title={self.title!r} primary={self.primary}>"
         )

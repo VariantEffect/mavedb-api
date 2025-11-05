@@ -21,8 +21,9 @@ class ScoreCalibrationPublicationIdentifierAssociation(Base):
     publication_identifier_id = Column(Integer, ForeignKey("publication_identifiers.id"), primary_key=True)
     relation = Column(
         Enum(ScoreCalibrationRelation, native_enum=False, validate_strings=True, length=32),
-        nullable=True,
-        default=ScoreCalibrationRelation.ranges,
+        nullable=False,
+        default=ScoreCalibrationRelation.threshold,
+        primary_key=True,
     )
 
     score_calibration: Mapped["ScoreCalibration"] = relationship(
