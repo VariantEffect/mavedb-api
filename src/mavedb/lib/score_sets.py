@@ -700,9 +700,9 @@ def variant_to_csv_row(
         if column_key == "post_mapped_hgvs_g":
             value = str(mapping.hgvs_g) if mapping and mapping.hgvs_g else na_rep
         elif column_key == "post_mapped_hgvs_p":
-            value = str(mapping.hgvs_p) if mapping and mapping.hgvs_p else ""
+            value = str(mapping.hgvs_p) if mapping and mapping.hgvs_p else na_rep
         elif column_key == "post_mapped_hgvs_c":
-            value = str(mapping.hgvs_c) if mapping and mapping.hgvs_c else ""
+            value = str(mapping.hgvs_c) if mapping and mapping.hgvs_c else na_rep
         elif column_key == "post_mapped_hgvs_at_assay_level":
             value = str(mapping.hgvs_assay_level) if mapping and mapping.hgvs_assay_level else na_rep
         elif column_key == "post_mapped_vrs_digest":
