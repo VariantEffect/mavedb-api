@@ -1,8 +1,9 @@
+from collections import Counter
 import csv
 import io
 import logging
-import re
 from operator import attrgetter
+import re
 from typing import Any, BinaryIO, Iterable, Optional, TYPE_CHECKING, Sequence, Literal
 
 from mavedb.models.mapped_variant import MappedVariant
@@ -10,7 +11,7 @@ import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
 from sqlalchemy import Integer, and_, cast, func, or_, select
-from sqlalchemy.orm import Session, aliased, contains_eager, joinedload, selectinload
+from sqlalchemy.orm import Session, aliased, contains_eager, joinedload, Query, selectinload
 
 from mavedb.lib.exceptions import ValidationError
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
@@ -71,11 +72,15 @@ class HGVSColumns:
         return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
-def search_score_sets(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
-    save_to_logging_context({"score_set_search_criteria": search.model_dump()})
+def build_search_score_sets_query_filter(
+    db: Session, query: Query[ScoreSet], owner_or_contributor: Optional[User], search: ScoreSetsSearch
+):
+    superseding_score_set = aliased(ScoreSet)
 
-    query = db.query(ScoreSet)  # \
-    # .filter(ScoreSet.private.is_(False))
+    # Limit to unsuperseded score sets.
+    # TODO#??? Prevent unpublished superseding score sets from hiding their published precursors in search results.
+    query = query.join(superseding_score_set, ScoreSet.superseding_score_set, isouter=True)
+    query = query.filter(superseding_score_set.id.is_(None))
 
     if owner_or_contributor is not None:
         query = query.filter(
@@ -213,6 +218,14 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
                 )
             )
         )
+    return query
+
+
+def search_score_sets(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch):
+    save_to_logging_context({"score_set_search_criteria": search.model_dump()})
+
+    query = db.query(ScoreSet)
+    query = build_search_score_sets_query_filter(db, query, owner_or_contributor, search)
 
     score_sets: list[ScoreSet] = (
         query.join(ScoreSet.experiment)
@@ -257,15 +270,102 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
             ),
         )
         .order_by(Experiment.title)
+        .offset(search.offset if search.offset is not None else None)
+        .limit(search.limit + 1 if search.limit is not None else None)
         .all()
     )
     if not score_sets:
         score_sets = []
 
-    save_to_logging_context({"matching_resources": len(score_sets)})
+    offset = search.offset if search.offset is not None else 0
+    num_score_sets = offset + len(score_sets)
+    if search.limit is not None and num_score_sets > offset + search.limit:
+        # In the main query, we have allowed limit + 1 results. The extra record tells us whether we need to run a count
+        # query.
+        score_sets = score_sets[: search.limit]
+        count_query = db.query(ScoreSet)
+        build_search_score_sets_query_filter(db, count_query, owner_or_contributor, search)
+        num_score_sets = count_query.order_by(None).limit(None).count()
+
+    save_to_logging_context({"matching_resources": num_score_sets})
     logger.debug(msg=f"Score set search yielded {len(score_sets)} matching resources.", extra=logging_context())
 
-    return score_sets  # filter_visible_score_sets(score_sets)
+    return {"score_sets": score_sets, "num_score_sets": num_score_sets}
+
+
+def score_set_search_filter_options_from_counter(counter: Counter):
+    return [{"value": value, "count": count} for value, count in counter.items()]
+
+
+def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch):
+    save_to_logging_context({"score_set_search_criteria": search.model_dump()})
+
+    query = db.query(ScoreSet)
+    query = build_search_score_sets_query_filter(db, query, owner_or_contributor, search)
+
+    score_sets: list[ScoreSet] = query.all()
+    if not score_sets:
+        score_sets = []
+
+    target_category_counter: Counter[str] = Counter()
+    target_name_counter: Counter[str] = Counter()
+    target_organism_name_counter: Counter[str] = Counter()
+    target_accession_counter: Counter[str] = Counter()
+    for score_set in score_sets:
+        for target in getattr(score_set, "target_genes", []):
+            category = getattr(target, "category", None)
+            if category:
+                target_category_counter[category] += 1
+
+            name = getattr(target, "name", None)
+            if name:
+                target_name_counter[name] += 1
+
+            target_sequence = getattr(target, "target_sequence", None)
+            taxonomy = getattr(target_sequence, "taxonomy", None)
+            organism_name = getattr(taxonomy, "organism_name", None)
+
+            if organism_name:
+                target_organism_name_counter[organism_name] += 1
+
+            target_accession = getattr(target, "target_accession", None)
+            accession = getattr(target_accession, "accession", None)
+
+            if accession:
+                target_accession_counter[accession] += 1
+
+    publication_author_name_counter: Counter[str] = Counter()
+    publication_db_name_counter: Counter[str] = Counter()
+    publication_journal_counter: Counter[str] = Counter()
+    for score_set in score_sets:
+        for publication_association in getattr(score_set, "publication_identifier_associations", []):
+            publication = getattr(publication_association, "publication", None)
+
+            authors = getattr(publication, "authors", [])
+            for author in authors:
+                name = author.get("name")
+                if name:
+                    publication_author_name_counter[name] += 1
+
+            db_name = getattr(publication, "db_name", None)
+            if db_name:
+                publication_db_name_counter[db_name] += 1
+
+            journal = getattr(publication, "publication_journal", None)
+            if journal:
+                publication_journal_counter[journal] += 1
+
+    logger.debug(msg="Score set search filter options were fetched.", extra=logging_context())
+
+    return {
+        "target_gene_categories": score_set_search_filter_options_from_counter(target_category_counter),
+        "target_gene_names": score_set_search_filter_options_from_counter(target_name_counter),
+        "target_organism_names": score_set_search_filter_options_from_counter(target_organism_name_counter),
+        "target_accessions": score_set_search_filter_options_from_counter(target_accession_counter),
+        "publication_author_names": score_set_search_filter_options_from_counter(publication_author_name_counter),
+        "publication_db_names": score_set_search_filter_options_from_counter(publication_db_name_counter),
+        "publication_journals": score_set_search_filter_options_from_counter(publication_journal_counter),
+    }
 
 
 def fetch_superseding_score_set_in_search_result(

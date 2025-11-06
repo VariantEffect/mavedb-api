@@ -810,6 +810,7 @@ async def refresh_materialized_views(ctx: dict):
     logging_context = setup_job_state(ctx, None, None, None)
     logger.debug(msg="Began refresh materialized views.", extra=logging_context)
     refresh_all_mat_views(ctx["db"])
+    ctx["db"].commit()
     logger.debug(msg="Done refreshing materialized views.", extra=logging_context)
     return {"success": True}
 
@@ -818,7 +819,8 @@ async def refresh_published_variants_view(ctx: dict, correlation_id: str):
     logging_context = setup_job_state(ctx, None, None, correlation_id)
     logger.debug(msg="Began refresh of published variants materialized view.", extra=logging_context)
     PublishedVariantsMV.refresh(ctx["db"])
-    logger.debug(msg="Done refreshing of published variants materialized view.", extra=logging_context)
+    ctx["db"].commit()
+    logger.debug(msg="Done refreshing published variants materialized view.", extra=logging_context)
     return {"success": True}
 
 
