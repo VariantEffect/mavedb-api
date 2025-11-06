@@ -6,6 +6,7 @@ import click
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from mavedb.lib.clingen.allele_registry import CLINGEN_API_URL
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 
@@ -14,8 +15,6 @@ from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 
 from mavedb.scripts.environment import script_environment, with_database_session
-
-CLINGEN_API_URL = "https://reg.test.genome.network/allele"
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
