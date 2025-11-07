@@ -515,18 +515,24 @@ def variant_counts(group: Optional[GroupBy] = None, db: Session = Depends(get_db
     Returns a dictionary of counts for the number of published and distinct variants in the database.
     Optionally, group the counts by the day on which the score set (and by extension, the variant) was published.
     """
-    variants = db.execute(
-        select(PublishedVariantsMV.published_date, func.count(PublishedVariantsMV.variant_id))
+    # Fast path: total distinct variants without per-date aggregation.
+    if group is None:
+        total = db.execute(select(func.count(func.distinct(PublishedVariantsMV.variant_id)))).scalar_one()  # type: ignore
+        return OrderedDict([("count", total)])
+
+    # Grouped path: materialize distinct counts per published_date, then roll up.
+    per_date = db.execute(
+        select(PublishedVariantsMV.published_date, func.count(func.distinct(PublishedVariantsMV.variant_id)))
         .group_by(PublishedVariantsMV.published_date)
         .order_by(PublishedVariantsMV.published_date)
     ).all()
 
     if group == GroupBy.month:
-        grouped = {k: sum(c for _, c in g) for k, g in itertools.groupby(variants, lambda t: t[0].strftime("%Y-%m"))}
+        grouped = {k: sum(c for _, c in g) for k, g in itertools.groupby(per_date, lambda t: t[0].strftime("%Y-%m"))}
     elif group == GroupBy.year:
-        grouped = {k: sum(c for _, c in g) for k, g in itertools.groupby(variants, lambda t: t[0].strftime("%Y"))}
-    else:
-        grouped = {"count": sum(count for _, count in variants)}
+        grouped = {k: sum(c for _, c in g) for k, g in itertools.groupby(per_date, lambda t: t[0].strftime("%Y"))}
+    else:  # Defensive fallback.
+        grouped = {"count": sum(c for _, c in per_date)}
 
     return OrderedDict(sorted(grouped.items()))
 
@@ -540,20 +546,34 @@ def mapped_variant_counts(
     Optionally, group the counts by the day on which the score set (and by extension, the variant) was published.
     Optionally, return the count of all mapped variants, not just the current/most up to date ones.
     """
-    query = select(PublishedVariantsMV.published_date, func.count(PublishedVariantsMV.mapped_variant_id))
+    # Fast path: total distinct mapped variants (optionally only current) without per-date aggregation.
+    if group is None:
+        total_stmt = select(func.count(func.distinct(PublishedVariantsMV.mapped_variant_id)))
+
+        if onlyCurrent:
+            total_stmt = total_stmt.where(PublishedVariantsMV.current_mapped_variant.is_(True))
+
+        total = db.execute(total_stmt).scalar_one()  # type: ignore
+        return OrderedDict([("count", total)])
+
+    # Grouped path: materialize distinct counts per published_date, then roll up.
+    per_date_stmt = select(
+        PublishedVariantsMV.published_date,
+        func.count(func.distinct(PublishedVariantsMV.mapped_variant_id)),
+    )
 
     if onlyCurrent:
-        query = query.where(PublishedVariantsMV.current_mapped_variant.is_(True))
+        per_date_stmt = per_date_stmt.where(PublishedVariantsMV.current_mapped_variant.is_(True))
 
-    variants = db.execute(
-        query.group_by(PublishedVariantsMV.published_date).order_by(PublishedVariantsMV.published_date)
+    per_date = db.execute(
+        per_date_stmt.group_by(PublishedVariantsMV.published_date).order_by(PublishedVariantsMV.published_date)
     ).all()
 
     if group == GroupBy.month:
-        grouped = {k: sum(c for _, c in g) for k, g in itertools.groupby(variants, lambda t: t[0].strftime("%Y-%m"))}
+        grouped = {k: sum(c for _, c in g) for k, g in itertools.groupby(per_date, lambda t: t[0].strftime("%Y-%m"))}
     elif group == GroupBy.year:
-        grouped = {k: sum(c for _, c in g) for k, g in itertools.groupby(variants, lambda t: t[0].strftime("%Y"))}
-    else:
-        grouped = {"count": sum(count for _, count in variants)}
+        grouped = {k: sum(c for _, c in g) for k, g in itertools.groupby(per_date, lambda t: t[0].strftime("%Y"))}
+    else:  # Defensive fallback.
+        grouped = {"count": sum(c for _, c in per_date)}
 
     return OrderedDict(sorted(grouped.items()))
