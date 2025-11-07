@@ -319,6 +319,7 @@ def get_score_set_variants_csv(
         db,
         score_set,
         namespaces,
+        True,
         start,
         limit,
         drop_na_columns,
@@ -379,11 +380,7 @@ def get_score_set_scores_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_variants_as_csv(db, score_set, ["scores"], start, limit, drop_na_columns)
-    lines = csv_str.splitlines()
-    if lines:
-        header = lines[0].replace("scores.", "")
-        csv_str = "\n".join([header] + lines[1:])
+    csv_str = get_score_set_variants_as_csv(db, score_set, ["scores"], False, start, limit, drop_na_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
@@ -438,11 +435,7 @@ async def get_score_set_counts_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_variants_as_csv(db, score_set, ["counts"], start, limit, drop_na_columns)
-    lines = csv_str.splitlines()
-    if lines:
-        header = lines[0].replace("counts.", "")
-        csv_str = "\n".join([header] + lines[1:])
+    csv_str = get_score_set_variants_as_csv(db, score_set, ["counts"], False, start, limit, drop_na_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
@@ -1256,20 +1249,20 @@ async def update_score_set(
             assert item.dataset_columns is not None
             score_columns = {
                 "core": ["hgvs_nt", "hgvs_splice", "hgvs_pro"],
-                "mavedb": item.dataset_columns["score_columns"],
+                "scores": item.dataset_columns["score_columns"],
             }
             count_columns = {
                 "core": ["hgvs_nt", "hgvs_splice", "hgvs_pro"],
-                "mavedb": item.dataset_columns["count_columns"],
+                "counts": item.dataset_columns["count_columns"],
             }
 
             scores_data = pd.DataFrame(
-                variants_to_csv_rows(item.variants, columns=score_columns)
+                variants_to_csv_rows(item.variants, columns=score_columns, namespaced=False)
             ).replace("NA", pd.NA)
 
             if item.dataset_columns["count_columns"]:
                 count_data = pd.DataFrame(
-                    variants_to_csv_rows(item.variants, columns=count_columns)
+                    variants_to_csv_rows(item.variants, columns=count_columns, namespaced=False)
                 ).replace("NA", pd.NA)
             else:
                 count_data = None

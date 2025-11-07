@@ -402,6 +402,7 @@ def get_score_set_variants_as_csv(
     db: Session,
     score_set: ScoreSet,
     namespaces: List[Literal["scores", "counts"]],
+    namespaced: Optional[bool] = None,
     start: Optional[int] = None,
     limit: Optional[int] = None,
     drop_na_columns: Optional[bool] = None,
@@ -419,6 +420,8 @@ def get_score_set_variants_as_csv(
         The score set to get the variants from.
     namespaces : List[Literal["scores", "counts"]]
         The namespaces for data. Now there are only scores and counts. There will be ClinVar and gnomAD.
+    namespaced: Optional[bool] = None
+        Whether namespace the columns or not.
     start : int, optional
         The index to start from. If None, starts from the beginning.
     limit : int, optional
@@ -493,10 +496,13 @@ def get_score_set_variants_as_csv(
         if limit:
             variants_query = variants_query.limit(limit)
         variants = db.scalars(variants_query).all()
-
-    rows_data = variants_to_csv_rows(variants, columns=namespaced_score_set_columns, mappings=mappings)  # type: ignore
+    rows_data = variants_to_csv_rows(variants, columns=namespaced_score_set_columns, namespaced=namespaced, mappings=mappings)  # type: ignore
     rows_columns = [
-        f"{namespace}.{col}" if namespace != "core" else col
+        (
+            f"{namespace}.{col}"
+            if (namespaced and namespace not in ["core", "mavedb"])
+            else (f"mavedb.{col}" if namespaced and namespace == "mavedb" else col)
+        )
         for namespace, cols in namespaced_score_set_columns.items()
         for col in cols
     ]
@@ -545,6 +551,7 @@ def variant_to_csv_row(
     variant: Variant,
     columns: dict[str, list[str]],
     mapping: Optional[MappedVariant] = None,
+    namespaced: Optional[bool] = None,
     na_rep="NA",
 ) -> dict[str, Any]:
     """
@@ -556,6 +563,8 @@ def variant_to_csv_row(
         List of variants.
     columns : list[str]
         Columns to serialize.
+    namespaced: Optional[bool] = None
+        Namespace the columns or not.
     na_rep : str
         String to represent null values.
 
@@ -594,15 +603,18 @@ def variant_to_csv_row(
                 value = ""
         if is_null(value):
             value = na_rep
-        row[f"mavedb.{column_key}"] = value
+        key = f"mavedb.{column_key}" if namespaced else column_key
+        row[key] = value
     for column_key in columns.get("scores", []):
         parent = variant.data.get("score_data") if variant.data else None
         value = str(parent.get(column_key)) if parent else na_rep
-        row[f"scores.{column_key}"] = value
+        key = f"scores.{column_key}" if namespaced else column_key
+        row[key] = value
     for column_key in columns.get("counts", []):
         parent = variant.data.get("count_data") if variant.data else None
         value = str(parent.get(column_key)) if parent else na_rep
-        row[f"counts.{column_key}"] = value
+        key = f"counts.{column_key}" if namespaced else column_key
+        row[key] = value
     return row
 
 
@@ -610,6 +622,7 @@ def variants_to_csv_rows(
     variants: Sequence[Variant],
     columns: dict[str, list[str]],
     mappings: Optional[Sequence[Optional[MappedVariant]]] = None,
+    namespaced: Optional[bool] = None,
     na_rep="NA",
 ) -> Iterable[dict[str, Any]]:
     """
@@ -621,6 +634,8 @@ def variants_to_csv_rows(
         List of variants.
     columns : list[str]
         Columns to serialize.
+    namespaced: Optional[bool] = None
+        Namespace the columns or not.
     na_rep : str
         String to represent null values.
 
@@ -630,10 +645,10 @@ def variants_to_csv_rows(
     """
     if mappings is not None:
         return map(
-            lambda pair: variant_to_csv_row(pair[0], columns, mapping=pair[1], na_rep=na_rep),
+            lambda pair: variant_to_csv_row(pair[0], columns, mapping=pair[1], namespaced=namespaced, na_rep=na_rep),
             zip(variants, mappings),
         )
-    return map(lambda v: variant_to_csv_row(v, columns, na_rep=na_rep), variants)
+    return map(lambda v: variant_to_csv_row(v, columns, namespaced=namespaced, na_rep=na_rep), variants)
 
 
 def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[ScoreSet]:
