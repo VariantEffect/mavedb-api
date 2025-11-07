@@ -63,6 +63,7 @@ from mavedb.models.published_variant import PublishedVariantsMV
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
+from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +121,14 @@ async def enqueue_job_with_backoff(
 
 
 async def create_variants_for_score_set(
-    ctx, correlation_id: str, score_set_id: int, updater_id: int, scores: pd.DataFrame, counts: pd.DataFrame
+    ctx,
+    correlation_id: str,
+    score_set_id: int,
+    updater_id: int,
+    scores: pd.DataFrame,
+    counts: pd.DataFrame,
+    score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
+    count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
 ):
     """
     Create variants for a score set. Intended to be run within a worker.
@@ -156,13 +164,26 @@ async def create_variants_for_score_set(
             )
             raise ValueError("Can't create variants when score set has no targets.")
 
-        validated_scores, validated_counts = validate_and_standardize_dataframe_pair(
-            scores, counts, score_set.target_genes, hdp
+        validated_scores, validated_counts, validated_score_columns_metadata, validated_count_columns_metadata = (
+            validate_and_standardize_dataframe_pair(
+                scores_df=scores,
+                counts_df=counts,
+                score_columns_metadata=score_columns_metadata,
+                count_columns_metadata=count_columns_metadata,
+                targets=score_set.target_genes,
+                hdp=hdp,
+            )
         )
 
         score_set.dataset_columns = {
             "score_columns": columns_for_dataset(validated_scores),
             "count_columns": columns_for_dataset(validated_counts),
+            "score_columns_metadata": validated_score_columns_metadata
+            if validated_score_columns_metadata is not None
+            else {},
+            "count_columns_metadata": validated_count_columns_metadata
+            if validated_count_columns_metadata is not None
+            else {},
         }
 
         # Delete variants after validation occurs so we don't overwrite them in the case of a bad update.
@@ -1275,9 +1296,9 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
         logging_context["linkage_failures"] = num_linkage_failures
         logging_context["linkage_successes"] = num_variant_urns - num_linkage_failures
 
-        assert (
-            len(linked_allele_ids) == num_variant_urns
-        ), f"{num_variant_urns - len(linked_allele_ids)} appear to not have been attempted to be linked."
+        assert len(linked_allele_ids) == num_variant_urns, (
+            f"{num_variant_urns - len(linked_allele_ids)} appear to not have been attempted to be linked."
+        )
 
         job_succeeded = False
         if not linkage_failures:
@@ -1369,7 +1390,7 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
                 extra=logging_context,
             )
             send_slack_message(
-                text=f"Failed to link {len(linkage_failures)} ({ratio_failed_linking*100}% of total mapped variants for {score_set.urn})."
+                text=f"Failed to link {len(linkage_failures)} ({ratio_failed_linking * 100}% of total mapped variants for {score_set.urn})."
                 f"This job was successfully retried. This was attempt {attempt}. Retry will occur in {backoff_time} seconds. URNs failed to link: {', '.join(linkage_failures)}."
             )
         elif new_job_id is None and not max_retries_exceeded:
