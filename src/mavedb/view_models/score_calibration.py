@@ -17,14 +17,14 @@ from mavedb.lib.validation.transform import (
 )
 from mavedb.lib.validation.utilities import inf_or_float
 from mavedb.view_models import record_type_validator, set_record_type
-from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.acmg_classification import (
+    ACMGClassification,
     ACMGClassificationBase,
     ACMGClassificationCreate,
     ACMGClassificationModify,
     SavedACMGClassification,
-    ACMGClassification,
 )
+from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.publication_identifier import (
     PublicationIdentifier,
     PublicationIdentifierBase,
@@ -32,7 +32,6 @@ from mavedb.view_models.publication_identifier import (
     SavedPublicationIdentifier,
 )
 from mavedb.view_models.user import SavedUser, User
-
 
 ### Functional range models
 
@@ -197,6 +196,10 @@ class ScoreCalibrationBase(BaseModel):
         """Ensure that no two functional ranges overlap (respecting inclusivity)."""
 
         def test_overlap(range_test: FunctionalRangeBase, range_check: FunctionalRangeBase) -> bool:
+            # Allow 'not_specified' classifications to overlap with anything.
+            if range_test.classification == "not_specified" or range_check.classification == "not_specified":
+                return False
+
             if min(inf_or_float(range_test.range[0], True), inf_or_float(range_check.range[0], True)) == inf_or_float(
                 range_test.range[0], True
             ):
@@ -223,7 +226,7 @@ class ScoreCalibrationBase(BaseModel):
             for b in list(field_value)[i + 1 :]:
                 if test_overlap(a, b):
                     raise ValidationError(
-                        f"Score ranges may not overlap; `{a.label}` ({a.range}) overlaps with `{b.label}` ({b.range}).",
+                        f"Classified score ranges may not overlap; `{a.label}` ({a.range}) overlaps with `{b.label}` ({b.range}). To allow overlap, set one or both classifications to 'not_specified'.",
                         custom_loc=["body", i, "range"],
                     )
         return field_value

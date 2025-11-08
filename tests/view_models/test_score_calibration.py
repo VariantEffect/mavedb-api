@@ -11,20 +11,18 @@ from mavedb.view_models.score_calibration import (
     ScoreCalibrationCreate,
     ScoreCalibrationWithScoreSetUrn,
 )
-
 from tests.helpers.constants import (
-    TEST_FUNCTIONAL_RANGE_NORMAL,
-    TEST_FUNCTIONAL_RANGE_ABNORMAL,
-    TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED,
-    TEST_FUNCTIONAL_RANGE_INCLUDING_POSITIVE_INFINITY,
-    TEST_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY,
     TEST_BRNICH_SCORE_CALIBRATION,
+    TEST_FUNCTIONAL_RANGE_ABNORMAL,
+    TEST_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY,
+    TEST_FUNCTIONAL_RANGE_INCLUDING_POSITIVE_INFINITY,
+    TEST_FUNCTIONAL_RANGE_NORMAL,
+    TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED,
     TEST_PATHOGENICITY_SCORE_CALIBRATION,
     TEST_SAVED_BRNICH_SCORE_CALIBRATION,
     TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION,
 )
 from tests.helpers.util.common import dummy_attributed_object_from_dict
-
 
 ##############################################################################
 # Tests for FunctionalRange view models
@@ -260,13 +258,34 @@ def test_can_create_valid_score_calibration_without_functional_ranges(valid_cali
         assert sc.calibration_metadata is None
 
 
-def test_cannot_create_score_calibration_when_ranges_overlap():
+def test_cannot_create_score_calibration_when_classification_ranges_overlap():
     invalid_data = deepcopy(TEST_BRNICH_SCORE_CALIBRATION)
     # Make the first two ranges overlap
     invalid_data["functional_ranges"][0]["range"] = [1.0, 3.0]
     invalid_data["functional_ranges"][1]["range"] = [2.0, 4.0]
-    with pytest.raises(ValidationError, match="Score ranges may not overlap; `"):
+    with pytest.raises(ValidationError, match="Classified score ranges may not overlap; `"):
         ScoreCalibrationCreate.model_validate(invalid_data)
+
+
+def test_can_create_score_calibration_when_unclassified_ranges_overlap_with_classified_ranges():
+    valid_data = deepcopy(TEST_BRNICH_SCORE_CALIBRATION)
+    # Make the first two ranges overlap, one being 'not_specified'
+    valid_data["functional_ranges"][0]["range"] = [1.5, 3.0]
+    valid_data["functional_ranges"][1]["range"] = [2.0, 4.0]
+    valid_data["functional_ranges"][0]["classification"] = "not_specified"
+    sc = ScoreCalibrationCreate.model_validate(valid_data)
+    assert len(sc.functional_ranges) == len(valid_data["functional_ranges"])
+
+
+def test_can_create_score_calibration_when_unclassified_ranges_overlap_with_each_other():
+    valid_data = deepcopy(TEST_BRNICH_SCORE_CALIBRATION)
+    # Make the first two ranges overlap, both being 'not_specified'
+    valid_data["functional_ranges"][0]["range"] = [1.5, 3.0]
+    valid_data["functional_ranges"][1]["range"] = [2.0, 4.0]
+    valid_data["functional_ranges"][0]["classification"] = "not_specified"
+    valid_data["functional_ranges"][1]["classification"] = "not_specified"
+    sc = ScoreCalibrationCreate.model_validate(valid_data)
+    assert len(sc.functional_ranges) == len(valid_data["functional_ranges"])
 
 
 def test_cannot_create_score_calibration_when_ranges_touch_with_inclusive_ranges():
@@ -275,7 +294,7 @@ def test_cannot_create_score_calibration_when_ranges_touch_with_inclusive_ranges
     invalid_data["functional_ranges"][0]["range"] = [1.0, 2.0]
     invalid_data["functional_ranges"][1]["range"] = [2.0, 4.0]
     invalid_data["functional_ranges"][0]["inclusive_upper_bound"] = True
-    with pytest.raises(ValidationError, match="Score ranges may not overlap; `"):
+    with pytest.raises(ValidationError, match="Classified score ranges may not overlap; `"):
         ScoreCalibrationCreate.model_validate(invalid_data)
 
 
