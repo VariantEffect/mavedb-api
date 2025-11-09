@@ -1,12 +1,11 @@
 import pytest
-
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
 
 from mavedb.lib.annotation.classification import (
+    ExperimentalVariantFunctionalImpactClassification,
     functional_classification_of_variant,
     pathogenicity_classification_of_variant,
-    ExperimentalVariantFunctionalImpactClassification,
 )
 
 
@@ -219,7 +218,7 @@ def test_pathogenicity_classification_of_variant_with_invalid_evidence_strength_
     )
     assert primary_cal is not None
     for r in primary_cal.functional_ranges:
-        r["acmgClassification"]["evidenceStrength"] = "moderate+"
+        r["acmgClassification"]["evidenceStrength"] = "moderate_plus"
         r["oddspathsRatio"] = None
 
     with pytest.raises(ValueError) as exc:

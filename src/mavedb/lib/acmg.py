@@ -50,7 +50,7 @@ class StrengthOfEvidenceProvided(str, Enum):
 
     VERY_STRONG = "very_strong"
     STRONG = "strong"
-    MODERATE_PLUS = "moderate+"
+    MODERATE_PLUS = "moderate_plus"
     MODERATE = "moderate"
     SUPPORTING = "supporting"
 
