@@ -1,4 +1,5 @@
-from typing import Dict, Any
+import json
+from typing import Any, Dict
 
 
 def update_expected_response_for_created_resources(
@@ -33,3 +34,14 @@ def dummy_attributed_object_from_dict(properties: dict[str, Any], recursive=Fals
             attr_obj.__setattr__(k, v)
 
     return attr_obj
+
+
+def parse_ndjson_response(response):
+    """Parse NDJSON response from streaming annotated-variants endpoints."""
+    response_data = []
+    for line in response.text.strip().split("\n"):
+        if line.strip():
+            variant_data = json.loads(line)
+            response_data.append(variant_data)
+
+    return response_data
