@@ -2738,6 +2738,7 @@ def test_download_variants_data_file(
             "hgvs_pro",
             "mavedb.post_mapped_hgvs_g",
             "mavedb.post_mapped_hgvs_p",
+            "mavedb.post_mapped_vrs_digest",
             "scores.score",
         ]
     )
@@ -2862,16 +2863,7 @@ def test_download_scores_and_counts_file(session, data_provider, client, setup_r
     download_scores_and_counts_csv = download_scores_and_counts_csv_response.text
     reader = csv.DictReader(StringIO(download_scores_and_counts_csv))
     assert sorted(reader.fieldnames) == sorted(
-        [
-            "accession",
-            "hgvs_nt",
-            "hgvs_pro",
-            "scores.score",
-            "scores.s_0",
-            "scores.s_1",
-            "counts.c_0",
-            "counts.c_1"
-        ]
+        ["accession", "hgvs_nt", "hgvs_pro", "scores.score", "scores.s_0", "scores.s_1", "counts.c_0", "counts.c_1"]
     )
 
 
@@ -2885,7 +2877,7 @@ def test_download_scores_and_counts_file(session, data_provider, client, setup_r
     ids=["without_post_mapped_vrs", "with_post_mapped_hgvs_g", "with_post_mapped_hgvs_p"],
 )
 def test_download_scores_counts_and_post_mapped_variants_file(
-        session, data_provider, client, setup_router_db, data_files, mapped_variant, has_hgvs_g, has_hgvs_p
+    session, data_provider, client, setup_router_db, data_files, mapped_variant, has_hgvs_g, has_hgvs_p
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -2912,11 +2904,12 @@ def test_download_scores_counts_and_post_mapped_variants_file(
             "hgvs_pro",
             "mavedb.post_mapped_hgvs_g",
             "mavedb.post_mapped_hgvs_p",
+            "mavedb.post_mapped_vrs_digest",
             "scores.score",
             "scores.s_0",
             "scores.s_1",
             "counts.c_0",
-            "counts.c_1"
+            "counts.c_1",
         ]
     )
 
