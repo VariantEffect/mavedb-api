@@ -2725,7 +2725,7 @@ def test_download_variants_data_file(
         worker_queue.assert_called_once()
 
     download_scores_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?drop_na_columns=true&include_post_mapped_hgvs=true"
     )
     assert download_scores_csv_response.status_code == 200
     download_scores_csv = download_scores_csv_response.text
@@ -2736,21 +2736,21 @@ def test_download_variants_data_file(
             "accession",
             "hgvs_nt",
             "hgvs_pro",
-            "post_mapped_hgvs_g",
-            "post_mapped_hgvs_p",
-            "score",
+            "mavedb.post_mapped_hgvs_g",
+            "mavedb.post_mapped_hgvs_p",
+            "scores.score",
         ]
     )
     rows = list(reader)
     for row in rows:
         if has_hgvs_g:
-            assert row["post_mapped_hgvs_g"] == mapped_variant["post_mapped"]["expressions"][0]["value"]
+            assert row["mavedb.post_mapped_hgvs_g"] == mapped_variant["post_mapped"]["expressions"][0]["value"]
         else:
-            assert row["post_mapped_hgvs_g"] == "NA"
+            assert row["mavedb.post_mapped_hgvs_g"] == "NA"
         if has_hgvs_p:
-            assert row["post_mapped_hgvs_p"] == mapped_variant["post_mapped"]["expressions"][0]["value"]
+            assert row["mavedb.post_mapped_hgvs_p"] == mapped_variant["post_mapped"]["expressions"][0]["value"]
         else:
-            assert row["post_mapped_hgvs_p"] == "NA"
+            assert row["mavedb.post_mapped_hgvs_p"] == "NA"
 
 
 # Test file doesn't have hgvs_splice so its values are all NA.
@@ -2795,6 +2795,130 @@ def test_download_counts_file(session, data_provider, client, setup_router_db, d
     assert "hgvs_nt" in columns
     assert "hgvs_pro" in columns
     assert "hgvs_splice" not in columns
+
+
+# Namespace variant CSV export tests.
+def test_download_scores_file_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    download_scores_csv_response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&drop_na_columns=true"
+    )
+    assert download_scores_csv_response.status_code == 200
+    download_scores_csv = download_scores_csv_response.text
+    reader = csv.reader(StringIO(download_scores_csv))
+    columns = next(reader)
+    assert "hgvs_nt" in columns
+    assert "hgvs_pro" in columns
+    assert "hgvs_splice" not in columns
+    assert "scores.score" in columns
+
+
+def test_download_counts_file_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    download_counts_csv_response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=counts&include_custom_columns=true&drop_na_columns=true"
+    )
+    assert download_counts_csv_response.status_code == 200
+    download_counts_csv = download_counts_csv_response.text
+    reader = csv.reader(StringIO(download_counts_csv))
+    columns = next(reader)
+    assert "hgvs_nt" in columns
+    assert "hgvs_pro" in columns
+    assert "hgvs_splice" not in columns
+    assert "counts.c_0" in columns
+    assert "counts.c_1" in columns
+
+
+def test_download_scores_and_counts_file(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    download_scores_and_counts_csv_response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=counts&namespaces=scores&include_custom_columns=true&drop_na_columns=true"
+    )
+    assert download_scores_and_counts_csv_response.status_code == 200
+    download_scores_and_counts_csv = download_scores_and_counts_csv_response.text
+    reader = csv.DictReader(StringIO(download_scores_and_counts_csv))
+    assert sorted(reader.fieldnames) == sorted(
+        [
+            "accession",
+            "hgvs_nt",
+            "hgvs_pro",
+            "scores.score",
+            "scores.s_0",
+            "scores.s_1",
+            "counts.c_0",
+            "counts.c_1"
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    "mapped_variant,has_hgvs_g,has_hgvs_p",
+    [
+        (None, False, False),
+        (TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION, True, False),
+        (TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION, False, True),
+    ],
+    ids=["without_post_mapped_vrs", "with_post_mapped_hgvs_g", "with_post_mapped_hgvs_p"],
+)
+def test_download_scores_counts_and_post_mapped_variants_file(
+        session, data_provider, client, setup_router_db, data_files, mapped_variant, has_hgvs_g, has_hgvs_p
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    if mapped_variant is not None:
+        create_mapped_variants_for_score_set(session, score_set["urn"], mapped_variant)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    download_multiple_data_csv_response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&namespaces=counts&include_custom_columns=true&include_post_mapped_hgvs=true&drop_na_columns=true"
+    )
+    assert download_multiple_data_csv_response.status_code == 200
+    download_multiple_data_csv = download_multiple_data_csv_response.text
+    reader = csv.DictReader(StringIO(download_multiple_data_csv))
+    assert sorted(reader.fieldnames) == sorted(
+        [
+            "accession",
+            "hgvs_nt",
+            "hgvs_pro",
+            "mavedb.post_mapped_hgvs_g",
+            "mavedb.post_mapped_hgvs_p",
+            "scores.score",
+            "scores.s_0",
+            "scores.s_1",
+            "counts.c_0",
+            "counts.c_1"
+        ]
+    )
 
 
 ########################################################################################################################

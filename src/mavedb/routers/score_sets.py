@@ -1,7 +1,7 @@
 import json
 import logging
 from datetime import date
-from typing import Any, List, Optional, Sequence, TypedDict, Union
+from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
 
 import pandas as pd
 from arq import ArqRedis
@@ -110,20 +110,28 @@ async def enqueue_variant_creation(
             "hgvs_splice",
             "hgvs_pro",
         ] + item.dataset_columns.get("score_columns", [])
+        # score_columns = {
+        #         "core": ["hgvs_nt", "hgvs_splice", "hgvs_pro"],
+        #         "counts": item.dataset_columns["score_columns"],
+        #     }
         existing_scores_df = pd.DataFrame(
-            variants_to_csv_rows(item.variants, columns=score_columns, dtype="score_data")
+            variants_to_csv_rows(item.variants, columns=score_columns, namespaced=False)
         ).replace("NA", pd.NA)
 
     # create CSV from existing variants on the score set if no new dataframe provided
     existing_counts_df = None
     if new_counts_df is None and item.dataset_columns.get("count_columns"):
+        # count_columns = {
+        #     "core": ["hgvs_nt", "hgvs_splice", "hgvs_pro"],
+        #     "counts": item.dataset_columns["count_columns"],
+        # }
         count_columns = [
-            "hgvs_nt",
-            "hgvs_splice",
-            "hgvs_pro",
-        ] + item.dataset_columns["count_columns"]
+                            "hgvs_nt",
+                            "hgvs_splice",
+                            "hgvs_pro",
+                        ] + item.dataset_columns["count_columns"]
         existing_counts_df = pd.DataFrame(
-            variants_to_csv_rows(item.variants, columns=count_columns, dtype="count_data")
+            variants_to_csv_rows(item.variants, columns=count_columns, namespaced=False)
         ).replace("NA", pd.NA)
 
     # Await the insertion of this job into the worker queue, not the job itself.
@@ -638,7 +646,13 @@ def get_score_set_variants_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Maximum number of variants to return"),
+    namespaces: List[Literal["scores", "counts"]] = Query(
+        default=["scores"],
+        description="One or more data types to include: scores, counts, clinVar, gnomAD"
+    ),
     drop_na_columns: Optional[bool] = None,
+    include_custom_columns: Optional[bool] = None,
+    include_post_mapped_hgvs: Optional[bool] = None,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
@@ -648,11 +662,8 @@ def get_score_set_variants_csv(
     This differs from get_score_set_scores_csv() in that it returns only the HGVS columns, score column, and mapped HGVS
     string.
 
-    TODO (https://github.com/VariantEffect/mavedb-api/issues/446) We may want to turn this into a general-purpose CSV
+    TODO (https://github.com/VariantEffect/mavedb-api/issues/446) We may add another function for ClinVar and gnomAD.
     export endpoint, with options governing which columns to include.
-
-    Parameters
-    __________
 
     Parameters
     __________
@@ -662,6 +673,9 @@ def get_score_set_variants_csv(
         The index to start from. If None, starts from the beginning.
     limit : Optional[int]
         The maximum number of variants to return. If None, returns all variants.
+    namespaces: List[Literal["scores", "counts"]]
+        The namespaces of all columns except for accession, hgvs_nt, hgvs_pro, and hgvs_splice.
+        We may add ClinVar and gnomAD in the future.
     drop_na_columns : bool, optional
         Whether to drop columns that contain only NA values. Defaults to False.
     db : Session
@@ -701,12 +715,13 @@ def get_score_set_variants_csv(
     csv_str = get_score_set_variants_as_csv(
         db,
         score_set,
-        "scores",
+        namespaces,
+        True,
         start,
         limit,
         drop_na_columns,
-        include_custom_columns=False,
-        include_post_mapped_hgvs=True,
+        include_custom_columns,
+        include_post_mapped_hgvs,
     )
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
@@ -762,7 +777,7 @@ def get_score_set_scores_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_variants_as_csv(db, score_set, "scores", start, limit, drop_na_columns)
+    csv_str = get_score_set_variants_as_csv(db, score_set, ["scores"], False, start, limit, drop_na_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
@@ -817,7 +832,7 @@ async def get_score_set_counts_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_variants_as_csv(db, score_set, "counts", start, limit, drop_na_columns)
+    csv_str = get_score_set_variants_as_csv(db, score_set, ["counts"], False, start, limit, drop_na_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
 
 
