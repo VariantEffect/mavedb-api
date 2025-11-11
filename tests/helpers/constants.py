@@ -4,7 +4,6 @@ from humps import camelize
 
 from mavedb.models.enums.processing_state import ProcessingState
 
-
 VALID_EXPERIMENT_SET_URN = "urn:mavedb:01234567"
 VALID_EXPERIMENT_URN = f"{VALID_EXPERIMENT_SET_URN}-a"
 VALID_SCORE_SET_URN = f"{VALID_EXPERIMENT_URN}-1"
@@ -693,6 +692,12 @@ SAVED_SHORT_INACTIVE_LICENSE = {
     "active": TEST_INACTIVE_LICENSE["active"],
 }
 
+SAVED_MINIMAL_DATASET_COLUMNS = {
+    "recordType": "DatasetColumns",
+    "countColumns": [],
+    "scoreColumns": ["score", "s_0", "s_1"],
+}
+
 TEST_SEQ_SCORESET = {
     "title": "Test Score Set Title",
     "short_description": "Test score set",
@@ -805,7 +810,9 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
-    "datasetColumns": {},
+    "datasetColumns": {
+        "recordType": "DatasetColumns",
+    },
     "externalLinks": {},
     "private": True,
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
@@ -920,7 +927,9 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
-    "datasetColumns": {},
+    "datasetColumns": {
+        "recordType": "DatasetColumns",
+    },
     "private": True,
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
     # keys to be set after receiving response
@@ -1060,7 +1069,9 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
-    "datasetColumns": {},
+    "datasetColumns": {
+        "recordType": "DatasetColumns",
+    },
     "externalLinks": {},
     "private": True,
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
@@ -1068,6 +1079,19 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
     "urn": None,
     "processingState": ProcessingState.incomplete.name,
     "officialCollections": [],
+}
+
+TEST_SCORE_SET_DATASET_COLUMNS = {
+    "score_columns": ["score", "s_0", "s_1"],
+    "count_columns": ["c_0", "c_1"],
+    "score_columns_metadata": {
+        "s_0": {"description": "s_0 description", "details": "s_0 details"},
+        "s_1": {"description": "s_1 description", "details": "s_1 details"},
+    },
+    "count_columns_metadata": {
+        "c_0": {"description": "c_0 description", "details": "c_0 details"},
+        "c_1": {"description": "c_1 description", "details": "c_1 details"},
+    },
 }
 
 TEST_NT_CDOT_TRANSCRIPT = {
@@ -1600,6 +1624,8 @@ TEST_SCORE_SET_RANGE = {
         TEST_SCORE_SET_NORMAL_RANGE,
         TEST_SCORE_SET_ABNORMAL_RANGE,
     ],
+    "research_use_only": False,
+    "title": "Test Base Ranges",
     "source": None,
 }
 
@@ -1610,9 +1636,169 @@ TEST_SCORE_SET_RANGE_WITH_SOURCE = {
         TEST_SCORE_SET_NORMAL_RANGE,
         TEST_SCORE_SET_ABNORMAL_RANGE,
     ],
+    "research_use_only": False,
+    "title": "Test Base Ranges with Source",
     "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
 }
 
+
+TEST_BRNICH_SCORE_SET_NORMAL_RANGE = {
+    **TEST_SCORE_SET_NORMAL_RANGE,
+    "odds_path": TEST_BS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_BRNICH_SCORE_SET_NORMAL_RANGE = {
+    **TEST_SAVED_SCORE_SET_NORMAL_RANGE,
+    "oddsPath": TEST_SAVED_BS3_ODDS_PATH,
+    "recordType": "BrnichScoreRange",
+}
+
+
+TEST_BRNICH_SCORE_SET_ABNORMAL_RANGE = {
+    **TEST_SCORE_SET_ABNORMAL_RANGE,
+    "odds_path": TEST_PS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_BRNICH_SCORE_SET_ABNORMAL_RANGE = {
+    **TEST_SAVED_SCORE_SET_ABNORMAL_RANGE,
+    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
+    "recordType": "BrnichScoreRange",
+}
+
+
+TEST_BRNICH_SCORE_SET_NOT_SPECIFIED_RANGE = {
+    **TEST_SCORE_SET_NOT_SPECIFIED_RANGE,
+    "odds_path": TEST_PS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_BRNICH_SCORE_SET_NOT_SPECIFIED_RANGE = {
+    **TEST_SAVED_SCORE_SET_NOT_SPECIFIED_RANGE,
+    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
+    "recordType": "BrnichScoreRange",
+}
+
+
+TEST_BRNICH_SCORE_SET_RANGE = {
+    "baseline_score": TEST_BASELINE_SCORE,
+    "ranges": [
+        TEST_BRNICH_SCORE_SET_NORMAL_RANGE,
+        TEST_BRNICH_SCORE_SET_ABNORMAL_RANGE,
+        TEST_BRNICH_SCORE_SET_NOT_SPECIFIED_RANGE,
+    ],
+    "research_use_only": False,
+    "title": "Test Brnich Functional Ranges",
+    "odds_path_source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+    "source": None,
+}
+
+
+TEST_SAVED_BRNICH_SCORE_SET_RANGE = {
+    "recordType": "BrnichScoreRanges",
+    "baselineScore": TEST_BASELINE_SCORE,
+    "ranges": [
+        TEST_SAVED_BRNICH_SCORE_SET_NORMAL_RANGE,
+        TEST_SAVED_BRNICH_SCORE_SET_ABNORMAL_RANGE,
+        TEST_SAVED_BRNICH_SCORE_SET_NOT_SPECIFIED_RANGE,
+    ],
+    "researchUseOnly": False,
+    "title": "Test Brnich Functional Ranges",
+    "oddsPathSource": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+    "source": None,
+}
+
+
+TEST_BRNICH_SCORE_SET_RANGE_WITH_SOURCE = {
+    **TEST_BRNICH_SCORE_SET_RANGE,
+    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+}
+
+
+TEST_SAVED_BRNICH_SCORE_SET_RANGE_WITH_SOURCE = {
+    **TEST_SAVED_BRNICH_SCORE_SET_RANGE,
+    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+}
+
+TEST_SCOTT_SCORE_SET_NORMAL_RANGE = {
+    **TEST_SCORE_SET_NORMAL_RANGE,
+    "odds_path": TEST_BS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_SCOTT_SCORE_SET_NORMAL_RANGE = {
+    **TEST_SAVED_SCORE_SET_NORMAL_RANGE,
+    "oddsPath": TEST_SAVED_BS3_ODDS_PATH,
+    "recordType": "BrnichScoreRange",
+}
+
+
+TEST_SCOTT_SCORE_SET_ABNORMAL_RANGE = {
+    **TEST_SCORE_SET_ABNORMAL_RANGE,
+    "odds_path": TEST_PS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_SCOTT_SCORE_SET_ABNORMAL_RANGE = {
+    **TEST_SAVED_SCORE_SET_ABNORMAL_RANGE,
+    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
+    "recordType": "BrnichScoreRange",
+}
+
+
+TEST_SCOTT_SCORE_SET_NOT_SPECIFIED_RANGE = {
+    **TEST_SCORE_SET_NOT_SPECIFIED_RANGE,
+    "odds_path": TEST_PS3_ODDS_PATH,
+}
+
+
+TEST_SAVED_SCOTT_SCORE_SET_NOT_SPECIFIED_RANGE = {
+    **TEST_SAVED_SCORE_SET_NOT_SPECIFIED_RANGE,
+    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
+    "recordType": "BrnichScoreRange",
+}
+
+
+TEST_SCOTT_SCORE_SET_RANGE = {
+    "baseline_score": TEST_BASELINE_SCORE,
+    "ranges": [
+        TEST_SCOTT_SCORE_SET_NORMAL_RANGE,
+        TEST_SCOTT_SCORE_SET_ABNORMAL_RANGE,
+        TEST_SCOTT_SCORE_SET_NOT_SPECIFIED_RANGE,
+    ],
+    "research_use_only": False,
+    "title": "Test Scott Functional Ranges",
+    "odds_path_source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+    "source": None,
+}
+
+
+TEST_SAVED_SCOTT_SCORE_SET_RANGE = {
+    "recordType": "ScottScoreRanges",
+    "baselineScore": TEST_BASELINE_SCORE,
+    "ranges": [
+        TEST_SAVED_SCOTT_SCORE_SET_NORMAL_RANGE,
+        TEST_SAVED_SCOTT_SCORE_SET_ABNORMAL_RANGE,
+        TEST_SAVED_SCOTT_SCORE_SET_NOT_SPECIFIED_RANGE,
+    ],
+    "researchUseOnly": False,
+    "title": "Test Scott Functional Ranges",
+    "oddsPathSource": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+    "source": None,
+}
+
+
+TEST_SCOTT_SCORE_SET_RANGE_WITH_SOURCE = {
+    **TEST_SCOTT_SCORE_SET_RANGE,
+    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+}
+
+
+TEST_SAVED_SCOTT_SCORE_SET_RANGE_WITH_SOURCE = {
+    **TEST_SAVED_SCOTT_SCORE_SET_RANGE,
+    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+}
 
 TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE = {
     **TEST_SCORE_SET_NORMAL_RANGE,
@@ -1623,7 +1809,7 @@ TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE = {
 TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE = {
     **TEST_SAVED_SCORE_SET_NORMAL_RANGE,
     "oddsPath": TEST_SAVED_BS3_ODDS_PATH,
-    "recordType": "InvestigatorScoreRange",
+    "recordType": "BrnichScoreRange",
 }
 
 
@@ -1636,7 +1822,7 @@ TEST_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE = {
 TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE = {
     **TEST_SAVED_SCORE_SET_ABNORMAL_RANGE,
     "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
-    "recordType": "InvestigatorScoreRange",
+    "recordType": "BrnichScoreRange",
 }
 
 
@@ -1649,7 +1835,7 @@ TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE = {
 TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE = {
     **TEST_SAVED_SCORE_SET_NOT_SPECIFIED_RANGE,
     "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
-    "recordType": "InvestigatorScoreRange",
+    "recordType": "BrnichScoreRange",
 }
 
 
@@ -1660,6 +1846,8 @@ TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE = {
         TEST_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE,
         TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE,
     ],
+    "research_use_only": False,
+    "title": "Test Investigator-provided Functional Ranges",
     "odds_path_source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
     "source": None,
 }
@@ -1673,6 +1861,8 @@ TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE = {
         TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE,
         TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE,
     ],
+    "researchUseOnly": False,
+    "title": "Test Investigator-provided Functional Ranges",
     "oddsPathSource": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
     "source": None,
 }
@@ -1691,7 +1881,9 @@ TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE = {
 
 
 # no camel casing required, and no need for a 'recordType' key
-TEST_PILLAR_PROJECT_FUNCTIONALY_ALTERING_PARAMETERS = TEST_SAVED_PILLAR_PROJECT_FUNCTIONALY_ALTERING_PARAMETERS = {
+TEST_ZEIBERG_CALIBRATION_FUNCTIONALY_ALTERING_PARAMETERS = (
+    TEST_SAVED_ZEIBERG_CALIBRATION_FUNCTIONALY_ALTERING_PARAMETERS
+) = {
     "skew": 1.15,
     "location": -2.20,
     "scale": 1.20,
@@ -1699,32 +1891,34 @@ TEST_PILLAR_PROJECT_FUNCTIONALY_ALTERING_PARAMETERS = TEST_SAVED_PILLAR_PROJECT_
 
 
 # no camel casing required, and no need for a 'recordType' key
-TEST_PILLAR_PROJECT_FUNCTIONALY_NORMAL_PARAMETERS = TEST_SAVED_PILLAR_PROJECT_FUNCTIONALY_NORMAL_PARAMETERS = {
+TEST_ZEIBERG_CALIBRATION_FUNCTIONALY_NORMAL_PARAMETERS = (
+    TEST_SAVED_ZEIBERG_CALIBRATION_FUNCTIONALY_NORMAL_PARAMETERS
+) = {
     "skew": -1.5,
     "location": 2.25,
     "scale": 0.8,
 }
 
 
-TEST_PILLAR_PROJECT_PARAMETER_SETS = [
+TEST_ZEIBERG_CALIBRATION_PARAMETER_SETS = [
     {
-        "functionally_altering": TEST_PILLAR_PROJECT_FUNCTIONALY_ALTERING_PARAMETERS,
-        "functionally_normal": TEST_PILLAR_PROJECT_FUNCTIONALY_NORMAL_PARAMETERS,
+        "functionally_altering": TEST_ZEIBERG_CALIBRATION_FUNCTIONALY_ALTERING_PARAMETERS,
+        "functionally_normal": TEST_ZEIBERG_CALIBRATION_FUNCTIONALY_NORMAL_PARAMETERS,
         "fraction_functionally_altering": 0.20,
     }
 ]
 
 
-TEST_SAVED_PILLAR_PROJECT_PARAMETER_SETS = [
+TEST_SAVED_ZEIBERG_CALIBRATION_PARAMETER_SETS = [
     {
-        "functionallyAltering": TEST_SAVED_PILLAR_PROJECT_FUNCTIONALY_ALTERING_PARAMETERS,
-        "functionallyNormal": TEST_SAVED_PILLAR_PROJECT_FUNCTIONALY_NORMAL_PARAMETERS,
+        "functionallyAltering": TEST_SAVED_ZEIBERG_CALIBRATION_FUNCTIONALY_ALTERING_PARAMETERS,
+        "functionallyNormal": TEST_SAVED_ZEIBERG_CALIBRATION_FUNCTIONALY_NORMAL_PARAMETERS,
         "fractionFunctionallyAltering": 0.20,
     }
 ]
 
 
-TEST_PILLAR_PROJECT_SCORE_SET_BS3_SUPPORTING_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_SUPPORTING_RANGE = {
     **TEST_SCORE_SET_BS3_SUPPORTING_RANGE,
     "positive_likelihood_ratio": 100.0,
     "evidence_strength": -1,
@@ -1732,15 +1926,15 @@ TEST_PILLAR_PROJECT_SCORE_SET_BS3_SUPPORTING_RANGE = {
 }
 
 
-TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE = {
     **TEST_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE,
-    "recordType": "PillarProjectScoreRange",
+    "recordType": "ZeibergCalibrationScoreRange",
     "label": "BS3_SUPPORTING",
     "evidenceStrength": -1,
     "positiveLikelihoodRatio": 100.0,
 }
 
-TEST_PILLAR_PROJECT_SCORE_SET_PS3_SUPPORTING_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_SUPPORTING_RANGE = {
     **TEST_SCORE_SET_PS3_SUPPORTING_RANGE,
     "positive_likelihood_ratio": 10.0,
     "evidence_strength": 1,
@@ -1748,16 +1942,16 @@ TEST_PILLAR_PROJECT_SCORE_SET_PS3_SUPPORTING_RANGE = {
 }
 
 
-TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE = {
     **TEST_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE,
-    "recordType": "PillarProjectScoreRange",
+    "recordType": "ZeibergCalibrationScoreRange",
     "label": "PS3_SUPPORTING",
     "positiveLikelihoodRatio": 10.0,
     "evidenceStrength": 1,
 }
 
 
-TEST_PILLAR_PROJECT_SCORE_SET_BS3_MODERATE_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_MODERATE_RANGE = {
     **TEST_SCORE_SET_BS3_MODERATE_RANGE,
     "positive_likelihood_ratio": 100.0,
     "evidence_strength": -2,
@@ -1765,15 +1959,15 @@ TEST_PILLAR_PROJECT_SCORE_SET_BS3_MODERATE_RANGE = {
 }
 
 
-TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_MODERATE_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_MODERATE_RANGE = {
     **TEST_SAVED_SCORE_SET_BS3_MODERATE_RANGE,
-    "recordType": "PillarProjectScoreRange",
+    "recordType": "ZeibergCalibrationScoreRange",
     "label": "BS3_MODERATE",
     "evidenceStrength": -2,
     "positiveLikelihoodRatio": 100.0,
 }
 
-TEST_PILLAR_PROJECT_SCORE_SET_PS3_MODERATE_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_MODERATE_RANGE = {
     **TEST_SCORE_SET_PS3_MODERATE_RANGE,
     "positive_likelihood_ratio": 10.0,
     "evidence_strength": 2,
@@ -1781,16 +1975,16 @@ TEST_PILLAR_PROJECT_SCORE_SET_PS3_MODERATE_RANGE = {
 }
 
 
-TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_MODERATE_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_MODERATE_RANGE = {
     **TEST_SAVED_SCORE_SET_PS3_MODERATE_RANGE,
-    "recordType": "PillarProjectScoreRange",
+    "recordType": "ZeibergCalibrationScoreRange",
     "label": "PS3_MODERATE",
     "positiveLikelihoodRatio": 10.0,
     "evidenceStrength": 2,
 }
 
 
-TEST_PILLAR_PROJECT_SCORE_SET_BS3_STRONG_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_STRONG_RANGE = {
     **TEST_SCORE_SET_BS3_STRONG_RANGE,
     "positive_likelihood_ratio": 100.0,
     "evidence_strength": -4,
@@ -1798,15 +1992,15 @@ TEST_PILLAR_PROJECT_SCORE_SET_BS3_STRONG_RANGE = {
 }
 
 
-TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_STRONG_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_STRONG_RANGE = {
     **TEST_SAVED_SCORE_SET_BS3_STRONG_RANGE,
-    "recordType": "PillarProjectScoreRange",
+    "recordType": "ZeibergCalibrationScoreRange",
     "label": "BS3_STRONG",
     "evidenceStrength": -4,
     "positiveLikelihoodRatio": 100.0,
 }
 
-TEST_PILLAR_PROJECT_SCORE_SET_PS3_STRONG_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_STRONG_RANGE = {
     **TEST_SCORE_SET_PS3_STRONG_RANGE,
     "positive_likelihood_ratio": 10.0,
     "evidence_strength": 4,
@@ -1814,16 +2008,16 @@ TEST_PILLAR_PROJECT_SCORE_SET_PS3_STRONG_RANGE = {
 }
 
 
-TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_STRONG_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_STRONG_RANGE = {
     **TEST_SAVED_SCORE_SET_PS3_STRONG_RANGE,
-    "recordType": "PillarProjectScoreRange",
+    "recordType": "ZeibergCalibrationScoreRange",
     "label": "PS3_STRONG",
     "positiveLikelihoodRatio": 10.0,
     "evidenceStrength": 4,
 }
 
 
-TEST_PILLAR_PROJECT_SCORE_SET_BS3_VERY_STRONG_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_VERY_STRONG_RANGE = {
     **TEST_SCORE_SET_BS3_VERY_STRONG_RANGE,
     "positive_likelihood_ratio": 100.0,
     "evidence_strength": -8,
@@ -1831,15 +2025,15 @@ TEST_PILLAR_PROJECT_SCORE_SET_BS3_VERY_STRONG_RANGE = {
 }
 
 
-TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE = {
     **TEST_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE,
-    "recordType": "PillarProjectScoreRange",
+    "recordType": "ZeibergCalibrationScoreRange",
     "label": "BS3_VERY_STRONG",
     "evidenceStrength": -8,
     "positiveLikelihoodRatio": 100.0,
 }
 
-TEST_PILLAR_PROJECT_SCORE_SET_PS3_VERY_STRONG_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_VERY_STRONG_RANGE = {
     **TEST_SCORE_SET_PS3_VERY_STRONG_RANGE,
     "positive_likelihood_ratio": 10.0,
     "evidence_strength": 8,
@@ -1847,56 +2041,60 @@ TEST_PILLAR_PROJECT_SCORE_SET_PS3_VERY_STRONG_RANGE = {
 }
 
 
-TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE = {
     **TEST_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE,
-    "recordType": "PillarProjectScoreRange",
+    "recordType": "ZeibergCalibrationScoreRange",
     "label": "PS3_VERY_STRONG",
     "positiveLikelihoodRatio": 10.0,
     "evidenceStrength": 8,
 }
 
 
-TEST_PILLAR_PROJECT_SCORE_SET_RANGE = {
+TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE = {
     "ranges": [
-        TEST_PILLAR_PROJECT_SCORE_SET_BS3_SUPPORTING_RANGE,
-        TEST_PILLAR_PROJECT_SCORE_SET_BS3_MODERATE_RANGE,
-        TEST_PILLAR_PROJECT_SCORE_SET_BS3_STRONG_RANGE,
-        TEST_PILLAR_PROJECT_SCORE_SET_BS3_VERY_STRONG_RANGE,
-        TEST_PILLAR_PROJECT_SCORE_SET_PS3_SUPPORTING_RANGE,
-        TEST_PILLAR_PROJECT_SCORE_SET_PS3_MODERATE_RANGE,
-        TEST_PILLAR_PROJECT_SCORE_SET_PS3_STRONG_RANGE,
-        TEST_PILLAR_PROJECT_SCORE_SET_PS3_VERY_STRONG_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_SUPPORTING_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_MODERATE_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_STRONG_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_VERY_STRONG_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_SUPPORTING_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_MODERATE_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_STRONG_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_VERY_STRONG_RANGE,
     ],
-    "parameter_sets": TEST_PILLAR_PROJECT_PARAMETER_SETS,
+    "research_use_only": True,
+    "title": "Test Zeiberg Calibration",
+    "parameter_sets": TEST_ZEIBERG_CALIBRATION_PARAMETER_SETS,
     "prior_probability_pathogenicity": 0.20,
     "source": None,
 }
 
 
-TEST_PILLAR_PROJECT_SAVED_SCORE_SET_RANGE = {
-    "recordType": "PillarProjectScoreRanges",
+TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_RANGE = {
+    "recordType": "ZeibergCalibrationScoreRanges",
     "ranges": [
-        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE,
-        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_MODERATE_RANGE,
-        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_STRONG_RANGE,
-        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE,
-        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE,
-        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_MODERATE_RANGE,
-        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_STRONG_RANGE,
-        TEST_PILLAR_PROJECT_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_MODERATE_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_STRONG_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_MODERATE_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_STRONG_RANGE,
+        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE,
     ],
-    "parameterSets": TEST_SAVED_PILLAR_PROJECT_PARAMETER_SETS,
+    "researchUseOnly": True,
+    "title": "Test Zeiberg Calibration",
+    "parameterSets": TEST_SAVED_ZEIBERG_CALIBRATION_PARAMETER_SETS,
     "priorProbabilityPathogenicity": 0.20,
 }
 
-TEST_PILLAR_PROJECT_SCORE_SET_RANGE_WITH_SOURCE = {
-    **TEST_PILLAR_PROJECT_SCORE_SET_RANGE,
+TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE_WITH_SOURCE = {
+    **TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE,
     "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
 }
 
 
-TEST_SAVED_PILLAR_PROJECT_SCORE_SET_RANGE_WITH_SOURCE = {
-    **TEST_PILLAR_PROJECT_SAVED_SCORE_SET_RANGE,
+TEST_SAVED_ZEIBERG_CALIBRATION_SCORE_SET_RANGE_WITH_SOURCE = {
+    **TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_RANGE,
     "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
 }
 
@@ -1911,27 +2109,39 @@ TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED = {
     "investigatorProvided": TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE,
 }
 
-
-TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT = {
-    "pillar_project": TEST_PILLAR_PROJECT_SCORE_SET_RANGE_WITH_SOURCE,
+TEST_SCORE_SET_RANGES_ONLY_SCOTT = {
+    "scott_calibration": TEST_SCOTT_SCORE_SET_RANGE_WITH_SOURCE,
 }
 
 
-TEST_SAVED_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT = {
+TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT = {
     "recordType": "ScoreSetRanges",
-    "pillarProject": TEST_SAVED_PILLAR_PROJECT_SCORE_SET_RANGE_WITH_SOURCE,
+    "scottCalibration": TEST_SAVED_SCOTT_SCORE_SET_RANGE_WITH_SOURCE,
+}
+
+
+TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION = {
+    "zeiberg_calibration": TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE_WITH_SOURCE,
+}
+
+
+TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION = {
+    "recordType": "ScoreSetRanges",
+    "zeibergCalibration": TEST_SAVED_ZEIBERG_CALIBRATION_SCORE_SET_RANGE_WITH_SOURCE,
 }
 
 
 TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT = {
     **TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    **TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+    **TEST_SCORE_SET_RANGES_ONLY_SCOTT,
+    **TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
 }
 
 
 TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT = {
     **TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    **TEST_SAVED_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+    **TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT,
+    **TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
 }
 
 

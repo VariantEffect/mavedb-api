@@ -19,6 +19,13 @@ def test_variant_functional_impact_statement_no_score_ranges(mock_mapped_variant
     assert result is None
 
 
+def test_variant_functional_impact_statement_no_score_range_data(mock_mapped_variant):
+    mock_mapped_variant.variant.score_set.score_ranges["investigator_provided"]["ranges"] = []
+    result = variant_functional_impact_statement(mock_mapped_variant)
+
+    assert result is None
+
+
 def test_variant_functional_impact_statement_no_score(mock_mapped_variant):
     mock_mapped_variant.variant.data = {"score_data": {"score": None}}
     result = variant_functional_impact_statement(mock_mapped_variant)
@@ -67,7 +74,14 @@ def test_variant_pathogenicity_evidence_no_score_ranges_with_thresholds(mock_map
 
 
 def test_variant_pathogenicity_evidence_with_score_ranges_no_thresholds(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges.pop("pillar_project")
+    mock_mapped_variant.variant.score_set.score_ranges.pop("zeiberg_calibration")
+    result = variant_pathogenicity_evidence(mock_mapped_variant)
+
+    assert result is None
+
+
+def test_variant_pathogenicity_evidence_with_score_ranges_no_threshold_data(mock_mapped_variant):
+    mock_mapped_variant.variant.score_set.score_ranges["zeiberg_calibration"]["ranges"] = []
     result = variant_pathogenicity_evidence(mock_mapped_variant)
 
     assert result is None

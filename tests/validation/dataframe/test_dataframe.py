@@ -6,10 +6,10 @@ import pandas as pd
 import pytest
 
 from mavedb.lib.validation.constants.general import (
+    guide_sequence_column,
     hgvs_nt_column,
     hgvs_pro_column,
     hgvs_splice_column,
-    guide_sequence_column,
     required_score_column,
 )
 from mavedb.lib.validation.dataframe.dataframe import (
@@ -157,7 +157,12 @@ class TestValidateStandardizeDataFramePair(DfTestCase):
     def test_no_targets(self):
         with self.assertRaises(ValueError):
             validate_and_standardize_dataframe_pair(
-                self.dataframe, counts_df=None, targets=[], hdp=self.mocked_nt_human_data_provider
+                self.dataframe,
+                counts_df=None,
+                score_columns_metadata=None,
+                count_columns_metadata=None,
+                targets=[],
+                hdp=self.mocked_nt_human_data_provider,
             )
 
     # TODO: Add additional DataFrames. Realistically, if other unit tests pass this function is ok

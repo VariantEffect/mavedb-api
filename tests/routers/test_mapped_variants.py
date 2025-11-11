@@ -24,7 +24,7 @@ from mavedb.view_models.mapped_variant import SavedMappedVariant
 from tests.helpers.constants import (
     TEST_PUBMED_IDENTIFIER,
     TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+    TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
     TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
 )
 from tests.helpers.util.experiment import create_experiment
@@ -410,7 +410,7 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_no_score_ra
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": TEST_SCORE_SET_RANGES_ONLY_PILLAR_PROJECT,
+            "scoreRanges": TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
         },
     )
 

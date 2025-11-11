@@ -87,6 +87,8 @@ class ScoreRange(SavedScoreRange):
 
 
 class ScoreRangesBase(BaseModel):
+    title: str
+    research_use_only: bool
     ranges: Sequence[ScoreRangeBase]
     source: Optional[Sequence[PublicationIdentifierBase]] = None
 
@@ -159,25 +161,23 @@ class ScoreRanges(SavedScoreRanges):
 
 
 ##############################################################################################################
-# Investigator provided score range models
+# Brnich style score range models
 ##############################################################################################################
 
-### Investigator provided score range model
 
-
-class InvestigatorScoreRangeBase(ScoreRangeBase):
+class BrnichScoreRangeBase(ScoreRangeBase):
     odds_path: Optional[OddsPathBase] = None
 
 
-class InvestigatorScoreRangeModify(ScoreRangeModify, InvestigatorScoreRangeBase):
+class BrnichScoreRangeModify(ScoreRangeModify, BrnichScoreRangeBase):
     odds_path: Optional[OddsPathModify] = None
 
 
-class InvestigatorScoreRangeCreate(ScoreRangeCreate, InvestigatorScoreRangeModify):
+class BrnichScoreRangeCreate(ScoreRangeCreate, BrnichScoreRangeModify):
     odds_path: Optional[OddsPathCreate] = None
 
 
-class SavedInvestigatorScoreRange(SavedScoreRange, InvestigatorScoreRangeBase):
+class SavedBrnichScoreRange(SavedScoreRange, BrnichScoreRangeBase):
     record_type: str = None  # type: ignore
 
     odds_path: Optional[SavedOddsPath] = None
@@ -185,27 +185,29 @@ class SavedInvestigatorScoreRange(SavedScoreRange, InvestigatorScoreRangeBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
 
-class InvestigatorScoreRange(ScoreRange, SavedInvestigatorScoreRange):
+class BrnichScoreRange(ScoreRange, SavedBrnichScoreRange):
     odds_path: Optional[OddsPath] = None
 
 
-### Investigator provided score range wrapper model
+### Brnich score range wrapper model
 
 
-class InvestigatorScoreRangesBase(ScoreRangesBase):
+class BrnichScoreRangesBase(ScoreRangesBase):
     baseline_score: Optional[float] = None
     baseline_score_description: Optional[str] = None
-    ranges: Sequence[InvestigatorScoreRangeBase]
+    ranges: Sequence[BrnichScoreRangeBase]
     odds_path_source: Optional[Sequence[PublicationIdentifierBase]] = None
 
     @model_validator(mode="after")
-    def validate_baseline_score(self: "InvestigatorScoreRangesBase") -> "InvestigatorScoreRangesBase":
+    def validate_baseline_score(self: "BrnichScoreRangesBase") -> "BrnichScoreRangesBase":
         ranges = getattr(self, "ranges", []) or []
         baseline_score = getattr(self, "baseline_score", None)
 
         if baseline_score is not None:
             if not any(range_model.classification == "normal" for range_model in ranges):
-                raise ValidationError("A baseline score has been provided, but no normal classification range exists.")
+                # For now, we do not raise an error if a baseline score is provided but no normal range exists.
+                # raise ValidationError("A baseline score has been provided, but no normal classification range exists.")
+                return self
 
         normal_ranges = [range_model.range for range_model in ranges if range_model.classification == "normal"]
 
@@ -226,43 +228,216 @@ class InvestigatorScoreRangesBase(ScoreRangesBase):
         )
 
 
-class InvestigatorScoreRangesModify(ScoreRangesModify, InvestigatorScoreRangesBase):
-    ranges: Sequence[InvestigatorScoreRangeModify]
+class BrnichScoreRangesModify(ScoreRangesModify, BrnichScoreRangesBase):
+    ranges: Sequence[BrnichScoreRangeModify]
     odds_path_source: Optional[Sequence[PublicationIdentifierCreate]] = None
 
 
-class InvestigatorScoreRangesCreate(ScoreRangesCreate, InvestigatorScoreRangesModify):
-    ranges: Sequence[InvestigatorScoreRangeCreate]
+class BrnichScoreRangesCreate(ScoreRangesCreate, BrnichScoreRangesModify):
+    ranges: Sequence[BrnichScoreRangeCreate]
 
 
-class SavedInvestigatorScoreRanges(SavedScoreRanges, InvestigatorScoreRangesBase):
+class SavedBrnichScoreRanges(SavedScoreRanges, BrnichScoreRangesBase):
     record_type: str = None  # type: ignore
 
-    ranges: Sequence[SavedInvestigatorScoreRange]
+    ranges: Sequence[SavedBrnichScoreRange]
 
     _record_type_factory = record_type_validator()(set_record_type)
 
 
-class InvestigatorScoreRanges(ScoreRanges, SavedInvestigatorScoreRanges):
-    ranges: Sequence[InvestigatorScoreRange]
+class BrnichScoreRanges(ScoreRanges, SavedBrnichScoreRanges):
+    ranges: Sequence[BrnichScoreRange]
 
 
 ##############################################################################################################
-# Pillar project specific calibration models
+# Investigator provided score range models
 ##############################################################################################################
 
-### Pillar project score range model
+
+# NOTE: Pydantic takes the first occurence of a field definition in the MRO for default values. It feels most
+# natural to define these classes like
+# class InvestigatorScoreRangesBase(BrnichScoreRangesBase):
+#    title: str = "Investigator-provided functional classes"
+#
+# class InvestigatorScoreRangesModify(BrnichScoreRangesModify, InvestigatorScoreRangesBase):
+#    pass
+#
+# however, this does not work because the title field is defined in BrnichScoreRangesBase, and the default
+# value from that class is taken instead of the one in InvestigatorScoreRangesBase. Note the opposite problem
+# would occur if we defined the classes in the opposite order.
+#
+# We'd also like to retain the inheritance chain from Base -> Modify -> Create and Base -> Saved -> Full for
+# each score range type as this makes it much easier to use these classes in inherited types from other
+# modules (like the ScoreSet models). So although a mixin class might seem natural, we can't use one here
+# since our MRO resolution wouldn't be linear.
+#
+# Just duplicating the defaults across each of the classes is the simplest solution for now, despite the
+# code duplication.
 
 
-class PillarProjectScoreRangeBase(ScoreRangeBase):
+class InvestigatorScoreRangesBase(BrnichScoreRangesBase):
+    title: str = "Investigator-provided functional classes"
+    research_use_only: bool = False
+
+
+class InvestigatorScoreRangesModify(BrnichScoreRangesModify, InvestigatorScoreRangesBase):
+    title: str = "Investigator-provided functional classes"
+    research_use_only: bool = False
+
+
+class InvestigatorScoreRangesCreate(BrnichScoreRangesCreate, InvestigatorScoreRangesModify):
+    title: str = "Investigator-provided functional classes"
+    research_use_only: bool = False
+
+
+class SavedInvestigatorScoreRanges(SavedBrnichScoreRanges, InvestigatorScoreRangesBase):
+    record_type: str = None  # type: ignore
+
+    title: str = "Investigator-provided functional classes"
+    research_use_only: bool = False
+
+    _record_type_factory = record_type_validator()(set_record_type)
+
+
+class InvestigatorScoreRanges(BrnichScoreRanges, SavedInvestigatorScoreRanges):
+    title: str = "Investigator-provided functional classes"
+    research_use_only: bool = False
+
+
+##############################################################################################################
+# Scott score range models
+##############################################################################################################
+
+
+class ScottScoreRangesBase(BrnichScoreRangesBase):
+    title: str = "Scott calibration"
+    research_use_only: bool = False
+
+
+class ScottScoreRangesModify(BrnichScoreRangesModify, ScottScoreRangesBase):
+    title: str = "Scott calibration"
+    research_use_only: bool = False
+
+
+class ScottScoreRangesCreate(BrnichScoreRangesCreate, ScottScoreRangesModify):
+    title: str = "Scott calibration"
+    research_use_only: bool = False
+
+
+class SavedScottScoreRanges(SavedBrnichScoreRanges, ScottScoreRangesBase):
+    record_type: str = None  # type: ignore
+
+    title: str = "Scott calibration"
+    research_use_only: bool = False
+
+    _record_type_factory = record_type_validator()(set_record_type)
+
+
+class ScottScoreRanges(BrnichScoreRanges, SavedScottScoreRanges):
+    title: str = "Scott calibration"
+    research_use_only: bool = False
+
+
+##############################################################################################################
+# IGVF Coding Variant Focus Group (CVFG) range models
+##############################################################################################################
+
+# Controls: All Variants
+
+
+class IGVFCodingVariantFocusGroupControlScoreRangesBase(BrnichScoreRangesBase):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: All Variants"
+    research_use_only: bool = False
+
+
+class IGVFCodingVariantFocusGroupControlScoreRangesModify(
+    BrnichScoreRangesModify, IGVFCodingVariantFocusGroupControlScoreRangesBase
+):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: All Variants"
+    research_use_only: bool = False
+
+
+class IGVFCodingVariantFocusGroupControlScoreRangesCreate(
+    BrnichScoreRangesCreate, IGVFCodingVariantFocusGroupControlScoreRangesModify
+):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: All Variants"
+    research_use_only: bool = False
+
+
+class SavedIGVFCodingVariantFocusGroupControlScoreRanges(
+    SavedBrnichScoreRanges, IGVFCodingVariantFocusGroupControlScoreRangesBase
+):
+    record_type: str = None  # type: ignore
+
+    title: str = "IGVF Coding Variant Focus Group -- Controls: All Variants"
+    research_use_only: bool = False
+
+    _record_type_factory = record_type_validator()(set_record_type)
+
+
+class IGVFCodingVariantFocusGroupControlScoreRanges(
+    BrnichScoreRanges, SavedIGVFCodingVariantFocusGroupControlScoreRanges
+):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: All Variants"
+    research_use_only: bool = False
+
+
+# Controls: Missense Variants
+
+
+class IGVFCodingVariantFocusGroupMissenseScoreRangesBase(BrnichScoreRangesBase):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: Missense Variants Only"
+    research_use_only: bool = False
+
+
+class IGVFCodingVariantFocusGroupMissenseScoreRangesModify(
+    BrnichScoreRangesModify, IGVFCodingVariantFocusGroupMissenseScoreRangesBase
+):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: Missense Variants Only"
+    research_use_only: bool = False
+
+
+class IGVFCodingVariantFocusGroupMissenseScoreRangesCreate(
+    BrnichScoreRangesCreate, IGVFCodingVariantFocusGroupMissenseScoreRangesModify
+):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: Missense Variants Only"
+    research_use_only: bool = False
+
+
+class SavedIGVFCodingVariantFocusGroupMissenseScoreRanges(
+    SavedBrnichScoreRanges, IGVFCodingVariantFocusGroupMissenseScoreRangesBase
+):
+    record_type: str = None  # type: ignore
+
+    title: str = "IGVF Coding Variant Focus Group -- Controls: Missense Variants Only"
+    research_use_only: bool = False
+
+    _record_type_factory = record_type_validator()(set_record_type)
+
+
+class IGVFCodingVariantFocusGroupMissenseScoreRanges(
+    BrnichScoreRanges, SavedIGVFCodingVariantFocusGroupMissenseScoreRanges
+):
+    title: str = "IGVF Coding Variant Focus Group -- Controls: Missense Variants Only"
+    research_use_only: bool = False
+
+
+##############################################################################################################
+# Zeiberg specific calibration models
+##############################################################################################################
+
+### Zeiberg score range model
+
+
+class ZeibergCalibrationScoreRangeBase(ScoreRangeBase):
     positive_likelihood_ratio: Optional[float] = None
     evidence_strength: int
     # path (normal) / benign (abnormal) -> classification
 
     @model_validator(mode="after")
     def evidence_strength_cardinality_must_agree_with_classification(
-        self: "PillarProjectScoreRangeBase",
-    ) -> "PillarProjectScoreRangeBase":
+        self: "ZeibergCalibrationScoreRangeBase",
+    ) -> "ZeibergCalibrationScoreRangeBase":
         classification = getattr(self, "classification")
         field_value = getattr(self, "evidence_strength")
 
@@ -278,63 +453,74 @@ class PillarProjectScoreRangeBase(ScoreRangeBase):
         return self
 
 
-class PillarProjectScoreRangeModify(ScoreRangeModify, PillarProjectScoreRangeBase):
+class ZeibergCalibrationScoreRangeModify(ScoreRangeModify, ZeibergCalibrationScoreRangeBase):
     pass
 
 
-class PillarProjectScoreRangeCreate(ScoreRangeCreate, PillarProjectScoreRangeModify):
+class ZeibergCalibrationScoreRangeCreate(ScoreRangeCreate, ZeibergCalibrationScoreRangeModify):
     pass
 
 
-class SavedPillarProjectScoreRange(SavedScoreRange, PillarProjectScoreRangeBase):
+class SavedZeibergCalibrationScoreRange(SavedScoreRange, ZeibergCalibrationScoreRangeBase):
     record_type: str = None  # type: ignore
 
     _record_type_factory = record_type_validator()(set_record_type)
 
 
-class PillarProjectScoreRange(ScoreRange, SavedPillarProjectScoreRange):
+class ZeibergCalibrationScoreRange(ScoreRange, SavedZeibergCalibrationScoreRange):
     pass
 
 
-### Pillar project score range wrapper model
+### Zeiberg score range wrapper model
 
 
-class PillarProjectParameters(BaseModel):
+class ZeibergCalibrationParameters(BaseModel):
     skew: float
     location: float
     scale: float
 
 
-class PillarProjectParameterSet(BaseModel):
-    functionally_altering: PillarProjectParameters
-    functionally_normal: PillarProjectParameters
+class ZeibergCalibrationParameterSet(BaseModel):
+    functionally_altering: ZeibergCalibrationParameters
+    functionally_normal: ZeibergCalibrationParameters
     fraction_functionally_altering: float
 
 
-class PillarProjectScoreRangesBase(ScoreRangesBase):
+class ZeibergCalibrationScoreRangesBase(ScoreRangesBase):
+    title: str = "Zeiberg calibration"
+    research_use_only: bool = True
+
     prior_probability_pathogenicity: Optional[float] = None
-    parameter_sets: list[PillarProjectParameterSet] = []
-    ranges: Sequence[PillarProjectScoreRangeBase]
+    parameter_sets: list[ZeibergCalibrationParameterSet] = []
+    ranges: Sequence[ZeibergCalibrationScoreRangeBase]
 
 
-class PillarProjectScoreRangesModify(ScoreRangesModify, PillarProjectScoreRangesBase):
-    ranges: Sequence[PillarProjectScoreRangeModify]
+class ZeibergCalibrationScoreRangesModify(ScoreRangesModify, ZeibergCalibrationScoreRangesBase):
+    title: str = "Zeiberg calibration"
+    research_use_only: bool = True
+    ranges: Sequence[ZeibergCalibrationScoreRangeModify]
 
 
-class PillarProjectScoreRangesCreate(ScoreRangesCreate, PillarProjectScoreRangesModify):
-    ranges: Sequence[PillarProjectScoreRangeCreate]
+class ZeibergCalibrationScoreRangesCreate(ScoreRangesCreate, ZeibergCalibrationScoreRangesModify):
+    title: str = "Zeiberg calibration"
+    research_use_only: bool = True
+    ranges: Sequence[ZeibergCalibrationScoreRangeCreate]
 
 
-class SavedPillarProjectScoreRanges(SavedScoreRanges, PillarProjectScoreRangesBase):
+class SavedZeibergCalibrationScoreRanges(SavedScoreRanges, ZeibergCalibrationScoreRangesBase):
     record_type: str = None  # type: ignore
 
-    ranges: Sequence[SavedPillarProjectScoreRange]
+    title: str = "Zeiberg calibration"
+    research_use_only: bool = True
+    ranges: Sequence[SavedZeibergCalibrationScoreRange]
 
     _record_type_factory = record_type_validator()(set_record_type)
 
 
-class PillarProjectScoreRanges(ScoreRanges, SavedPillarProjectScoreRanges):
-    ranges: Sequence[PillarProjectScoreRange]
+class ZeibergCalibrationScoreRanges(ScoreRanges, SavedZeibergCalibrationScoreRanges):
+    title: str = "Zeiberg calibration"
+    research_use_only: bool = True
+    ranges: Sequence[ZeibergCalibrationScoreRange]
 
 
 ###############################################################################################################
@@ -343,16 +529,27 @@ class PillarProjectScoreRanges(ScoreRanges, SavedPillarProjectScoreRanges):
 
 ### Score set range container models
 
+# TODO#518: Generic score range keys for supported calibration formats.
+
 
 class ScoreSetRangesBase(BaseModel):
     investigator_provided: Optional[InvestigatorScoreRangesBase] = None
-    pillar_project: Optional[PillarProjectScoreRangesBase] = None
+    scott_calibration: Optional[ScottScoreRangesBase] = None
+    zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesBase] = None
+    cvfg_all_variants: Optional[IGVFCodingVariantFocusGroupControlScoreRangesBase] = None
+    cvfg_missense_variants: Optional[IGVFCodingVariantFocusGroupMissenseScoreRangesBase] = None
 
     _fields_to_exclude_for_validatation = {"record_type"}
 
     @model_validator(mode="after")
     def score_range_labels_must_be_unique(self: "ScoreSetRangesBase") -> "ScoreSetRangesBase":
-        for container in (self.investigator_provided, self.pillar_project):
+        for container in (
+            self.investigator_provided,
+            self.zeiberg_calibration,
+            self.scott_calibration,
+            self.cvfg_all_variants,
+            self.cvfg_missense_variants,
+        ):
             if container is None:
                 continue
 
@@ -373,23 +570,35 @@ class ScoreSetRangesBase(BaseModel):
 
 class ScoreSetRangesModify(ScoreSetRangesBase):
     investigator_provided: Optional[InvestigatorScoreRangesModify] = None
-    pillar_project: Optional[PillarProjectScoreRangesModify] = None
+    scott_calibration: Optional[ScottScoreRangesModify] = None
+    zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesModify] = None
+    cvfg_all_variants: Optional[IGVFCodingVariantFocusGroupControlScoreRangesModify] = None
+    cvfg_missense_variants: Optional[IGVFCodingVariantFocusGroupMissenseScoreRangesModify] = None
 
 
 class ScoreSetRangesCreate(ScoreSetRangesModify):
     investigator_provided: Optional[InvestigatorScoreRangesCreate] = None
-    pillar_project: Optional[PillarProjectScoreRangesCreate] = None
+    scott_calibration: Optional[ScottScoreRangesCreate] = None
+    zeiberg_calibration: Optional[ZeibergCalibrationScoreRangesCreate] = None
+    cvfg_all_variants: Optional[IGVFCodingVariantFocusGroupControlScoreRangesCreate] = None
+    cvfg_missense_variants: Optional[IGVFCodingVariantFocusGroupMissenseScoreRangesCreate] = None
 
 
 class SavedScoreSetRanges(ScoreSetRangesBase):
     record_type: str = None  # type: ignore
 
     investigator_provided: Optional[SavedInvestigatorScoreRanges] = None
-    pillar_project: Optional[SavedPillarProjectScoreRanges] = None
+    scott_calibration: Optional[SavedScottScoreRanges] = None
+    zeiberg_calibration: Optional[SavedZeibergCalibrationScoreRanges] = None
+    cvfg_all_variants: Optional[SavedIGVFCodingVariantFocusGroupControlScoreRanges] = None
+    cvfg_missense_variants: Optional[SavedIGVFCodingVariantFocusGroupMissenseScoreRanges] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
 
 
 class ScoreSetRanges(SavedScoreSetRanges):
     investigator_provided: Optional[InvestigatorScoreRanges] = None
-    pillar_project: Optional[PillarProjectScoreRanges] = None
+    scott_calibration: Optional[ScottScoreRanges] = None
+    zeiberg_calibration: Optional[ZeibergCalibrationScoreRanges] = None
+    cvfg_all_variants: Optional[IGVFCodingVariantFocusGroupControlScoreRanges] = None
+    cvfg_missense_variants: Optional[IGVFCodingVariantFocusGroupMissenseScoreRanges] = None

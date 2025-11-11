@@ -9,7 +9,7 @@ from mavedb.models import *
 from sqlalchemy.orm import Session
 
 from mavedb.models.score_set import ScoreSet
-from mavedb.view_models.score_range import ScoreSetRangesCreate, InvestigatorScoreRangesCreate, PillarProjectScoreRangesCreate, PillarProjectScoreRangeCreate
+from mavedb.view_models.score_range import ScoreSetRangesCreate, InvestigatorScoreRangesCreate, ZeibergCalibrationScoreRangesCreate, ZeibergCalibrationScoreRangeCreate
 
 
 from mavedb.db.session import SessionLocal
@@ -47,11 +47,11 @@ def do_migration(db: Session):
             investigator_ranges = None
 
         if score_set.score_calibrations is not None:
-            thresholds = score_set.score_calibrations.get("pillar_project", {}).get("thresholds", [])
-            evidence_strengths = score_set.score_calibrations.get("pillar_project", {}).get("evidence_strengths", [])
-            positive_likelihood_ratios = score_set.score_calibrations.get("pillar_project", {}).get("positive_likelihood_ratios", [])
-            prior_probability_pathogenicity = score_set.score_calibrations.get("pillar_project", {}).get("prior_probability_pathogenicity", None)
-            parameter_sets = score_set.score_calibrations.get("pillar_project", {}).get("parameter_sets", [])
+            thresholds = score_set.score_calibrations.get("zeiberg_calibration", {}).get("thresholds", [])
+            evidence_strengths = score_set.score_calibrations.get("zeiberg_calibration", {}).get("evidence_strengths", [])
+            positive_likelihood_ratios = score_set.score_calibrations.get("zeiberg_calibration", {}).get("positive_likelihood_ratios", [])
+            prior_probability_pathogenicity = score_set.score_calibrations.get("zeiberg_calibration", {}).get("prior_probability_pathogenicity", None)
+            parameter_sets = score_set.score_calibrations.get("zeiberg_calibration", {}).get("parameter_sets", [])
 
             ranges = []
             boundary_direction = -1  # Start with a negative sign to indicate the first range has the lower boundary appearing prior to the threshold
@@ -60,7 +60,7 @@ def do_migration(db: Session):
 
                 if idx == 0:
                     calculated_range = (None, threshold)
-                    ranges.append(PillarProjectScoreRangeCreate(
+                    ranges.append(ZeibergCalibrationScoreRangeCreate(
                         range=(None, threshold),
                         classification="normal" if evidence_strength < 0 else "abnormal",
                         label=str(evidence_strength),
@@ -71,7 +71,7 @@ def do_migration(db: Session):
                     ))
                 elif idx == len(thresholds) - 1:
                     calculated_range = (threshold, None)
-                    ranges.append(PillarProjectScoreRangeCreate(
+                    ranges.append(ZeibergCalibrationScoreRangeCreate(
                         range=(threshold, None),
                         classification="normal" if evidence_strength < 0 else "abnormal",
                         evidence_strength=evidence_strength,
@@ -86,7 +86,7 @@ def do_migration(db: Session):
                     else:
                         calculated_range = (threshold, thresholds[idx + 1])
 
-                    ranges.append(PillarProjectScoreRangeCreate(
+                    ranges.append(ZeibergCalibrationScoreRangeCreate(
                         range=calculated_range,
                         classification="normal" if evidence_strength < 0 else "abnormal",
                         label=str(evidence_strength),
@@ -100,17 +100,17 @@ def do_migration(db: Session):
                 if idx != len(evidence_strengths) - 1 and (evidence_strengths[idx + 1] * evidence_strength < 0):
                     boundary_direction = -boundary_direction
 
-                pillar_project_ranges = PillarProjectScoreRangesCreate(
+                zeiberg_calibration_ranges = ZeibergCalibrationScoreRangesCreate(
                     prior_probability_pathogenicity=prior_probability_pathogenicity,
                     parameter_sets=parameter_sets,
                     ranges=ranges,
                 )
         else:
-            pillar_project_ranges = None
+            zeiberg_calibration_ranges = None
 
         score_set.score_ranges = ScoreSetRangesCreate(
             investigator_provided=investigator_ranges if investigator_ranges else None,
-            pillar_project=pillar_project_ranges if pillar_project_ranges else None,
+            zeiberg_calibration=zeiberg_calibration_ranges if zeiberg_calibration_ranges else None,
         ).model_dump()
         db.add(score_set)
 
