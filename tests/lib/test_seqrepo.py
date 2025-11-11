@@ -1,7 +1,7 @@
 # ruff: noqa: E402
 import pytest
 
-pytest.importorskip("biocommons")
+pytest.importorskip("biocommons.seqrepo")
 pytest.importorskip("bioutils")
 
 from mavedb.lib.seqrepo import get_sequence_ids, _generate_nsa_options, seqrepo_versions, sequence_generator

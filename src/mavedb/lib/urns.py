@@ -142,3 +142,14 @@ def generate_collection_urn():
     :return: A new collection URN
     """
     return f"urn:mavedb:collection-{uuid4()}"
+
+
+def generate_calibration_urn():
+    """
+    Generate a new URN for a calibration.
+
+    Calibration URNs include a 16-digit UUID.
+
+    :return: A new calibration URN
+    """
+    return f"urn:mavedb:calibration-{uuid4()}"

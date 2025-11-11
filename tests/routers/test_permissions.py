@@ -1,22 +1,26 @@
 # ruff: noqa: E402
 
-from unittest.mock import patch
 import pytest
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
+from unittest.mock import patch
+
 from mavedb.lib.permissions import Action
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
+from mavedb.models.score_calibration import ScoreCalibration as ScoreCalibrationDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
-
-from tests.helpers.constants import TEST_USER
-from tests.helpers.util.experiment import create_experiment
+from tests.helpers.constants import EXTRA_USER, TEST_MINIMAL_CALIBRATION, TEST_USER
+from tests.helpers.dependency_overrider import DependencyOverrider
+from tests.helpers.util.common import deepcamelize
 from tests.helpers.util.contributor import add_contributor
-from tests.helpers.util.user import change_ownership
+from tests.helpers.util.experiment import create_experiment
+from tests.helpers.util.score_calibration import create_test_score_calibration_in_score_set_via_client
 from tests.helpers.util.score_set import create_seq_score_set, publish_score_set
+from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import mock_worker_variant_insertion
 
 
@@ -366,6 +370,112 @@ def test_cannot_get_permission_with_non_existing_score_set(client, setup_router_
     assert response_data["detail"] == "score-set with URN 'invalidUrn' not found"
 
 
+# score calibrations
+# non-exhaustive, see TODO#543
+
+
+def test_get_true_permission_from_own_score_calibration_update_check(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_MINIMAL_CALIBRATION)
+    )
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-calibration/{score_calibration['urn']}/update")
+
+    assert response.status_code == 200
+    assert response.json()
+
+
+def test_get_true_permission_from_own_score_calibration_delete_check(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_MINIMAL_CALIBRATION)
+    )
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-calibration/{score_calibration['urn']}/delete")
+
+    assert response.status_code == 200
+    assert response.json()
+
+
+def test_contributor_gets_true_permission_from_others_investigator_provided_score_calibration_update_check(
+    session, client, setup_router_db, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_MINIMAL_CALIBRATION)
+    )
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        EXTRA_USER["username"],
+        EXTRA_USER["first_name"],
+        EXTRA_USER["last_name"],
+    )
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(
+            f"/api/v1/permissions/user-is-permitted/score-calibration/{score_calibration['urn']}/update"
+        )
+
+    assert response.status_code == 200
+    assert response.json()
+
+
+def test_contributor_gets_true_permission_from_others_investigator_provided_score_calibration_delete_check(
+    session, client, setup_router_db, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_MINIMAL_CALIBRATION)
+    )
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        EXTRA_USER["username"],
+        EXTRA_USER["first_name"],
+        EXTRA_USER["last_name"],
+    )
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(
+            f"/api/v1/permissions/user-is-permitted/score-calibration/{score_calibration['urn']}/delete"
+        )
+
+    assert response.status_code == 200
+    assert response.json()
+
+
+def test_get_false_permission_from_others_score_calibration_update_check(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_MINIMAL_CALIBRATION)
+    )
+    change_ownership(session, score_calibration["urn"], ScoreCalibrationDbModel)
+
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-calibration/{score_calibration['urn']}/update")
+
+    assert response.status_code == 200
+    assert not response.json()
+
+
+def test_get_false_permission_from_others_score_calibration_delete_check(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_MINIMAL_CALIBRATION)
+    )
+    change_ownership(session, score_calibration["urn"], ScoreCalibrationDbModel)
+
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-calibration/{score_calibration['urn']}/delete")
+
+    assert response.status_code == 200
+    assert not response.json()
+
+
 # Common invalid test
 def test_cannot_get_permission_with_non_existing_item(client, setup_router_db):
     response = client.get("/api/v1/permissions/user-is-permitted/invalidModel/invalidUrn/update")
@@ -374,5 +484,5 @@ def test_cannot_get_permission_with_non_existing_item(client, setup_router_db):
     response_data = response.json()
     assert (
         response_data["detail"][0]["msg"]
-        == "Input should be 'collection', 'experiment', 'experiment-set' or 'score-set'"
+        == "Input should be 'collection', 'experiment', 'experiment-set', 'score-set' or 'score-calibration'"
     )

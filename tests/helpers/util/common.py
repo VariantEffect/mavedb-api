@@ -1,4 +1,5 @@
 from typing import Dict, Any
+from humps import camelize
 
 
 def update_expected_response_for_created_resources(
@@ -33,3 +34,12 @@ def dummy_attributed_object_from_dict(properties: dict[str, Any], recursive=Fals
             attr_obj.__setattr__(k, v)
 
     return attr_obj
+
+
+def deepcamelize(data: Any) -> Any:
+    if isinstance(data, dict):
+        return {camelize(k): deepcamelize(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [deepcamelize(item) for item in data]
+    else:
+        return data

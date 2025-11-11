@@ -12,8 +12,8 @@ from fastapi.responses import StreamingResponse
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from pydantic import ValidationError
-from sqlalchemy import null, or_, select
-from sqlalchemy.exc import MultipleResultsFound, NoResultFound
+from sqlalchemy import or_, select
+from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import Session, contains_eager
 
 from mavedb import deps
@@ -25,7 +25,6 @@ from mavedb.lib.annotation.annotate import (
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import (
-    RoleRequirer,
     get_current_user,
     require_current_user,
     require_current_user_with_email,
@@ -45,6 +44,7 @@ from mavedb.lib.logging.context import (
     save_to_logging_context,
 )
 from mavedb.lib.permissions import Action, assert_permission, has_permission
+from mavedb.lib.score_calibrations import create_score_calibration
 from mavedb.lib.score_sets import (
     csv_data_to_df,
     fetch_score_set_search_filter_options,
@@ -66,17 +66,17 @@ from mavedb.lib.urns import (
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
-from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment import Experiment
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
-from mavedb.view_models import clinical_control, gnomad_variant, mapped_variant, score_range, score_set
+from mavedb.view_models import clinical_control, gnomad_variant, mapped_variant, score_set
 from mavedb.view_models.contributor import ContributorCreate
 from mavedb.view_models.doi_identifier import DoiIdentifierCreate
 from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
@@ -126,10 +126,10 @@ async def enqueue_variant_creation(
         #     "counts": item.dataset_columns["count_columns"],
         # }
         count_columns = [
-                            "hgvs_nt",
-                            "hgvs_splice",
-                            "hgvs_pro",
-                        ] + item.dataset_columns["count_columns"]
+            "hgvs_nt",
+            "hgvs_splice",
+            "hgvs_pro",
+        ] + item.dataset_columns["count_columns"]
         existing_counts_df = pd.DataFrame(
             variants_to_csv_rows(item.variants, columns=count_columns, namespaced=False)
         ).replace("NA", pd.NA)
@@ -184,7 +184,6 @@ async def score_set_update(
     for var, value in item_update_dict.items():
         if var not in [
             "contributors",
-            "score_ranges",
             "doi_identifiers",
             "experiment_urn",
             "license_id",
@@ -277,9 +276,6 @@ async def score_set_update(
 
     # Score set has not been published and attributes affecting scores may still be edited.
     if item.private:
-        if "score_ranges" in item_update_dict:
-            item.score_ranges = item_update_dict.get("score_ranges", null())
-
         if "target_genes" in item_update_dict:
             # stash existing target gene ids to compare after update, to determine if variants need to be re-created
             assert all(tg.id is not None for tg in item.target_genes)
@@ -483,6 +479,8 @@ async def fetch_score_set_by_urn(
     if item.superseding_score_set and not has_permission(user, item.superseding_score_set, Action.READ).permitted:
         item.superseding_score_set = None
 
+    item.score_calibrations = [sc for sc in item.score_calibrations if has_permission(user, sc, Action.READ).permitted]
+
     return item
 
 
@@ -647,8 +645,7 @@ def get_score_set_variants_csv(
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Maximum number of variants to return"),
     namespaces: List[Literal["scores", "counts"]] = Query(
-        default=["scores"],
-        description="One or more data types to include: scores, counts, clinVar, gnomAD"
+        default=["scores"], description="One or more data types to include: scores, counts, clinVar, gnomAD"
     ),
     drop_na_columns: Optional[bool] = None,
     include_custom_columns: Optional[bool] = None,
@@ -1211,6 +1208,13 @@ async def create_score_set(
     for publication in publication_identifiers:
         setattr(publication, "primary", publication.identifier in primary_identifiers)
 
+    score_calibrations: list[ScoreCalibration] = []
+    if item_create.score_calibrations:
+        for calibration_create in item_create.score_calibrations:
+            created_calibration_item = await create_score_calibration(db, calibration_create, user_data.user)
+            created_calibration_item.investigator_provided = True  # necessarily true on score set creation
+            score_calibrations.append(created_calibration_item)
+
     targets: list[TargetGene] = []
     accessions = False
     for gene in item_create.target_genes:
@@ -1314,7 +1318,7 @@ async def create_score_set(
                 "secondary_publication_identifiers",
                 "superseded_score_set_urn",
                 "target_genes",
-                "score_ranges",
+                "score_calibrations",
             },
         ),
         experiment=experiment,
@@ -1328,8 +1332,8 @@ async def create_score_set(
         processing_state=ProcessingState.incomplete,
         created_by=user_data.user,
         modified_by=user_data.user,
-        score_ranges=item_create.score_ranges.model_dump() if item_create.score_ranges else null(),
-    )  # type: ignore
+        score_calibrations=score_calibrations,
+    )  # type: ignore[call-arg]
 
     db.add(item)
     db.commit()
@@ -1408,42 +1412,6 @@ async def upload_score_set_variant_data(
     db.commit()
     db.refresh(item)
 
-    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
-
-
-@router.post(
-    "/score-sets/{urn}/ranges/data",
-    response_model=score_set.ScoreSet,
-    responses={422: {}},
-    response_model_exclude_none=True,
-)
-async def update_score_set_range_data(
-    *,
-    urn: str,
-    range_update: score_range.ScoreSetRangesModify,
-    db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(RoleRequirer([UserRole.admin])),
-):
-    """
-    Update score ranges / calibrations for a score set.
-    """
-    save_to_logging_context({"requested_resource": urn, "resource_property": "score_ranges"})
-
-    try:
-        item = db.scalars(select(ScoreSet).where(ScoreSet.urn == urn)).one()
-    except NoResultFound:
-        logger.info(msg="Failed to add score ranges; The requested score set does not exist.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
-
-    assert_permission(user_data, item, Action.UPDATE)
-
-    item.score_ranges = range_update.dict()
-    db.add(item)
-    db.commit()
-    db.refresh(item)
-
-    save_to_logging_context({"updated_resource": item.urn})
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
     return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
 

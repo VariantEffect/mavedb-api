@@ -11,7 +11,7 @@ from typing_extensions import Self
 from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.transform import (
-    transform_publication_identifiers_to_primary_and_secondary,
+    transform_record_publication_identifiers,
     transform_score_set_list_to_urn_list,
 )
 from mavedb.lib.validation.utilities import is_null
@@ -31,7 +31,11 @@ from mavedb.view_models.publication_identifier import (
     PublicationIdentifierCreate,
     SavedPublicationIdentifier,
 )
-from mavedb.view_models.score_range import SavedScoreSetRanges, ScoreSetRanges, ScoreSetRangesCreate
+from mavedb.view_models.score_calibration import (
+    SavedScoreCalibration,
+    ScoreCalibration,
+    ScoreCalibrationCreate,
+)
 from mavedb.view_models.score_set_dataset_columns import DatasetColumns, SavedDatasetColumns
 from mavedb.view_models.target_gene import (
     SavedTargetGene,
@@ -76,7 +80,6 @@ class ScoreSetModifyBase(ScoreSetBase):
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = None
     doi_identifiers: Optional[list[DoiIdentifierCreate]] = None
     target_genes: list[TargetGeneCreate]
-    score_ranges: Optional[ScoreSetRangesCreate] = None
 
 
 class ScoreSetModify(ScoreSetModifyBase):
@@ -167,58 +170,6 @@ class ScoreSetModify(ScoreSetModifyBase):
 
         return field_value
 
-    @model_validator(mode="after")
-    def validate_score_range_sources_exist_in_publication_identifiers(self):
-        def _check_source_in_score_set(source: Any) -> bool:
-            # It looks like you could just do values.get("primary_publication_identifiers", []), but the value of the Pydantic
-            # field is not guaranteed to be a list and could be None, so we need to check if it exists and only then add the list
-            # as the default value.
-            primary_publication_identifiers = self.primary_publication_identifiers or []
-            secondary_publication_identifiers = self.secondary_publication_identifiers or []
-
-            if source not in primary_publication_identifiers and source not in secondary_publication_identifiers:
-                return False
-
-            return True
-
-        score_ranges = self.score_ranges
-        if not score_ranges:
-            return self
-
-        # Use the model_fields_set attribute to iterate over the defined containers in score_ranges.
-        # This allows us to validate each range definition within the range containers.
-        for range_name in score_ranges.model_fields_set:
-            range_definition = getattr(score_ranges, range_name)
-            if not range_definition:
-                continue
-
-            # investigator_provided score ranges can have an odds path source as well.
-            if range_name == "investigator_provided" and range_definition.odds_path_source is not None:
-                for idx, pub in enumerate(range_definition.odds_path_source):
-                    odds_path_source_exists = _check_source_in_score_set(pub)
-
-                    if not odds_path_source_exists:
-                        raise ValidationError(
-                            f"Odds path source publication at index {idx} is not defined in score set publications. "
-                            "To use a publication identifier in the odds path source, it must be defined in the primary or secondary publication identifiers for this score set.",
-                            custom_loc=["body", "scoreRanges", range_name, "oddsPathSource", idx],
-                        )
-
-            if not range_definition.source:
-                continue
-
-            for idx, pub in enumerate(range_definition.source):
-                source_exists = _check_source_in_score_set(pub)
-
-                if not source_exists:
-                    raise ValidationError(
-                        f"Score range source publication at index {idx} is not defined in score set publications. "
-                        "To use a publication identifier in the score range source, it must be defined in the primary or secondary publication identifiers for this score set.",
-                        custom_loc=["body", "scoreRanges", range_name, "source", idx],
-                    )
-
-        return self
-
 
 class ScoreSetCreate(ScoreSetModify):
     """View model for creating a new score set."""
@@ -227,6 +178,12 @@ class ScoreSetCreate(ScoreSetModify):
     license_id: int
     superseded_score_set_urn: Optional[str] = None
     meta_analyzes_score_set_urns: Optional[list[str]] = None
+    # NOTE: The primary field of score calibrations is not available to the creation view model
+    #       and new calibrations are currently not able to be created in a primary state.
+    #       If this propertie ever became available during calibration creation,
+    #       validation criteria which enforces constraints on there being a single primary
+    #       calibration per score set would need to be added at this model level.
+    score_calibrations: Optional[Sequence[ScoreCalibrationCreate]] = None
 
     @field_validator("superseded_score_set_urn")
     def validate_superseded_score_set_urn(cls, v: Optional[str]) -> Optional[str]:
@@ -307,7 +264,6 @@ class ScoreSetUpdateAllOptional(ScoreSetUpdateBase):
             else None,
             "doi_identifiers": lambda data: [DoiIdentifierCreate.model_validate(d) for d in data] if data else None,
             "target_genes": lambda data: [TargetGeneCreate.model_validate(t) for t in data] if data else None,
-            "score_ranges": lambda data: ScoreSetRangesCreate.model_validate(data) if data else None,
             "extra_metadata": lambda data: data,
         }
 
@@ -358,9 +314,11 @@ class ShortScoreSet(BaseModel):
     # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.
     @model_validator(mode="before")
     def generate_primary_and_secondary_publications(cls, data: Any):
-        if not hasattr(data, "primary_publication_identifiers") or not hasattr(data, "primary_publication_identifiers"):
+        if not hasattr(data, "primary_publication_identifiers") or not hasattr(
+            data, "secondary_publication_identifiers"
+        ):
             try:
-                publication_identifiers = transform_publication_identifiers_to_primary_and_secondary(
+                publication_identifiers = transform_record_publication_identifiers(
                     data.publication_identifier_associations
                 )
                 data.__setattr__(
@@ -410,7 +368,7 @@ class SavedScoreSet(ScoreSetBase):
     dataset_columns: Optional[SavedDatasetColumns] = None
     external_links: dict[str, ExternalLink]
     contributors: Sequence[Contributor]
-    score_ranges: Optional[SavedScoreSetRanges] = None
+    score_calibrations: Optional[Sequence[SavedScoreCalibration]] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
 
@@ -429,9 +387,11 @@ class SavedScoreSet(ScoreSetBase):
     # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.
     @model_validator(mode="before")
     def generate_primary_and_secondary_publications(cls, data: Any):
-        if not hasattr(data, "primary_publication_identifiers") or not hasattr(data, "primary_publication_identifiers"):
+        if not hasattr(data, "primary_publication_identifiers") or not hasattr(
+            data, "secondary_publication_identifiers"
+        ):
             try:
-                publication_identifiers = transform_publication_identifiers_to_primary_and_secondary(
+                publication_identifiers = transform_record_publication_identifiers(
                     data.publication_identifier_associations
                 )
                 data.__setattr__(
@@ -486,7 +446,7 @@ class ScoreSet(SavedScoreSet):
     processing_errors: Optional[dict] = None
     mapping_state: Optional[MappingState] = None
     mapping_errors: Optional[dict] = None
-    score_ranges: Optional[ScoreSetRanges] = None  # type: ignore[assignment]
+    score_calibrations: Optional[Sequence[ScoreCalibration]] = None  # type: ignore[assignment]
     dataset_columns: Optional[DatasetColumns] = None  # type: ignore[assignment]
 
 
@@ -521,7 +481,7 @@ class ScoreSetPublicDump(SavedScoreSet):
     processing_errors: Optional[dict] = None
     mapping_state: Optional[MappingState] = None
     mapping_errors: Optional[dict] = None
-    score_ranges: Optional[ScoreSetRanges] = None  # type: ignore[assignment]
+    score_calibrations: Optional[Sequence[ScoreCalibration]] = None  # type: ignore[assignment]
 
 
 # ruff: noqa: E402
