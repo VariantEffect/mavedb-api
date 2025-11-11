@@ -6,5 +6,8 @@ def record_type_validator():
 
 
 def set_record_type(cls, data):
+    if data is None:
+        return None
+
     data.record_type = cls.__name__
     return data

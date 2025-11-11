@@ -1,14 +1,21 @@
 import pytest
 
-from mavedb.lib.variants import hgvs_from_vrs_allele, get_hgvs_from_post_mapped, is_hgvs_g, is_hgvs_p
-
+from mavedb.lib.variants import (
+    get_digest_from_post_mapped,
+    get_hgvs_from_post_mapped,
+    hgvs_from_vrs_allele,
+    is_hgvs_g,
+    is_hgvs_p,
+)
 from tests.helpers.constants import (
     TEST_HGVS_IDENTIFIER,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
-    TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE,
     TEST_VALID_POST_MAPPED_VRS_CIS_PHASED_BLOCK,
+    TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE,
 )
+
+### Tests for hgvs_from_vrs_allele function ###
 
 
 def test_hgvs_from_vrs_allele_vrs_1():
@@ -24,6 +31,9 @@ def test_hgvs_from_vrs_allele_vrs_2():
 def test_hgvs_from_vrs_allele_invalid():
     with pytest.raises(KeyError):
         hgvs_from_vrs_allele({"invalid_key": "invalid_value"})
+
+
+### Tests for get_hgvs_from_post_mapped function ###
 
 
 def test_get_hgvs_from_post_mapped_haplotype():
@@ -59,6 +69,36 @@ def test_get_hgvs_from_post_mapped_invalid_type():
 def test_get_hgvs_from_post_mapped_invalid_structure():
     with pytest.raises(KeyError):
         get_hgvs_from_post_mapped({"invalid_key": "InvalidType"})
+
+
+### Tests for get_digest_from_post_mapped function ###
+
+
+def test_get_digest_from_post_mapped_with_digest():
+    post_mapped_vrs = {"digest": "test_digest_value", "type": "Allele"}
+    result = get_digest_from_post_mapped(post_mapped_vrs)
+    assert result == "test_digest_value"
+
+
+def test_get_digest_from_post_mapped_without_digest():
+    post_mapped_vrs = {"type": "Allele", "other_field": "value"}
+
+    result = get_digest_from_post_mapped(post_mapped_vrs)
+
+    assert result is None
+
+
+def test_get_digest_from_post_mapped_none_input():
+    result = get_digest_from_post_mapped(None)
+    assert result is None
+
+
+def test_get_digest_from_post_mapped_empty_dict():
+    result = get_digest_from_post_mapped({})
+    assert result is None
+
+
+### Tests for is_hgvs_g and is_hgvs_p functions ###
 
 
 @pytest.mark.parametrize(

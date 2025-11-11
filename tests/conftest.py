@@ -38,7 +38,8 @@ from tests.helpers.constants import (
     TEST_PUBMED_IDENTIFIER,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
-    TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    TEST_BRNICH_SCORE_CALIBRATION,
+    TEST_PATHOGENICITY_SCORE_CALIBRATION,
 )
 
 sys.path.append(".")
@@ -144,7 +145,7 @@ def mock_experiment():
 def mock_score_set(mock_user, mock_experiment, mock_publication_associations):
     score_set = mock.Mock(spec=ScoreSet)
     score_set.urn = VALID_SCORE_SET_URN
-    score_set.score_ranges = TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT
+    score_set.score_calibrations = [TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]
     score_set.license.short_name = "MIT"
     score_set.created_by = mock_user
     score_set.modified_by = mock_user
@@ -181,3 +182,159 @@ def mock_mapped_variant(mock_variant):
     mv.mapped_date = datetime(2023, 1, 2)
     mv.modification_date = datetime(2023, 1, 3)
     return mv
+
+
+@pytest.fixture
+def mock_publication_fetch(request, requests_mock):
+    """
+    Mocks the request that would be sent for the provided publication.
+
+    To use this fixture for a test on which you would like to mock the creation of a publication identifier,
+    mark the test with:
+
+    @pytest.mark.parametrize(
+        "mock_publication_fetch",
+        [
+            {
+                "dbName": "<name of database to which the publication identifier belongs>",
+                "identifier": "<identifier of the publication>"
+            },
+            ...
+        ],
+        indirect=["mock_publication_fetch"],
+    )
+    def test_needing_publication_identifier_mock(mock_publication_fetch, ...):
+        ...
+
+    If your test requires use of the mocked publication identifier, this fixture returns it. Just assign the fixture
+    to a variable (or use it directly).
+
+    def test_needing_publication_identifier_mock(mock_publication_fetch, ...):
+        ...
+        mocked_publication = mock_publication_fetch
+        experiment = create_experiment(client, {"primaryPublicationIdentifiers": [mocked_publication]})
+        ...
+    """
+    # Support passing either a single publication dict or an iterable (list/tuple) of them.
+    raw_param = request.param
+    if isinstance(raw_param, (list, tuple)):
+        publications_to_mock = list(raw_param)
+    else:
+        publications_to_mock = [raw_param]
+
+    mocked_publications = []
+
+    for publication_to_mock in publications_to_mock:
+        if publication_to_mock["dbName"] == "PubMed":
+            # minimal xml to pass validation
+            requests_mock.post(
+                "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+                text=f"""<?xml version="1.0"?>
+                <PubmedArticleSet>
+                <PubmedArticle>
+                    <MedlineCitation>
+                    <PMID Version="1">{publication_to_mock["identifier"]}</PMID>
+                    <Article>
+                        <Journal>
+                        <Title>test</Title>
+                        <JournalIssue>
+                            <PubDate>
+                            <Year>1999</Year>
+                            </PubDate>
+                        </JournalIssue>
+                        </Journal>
+                        <Abstract>
+                        <AbstractText>test</AbstractText>
+                        </Abstract>
+                    </Article>
+                    </MedlineCitation>
+                    <PubmedData>
+                    <ArticleIdList>
+                        <ArticleId IdType="doi">test</ArticleId>
+                    </ArticleIdList>
+                    </PubmedData>
+                </PubmedArticle>
+                </PubmedArticleSet>
+            """,
+            )
+
+            # Since 6 digit PubMed identifiers may also be valid bioRxiv identifiers, the code checks that this isn't also a valid bioxriv ID. We return nothing.
+            requests_mock.get(
+                f"https://api.biorxiv.org/details/medrxiv/10.1101/{publication_to_mock['identifier']}/na/json",
+                json={"collection": []},
+            )
+
+        elif publication_to_mock["dbName"] == "bioRxiv":
+            requests_mock.get(
+                f"https://api.biorxiv.org/details/biorxiv/10.1101/{publication_to_mock['identifier']}/na/json",
+                json={
+                    "collection": [
+                        {
+                            "title": "test biorxiv",
+                            "doi": "test:test:test",
+                            "category": "test3",
+                            "authors": "",
+                            "author_corresponding": "test6",
+                            "author_corresponding_institution": "test7",
+                            "date": "1999-12-31",
+                            "version": "test8",
+                            "type": "test9",
+                            "license": "test10",
+                            "jatsxml": "test11",
+                            "abstract": "test abstract",
+                            "published": "Preprint",
+                            "server": "test14",
+                        }
+                    ]
+                },
+            )
+        elif publication_to_mock["dbName"] == "medRxiv":
+            requests_mock.get(
+                f"https://api.biorxiv.org/details/medrxiv/10.1101/{publication_to_mock['identifier']}/na/json",
+                json={
+                    "collection": [
+                        {
+                            "title": "test1",
+                            "doi": "test2",
+                            "category": "test3",
+                            "authors": "test4; test5",
+                            "author_corresponding": "test6",
+                            "author_corresponding_institution": "test7",
+                            "date": "1999-12-31",
+                            "version": "test8",
+                            "type": "test9",
+                            "license": "test10",
+                            "jatsxml": "test11",
+                            "abstract": "test12",
+                            "published": "test13",
+                            "server": "test14",
+                        }
+                    ]
+                },
+            )
+        elif publication_to_mock["dbName"] == "Crossref":
+            requests_mock.get(
+                f"https://api.crossref.org/works/{publication_to_mock['identifier']}",
+                json={
+                    "status": "ok",
+                    "message-type": "work",
+                    "message-version": "1.0.0",
+                    "message": {
+                        "DOI": "10.10/1.2.3",
+                        "source": "Crossref",
+                        "title": ["Crossref test pub title"],
+                        "prefix": "10.10",
+                        "author": [
+                            {"given": "author", "family": "one", "sequence": "first", "affiliation": []},
+                            {"given": "author", "family": "two", "sequence": "additional", "affiliation": []},
+                        ],
+                        "container-title": ["American Heart Journal"],
+                        "abstract": "<jats:title>Abstract</jats:title><jats:p>text test</jats:p>",
+                        "URL": "http://dx.doi.org/10.10/1.2.3",
+                        "published": {"date-parts": [[2024, 5]]},
+                    },
+                },
+            )
+        mocked_publications.append(publication_to_mock)
+    # Return a single dict (original behavior) if only one was provided; otherwise the list.
+    return mocked_publications[0] if len(mocked_publications) == 1 else mocked_publications

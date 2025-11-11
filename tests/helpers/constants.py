@@ -4,12 +4,13 @@ from humps import camelize
 
 from mavedb.models.enums.processing_state import ProcessingState
 
-
 VALID_EXPERIMENT_SET_URN = "urn:mavedb:01234567"
 VALID_EXPERIMENT_URN = f"{VALID_EXPERIMENT_SET_URN}-a"
 VALID_SCORE_SET_URN = f"{VALID_EXPERIMENT_URN}-1"
 VALID_TMP_URN = "tmp:79471b5b-2dbd-4a96-833c-c33023862437"
 VALID_VARIANT_URN = f"{VALID_SCORE_SET_URN}#1"
+VALID_COLLECTION_URN = "urn:mavedb:collection-79471b5b-2dbd-4a96-833c-c33023862437"
+VALID_CALIBRATION_URN = "urn:mavedb:calibration-79471b5b-2dbd-4a96-833c-c33023862437"
 
 TEST_PUBMED_IDENTIFIER = "20711194"
 TEST_PUBMED_URL_IDENTIFIER = "https://pubmed.ncbi.nlm.nih.gov/37162834/"
@@ -151,6 +152,25 @@ SAVED_PUBMED_PUBLICATION = {
     "id": 1,
 }
 
+TEST_BIORXIV_PUBLICATION = {
+    "identifier": TEST_BIORXIV_IDENTIFIER,
+    "db_name": "bioRxiv",
+    "title": "test biorxiv",
+    "authors": [{"name": "", "primary": True}],
+    "abstract": "test abstract",
+    "doi": "test:test:test",
+    "publication_year": 1999,
+    "publication_journal": "Preprint",
+    "url": "https://www.biorxiv.org/content/10.1101/2021.06.21.212592",
+    "reference_html": ". test biorxiv. (None). 1999; (Unknown volume):(Unknown pages). test:test:test",
+}
+
+SAVED_BIORXIV_PUBLICATION = {
+    "recordType": "PublicationIdentifier",
+    "id": 2,
+    **{camelize(k): v for k, v in TEST_BIORXIV_PUBLICATION.items()},
+}
+
 SAVED_DOI_IDENTIFIER = {
     "recordType": "DoiIdentifier",
     "identifier": TEST_CROSSREF_IDENTIFIER,
@@ -275,6 +295,11 @@ TEST_USER = {
     "is_staff": False,
     "is_superuser": False,
     "is_first_login": True,
+}
+
+TEST_SAVED_USER = {
+    "recordType": "SavedUser",
+    **{camelize(k): v for k, v in TEST_USER.items()},
 }
 
 TEST_USER2 = {
@@ -693,6 +718,12 @@ SAVED_SHORT_INACTIVE_LICENSE = {
     "active": TEST_INACTIVE_LICENSE["active"],
 }
 
+SAVED_MINIMAL_DATASET_COLUMNS = {
+    "recordType": "DatasetColumns",
+    "countColumns": [],
+    "scoreColumns": ["score", "s_0", "s_1"],
+}
+
 TEST_SEQ_SCORESET = {
     "title": "Test Score Set Title",
     "short_description": "Test score set",
@@ -802,10 +833,13 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "metaAnalyzesScoreSetUrns": [],
     "metaAnalyzedByScoreSetUrns": [],
     "contributors": [],
+    "scoreCalibrations": [],
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
-    "datasetColumns": {},
+    "datasetColumns": {
+        "recordType": "DatasetColumns",
+    },
     "externalLinks": {},
     "private": True,
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
@@ -920,7 +954,9 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
-    "datasetColumns": {},
+    "datasetColumns": {
+        "recordType": "DatasetColumns",
+    },
     "private": True,
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
     # keys to be set after receiving response
@@ -1060,7 +1096,9 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
-    "datasetColumns": {},
+    "datasetColumns": {
+        "recordType": "DatasetColumns",
+    },
     "externalLinks": {},
     "private": True,
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
@@ -1068,6 +1106,19 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
     "urn": None,
     "processingState": ProcessingState.incomplete.name,
     "officialCollections": [],
+}
+
+TEST_SCORE_SET_DATASET_COLUMNS = {
+    "score_columns": ["score", "s_0", "s_1"],
+    "count_columns": ["c_0", "c_1"],
+    "score_columns_metadata": {
+        "s_0": {"description": "s_0 description", "details": "s_0 details"},
+        "s_1": {"description": "s_1 description", "details": "s_1 details"},
+    },
+    "count_columns_metadata": {
+        "c_0": {"description": "c_0 description", "details": "c_0 details"},
+        "c_1": {"description": "c_1 description", "details": "c_1 details"},
+    },
 }
 
 TEST_NT_CDOT_TRANSCRIPT = {
@@ -1330,90 +1381,109 @@ TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION = {
 TEST_BASELINE_SCORE = 1.0
 
 
-TEST_BS3_ODDS_PATH = {
-    "ratio": 0.5,
-    "evidence": "BS3_STRONG",
+TEST_ACMG_BS3_STRONG_CLASSIFICATION = {
+    "criterion": "BS3",
+    "evidence_strength": "strong",
+}
+
+TEST_SAVED_ACMG_BS3_STRONG_CLASSIFICATION = {
+    "recordType": "ACMGClassification",
+    **{camelize(k): v for k, v in TEST_ACMG_BS3_STRONG_CLASSIFICATION.items()},
+}
+
+TEST_ACMG_PS3_STRONG_CLASSIFICATION = {
+    "criterion": "PS3",
+    "evidence_strength": "strong",
+}
+
+TEST_SAVED_ACMG_PS3_STRONG_CLASSIFICATION = {
+    "recordType": "ACMGClassification",
+    **{camelize(k): v for k, v in TEST_ACMG_PS3_STRONG_CLASSIFICATION.items()},
 }
 
 
-TEST_PS3_ODDS_PATH = {
-    "ratio": 0.5,
-    "evidence": "BS3_STRONG",
+TEST_ACMG_BS3_STRONG_CLASSIFICATION_WITH_POINTS = {
+    "criterion": "BS3",
+    "evidence_strength": "strong",
+    "points": -4,
 }
 
-TEST_SAVED_BS3_ODDS_PATH = {
-    "recordType": "OddsPath",
-    "ratio": 0.5,
-    "evidence": "BS3_STRONG",
+TEST_SAVED_ACMG_BS3_STRONG_CLASSIFICATION_WITH_POINTS = {
+    "recordType": "ACMGClassification",
+    **{camelize(k): v for k, v in TEST_ACMG_BS3_STRONG_CLASSIFICATION_WITH_POINTS.items()},
 }
 
-
-TEST_SAVED_PS3_ODDS_PATH = {
-    "recordType": "OddsPath",
-    "ratio": 0.5,
-    "evidence": "BS3_STRONG",
+TEST_ACMG_PS3_STRONG_CLASSIFICATION_WITH_POINTS = {
+    "criterion": "PS3",
+    "evidence_strength": "strong",
+    "points": 4,
 }
 
+TEST_SAVED_ACMG_PS3_STRONG_CLASSIFICATION_WITH_POINTS = {
+    "recordType": "ACMGClassification",
+    **{camelize(k): v for k, v in TEST_ACMG_PS3_STRONG_CLASSIFICATION_WITH_POINTS.items()},
+}
 
-TEST_SCORE_SET_NORMAL_RANGE = {
-    "label": "test1",
+TEST_BS3_STRONG_ODDS_PATH_RATIO = 0.052
+TEST_PS3_STRONG_ODDS_PATH_RATIO = 18.7
+
+
+TEST_FUNCTIONAL_RANGE_NORMAL = {
+    "label": "test normal functional range",
+    "description": "A normal functional range",
     "classification": "normal",
-    "range": [0, 2.0],
+    "range": [1.0, 5.0],
+    "acmg_classification": TEST_ACMG_BS3_STRONG_CLASSIFICATION,
+    "oddspaths_ratio": TEST_BS3_STRONG_ODDS_PATH_RATIO,
     "inclusive_lower_bound": True,
     "inclusive_upper_bound": False,
 }
 
 
-TEST_SAVED_SCORE_SET_NORMAL_RANGE = {
-    "recordType": "ScoreRange",
-    "label": "test1",
-    "classification": "normal",
-    "range": [0.0, 2.0],
-    "inclusiveLowerBound": True,
-    "inclusiveUpperBound": False,
+TEST_SAVED_FUNCTIONAL_RANGE_NORMAL = {
+    "recordType": "FunctionalRange",
+    **{camelize(k): v for k, v in TEST_FUNCTIONAL_RANGE_NORMAL.items() if k not in ("acmg_classification",)},
+    "acmgClassification": TEST_SAVED_ACMG_BS3_STRONG_CLASSIFICATION,
 }
 
 
-TEST_SCORE_SET_ABNORMAL_RANGE = {
-    "label": "test2",
+TEST_FUNCTIONAL_RANGE_ABNORMAL = {
+    "label": "test abnormal functional range",
+    "description": "An abnormal functional range",
     "classification": "abnormal",
-    "range": [-2.0, 0.0],
+    "range": [-5.0, -1.0],
+    "acmg_classification": TEST_ACMG_PS3_STRONG_CLASSIFICATION,
+    "oddspaths_ratio": TEST_PS3_STRONG_ODDS_PATH_RATIO,
     "inclusive_lower_bound": True,
     "inclusive_upper_bound": False,
 }
 
 
-TEST_SAVED_SCORE_SET_ABNORMAL_RANGE = {
-    "recordType": "ScoreRange",
-    "label": "test2",
-    "classification": "abnormal",
-    "range": [-2.0, 0.0],
-    "inclusiveLowerBound": True,
-    "inclusiveUpperBound": False,
+TEST_SAVED_FUNCTIONAL_RANGE_ABNORMAL = {
+    "recordType": "FunctionalRange",
+    **{camelize(k): v for k, v in TEST_FUNCTIONAL_RANGE_ABNORMAL.items() if k not in ("acmg_classification",)},
+    "acmgClassification": TEST_SAVED_ACMG_PS3_STRONG_CLASSIFICATION,
 }
 
 
-TEST_SCORE_SET_NOT_SPECIFIED_RANGE = {
-    "label": "test3",
+TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED = {
+    "label": "test not specified functional range",
     "classification": "not_specified",
-    "range": [-8.0, -2.0],
+    "range": [-1.0, 1.0],
     "inclusive_lower_bound": True,
     "inclusive_upper_bound": False,
 }
 
 
-TEST_SAVED_SCORE_SET_NOT_SPECIFIED_RANGE = {
-    "recordType": "ScoreRange",
-    "label": "test3",
-    "classification": "not_specified",
-    "range": [-8.0, -2.0],
-    "inclusiveLowerBound": True,
-    "inclusiveUpperBound": False,
+TEST_SAVED_FUNCTIONAL_RANGE_NOT_SPECIFIED = {
+    "recordType": "FunctionalRange",
+    **{camelize(k): v for k, v in TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED.items()},
 }
 
 
-TEST_SCORE_SET_NEGATIVE_INFINITY_RANGE = {
-    "label": "test4",
+TEST_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY = {
+    "label": "test functional range including negative infinity",
+    "description": "A functional range including negative infinity",
     "classification": "not_specified",
     "range": [None, 0.0],
     "inclusive_lower_bound": False,
@@ -1421,18 +1491,15 @@ TEST_SCORE_SET_NEGATIVE_INFINITY_RANGE = {
 }
 
 
-TEST_SAVED_SCORE_SET_NEGATIVE_INFINITY_RANGE = {
-    "recordType": "ScoreRange",
-    "label": "test4",
-    "classification": "not_specified",
-    "range": [None, 0.0],
-    "inclusiveLowerBound": False,
-    "inclusiveUpperBound": False,
+TEST_SAVED_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY = {
+    "recordType": "FunctionalRange",
+    **{camelize(k): v for k, v in TEST_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY.items()},
 }
 
 
-TEST_SCORE_SET_POSITIVE_INFINITY_RANGE = {
-    "label": "test5",
+TEST_FUNCTIONAL_RANGE_INCLUDING_POSITIVE_INFINITY = {
+    "label": "test functional range including positive infinity",
+    "description": "A functional range including positive infinity",
     "classification": "not_specified",
     "range": [0.0, None],
     "inclusive_lower_bound": False,
@@ -1440,686 +1507,128 @@ TEST_SCORE_SET_POSITIVE_INFINITY_RANGE = {
 }
 
 
-TEST_SAVED_SCORE_SET_POSITIVE_INFINITY_RANGE = {
-    "recordType": "ScoreRange",
-    "label": "test5",
-    "classification": "not_specified",
-    "range": [0.0, None],
-    "inclusiveLowerBound": False,
-    "inclusiveUpperBound": False,
-}
-
-TEST_SAVED_SCORE_SET_NO_SUPPORTING_EVIDENCE_RANGE = {
-    "recordType": "ScoreRange",
-    "label": "test1",
-    "classification": "not_specified",
-    "range": [-0.5, 0.5],
-    "inclusiveLowerBound": True,
-    "inclusiveUpperBound": False,
-}
-
-TEST_SCORE_SET_BS3_SUPPORTING_RANGE = {
-    "label": "test1",
-    "classification": "normal",
-    "range": [-1.5, -0.5],
-    "inclusive_lower_bound": True,
-    "inclusive_upper_bound": False,
-}
-
-TEST_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE = {
-    "recordType": "ScoreRange",
-    "label": "test1",
-    "classification": "normal",
-    "range": [-1.5, -0.5],
-    "inclusiveLowerBound": True,
-    "inclusiveUpperBound": False,
-}
-
-TEST_SCORE_SET_BS3_MODERATE_RANGE = {
-    "label": "test1",
-    "classification": "normal",
-    "range": [-3.5, -1.5],
-    "inclusive_lower_bound": True,
-    "inclusive_upper_bound": False,
-}
-
-TEST_SAVED_SCORE_SET_BS3_MODERATE_RANGE = {
-    "recordType": "ScoreRange",
-    "label": "test1",
-    "classification": "normal",
-    "range": [-3.5, -1.5],
-    "inclusiveLowerBound": True,
-    "inclusiveUpperBound": False,
-}
-
-TEST_SCORE_SET_BS3_STRONG_RANGE = {
-    "label": "test1",
-    "classification": "normal",
-    "range": [-7.5, -3.5],
-    "inclusive_lower_bound": True,
-    "inclusive_upper_bound": False,
-}
-
-TEST_SAVED_SCORE_SET_BS3_STRONG_RANGE = {
-    "recordType": "ScoreRange",
-    "label": "test1",
-    "classification": "normal",
-    "range": [-7.5, -3.5],
-    "inclusiveLowerBound": True,
-    "inclusiveUpperBound": False,
-}
-
-TEST_SCORE_SET_BS3_VERY_STRONG_RANGE = {
-    "label": "test1",
-    "classification": "normal",
-    "range": [None, -7.5],
-    "inclusive_lower_bound": False,
-    "inclusive_upper_bound": False,
-}
-
-TEST_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE = {
-    "recordType": "ScoreRange",
-    "label": "test1",
-    "classification": "normal",
-    "range": [None, -7.5],
-    "inclusiveLowerBound": False,
-    "inclusiveUpperBound": False,
-}
-
-TEST_SCORE_SET_PS3_SUPPORTING_RANGE = {
-    "label": "test1",
-    "classification": "abnormal",
-    "range": [0.5, 1.5],
-    "inclusive_lower_bound": True,
-    "inclusive_upper_bound": False,
-}
-
-TEST_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE = {
-    "recordType": "ScoreRange",
-    "label": "test1",
-    "classification": "abnormal",
-    "range": [0.5, 1.5],
-    "inclusiveLowerBound": True,
-    "inclusiveUpperBound": False,
-}
-
-TEST_SCORE_SET_PS3_MODERATE_RANGE = {
-    "label": "test1",
-    "classification": "abnormal",
-    "range": [1.5, 3.5],
-    "inclusive_lower_bound": True,
-    "inclusive_upper_bound": False,
-}
-
-TEST_SAVED_SCORE_SET_PS3_MODERATE_RANGE = {
-    "recordType": "ScoreRange",
-    "label": "test1",
-    "classification": "abnormal",
-    "range": [1.5, 3.5],
-    "inclusiveLowerBound": True,
-    "inclusiveUpperBound": False,
-}
-
-TEST_SCORE_SET_PS3_STRONG_RANGE = {
-    "label": "test1",
-    "classification": "abnormal",
-    "range": [3.5, 7.5],
-    "inclusive_lower_bound": True,
-    "inclusive_upper_bound": False,
-}
-
-TEST_SAVED_SCORE_SET_PS3_STRONG_RANGE = {
-    "recordType": "ScoreRange",
-    "label": "test1",
-    "classification": "abnormal",
-    "range": [3.5, 7.5],
-    "inclusiveLowerBound": True,
-    "inclusiveUpperBound": False,
-}
-
-TEST_SCORE_SET_PS3_VERY_STRONG_RANGE = {
-    "label": "test1",
-    "classification": "abnormal",
-    "range": [7.5, None],
-    "inclusive_lower_bound": True,
-    "inclusive_upper_bound": False,
-}
-
-TEST_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE = {
-    "recordType": "ScoreRange",
-    "label": "test1",
-    "classification": "abnormal",
-    "range": [7.5, None],
-    "inclusiveLowerBound": True,
-    "inclusiveUpperBound": False,
-}
-
-TEST_SCORE_SET_RANGE = {
-    "baseline_score": TEST_BASELINE_SCORE,
-    "ranges": [
-        TEST_SCORE_SET_NORMAL_RANGE,
-        TEST_SCORE_SET_ABNORMAL_RANGE,
-    ],
+TEST_MINIMAL_CALIBRATION = {
+    "title": "Test BRNICH Score Calibration",
     "research_use_only": False,
-    "title": "Test Base Ranges",
-    "source": None,
+    "investigator_provided": False,
+    "functional_ranges": [
+        TEST_FUNCTIONAL_RANGE_NORMAL,
+        TEST_FUNCTIONAL_RANGE_ABNORMAL,
+        TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED,
+    ],
+    "threshold_sources": [],
+    "classification_sources": [],
+    "method_sources": [],
+    "calibration_metadata": {},
 }
 
 
-TEST_SCORE_SET_RANGE_WITH_SOURCE = {
-    "baseline_score": TEST_BASELINE_SCORE,
-    "ranges": [
-        TEST_SCORE_SET_NORMAL_RANGE,
-        TEST_SCORE_SET_ABNORMAL_RANGE,
-    ],
+TEST_BRNICH_SCORE_CALIBRATION = {
+    "title": "Test BRNICH Score Calibration",
     "research_use_only": False,
-    "title": "Test Base Ranges with Source",
-    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
-}
-
-
-TEST_BRNICH_SCORE_SET_NORMAL_RANGE = {
-    **TEST_SCORE_SET_NORMAL_RANGE,
-    "odds_path": TEST_BS3_ODDS_PATH,
-}
-
-
-TEST_SAVED_BRNICH_SCORE_SET_NORMAL_RANGE = {
-    **TEST_SAVED_SCORE_SET_NORMAL_RANGE,
-    "oddsPath": TEST_SAVED_BS3_ODDS_PATH,
-    "recordType": "BrnichScoreRange",
-}
-
-
-TEST_BRNICH_SCORE_SET_ABNORMAL_RANGE = {
-    **TEST_SCORE_SET_ABNORMAL_RANGE,
-    "odds_path": TEST_PS3_ODDS_PATH,
-}
-
-
-TEST_SAVED_BRNICH_SCORE_SET_ABNORMAL_RANGE = {
-    **TEST_SAVED_SCORE_SET_ABNORMAL_RANGE,
-    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
-    "recordType": "BrnichScoreRange",
-}
-
-
-TEST_BRNICH_SCORE_SET_NOT_SPECIFIED_RANGE = {
-    **TEST_SCORE_SET_NOT_SPECIFIED_RANGE,
-    "odds_path": TEST_PS3_ODDS_PATH,
-}
-
-
-TEST_SAVED_BRNICH_SCORE_SET_NOT_SPECIFIED_RANGE = {
-    **TEST_SAVED_SCORE_SET_NOT_SPECIFIED_RANGE,
-    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
-    "recordType": "BrnichScoreRange",
-}
-
-
-TEST_BRNICH_SCORE_SET_RANGE = {
     "baseline_score": TEST_BASELINE_SCORE,
-    "ranges": [
-        TEST_BRNICH_SCORE_SET_NORMAL_RANGE,
-        TEST_BRNICH_SCORE_SET_ABNORMAL_RANGE,
-        TEST_BRNICH_SCORE_SET_NOT_SPECIFIED_RANGE,
+    "baseline_score_description": "Test baseline score description",
+    "functional_ranges": [
+        TEST_FUNCTIONAL_RANGE_NORMAL,
+        TEST_FUNCTIONAL_RANGE_ABNORMAL,
+        TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED,
     ],
+    "threshold_sources": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+    "classification_sources": [
+        {"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"},
+        {"identifier": TEST_BIORXIV_IDENTIFIER, "db_name": "bioRxiv"},
+    ],
+    "method_sources": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+    "calibration_metadata": {},
+}
+
+TEST_SAVED_BRNICH_SCORE_CALIBRATION = {
+    "recordType": "ScoreCalibration",
+    **{
+        camelize(k): v
+        for k, v in TEST_BRNICH_SCORE_CALIBRATION.items()
+        if k not in ("functional_ranges", "classification_sources", "threshold_sources", "method_sources")
+    },
+    "functionalRanges": [
+        TEST_SAVED_FUNCTIONAL_RANGE_NORMAL,
+        TEST_SAVED_FUNCTIONAL_RANGE_ABNORMAL,
+        TEST_SAVED_FUNCTIONAL_RANGE_NOT_SPECIFIED,
+    ],
+    "thresholdSources": [SAVED_PUBMED_PUBLICATION],
+    "classificationSources": [SAVED_PUBMED_PUBLICATION, SAVED_BIORXIV_PUBLICATION],
+    "methodSources": [SAVED_PUBMED_PUBLICATION],
+    "id": 1,
+    "urn": VALID_CALIBRATION_URN,
+    "investigatorProvided": True,
+    "primary": True,
+    "private": False,
+    "scoreSetId": 1,
+    "createdBy": {
+        "recordType": "User",
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "modifiedBy": {
+        "recordType": "User",
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
+}
+
+TEST_PATHOGENICITY_SCORE_CALIBRATION = {
+    "title": "Test Pathogenicity Score Calibration",
     "research_use_only": False,
-    "title": "Test Brnich Functional Ranges",
-    "odds_path_source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
-    "source": None,
-}
-
-
-TEST_SAVED_BRNICH_SCORE_SET_RANGE = {
-    "recordType": "BrnichScoreRanges",
-    "baselineScore": TEST_BASELINE_SCORE,
-    "ranges": [
-        TEST_SAVED_BRNICH_SCORE_SET_NORMAL_RANGE,
-        TEST_SAVED_BRNICH_SCORE_SET_ABNORMAL_RANGE,
-        TEST_SAVED_BRNICH_SCORE_SET_NOT_SPECIFIED_RANGE,
-    ],
-    "researchUseOnly": False,
-    "title": "Test Brnich Functional Ranges",
-    "oddsPathSource": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
-    "source": None,
-}
-
-
-TEST_BRNICH_SCORE_SET_RANGE_WITH_SOURCE = {
-    **TEST_BRNICH_SCORE_SET_RANGE,
-    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
-}
-
-
-TEST_SAVED_BRNICH_SCORE_SET_RANGE_WITH_SOURCE = {
-    **TEST_SAVED_BRNICH_SCORE_SET_RANGE,
-    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
-}
-
-TEST_SCOTT_SCORE_SET_NORMAL_RANGE = {
-    **TEST_SCORE_SET_NORMAL_RANGE,
-    "odds_path": TEST_BS3_ODDS_PATH,
-}
-
-
-TEST_SAVED_SCOTT_SCORE_SET_NORMAL_RANGE = {
-    **TEST_SAVED_SCORE_SET_NORMAL_RANGE,
-    "oddsPath": TEST_SAVED_BS3_ODDS_PATH,
-    "recordType": "BrnichScoreRange",
-}
-
-
-TEST_SCOTT_SCORE_SET_ABNORMAL_RANGE = {
-    **TEST_SCORE_SET_ABNORMAL_RANGE,
-    "odds_path": TEST_PS3_ODDS_PATH,
-}
-
-
-TEST_SAVED_SCOTT_SCORE_SET_ABNORMAL_RANGE = {
-    **TEST_SAVED_SCORE_SET_ABNORMAL_RANGE,
-    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
-    "recordType": "BrnichScoreRange",
-}
-
-
-TEST_SCOTT_SCORE_SET_NOT_SPECIFIED_RANGE = {
-    **TEST_SCORE_SET_NOT_SPECIFIED_RANGE,
-    "odds_path": TEST_PS3_ODDS_PATH,
-}
-
-
-TEST_SAVED_SCOTT_SCORE_SET_NOT_SPECIFIED_RANGE = {
-    **TEST_SAVED_SCORE_SET_NOT_SPECIFIED_RANGE,
-    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
-    "recordType": "BrnichScoreRange",
-}
-
-
-TEST_SCOTT_SCORE_SET_RANGE = {
     "baseline_score": TEST_BASELINE_SCORE,
-    "ranges": [
-        TEST_SCOTT_SCORE_SET_NORMAL_RANGE,
-        TEST_SCOTT_SCORE_SET_ABNORMAL_RANGE,
-        TEST_SCOTT_SCORE_SET_NOT_SPECIFIED_RANGE,
+    "baseline_score_description": "Test baseline score description",
+    "functional_ranges": [
+        TEST_FUNCTIONAL_RANGE_NORMAL,
+        TEST_FUNCTIONAL_RANGE_ABNORMAL,
     ],
-    "research_use_only": False,
-    "title": "Test Scott Functional Ranges",
-    "odds_path_source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
-    "source": None,
+    "threshold_sources": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
+    "classification_sources": None,
+    "method_sources": None,
+    "calibration_metadata": {},
 }
 
-
-TEST_SAVED_SCOTT_SCORE_SET_RANGE = {
-    "recordType": "ScottScoreRanges",
-    "baselineScore": TEST_BASELINE_SCORE,
-    "ranges": [
-        TEST_SAVED_SCOTT_SCORE_SET_NORMAL_RANGE,
-        TEST_SAVED_SCOTT_SCORE_SET_ABNORMAL_RANGE,
-        TEST_SAVED_SCOTT_SCORE_SET_NOT_SPECIFIED_RANGE,
+TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION = {
+    "recordType": "ScoreCalibration",
+    **{
+        camelize(k): v
+        for k, v in TEST_PATHOGENICITY_SCORE_CALIBRATION.items()
+        if k not in ("functional_ranges", "classification_sources", "threshold_sources", "method_sources")
+    },
+    "functionalRanges": [
+        TEST_SAVED_FUNCTIONAL_RANGE_NORMAL,
+        TEST_SAVED_FUNCTIONAL_RANGE_ABNORMAL,
     ],
-    "researchUseOnly": False,
-    "title": "Test Scott Functional Ranges",
-    "oddsPathSource": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
-    "source": None,
+    "thresholdSources": [SAVED_PUBMED_PUBLICATION],
+    "classificationSources": None,
+    "methodSources": None,
+    "id": 2,
+    "investigatorProvided": True,
+    "primary": False,
+    "private": False,
+    "urn": VALID_CALIBRATION_URN,
+    "scoreSetId": 1,
+    "createdBy": {
+        "recordType": "User",
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "modifiedBy": {
+        "recordType": "User",
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
 }
-
-
-TEST_SCOTT_SCORE_SET_RANGE_WITH_SOURCE = {
-    **TEST_SCOTT_SCORE_SET_RANGE,
-    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
-}
-
-
-TEST_SAVED_SCOTT_SCORE_SET_RANGE_WITH_SOURCE = {
-    **TEST_SAVED_SCOTT_SCORE_SET_RANGE,
-    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
-}
-
-TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE = {
-    **TEST_SCORE_SET_NORMAL_RANGE,
-    "odds_path": TEST_BS3_ODDS_PATH,
-}
-
-
-TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE = {
-    **TEST_SAVED_SCORE_SET_NORMAL_RANGE,
-    "oddsPath": TEST_SAVED_BS3_ODDS_PATH,
-    "recordType": "BrnichScoreRange",
-}
-
-
-TEST_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE = {
-    **TEST_SCORE_SET_ABNORMAL_RANGE,
-    "odds_path": TEST_PS3_ODDS_PATH,
-}
-
-
-TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE = {
-    **TEST_SAVED_SCORE_SET_ABNORMAL_RANGE,
-    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
-    "recordType": "BrnichScoreRange",
-}
-
-
-TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE = {
-    **TEST_SCORE_SET_NOT_SPECIFIED_RANGE,
-    "odds_path": TEST_PS3_ODDS_PATH,
-}
-
-
-TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE = {
-    **TEST_SAVED_SCORE_SET_NOT_SPECIFIED_RANGE,
-    "oddsPath": TEST_SAVED_PS3_ODDS_PATH,
-    "recordType": "BrnichScoreRange",
-}
-
-
-TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE = {
-    "baseline_score": TEST_BASELINE_SCORE,
-    "ranges": [
-        TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE,
-        TEST_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE,
-        TEST_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE,
-    ],
-    "research_use_only": False,
-    "title": "Test Investigator-provided Functional Ranges",
-    "odds_path_source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
-    "source": None,
-}
-
-
-TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE = {
-    "recordType": "InvestigatorScoreRanges",
-    "baselineScore": TEST_BASELINE_SCORE,
-    "ranges": [
-        TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NORMAL_RANGE,
-        TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_ABNORMAL_RANGE,
-        TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_NOT_SPECIFIED_RANGE,
-    ],
-    "researchUseOnly": False,
-    "title": "Test Investigator-provided Functional Ranges",
-    "oddsPathSource": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
-    "source": None,
-}
-
-
-TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE = {
-    **TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE,
-    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
-}
-
-
-TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE = {
-    **TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE,
-    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
-}
-
-
-# no camel casing required, and no need for a 'recordType' key
-TEST_ZEIBERG_CALIBRATION_FUNCTIONALY_ALTERING_PARAMETERS = (
-    TEST_SAVED_ZEIBERG_CALIBRATION_FUNCTIONALY_ALTERING_PARAMETERS
-) = {
-    "skew": 1.15,
-    "location": -2.20,
-    "scale": 1.20,
-}
-
-
-# no camel casing required, and no need for a 'recordType' key
-TEST_ZEIBERG_CALIBRATION_FUNCTIONALY_NORMAL_PARAMETERS = (
-    TEST_SAVED_ZEIBERG_CALIBRATION_FUNCTIONALY_NORMAL_PARAMETERS
-) = {
-    "skew": -1.5,
-    "location": 2.25,
-    "scale": 0.8,
-}
-
-
-TEST_ZEIBERG_CALIBRATION_PARAMETER_SETS = [
-    {
-        "functionally_altering": TEST_ZEIBERG_CALIBRATION_FUNCTIONALY_ALTERING_PARAMETERS,
-        "functionally_normal": TEST_ZEIBERG_CALIBRATION_FUNCTIONALY_NORMAL_PARAMETERS,
-        "fraction_functionally_altering": 0.20,
-    }
-]
-
-
-TEST_SAVED_ZEIBERG_CALIBRATION_PARAMETER_SETS = [
-    {
-        "functionallyAltering": TEST_SAVED_ZEIBERG_CALIBRATION_FUNCTIONALY_ALTERING_PARAMETERS,
-        "functionallyNormal": TEST_SAVED_ZEIBERG_CALIBRATION_FUNCTIONALY_NORMAL_PARAMETERS,
-        "fractionFunctionallyAltering": 0.20,
-    }
-]
-
-
-TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_SUPPORTING_RANGE = {
-    **TEST_SCORE_SET_BS3_SUPPORTING_RANGE,
-    "positive_likelihood_ratio": 100.0,
-    "evidence_strength": -1,
-    "label": "BS3_SUPPORTING",
-}
-
-
-TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE = {
-    **TEST_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE,
-    "recordType": "ZeibergCalibrationScoreRange",
-    "label": "BS3_SUPPORTING",
-    "evidenceStrength": -1,
-    "positiveLikelihoodRatio": 100.0,
-}
-
-TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_SUPPORTING_RANGE = {
-    **TEST_SCORE_SET_PS3_SUPPORTING_RANGE,
-    "positive_likelihood_ratio": 10.0,
-    "evidence_strength": 1,
-    "label": "PS3_SUPPORTING",
-}
-
-
-TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE = {
-    **TEST_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE,
-    "recordType": "ZeibergCalibrationScoreRange",
-    "label": "PS3_SUPPORTING",
-    "positiveLikelihoodRatio": 10.0,
-    "evidenceStrength": 1,
-}
-
-
-TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_MODERATE_RANGE = {
-    **TEST_SCORE_SET_BS3_MODERATE_RANGE,
-    "positive_likelihood_ratio": 100.0,
-    "evidence_strength": -2,
-    "label": "BS3_MODERATE",
-}
-
-
-TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_MODERATE_RANGE = {
-    **TEST_SAVED_SCORE_SET_BS3_MODERATE_RANGE,
-    "recordType": "ZeibergCalibrationScoreRange",
-    "label": "BS3_MODERATE",
-    "evidenceStrength": -2,
-    "positiveLikelihoodRatio": 100.0,
-}
-
-TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_MODERATE_RANGE = {
-    **TEST_SCORE_SET_PS3_MODERATE_RANGE,
-    "positive_likelihood_ratio": 10.0,
-    "evidence_strength": 2,
-    "label": "PS3_MODERATE",
-}
-
-
-TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_MODERATE_RANGE = {
-    **TEST_SAVED_SCORE_SET_PS3_MODERATE_RANGE,
-    "recordType": "ZeibergCalibrationScoreRange",
-    "label": "PS3_MODERATE",
-    "positiveLikelihoodRatio": 10.0,
-    "evidenceStrength": 2,
-}
-
-
-TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_STRONG_RANGE = {
-    **TEST_SCORE_SET_BS3_STRONG_RANGE,
-    "positive_likelihood_ratio": 100.0,
-    "evidence_strength": -4,
-    "label": "BS3_STRONG",
-}
-
-
-TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_STRONG_RANGE = {
-    **TEST_SAVED_SCORE_SET_BS3_STRONG_RANGE,
-    "recordType": "ZeibergCalibrationScoreRange",
-    "label": "BS3_STRONG",
-    "evidenceStrength": -4,
-    "positiveLikelihoodRatio": 100.0,
-}
-
-TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_STRONG_RANGE = {
-    **TEST_SCORE_SET_PS3_STRONG_RANGE,
-    "positive_likelihood_ratio": 10.0,
-    "evidence_strength": 4,
-    "label": "PS3_STRONG",
-}
-
-
-TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_STRONG_RANGE = {
-    **TEST_SAVED_SCORE_SET_PS3_STRONG_RANGE,
-    "recordType": "ZeibergCalibrationScoreRange",
-    "label": "PS3_STRONG",
-    "positiveLikelihoodRatio": 10.0,
-    "evidenceStrength": 4,
-}
-
-
-TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_VERY_STRONG_RANGE = {
-    **TEST_SCORE_SET_BS3_VERY_STRONG_RANGE,
-    "positive_likelihood_ratio": 100.0,
-    "evidence_strength": -8,
-    "label": "BS3_VERY_STRONG",
-}
-
-
-TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE = {
-    **TEST_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE,
-    "recordType": "ZeibergCalibrationScoreRange",
-    "label": "BS3_VERY_STRONG",
-    "evidenceStrength": -8,
-    "positiveLikelihoodRatio": 100.0,
-}
-
-TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_VERY_STRONG_RANGE = {
-    **TEST_SCORE_SET_PS3_VERY_STRONG_RANGE,
-    "positive_likelihood_ratio": 10.0,
-    "evidence_strength": 8,
-    "label": "PS3_VERY_STRONG",
-}
-
-
-TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE = {
-    **TEST_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE,
-    "recordType": "ZeibergCalibrationScoreRange",
-    "label": "PS3_VERY_STRONG",
-    "positiveLikelihoodRatio": 10.0,
-    "evidenceStrength": 8,
-}
-
-
-TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE = {
-    "ranges": [
-        TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_SUPPORTING_RANGE,
-        TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_MODERATE_RANGE,
-        TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_STRONG_RANGE,
-        TEST_ZEIBERG_CALIBRATION_SCORE_SET_BS3_VERY_STRONG_RANGE,
-        TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_SUPPORTING_RANGE,
-        TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_MODERATE_RANGE,
-        TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_STRONG_RANGE,
-        TEST_ZEIBERG_CALIBRATION_SCORE_SET_PS3_VERY_STRONG_RANGE,
-    ],
-    "research_use_only": True,
-    "title": "Test Zeiberg Calibration",
-    "parameter_sets": TEST_ZEIBERG_CALIBRATION_PARAMETER_SETS,
-    "prior_probability_pathogenicity": 0.20,
-    "source": None,
-}
-
-
-TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_RANGE = {
-    "recordType": "ZeibergCalibrationScoreRanges",
-    "ranges": [
-        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_SUPPORTING_RANGE,
-        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_MODERATE_RANGE,
-        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_STRONG_RANGE,
-        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_BS3_VERY_STRONG_RANGE,
-        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_SUPPORTING_RANGE,
-        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_MODERATE_RANGE,
-        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_STRONG_RANGE,
-        TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_PS3_VERY_STRONG_RANGE,
-    ],
-    "researchUseOnly": True,
-    "title": "Test Zeiberg Calibration",
-    "parameterSets": TEST_SAVED_ZEIBERG_CALIBRATION_PARAMETER_SETS,
-    "priorProbabilityPathogenicity": 0.20,
-}
-
-TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE_WITH_SOURCE = {
-    **TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE,
-    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
-}
-
-
-TEST_SAVED_ZEIBERG_CALIBRATION_SCORE_SET_RANGE_WITH_SOURCE = {
-    **TEST_ZEIBERG_CALIBRATION_SAVED_SCORE_SET_RANGE,
-    "source": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
-}
-
-
-TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED = {
-    "investigator_provided": TEST_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE,
-}
-
-
-TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED = {
-    "recordType": "ScoreSetRanges",
-    "investigatorProvided": TEST_SAVED_INVESTIGATOR_PROVIDED_SCORE_SET_RANGE_WITH_SOURCE,
-}
-
-TEST_SCORE_SET_RANGES_ONLY_SCOTT = {
-    "scott_calibration": TEST_SCOTT_SCORE_SET_RANGE_WITH_SOURCE,
-}
-
-
-TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT = {
-    "recordType": "ScoreSetRanges",
-    "scottCalibration": TEST_SAVED_SCOTT_SCORE_SET_RANGE_WITH_SOURCE,
-}
-
-
-TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION = {
-    "zeiberg_calibration": TEST_ZEIBERG_CALIBRATION_SCORE_SET_RANGE_WITH_SOURCE,
-}
-
-
-TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION = {
-    "recordType": "ScoreSetRanges",
-    "zeibergCalibration": TEST_SAVED_ZEIBERG_CALIBRATION_SCORE_SET_RANGE_WITH_SOURCE,
-}
-
-
-TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT = {
-    **TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    **TEST_SCORE_SET_RANGES_ONLY_SCOTT,
-    **TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-}
-
-
-TEST_SAVED_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT = {
-    **TEST_SAVED_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    **TEST_SAVED_SCORE_SET_RANGES_ONLY_SCOTT,
-    **TEST_SAVED_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-}
-
 
 TEST_COLLECTION = {"name": "Test collection", "description": None, "private": True}
 

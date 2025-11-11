@@ -12,7 +12,7 @@ from ga4gh.va_spec.base.core import (
     VariantPathogenicityProposition,
 )
 
-from mavedb.lib.annotation.classification import zeiberg_calibration_clinical_classification_of_variant
+from mavedb.lib.annotation.classification import pathogenicity_classification_of_variant
 from mavedb.lib.annotation.contribution import (
     mavedb_api_contribution,
     mavedb_vrs_contribution,
@@ -33,7 +33,7 @@ def acmg_evidence_line(
     proposition: VariantPathogenicityProposition,
     evidence: list[Union[StudyResult, EvidenceLineType, StatementType, iriReference]],
 ) -> Optional[VariantPathogenicityEvidenceLine]:
-    evidence_outcome, evidence_strength = zeiberg_calibration_clinical_classification_of_variant(mapped_variant)
+    evidence_outcome, evidence_strength = pathogenicity_classification_of_variant(mapped_variant)
 
     if not evidence_strength:
         evidence_outcome_code = f"{evidence_outcome.value}_not_met"

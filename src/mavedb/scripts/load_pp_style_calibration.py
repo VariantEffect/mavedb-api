@@ -1,18 +1,16 @@
-from typing import Callable
 import json
 import math
-import click
-from typing import List, Dict, Any, Optional
+from typing import Any, Callable, Dict, List, Optional
 
+import click
 from sqlalchemy.orm import Session
 
-from mavedb.scripts.environment import with_database_session
+from mavedb.lib.score_calibrations import create_score_calibration_in_score_set
 from mavedb.models.score_set import ScoreSet
-from mavedb.view_models.score_range import (
-    ZeibergCalibrationScoreRangeCreate,
-    ZeibergCalibrationScoreRangesCreate,
-    ScoreSetRangesCreate,
-)
+from mavedb.models.user import User
+from mavedb.scripts.environment import with_database_session
+from mavedb.view_models.acmg_classification import ACMGClassificationCreate
+from mavedb.view_models.score_calibration import FunctionalRangeCreate, ScoreCalibrationCreate
 
 # Evidence strength ordering definitions
 PATH_STRENGTHS: List[int] = [1, 2, 3, 4, 8]
@@ -47,9 +45,7 @@ def _collapse_duplicate_thresholds(m: dict[int, Optional[float]], comparator: Ca
     return collapsed
 
 
-def build_pathogenic_ranges(
-    thresholds: List[Optional[float]], inverted: bool
-) -> List[ZeibergCalibrationScoreRangeCreate]:
+def build_pathogenic_ranges(thresholds: List[Optional[float]], inverted: bool) -> List[FunctionalRangeCreate]:
     raw_mapping = {
         strength: thresholds[idx]
         for idx, strength in enumerate(PATH_STRENGTHS)
@@ -63,7 +59,7 @@ def build_pathogenic_ranges(
     available = [s for s in PATH_STRENGTHS if s in mapping]
     ordering = available[::-1] if not inverted else available
 
-    ranges: List[ZeibergCalibrationScoreRangeCreate] = []
+    ranges: List[FunctionalRangeCreate] = []
     for i, s in enumerate(ordering):
         lower: Optional[float]
         upper: Optional[float]
@@ -76,20 +72,20 @@ def build_pathogenic_ranges(
             upper = mapping[s]
 
         ranges.append(
-            ZeibergCalibrationScoreRangeCreate(
+            FunctionalRangeCreate(
                 label=str(s),
                 classification="abnormal",
-                evidence_strength=s,
                 range=(lower, upper),
                 # Whichever bound interacts with infinity will always be exclusive, with the opposite always inclusive.
                 inclusive_lower_bound=False if not inverted else True,
                 inclusive_upper_bound=False if inverted else True,
+                acmg_classification=ACMGClassificationCreate(points=s),
             )
         )
     return ranges
 
 
-def build_benign_ranges(thresholds: List[Optional[float]], inverted: bool) -> List[ZeibergCalibrationScoreRangeCreate]:
+def build_benign_ranges(thresholds: List[Optional[float]], inverted: bool) -> List[FunctionalRangeCreate]:
     raw_mapping = {
         strength: thresholds[idx]
         for idx, strength in enumerate(BENIGN_STRENGTHS)
@@ -103,7 +99,7 @@ def build_benign_ranges(thresholds: List[Optional[float]], inverted: bool) -> Li
     available = [s for s in BENIGN_STRENGTHS if s in mapping]
     ordering = available[::-1] if inverted else available
 
-    ranges: List[ZeibergCalibrationScoreRangeCreate] = []
+    ranges: List[FunctionalRangeCreate] = []
     for i, s in enumerate(ordering):
         lower: Optional[float]
         upper: Optional[float]
@@ -116,14 +112,14 @@ def build_benign_ranges(thresholds: List[Optional[float]], inverted: bool) -> Li
             upper = mapping[s]
 
         ranges.append(
-            ZeibergCalibrationScoreRangeCreate(
+            FunctionalRangeCreate(
                 label=str(s),
                 classification="normal",
-                evidence_strength=s,
                 range=(lower, upper),
                 # Whichever bound interacts with infinity will always be exclusive, with the opposite always inclusive.
                 inclusive_lower_bound=False if inverted else True,
                 inclusive_upper_bound=False if not inverted else True,
+                acmg_classification=ACMGClassificationCreate(points=s),
             )
         )
     return ranges
@@ -133,22 +129,17 @@ def build_benign_ranges(thresholds: List[Optional[float]], inverted: bool) -> Li
 @with_database_session
 @click.argument("json_path", type=click.Path(exists=True, dir_okay=False, readable=True))
 @click.argument("score_set_urn", type=str)
-@click.option("--overwrite", is_flag=True, default=False, help="Overwrite existing score_ranges if present.")
-def main(db: Session, json_path: str, score_set_urn: str, overwrite: bool) -> None:
+@click.argument("public", default=False, type=bool)
+@click.argument("user_id", type=int)
+def main(db: Session, json_path: str, score_set_urn: str, public: bool, user_id: int) -> None:
     """Load pillar project calibration JSON into a score set's zeiberg_calibration score ranges."""
     score_set: Optional[ScoreSet] = db.query(ScoreSet).filter(ScoreSet.urn == score_set_urn).one_or_none()
     if not score_set:
         raise click.ClickException(f"Score set with URN {score_set_urn} not found")
 
-    if score_set.score_ranges and score_set.score_ranges["zeiberg_calibration"] and not overwrite:
-        raise click.ClickException(
-            "pillar project score ranges already present for this score set. Use --overwrite to replace them."
-        )
-
-    if not score_set.score_ranges:
-        existing_score_ranges = ScoreSetRangesCreate()
-    else:
-        existing_score_ranges = ScoreSetRangesCreate(**score_set.score_ranges)
+    user: Optional[User] = db.query(User).filter(User.id == user_id).one_or_none()
+    if not user:
+        raise click.ClickException(f"User with ID {user_id} not found")
 
     with open(json_path, "r") as fh:
         data: Dict[str, Any] = json.load(fh)
@@ -164,10 +155,17 @@ def main(db: Session, json_path: str, score_set_urn: str, overwrite: bool) -> No
     if not path_ranges and not benign_ranges:
         raise click.ClickException("No valid thresholds found to build ranges.")
 
-    existing_score_ranges.zeiberg_calibration = ZeibergCalibrationScoreRangesCreate(ranges=path_ranges + benign_ranges)
-    score_set.score_ranges = existing_score_ranges.model_dump(exclude_none=True)
-
-    db.add(score_set)
+    calibration_create = ScoreCalibrationCreate(
+        title="Zeiberg Calibration",
+        research_use_only=True,
+        primary=False,
+        investigator_provided=False,
+        private=not public,
+        functional_ranges=path_ranges + benign_ranges,
+        score_set_urn=score_set_urn,
+    )
+    calibration = create_score_calibration_in_score_set(db, calibration_create, user)
+    db.add(calibration)
     click.echo(
         f"Loaded {len(path_ranges)} pathogenic and {len(benign_ranges)} benign ranges into score set {score_set_urn} (inverted={inverted})."
     )

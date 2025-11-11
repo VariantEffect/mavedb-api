@@ -147,12 +147,12 @@ def export_public_data(db: Session):
                 logger.info(f"{i + 1}/{num_score_sets} Exporting variants for score set {score_set.urn}")
                 csv_filename_base = score_set.urn.replace(":", "-")
 
-                csv_str = get_score_set_variants_as_csv(db, score_set, "scores")
+                csv_str = get_score_set_variants_as_csv(db, score_set, ["scores"])
                 zipfile.writestr(f"csv/{csv_filename_base}.scores.csv", csv_str)
 
                 count_columns = score_set.dataset_columns["count_columns"] if score_set.dataset_columns else None
                 if count_columns and len(count_columns) > 0:
-                    csv_str = get_score_set_variants_as_csv(db, score_set, "counts")
+                    csv_str = get_score_set_variants_as_csv(db, score_set, ["counts"])
                     zipfile.writestr(f"csv/{csv_filename_base}.counts.csv", csv_str)
 
 
