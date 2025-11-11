@@ -1,16 +1,17 @@
+from collections import Counter
 import csv
 import io
 import logging
-import re
 from operator import attrgetter
-from typing import Any, BinaryIO, Iterable, Optional, TYPE_CHECKING, Sequence, Literal
+import re
+from typing import Any, BinaryIO, Iterable, List, Optional, TYPE_CHECKING, Sequence, Literal
 
 from mavedb.models.mapped_variant import MappedVariant
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
 from sqlalchemy import Integer, and_, cast, func, or_, select
-from sqlalchemy.orm import Session, aliased, contains_eager, joinedload, selectinload
+from sqlalchemy.orm import Session, aliased, contains_eager, joinedload, Query, selectinload
 
 from mavedb.lib.exceptions import ValidationError
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
@@ -71,11 +72,15 @@ class HGVSColumns:
         return [cls.NUCLEOTIDE, cls.TRANSCRIPT, cls.PROTEIN]
 
 
-def search_score_sets(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch) -> list[ScoreSet]:
-    save_to_logging_context({"score_set_search_criteria": search.model_dump()})
+def build_search_score_sets_query_filter(
+    db: Session, query: Query[ScoreSet], owner_or_contributor: Optional[User], search: ScoreSetsSearch
+):
+    superseding_score_set = aliased(ScoreSet)
 
-    query = db.query(ScoreSet)  # \
-    # .filter(ScoreSet.private.is_(False))
+    # Limit to unsuperseded score sets.
+    # TODO#??? Prevent unpublished superseding score sets from hiding their published precursors in search results.
+    query = query.join(superseding_score_set, ScoreSet.superseding_score_set, isouter=True)
+    query = query.filter(superseding_score_set.id.is_(None))
 
     if owner_or_contributor is not None:
         query = query.filter(
@@ -213,6 +218,14 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
                 )
             )
         )
+    return query
+
+
+def search_score_sets(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch):
+    save_to_logging_context({"score_set_search_criteria": search.model_dump()})
+
+    query = db.query(ScoreSet)
+    query = build_search_score_sets_query_filter(db, query, owner_or_contributor, search)
 
     score_sets: list[ScoreSet] = (
         query.join(ScoreSet.experiment)
@@ -257,15 +270,102 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
             ),
         )
         .order_by(Experiment.title)
+        .offset(search.offset if search.offset is not None else None)
+        .limit(search.limit + 1 if search.limit is not None else None)
         .all()
     )
     if not score_sets:
         score_sets = []
 
-    save_to_logging_context({"matching_resources": len(score_sets)})
+    offset = search.offset if search.offset is not None else 0
+    num_score_sets = offset + len(score_sets)
+    if search.limit is not None and num_score_sets > offset + search.limit:
+        # In the main query, we have allowed limit + 1 results. The extra record tells us whether we need to run a count
+        # query.
+        score_sets = score_sets[: search.limit]
+        count_query = db.query(ScoreSet)
+        build_search_score_sets_query_filter(db, count_query, owner_or_contributor, search)
+        num_score_sets = count_query.order_by(None).limit(None).count()
+
+    save_to_logging_context({"matching_resources": num_score_sets})
     logger.debug(msg=f"Score set search yielded {len(score_sets)} matching resources.", extra=logging_context())
 
-    return score_sets  # filter_visible_score_sets(score_sets)
+    return {"score_sets": score_sets, "num_score_sets": num_score_sets}
+
+
+def score_set_search_filter_options_from_counter(counter: Counter):
+    return [{"value": value, "count": count} for value, count in counter.items()]
+
+
+def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch):
+    save_to_logging_context({"score_set_search_criteria": search.model_dump()})
+
+    query = db.query(ScoreSet)
+    query = build_search_score_sets_query_filter(db, query, owner_or_contributor, search)
+
+    score_sets: list[ScoreSet] = query.all()
+    if not score_sets:
+        score_sets = []
+
+    target_category_counter: Counter[str] = Counter()
+    target_name_counter: Counter[str] = Counter()
+    target_organism_name_counter: Counter[str] = Counter()
+    target_accession_counter: Counter[str] = Counter()
+    for score_set in score_sets:
+        for target in getattr(score_set, "target_genes", []):
+            category = getattr(target, "category", None)
+            if category:
+                target_category_counter[category] += 1
+
+            name = getattr(target, "name", None)
+            if name:
+                target_name_counter[name] += 1
+
+            target_sequence = getattr(target, "target_sequence", None)
+            taxonomy = getattr(target_sequence, "taxonomy", None)
+            organism_name = getattr(taxonomy, "organism_name", None)
+
+            if organism_name:
+                target_organism_name_counter[organism_name] += 1
+
+            target_accession = getattr(target, "target_accession", None)
+            accession = getattr(target_accession, "accession", None)
+
+            if accession:
+                target_accession_counter[accession] += 1
+
+    publication_author_name_counter: Counter[str] = Counter()
+    publication_db_name_counter: Counter[str] = Counter()
+    publication_journal_counter: Counter[str] = Counter()
+    for score_set in score_sets:
+        for publication_association in getattr(score_set, "publication_identifier_associations", []):
+            publication = getattr(publication_association, "publication", None)
+
+            authors = getattr(publication, "authors", [])
+            for author in authors:
+                name = author.get("name")
+                if name:
+                    publication_author_name_counter[name] += 1
+
+            db_name = getattr(publication, "db_name", None)
+            if db_name:
+                publication_db_name_counter[db_name] += 1
+
+            journal = getattr(publication, "publication_journal", None)
+            if journal:
+                publication_journal_counter[journal] += 1
+
+    logger.debug(msg="Score set search filter options were fetched.", extra=logging_context())
+
+    return {
+        "target_gene_categories": score_set_search_filter_options_from_counter(target_category_counter),
+        "target_gene_names": score_set_search_filter_options_from_counter(target_name_counter),
+        "target_organism_names": score_set_search_filter_options_from_counter(target_organism_name_counter),
+        "target_accessions": score_set_search_filter_options_from_counter(target_accession_counter),
+        "publication_author_names": score_set_search_filter_options_from_counter(publication_author_name_counter),
+        "publication_db_names": score_set_search_filter_options_from_counter(publication_db_name_counter),
+        "publication_journals": score_set_search_filter_options_from_counter(publication_journal_counter),
+    }
 
 
 def fetch_superseding_score_set_in_search_result(
@@ -401,12 +501,13 @@ def find_publish_or_private_superseded_score_set_tail(
 def get_score_set_variants_as_csv(
     db: Session,
     score_set: ScoreSet,
-    data_type: Literal["scores", "counts"],
+    namespaces: List[Literal["scores", "counts"]],
+    namespaced: Optional[bool] = None,
     start: Optional[int] = None,
     limit: Optional[int] = None,
     drop_na_columns: Optional[bool] = None,
-    include_custom_columns: bool = True,
-    include_post_mapped_hgvs: bool = False,
+    include_custom_columns: Optional[bool] = True,
+    include_post_mapped_hgvs: Optional[bool] = False,
 ) -> str:
     """
     Get the variant data from a score set as a CSV string.
@@ -417,8 +518,10 @@ def get_score_set_variants_as_csv(
         The database session to use.
     score_set : ScoreSet
         The score set to get the variants from.
-    data_type : {'scores', 'counts'}
-        The type of data to get. Either 'scores' or 'counts'.
+    namespaces : List[Literal["scores", "counts"]]
+        The namespaces for data. Now there are only scores and counts. There will be ClinVar and gnomAD.
+    namespaced: Optional[bool] = None
+        Whether namespace the columns or not.
     start : int, optional
         The index to start from. If None, starts from the beginning.
     limit : int, optional
@@ -437,20 +540,26 @@ def get_score_set_variants_as_csv(
         The CSV string containing the variant data.
     """
     assert type(score_set.dataset_columns) is dict
-    custom_columns_set = "score_columns" if data_type == "scores" else "count_columns"
-    type_column = "score_data" if data_type == "scores" else "count_data"
-
-    columns = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"]
+    namespaced_score_set_columns: dict[str, list[str]] = {
+        "core": ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"],
+        "mavedb": [],
+    }
     if include_post_mapped_hgvs:
-        columns.append("post_mapped_hgvs_g")
-        columns.append("post_mapped_hgvs_p")
-
+        namespaced_score_set_columns["mavedb"].append("post_mapped_hgvs_g")
+        namespaced_score_set_columns["mavedb"].append("post_mapped_hgvs_p")
+    for namespace in namespaces:
+        namespaced_score_set_columns[namespace] = []
     if include_custom_columns:
-        custom_columns = [str(x) for x in list(score_set.dataset_columns.get(custom_columns_set, []))]
-        columns += custom_columns
-    elif data_type == "scores":
-        columns.append(REQUIRED_SCORE_COLUMN)
-
+        if "scores" in namespaced_score_set_columns:
+            namespaced_score_set_columns["scores"] = [
+                col for col in [str(x) for x in list(score_set.dataset_columns.get("score_columns", []))]
+            ]
+        if "counts" in namespaced_score_set_columns:
+            namespaced_score_set_columns["counts"] = [
+                col for col in [str(x) for x in list(score_set.dataset_columns.get("count_columns", []))]
+            ]
+    elif "scores" in namespaced_score_set_columns:
+        namespaced_score_set_columns["scores"].append(REQUIRED_SCORE_COLUMN)
     variants: Sequence[Variant] = []
     mappings: Optional[list[Optional[MappedVariant]]] = None
 
@@ -487,13 +596,22 @@ def get_score_set_variants_as_csv(
         if limit:
             variants_query = variants_query.limit(limit)
         variants = db.scalars(variants_query).all()
+    rows_data = variants_to_csv_rows(variants, columns=namespaced_score_set_columns, namespaced=namespaced, mappings=mappings)  # type: ignore
+    rows_columns = [
+        (
+            f"{namespace}.{col}"
+            if (namespaced and namespace not in ["core", "mavedb"])
+            else (f"mavedb.{col}" if namespaced and namespace == "mavedb" else col)
+        )
+        for namespace, cols in namespaced_score_set_columns.items()
+        for col in cols
+    ]
 
-    rows_data = variants_to_csv_rows(variants, columns=columns, dtype=type_column, mappings=mappings)  # type: ignore
     if drop_na_columns:
-        rows_data, columns = drop_na_columns_from_csv_file_rows(rows_data, columns)
+        rows_data, rows_columns = drop_na_columns_from_csv_file_rows(rows_data, rows_columns)
 
     stream = io.StringIO()
-    writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
+    writer = csv.DictWriter(stream, fieldnames=rows_columns, quoting=csv.QUOTE_MINIMAL)
     writer.writeheader()
     writer.writerows(rows_data)
     return stream.getvalue()
@@ -531,9 +649,9 @@ def is_null(value):
 
 def variant_to_csv_row(
     variant: Variant,
-    columns: list[str],
-    dtype: str,
+    columns: dict[str, list[str]],
     mapping: Optional[MappedVariant] = None,
+    namespaced: Optional[bool] = None,
     na_rep="NA",
 ) -> dict[str, Any]:
     """
@@ -545,8 +663,8 @@ def variant_to_csv_row(
         List of variants.
     columns : list[str]
         Columns to serialize.
-    dtype : str, {'scores', 'counts'}
-        The type of data requested. Either the 'score_data' or 'count_data'.
+    namespaced: Optional[bool] = None
+        Namespace the columns or not.
     na_rep : str
         String to represent null values.
 
@@ -554,8 +672,9 @@ def variant_to_csv_row(
     -------
     dict[str, Any]
     """
-    row = {}
-    for column_key in columns:
+    row: dict[str, Any] = {}
+    # Handle each column key explicitly as part of its namespace.
+    for column_key in columns.get("core", []):
         if column_key == "hgvs_nt":
             value = str(variant.hgvs_nt)
         elif column_key == "hgvs_pro":
@@ -564,7 +683,13 @@ def variant_to_csv_row(
             value = str(variant.hgvs_splice)
         elif column_key == "accession":
             value = str(variant.urn)
-        elif column_key == "post_mapped_hgvs_g":
+        if is_null(value):
+            value = na_rep
+
+        # export columns in the `core` namespace without a namespace
+        row[column_key] = value
+    for column_key in columns.get("mavedb", []):
+        if column_key == "post_mapped_hgvs_g":
             hgvs_str = get_hgvs_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
             if hgvs_str is not None and is_hgvs_g(hgvs_str):
                 value = hgvs_str
@@ -576,21 +701,28 @@ def variant_to_csv_row(
                 value = hgvs_str
             else:
                 value = ""
-        else:
-            parent = variant.data.get(dtype) if variant.data else None
-            value = str(parent.get(column_key)) if parent else na_rep
         if is_null(value):
             value = na_rep
-        row[column_key] = value
-
+        key = f"mavedb.{column_key}" if namespaced else column_key
+        row[key] = value
+    for column_key in columns.get("scores", []):
+        parent = variant.data.get("score_data") if variant.data else None
+        value = str(parent.get(column_key)) if parent else na_rep
+        key = f"scores.{column_key}" if namespaced else column_key
+        row[key] = value
+    for column_key in columns.get("counts", []):
+        parent = variant.data.get("count_data") if variant.data else None
+        value = str(parent.get(column_key)) if parent else na_rep
+        key = f"counts.{column_key}" if namespaced else column_key
+        row[key] = value
     return row
 
 
 def variants_to_csv_rows(
     variants: Sequence[Variant],
-    columns: list[str],
-    dtype: str,
+    columns: dict[str, list[str]],
     mappings: Optional[Sequence[Optional[MappedVariant]]] = None,
+    namespaced: Optional[bool] = None,
     na_rep="NA",
 ) -> Iterable[dict[str, Any]]:
     """
@@ -602,8 +734,8 @@ def variants_to_csv_rows(
         List of variants.
     columns : list[str]
         Columns to serialize.
-    dtype : str, {'scores', 'counts'}
-        The type of data requested. Either the 'score_data' or 'count_data'.
+    namespaced: Optional[bool] = None
+        Namespace the columns or not.
     na_rep : str
         String to represent null values.
 
@@ -613,10 +745,10 @@ def variants_to_csv_rows(
     """
     if mappings is not None:
         return map(
-            lambda pair: variant_to_csv_row(pair[0], columns, dtype, mapping=pair[1], na_rep=na_rep),
+            lambda pair: variant_to_csv_row(pair[0], columns, mapping=pair[1], namespaced=namespaced, na_rep=na_rep),
             zip(variants, mappings),
         )
-    return map(lambda v: variant_to_csv_row(v, columns, dtype, na_rep=na_rep), variants)
+    return map(lambda v: variant_to_csv_row(v, columns, namespaced=namespaced, na_rep=na_rep), variants)
 
 
 def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[ScoreSet]:

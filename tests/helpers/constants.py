@@ -4,7 +4,6 @@ from humps import camelize
 
 from mavedb.models.enums.processing_state import ProcessingState
 
-
 VALID_EXPERIMENT_SET_URN = "urn:mavedb:01234567"
 VALID_EXPERIMENT_URN = f"{VALID_EXPERIMENT_SET_URN}-a"
 VALID_SCORE_SET_URN = f"{VALID_EXPERIMENT_URN}-1"
@@ -719,6 +718,12 @@ SAVED_SHORT_INACTIVE_LICENSE = {
     "active": TEST_INACTIVE_LICENSE["active"],
 }
 
+SAVED_MINIMAL_DATASET_COLUMNS = {
+    "recordType": "DatasetColumns",
+    "countColumns": [],
+    "scoreColumns": ["score", "s_0", "s_1"],
+}
+
 TEST_SEQ_SCORESET = {
     "title": "Test Score Set Title",
     "short_description": "Test score set",
@@ -832,7 +837,9 @@ TEST_MINIMAL_SEQ_SCORESET_RESPONSE = {
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
-    "datasetColumns": {},
+    "datasetColumns": {
+        "recordType": "DatasetColumns",
+    },
     "externalLinks": {},
     "private": True,
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
@@ -947,7 +954,9 @@ TEST_MINIMAL_ACC_SCORESET_RESPONSE = {
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
-    "datasetColumns": {},
+    "datasetColumns": {
+        "recordType": "DatasetColumns",
+    },
     "private": True,
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
     # keys to be set after receiving response
@@ -1087,7 +1096,9 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
     "doiIdentifiers": [],
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
-    "datasetColumns": {},
+    "datasetColumns": {
+        "recordType": "DatasetColumns",
+    },
     "externalLinks": {},
     "private": True,
     "experiment": TEST_MINIMAL_EXPERIMENT_RESPONSE,
@@ -1095,6 +1106,19 @@ TEST_MINIMAL_MULTI_TARGET_SCORESET_RESPONSE = {
     "urn": None,
     "processingState": ProcessingState.incomplete.name,
     "officialCollections": [],
+}
+
+TEST_SCORE_SET_DATASET_COLUMNS = {
+    "score_columns": ["score", "s_0", "s_1"],
+    "count_columns": ["c_0", "c_1"],
+    "score_columns_metadata": {
+        "s_0": {"description": "s_0 description", "details": "s_0 details"},
+        "s_1": {"description": "s_1 description", "details": "s_1 details"},
+    },
+    "count_columns_metadata": {
+        "c_0": {"description": "c_0 description", "details": "c_0 details"},
+        "c_1": {"description": "c_1 description", "details": "c_1 details"},
+    },
 }
 
 TEST_NT_CDOT_TRANSCRIPT = {

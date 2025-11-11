@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.openapi.utils import get_openapi
 from sqlalchemy.orm import configure_mappers
 from starlette import status
@@ -59,6 +60,7 @@ from mavedb.routers import (
     taxonomies,
     users,
     variants,
+    alphafold,
 )
 
 logger = logging.getLogger(__name__)
@@ -83,6 +85,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
 app.include_router(access_keys.router)
 app.include_router(api_information.router)
 app.include_router(collections.router)
@@ -108,6 +111,7 @@ app.include_router(target_genes.router)
 app.include_router(taxonomies.router)
 app.include_router(users.router)
 app.include_router(variants.router)
+app.include_router(alphafold.router)
 
 
 @app.exception_handler(PermissionException)

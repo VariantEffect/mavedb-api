@@ -1,6 +1,7 @@
 # ruff: noqa: E402
 
 import csv
+import json
 import re
 from copy import deepcopy
 from datetime import date
@@ -30,6 +31,7 @@ from tests.helpers.constants import (
     EXTRA_USER,
     SAVED_DOI_IDENTIFIER,
     SAVED_EXTRA_CONTRIBUTOR,
+    SAVED_MINIMAL_DATASET_COLUMNS,
     SAVED_PUBMED_PUBLICATION,
     SAVED_SHORT_EXTRA_LICENSE,
     TEST_BIORXIV_IDENTIFIER,
@@ -46,10 +48,10 @@ from tests.helpers.constants import (
     TEST_ORCID_ID,
     TEST_PATHOGENICITY_SCORE_CALIBRATION,
     TEST_PUBMED_IDENTIFIER,
+    TEST_SAVED_BRNICH_SCORE_CALIBRATION,
     TEST_SAVED_CLINVAR_CONTROL,
     TEST_SAVED_GENERIC_CLINICAL_CONTROL,
     TEST_SAVED_GNOMAD_VARIANT,
-    TEST_SAVED_BRNICH_SCORE_CALIBRATION,
     TEST_USER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
@@ -380,6 +382,107 @@ def test_can_update_score_set_data_before_publication(
         ("secondary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}], [SAVED_PUBMED_PUBLICATION]),
         ("doi_identifiers", [{"identifier": TEST_CROSSREF_IDENTIFIER}], [SAVED_DOI_IDENTIFIER]),
         ("license_id", EXTRA_LICENSE["id"], SAVED_SHORT_EXTRA_LICENSE),
+        ("target_genes", TEST_MINIMAL_ACC_SCORESET["targetGenes"], TEST_MINIMAL_ACC_SCORESET_RESPONSE["targetGenes"]),
+    ],
+)
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_patch_score_set_data_before_publication(
+    client, setup_router_db, attribute, updated_data, expected_response_data, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
+    )
+    expected_response["experiment"].update({"numScoreSets": 1})
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+
+    data = {}
+    if isinstance(updated_data, (dict, list)):
+        form_value = json.dumps(updated_data)
+    else:
+        form_value = str(updated_data)
+    data[attribute] = form_value
+
+    response = client.patch(f"/api/v1/score-sets-with-variants/{score_set['urn']}", data=data)
+    assert response.status_code == 200
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+    assert response.status_code == 200
+    response_data = response.json()
+
+    # Although the client provides the license id, the response includes the full license.
+    if attribute == "license_id":
+        attribute = "license"
+
+    assert expected_response_data == response_data[camelize(attribute)]
+
+
+@pytest.mark.parametrize(
+    "form_field,filename,mime_type",
+    [
+        ("scores_file", "scores.csv", "text/csv"),
+        ("counts_file", "counts.csv", "text/csv"),
+        ("score_columns_metadata_file", "score_columns_metadata.json", "application/json"),
+        ("count_columns_metadata_file", "count_columns_metadata.json", "application/json"),
+    ],
+)
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_patch_score_set_data_with_files_before_publication(
+    client, setup_router_db, form_field, filename, mime_type, data_files, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    expected_response = update_expected_response_for_created_resources(
+        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
+    )
+    expected_response["experiment"].update({"numScoreSets": 1})
+
+    if form_field == "counts_file" or form_field == "scores_file":
+        data_file_path = data_files / filename
+        files = {form_field: (filename, open(data_file_path, "rb"), mime_type)}
+        with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+            response = client.patch(f"/api/v1/score-sets-with-variants/{score_set['urn']}", files=files)
+            worker_queue.assert_called_once()
+            assert response.status_code == 200
+    elif form_field == "score_columns_metadata_file" or form_field == "count_columns_metadata_file":
+        data_file_path = data_files / filename
+        with open(data_file_path, "rb") as f:
+            data = json.load(f)
+            response = client.patch(f"/api/v1/score-sets-with-variants/{score_set['urn']}", data=data)
+            assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "attribute,updated_data,expected_response_data",
+    [
+        ("title", "Updated Title", "Updated Title"),
+        ("method_text", "Updated Method Text", "Updated Method Text"),
+        ("abstract_text", "Updated Abstract Text", "Updated Abstract Text"),
+        ("short_description", "Updated Abstract Text", "Updated Abstract Text"),
+        ("extra_metadata", {"updated": "metadata"}, {"updated": "metadata"}),
+        ("data_usage_policy", "data_usage_policy", "data_usage_policy"),
+        ("contributors", [{"orcid_id": EXTRA_USER["username"]}], [SAVED_EXTRA_CONTRIBUTOR]),
+        ("primary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}], [SAVED_PUBMED_PUBLICATION]),
+        ("secondary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}], [SAVED_PUBMED_PUBLICATION]),
+        ("doi_identifiers", [{"identifier": TEST_CROSSREF_IDENTIFIER}], [SAVED_DOI_IDENTIFIER]),
+        ("license_id", EXTRA_LICENSE["id"], SAVED_SHORT_EXTRA_LICENSE),
+        ("dataset_columns", None, SAVED_MINIMAL_DATASET_COLUMNS),
     ],
 )
 @pytest.mark.parametrize(
@@ -421,7 +524,7 @@ def test_can_update_score_set_supporting_data_after_publication(
             "publishedDate": date.today().isoformat(),
             "numVariants": 3,
             "private": False,
-            "datasetColumns": {"countColumns": [], "scoreColumns": ["score"]},
+            "datasetColumns": SAVED_MINIMAL_DATASET_COLUMNS,
             "processingState": ProcessingState.success.name,
         }
     )
@@ -451,6 +554,7 @@ def test_can_update_score_set_supporting_data_after_publication(
     "attribute,updated_data,expected_response_data",
     [
         ("target_genes", TEST_MINIMAL_ACC_SCORESET["targetGenes"], TEST_MINIMAL_SEQ_SCORESET_RESPONSE["targetGenes"]),
+        ("dataset_columns", {"countColumns": [], "scoreColumns": ["score"]}, SAVED_MINIMAL_DATASET_COLUMNS),
     ],
 )
 @pytest.mark.parametrize(
@@ -492,7 +596,7 @@ def test_cannot_update_score_set_target_data_after_publication(
             "publishedDate": date.today().isoformat(),
             "numVariants": 3,
             "private": False,
-            "datasetColumns": {"countColumns": [], "scoreColumns": ["score"]},
+            "datasetColumns": SAVED_MINIMAL_DATASET_COLUMNS,
             "processingState": ProcessingState.success.name,
         }
     )
@@ -816,6 +920,47 @@ def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setu
     assert score_set == response_data
 
 
+def test_add_score_set_variants_scores_counts_and_column_metadata_endpoint(
+    session, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+    counts_csv_path = data_files / "counts.csv"
+    score_columns_metadata_path = data_files / "score_columns_metadata.json"
+    count_columns_metadata_path = data_files / "count_columns_metadata.json"
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        open(counts_csv_path, "rb") as counts_file,
+        open(score_columns_metadata_path, "rb") as score_columns_metadata_file,
+        open(count_columns_metadata_path, "rb") as count_columns_metadata_file,
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+    ):
+        score_columns_metadata = json.load(score_columns_metadata_file)
+        count_columns_metadata = json.load(count_columns_metadata_file)
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={
+                "scores_file": (scores_csv_path.name, scores_file, "text/csv"),
+                "counts_file": (counts_csv_path.name, counts_file, "text/csv"),
+            },
+            data={
+                "score_columns_metadata": json.dumps(score_columns_metadata),
+                "count_columns_metadata": json.dumps(count_columns_metadata),
+            },
+        )
+        queue.assert_called_once()
+
+    assert response.status_code == 200
+    response_data = response.json()
+    jsonschema.validate(instance=response_data, schema=ScoreSet.model_json_schema())
+
+    # We test the worker process that actually adds the variant data separately. Here, we take it as
+    # fact that it would have succeeded.
+    score_set.update({"processingState": "processing"})
+    assert score_set == response_data
+
+
 def test_add_score_set_variants_scores_only_endpoint_utf8_encoded(client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -1121,7 +1266,7 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
             "publishedDate": date.today().isoformat(),
             "numVariants": 3,
             "private": False,
-            "datasetColumns": {"countColumns": [], "scoreColumns": ["score"]},
+            "datasetColumns": SAVED_MINIMAL_DATASET_COLUMNS,
             "processingState": ProcessingState.success.name,
         }
     )
@@ -1290,7 +1435,7 @@ def test_contributor_can_publish_other_users_score_set(session, data_provider, c
             "publishedDate": date.today().isoformat(),
             "numVariants": 3,
             "private": False,
-            "datasetColumns": {"countColumns": [], "scoreColumns": ["score"]},
+            "datasetColumns": SAVED_MINIMAL_DATASET_COLUMNS,
             "processingState": ProcessingState.success.name,
         }
     )
@@ -1773,7 +1918,8 @@ def test_search_private_score_sets_no_match(session, data_provider, client, setu
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 0
+    assert response.json()["numScoreSets"] == 0
+    assert len(response.json()["scoreSets"]) == 0
 
 
 def test_search_private_score_sets_match(session, data_provider, client, setup_router_db, data_files):
@@ -1784,8 +1930,9 @@ def test_search_private_score_sets_match(session, data_provider, client, setup_r
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["title"] == score_set["title"]
+    assert response.json()["numScoreSets"] == 1
+    assert len(response.json()["scoreSets"]) == 1
+    assert response.json()["scoreSets"][0]["title"] == score_set["title"]
 
 
 def test_search_private_score_sets_urn_match(session, data_provider, client, setup_router_db, data_files):
@@ -1796,8 +1943,9 @@ def test_search_private_score_sets_urn_match(session, data_provider, client, set
     search_payload = {"urn": score_set["urn"]}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["urn"] == score_set["urn"]
+    assert response.json()["numScoreSets"] == 1
+    assert len(response.json()["scoreSets"]) == 1
+    assert response.json()["scoreSets"][0]["urn"] == score_set["urn"]
 
 
 # There is space in the end of test urn. The search result returned nothing before.
@@ -1810,8 +1958,9 @@ def test_search_private_score_sets_urn_with_space_match(session, data_provider, 
     search_payload = {"urn": urn_with_space}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["urn"] == score_set["urn"]
+    assert response.json()["numScoreSets"] == 1
+    assert len(response.json()["scoreSets"]) == 1
+    assert response.json()["scoreSets"][0]["urn"] == score_set["urn"]
 
 
 def test_search_others_private_score_sets_no_match(session, data_provider, client, setup_router_db, data_files):
@@ -1823,7 +1972,8 @@ def test_search_others_private_score_sets_no_match(session, data_provider, clien
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 0
+    assert response.json()["numScoreSets"] == 0
+    assert len(response.json()["scoreSets"]) == 0
 
 
 def test_search_others_private_score_sets_match(session, data_provider, client, setup_router_db, data_files):
@@ -1835,7 +1985,8 @@ def test_search_others_private_score_sets_match(session, data_provider, client, 
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 0
+    assert response.json()["numScoreSets"] == 0
+    assert len(response.json()["scoreSets"]) == 0
 
 
 def test_search_others_private_score_sets_urn_match(session, data_provider, client, setup_router_db, data_files):
@@ -1847,7 +1998,8 @@ def test_search_others_private_score_sets_urn_match(session, data_provider, clie
     search_payload = {"urn": score_set["urn"]}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 0
+    assert response.json()["numScoreSets"] == 0
+    assert len(response.json()["scoreSets"]) == 0
 
 
 # There is space in the end of test urn. The search result returned nothing before.
@@ -1863,7 +2015,8 @@ def test_search_others_private_score_sets_urn_with_space_match(
     search_payload = {"urn": urn_with_space}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 0
+    assert response.json()["numScoreSets"] == 0
+    assert len(response.json()["scoreSets"]) == 0
 
 
 def test_search_public_score_sets_no_match(session, data_provider, client, setup_router_db, data_files):
@@ -1878,7 +2031,8 @@ def test_search_public_score_sets_no_match(session, data_provider, client, setup
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 0
+    assert response.json()["numScoreSets"] == 0
+    assert len(response.json()["scoreSets"]) == 0
 
 
 def test_search_public_score_sets_match(session, data_provider, client, setup_router_db, data_files):
@@ -1893,8 +2047,88 @@ def test_search_public_score_sets_match(session, data_provider, client, setup_ro
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["title"] == score_set["title"]
+    assert response.json()["numScoreSets"] == 1
+    assert len(response.json()["scoreSets"]) == 1
+    assert response.json()["scoreSets"][0]["title"] == score_set["title"]
+
+
+def test_cannot_search_public_score_sets_with_published_false(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client, {"title": "Experiment 1"})
+    score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Test Fnord Score Set"})
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    search_payload = {"text": "fnord", "published": "false"}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    response_data = response.json()
+    assert response.status_code == 422
+    assert (
+        "Cannot search for private score sets except in the context of the current user's data."
+        in response_data["detail"]
+    )
+
+
+def test_search_public_score_sets_invalid_limit(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client, {"title": "Experiment 1"})
+    score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Test Fnord Score Set"})
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    search_payload = {"text": "fnord", "limit": 101}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    response_data = response.json()
+    assert response.status_code == 422
+    assert (
+        "Cannot search for more than 100 score sets at a time. Please use the offset and limit parameters to run a paginated search."
+        in response_data["detail"]
+    )
+
+
+def test_search_public_score_sets_valid_limit(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client, {"title": "Experiment 1"})
+    score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Test Fnord Score Set"})
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    search_payload = {"text": "fnord", "limit": 100}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert response.json()["numScoreSets"] == 1
+    assert len(response.json()["scoreSets"]) == 1
+    assert response.json()["scoreSets"][0]["title"] == score_set["title"]
+
+
+def test_search_public_score_sets_too_many_publication_identifiers(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client, {"title": "Experiment 1"})
+    score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Test Fnord Score Set"})
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    publication_identifier_search = [str(20711194 + i) for i in range(41)]
+    search_payload = {"text": "fnord", "publication_identifiers": publication_identifier_search}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    response_data = response.json()
+    assert response.status_code == 422
+    assert (
+        "Cannot search for score sets belonging to more than 40 publication identifiers at once."
+        in response_data["detail"]
+    )
 
 
 def test_search_public_score_sets_urn_with_space_match(session, data_provider, client, setup_router_db, data_files):
@@ -1910,8 +2144,9 @@ def test_search_public_score_sets_urn_with_space_match(session, data_provider, c
     search_payload = {"urn": urn_with_space}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["urn"] == published_score_set["urn"]
+    assert response.json()["numScoreSets"] == 1
+    assert len(response.json()["scoreSets"]) == 1
+    assert response.json()["scoreSets"][0]["urn"] == published_score_set["urn"]
 
 
 def test_search_others_public_score_sets_no_match(session, data_provider, client, setup_router_db, data_files):
@@ -1928,7 +2163,8 @@ def test_search_others_public_score_sets_no_match(session, data_provider, client
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 0
+    assert response.json()["numScoreSets"] == 0
+    assert len(response.json()["scoreSets"]) == 0
 
 
 def test_search_others_public_score_sets_match(session, data_provider, client, setup_router_db, data_files):
@@ -1946,8 +2182,9 @@ def test_search_others_public_score_sets_match(session, data_provider, client, s
     search_payload = {"text": "fnord"}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["title"] == published_score_set["title"]
+    assert response.json()["numScoreSets"] == 1
+    assert len(response.json()["scoreSets"]) == 1
+    assert response.json()["scoreSets"][0]["title"] == published_score_set["title"]
 
 
 def test_search_others_public_score_sets_urn_match(session, data_provider, client, setup_router_db, data_files):
@@ -1963,8 +2200,9 @@ def test_search_others_public_score_sets_urn_match(session, data_provider, clien
     search_payload = {"urn": score_set["urn"]}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["urn"] == published_score_set["urn"]
+    assert response.json()["numScoreSets"] == 1
+    assert len(response.json()["scoreSets"]) == 1
+    assert response.json()["scoreSets"][0]["urn"] == published_score_set["urn"]
 
 
 def test_search_others_public_score_sets_urn_with_space_match(
@@ -1983,13 +2221,12 @@ def test_search_others_public_score_sets_urn_with_space_match(
     search_payload = {"urn": urn_with_space}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["urn"] == published_score_set["urn"]
+    assert response.json()["numScoreSets"] == 1
+    assert len(response.json()["scoreSets"]) == 1
+    assert response.json()["scoreSets"][0]["urn"] == published_score_set["urn"]
 
 
-def test_search_private_score_sets_not_showing_public_score_set(
-    session, data_provider, client, setup_router_db, data_files
-):
+def test_cannot_search_private_score_sets(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client, {"title": "Experiment 1"})
     score_set_1 = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 1"})
     score_set_1 = mock_worker_variant_insertion(client, session, data_provider, score_set_1, data_files / "scores.csv")
@@ -2002,9 +2239,13 @@ def test_search_private_score_sets_not_showing_public_score_set(
 
     search_payload = {"published": False}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
-    assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["urn"] == score_set_2["urn"]
+    assert response.status_code == 422
+
+    response_data = response.json()
+    assert (
+        "Cannot search for private score sets except in the context of the current user's data."
+        in response_data["detail"]
+    )
 
 
 def test_search_public_score_sets_not_showing_private_score_set(
@@ -2023,8 +2264,9 @@ def test_search_public_score_sets_not_showing_private_score_set(
     search_payload = {"published": True}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["urn"] == published_score_set_1["urn"]
+    assert response.json()["numScoreSets"] == 1
+    assert len(response.json()["scoreSets"]) == 1
+    assert response.json()["scoreSets"][0]["urn"] == published_score_set_1["urn"]
 
 
 ########################################################################################################################
@@ -2401,14 +2643,6 @@ def test_show_correct_score_set_version_with_superseded_score_set_to_its_owner(
 
 
 ########################################################################################################################
-# Score Ranges
-########################################################################################################################
-
-
-# TODO
-
-
-########################################################################################################################
 # Score set upload files
 ########################################################################################################################
 
@@ -2423,7 +2657,7 @@ def test_upload_a_non_utf8_file(session, client, setup_router_db, data_files):
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
             files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
         )
-    assert response.status_code == 400
+    assert response.status_code == 422
     response_data = response.json()
     assert (
         "Error decoding file: 'utf-8' codec can't decode byte 0xdd in position 10: invalid continuation byte. "
@@ -2459,7 +2693,7 @@ def test_download_variants_data_file(
         worker_queue.assert_called_once()
 
     download_scores_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?drop_na_columns=true&include_post_mapped_hgvs=true"
     )
     assert download_scores_csv_response.status_code == 200
     download_scores_csv = download_scores_csv_response.text
@@ -2470,21 +2704,21 @@ def test_download_variants_data_file(
             "accession",
             "hgvs_nt",
             "hgvs_pro",
-            "post_mapped_hgvs_g",
-            "post_mapped_hgvs_p",
-            "score",
+            "mavedb.post_mapped_hgvs_g",
+            "mavedb.post_mapped_hgvs_p",
+            "scores.score",
         ]
     )
     rows = list(reader)
     for row in rows:
         if has_hgvs_g:
-            assert row["post_mapped_hgvs_g"] == mapped_variant["post_mapped"]["expressions"][0]["value"]
+            assert row["mavedb.post_mapped_hgvs_g"] == mapped_variant["post_mapped"]["expressions"][0]["value"]
         else:
-            assert row["post_mapped_hgvs_g"] == "NA"
+            assert row["mavedb.post_mapped_hgvs_g"] == "NA"
         if has_hgvs_p:
-            assert row["post_mapped_hgvs_p"] == mapped_variant["post_mapped"]["expressions"][0]["value"]
+            assert row["mavedb.post_mapped_hgvs_p"] == mapped_variant["post_mapped"]["expressions"][0]["value"]
         else:
-            assert row["post_mapped_hgvs_p"] == "NA"
+            assert row["mavedb.post_mapped_hgvs_p"] == "NA"
 
 
 # Test file doesn't have hgvs_splice so its values are all NA.
@@ -2529,6 +2763,121 @@ def test_download_counts_file(session, data_provider, client, setup_router_db, d
     assert "hgvs_nt" in columns
     assert "hgvs_pro" in columns
     assert "hgvs_splice" not in columns
+
+
+# Namespace variant CSV export tests.
+def test_download_scores_file_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    download_scores_csv_response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&drop_na_columns=true"
+    )
+    assert download_scores_csv_response.status_code == 200
+    download_scores_csv = download_scores_csv_response.text
+    reader = csv.reader(StringIO(download_scores_csv))
+    columns = next(reader)
+    assert "hgvs_nt" in columns
+    assert "hgvs_pro" in columns
+    assert "hgvs_splice" not in columns
+    assert "scores.score" in columns
+
+
+def test_download_counts_file_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    download_counts_csv_response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=counts&include_custom_columns=true&drop_na_columns=true"
+    )
+    assert download_counts_csv_response.status_code == 200
+    download_counts_csv = download_counts_csv_response.text
+    reader = csv.reader(StringIO(download_counts_csv))
+    columns = next(reader)
+    assert "hgvs_nt" in columns
+    assert "hgvs_pro" in columns
+    assert "hgvs_splice" not in columns
+    assert "counts.c_0" in columns
+    assert "counts.c_1" in columns
+
+
+def test_download_scores_and_counts_file(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    download_scores_and_counts_csv_response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=counts&namespaces=scores&include_custom_columns=true&drop_na_columns=true"
+    )
+    assert download_scores_and_counts_csv_response.status_code == 200
+    download_scores_and_counts_csv = download_scores_and_counts_csv_response.text
+    reader = csv.DictReader(StringIO(download_scores_and_counts_csv))
+    assert sorted(reader.fieldnames) == sorted(
+        ["accession", "hgvs_nt", "hgvs_pro", "scores.score", "scores.s_0", "scores.s_1", "counts.c_0", "counts.c_1"]
+    )
+
+
+@pytest.mark.parametrize(
+    "mapped_variant,has_hgvs_g,has_hgvs_p",
+    [
+        (None, False, False),
+        (TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION, True, False),
+        (TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION, False, True),
+    ],
+    ids=["without_post_mapped_vrs", "with_post_mapped_hgvs_g", "with_post_mapped_hgvs_p"],
+)
+def test_download_scores_counts_and_post_mapped_variants_file(
+    session, data_provider, client, setup_router_db, data_files, mapped_variant, has_hgvs_g, has_hgvs_p
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    if mapped_variant is not None:
+        create_mapped_variants_for_score_set(session, score_set["urn"], mapped_variant)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    download_multiple_data_csv_response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&namespaces=counts&include_custom_columns=true&include_post_mapped_hgvs=true&drop_na_columns=true"
+    )
+    assert download_multiple_data_csv_response.status_code == 200
+    download_multiple_data_csv = download_multiple_data_csv_response.text
+    reader = csv.DictReader(StringIO(download_multiple_data_csv))
+    assert sorted(reader.fieldnames) == sorted(
+        [
+            "accession",
+            "hgvs_nt",
+            "hgvs_pro",
+            "mavedb.post_mapped_hgvs_g",
+            "mavedb.post_mapped_hgvs_p",
+            "scores.score",
+            "scores.s_0",
+            "scores.s_1",
+            "counts.c_0",
+            "counts.c_1",
+        ]
+    )
 
 
 ########################################################################################################################
@@ -2596,11 +2945,11 @@ def test_cannot_fetch_clinical_controls_for_nonexistent_score_set(
     )
     link_clinical_controls_to_mapped_variants(session, score_set)
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/clinical-controls")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn'] + 'xxx'}/clinical-controls")
 
     assert response.status_code == 404
     response_data = response.json()
-    assert f"score set with URN '{score_set['urn']+'xxx'}' not found" in response_data["detail"]
+    assert f"score set with URN '{score_set['urn'] + 'xxx'}' not found" in response_data["detail"]
 
 
 def test_cannot_fetch_clinical_controls_for_score_set_when_none_exist(
@@ -2661,11 +3010,11 @@ def test_cannot_get_annotated_variants_for_nonexistent_score_set(client, setup_r
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/annotated-variants/{annotation_type}")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn'] + 'xxx'}/annotated-variants/{annotation_type}")
     response_data = response.json()
 
     assert response.status_code == 404
-    assert f"score set with URN {score_set['urn']+'xxx'} not found" in response_data["detail"]
+    assert f"score set with URN {score_set['urn'] + 'xxx'} not found" in response_data["detail"]
 
 
 @pytest.mark.parametrize(
@@ -3177,11 +3526,11 @@ def test_cannot_fetch_gnomad_variants_for_nonexistent_score_set(
     )
     link_gnomad_variants_to_mapped_variants(session, score_set)
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']+'xxx'}/gnomad-variants")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn'] + 'xxx'}/gnomad-variants")
 
     assert response.status_code == 404
     response_data = response.json()
-    assert f"score set with URN '{score_set['urn']+'xxx'}' not found" in response_data["detail"]
+    assert f"score set with URN '{score_set['urn'] + 'xxx'}' not found" in response_data["detail"]
 
 
 def test_cannot_fetch_gnomad_variants_for_score_set_when_none_exist(

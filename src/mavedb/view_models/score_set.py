@@ -1,25 +1,25 @@
 # See https://pydantic-docs.helpmanual.io/usage/postponed_annotations/#self-referencing-models
 from __future__ import annotations
 
+import json
 from datetime import date
 from typing import Any, Collection, Optional, Sequence, Union
-from typing_extensions import Self
 
-from humps import camelize
 from pydantic import field_validator, model_validator
+from typing_extensions import Self
 
 from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.lib.validation.transform import (
+    transform_record_publication_identifiers,
+    transform_score_set_list_to_urn_list,
+)
 from mavedb.lib.validation.utilities import is_null
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.contributor import Contributor, ContributorCreate
-from mavedb.lib.validation.transform import (
-    transform_score_set_list_to_urn_list,
-    transform_record_publication_identifiers,
-)
 from mavedb.view_models.doi_identifier import (
     DoiIdentifier,
     DoiIdentifierCreate,
@@ -33,9 +33,10 @@ from mavedb.view_models.publication_identifier import (
 )
 from mavedb.view_models.score_calibration import (
     SavedScoreCalibration,
-    ScoreCalibrationCreate,
     ScoreCalibration,
+    ScoreCalibrationCreate,
 )
+from mavedb.view_models.score_set_dataset_columns import DatasetColumns, SavedDatasetColumns
 from mavedb.view_models.target_gene import (
     SavedTargetGene,
     ShortTargetGene,
@@ -43,7 +44,7 @@ from mavedb.view_models.target_gene import (
     TargetGeneCreate,
 )
 from mavedb.view_models.user import SavedUser, User
-
+from mavedb.view_models.utils import all_fields_optional_model
 
 UnboundedRange = tuple[Union[float, None], Union[float, None]]
 
@@ -73,12 +74,16 @@ class ScoreSetBase(BaseModel):
     data_usage_policy: Optional[str] = None
 
 
-class ScoreSetModify(ScoreSetBase):
+class ScoreSetModifyBase(ScoreSetBase):
     contributors: Optional[list[ContributorCreate]] = None
     primary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = None
     secondary_publication_identifiers: Optional[list[PublicationIdentifierCreate]] = None
     doi_identifiers: Optional[list[DoiIdentifierCreate]] = None
     target_genes: list[TargetGeneCreate]
+
+
+class ScoreSetModify(ScoreSetModifyBase):
+    """View model that adds custom validators to ScoreSetModifyBase."""
 
     @field_validator("title", "short_description", "abstract_text", "method_text")
     def validate_field_is_non_empty(cls, v: str) -> str:
@@ -90,7 +95,7 @@ class ScoreSetModify(ScoreSetBase):
     def max_one_primary_publication_identifier(
         cls, v: list[PublicationIdentifierCreate]
     ) -> list[PublicationIdentifierCreate]:
-        if len(v) > 1:
+        if v is not None and len(v) > 1:
             raise ValidationError("Multiple primary publication identifiers are not allowed.")
         return v
 
@@ -226,10 +231,54 @@ class ScoreSetCreate(ScoreSetModify):
         return self
 
 
-class ScoreSetUpdate(ScoreSetModify):
-    """View model for updating a score set."""
+class ScoreSetUpdateBase(ScoreSetModifyBase):
+    """View model for updating a score set with no custom validators."""
 
     license_id: Optional[int] = None
+
+
+class ScoreSetUpdate(ScoreSetModify):
+    """View model for updating a score set that includes custom validators."""
+
+    license_id: Optional[int] = None
+
+
+@all_fields_optional_model()
+class ScoreSetUpdateAllOptional(ScoreSetUpdateBase):
+    @classmethod
+    def as_form(cls, **kwargs: Any) -> "ScoreSetUpdateAllOptional":
+        """Create ScoreSetUpdateAllOptional from form data."""
+
+        # Define which fields need special JSON parsing
+        json_fields = {
+            "contributors": lambda data: [ContributorCreate.model_validate(c) for c in data] if data else None,
+            "primary_publication_identifiers": lambda data: [
+                PublicationIdentifierCreate.model_validate(p) for p in data
+            ]
+            if data
+            else None,
+            "secondary_publication_identifiers": lambda data: [
+                PublicationIdentifierCreate.model_validate(s) for s in data
+            ]
+            if data
+            else None,
+            "doi_identifiers": lambda data: [DoiIdentifierCreate.model_validate(d) for d in data] if data else None,
+            "target_genes": lambda data: [TargetGeneCreate.model_validate(t) for t in data] if data else None,
+            "extra_metadata": lambda data: data,
+        }
+
+        # Process all fields dynamically
+        processed_kwargs = {}
+
+        for field_name, value in kwargs.items():
+            if field_name in json_fields and value is not None and isinstance(value, str):
+                parsed_value = json.loads(value)
+                processed_kwargs[field_name] = json_fields[field_name](parsed_value)
+            else:
+                # All other fields pass through as-is
+                processed_kwargs[field_name] = value
+
+        return cls(**processed_kwargs)
 
 
 class ShortScoreSet(BaseModel):
@@ -316,7 +365,7 @@ class SavedScoreSet(ScoreSetBase):
     created_by: Optional[SavedUser] = None
     modified_by: Optional[SavedUser] = None
     target_genes: Sequence[SavedTargetGene]
-    dataset_columns: dict
+    dataset_columns: Optional[SavedDatasetColumns] = None
     external_links: dict[str, ExternalLink]
     contributors: Sequence[Contributor]
     score_calibrations: Optional[Sequence[SavedScoreCalibration]] = None
@@ -333,10 +382,6 @@ class SavedScoreSet(ScoreSetBase):
     def publication_identifiers_validator(cls, value: Any) -> list[PublicationIdentifier]:
         assert isinstance(value, Collection), "Publication identifier lists must be a collection"
         return list(value)  # Re-cast into proper list-like type
-
-    @field_validator("dataset_columns")
-    def camelize_dataset_columns_keys(cls, value: dict) -> dict:
-        return camelize(value)
 
     # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
     # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.
@@ -402,6 +447,7 @@ class ScoreSet(SavedScoreSet):
     mapping_state: Optional[MappingState] = None
     mapping_errors: Optional[dict] = None
     score_calibrations: Optional[Sequence[ScoreCalibration]] = None  # type: ignore[assignment]
+    dataset_columns: Optional[DatasetColumns] = None  # type: ignore[assignment]
 
 
 class ScoreSetWithVariants(ScoreSet):
