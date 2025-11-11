@@ -1,17 +1,16 @@
-from collections import Counter
 import csv
 import io
 import logging
-from operator import attrgetter
 import re
-from typing import Any, BinaryIO, Iterable, List, Optional, TYPE_CHECKING, Sequence, Literal
+from collections import Counter
+from operator import attrgetter
+from typing import TYPE_CHECKING, Any, BinaryIO, Iterable, List, Literal, Optional, Sequence
 
-from mavedb.models.mapped_variant import MappedVariant
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
 from sqlalchemy import Integer, and_, cast, func, or_, select
-from sqlalchemy.orm import Session, aliased, contains_eager, joinedload, Query, selectinload
+from sqlalchemy.orm import Query, Session, aliased, contains_eager, joinedload, selectinload
 
 from mavedb.lib.exceptions import ValidationError
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
@@ -26,7 +25,7 @@ from mavedb.lib.mave.constants import (
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.utilities import is_null as validate_is_null
-from mavedb.lib.variants import get_hgvs_from_post_mapped, is_hgvs_g, is_hgvs_p
+from mavedb.lib.variants import get_digest_from_post_mapped, get_hgvs_from_post_mapped, is_hgvs_g, is_hgvs_p
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
@@ -36,6 +35,7 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
+from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.refseq_identifier import RefseqIdentifier
 from mavedb.models.refseq_offset import RefseqOffset
@@ -547,6 +547,7 @@ def get_score_set_variants_as_csv(
     if include_post_mapped_hgvs:
         namespaced_score_set_columns["mavedb"].append("post_mapped_hgvs_g")
         namespaced_score_set_columns["mavedb"].append("post_mapped_hgvs_p")
+        namespaced_score_set_columns["mavedb"].append("post_mapped_vrs_digest")
     for namespace in namespaces:
         namespaced_score_set_columns[namespace] = []
     if include_custom_columns:
@@ -596,7 +597,9 @@ def get_score_set_variants_as_csv(
         if limit:
             variants_query = variants_query.limit(limit)
         variants = db.scalars(variants_query).all()
-    rows_data = variants_to_csv_rows(variants, columns=namespaced_score_set_columns, namespaced=namespaced, mappings=mappings)  # type: ignore
+    rows_data = variants_to_csv_rows(
+        variants, columns=namespaced_score_set_columns, namespaced=namespaced, mappings=mappings
+    )  # type: ignore
     rows_columns = [
         (
             f"{namespace}.{col}"
@@ -701,6 +704,9 @@ def variant_to_csv_row(
                 value = hgvs_str
             else:
                 value = ""
+        elif column_key == "post_mapped_vrs_digest":
+            digest = get_digest_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
+            value = digest if digest is not None else ""
         if is_null(value):
             value = na_rep
         key = f"mavedb.{column_key}" if namespaced else column_key

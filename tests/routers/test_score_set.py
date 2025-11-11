@@ -2706,6 +2706,7 @@ def test_download_variants_data_file(
             "hgvs_pro",
             "mavedb.post_mapped_hgvs_g",
             "mavedb.post_mapped_hgvs_p",
+            "mavedb.post_mapped_vrs_digest",
             "scores.score",
         ]
     )
@@ -2871,6 +2872,7 @@ def test_download_scores_counts_and_post_mapped_variants_file(
             "hgvs_pro",
             "mavedb.post_mapped_hgvs_g",
             "mavedb.post_mapped_hgvs_p",
+            "mavedb.post_mapped_vrs_digest",
             "scores.score",
             "scores.s_0",
             "scores.s_1",
