@@ -55,7 +55,11 @@ from tests.helpers.constants import (
     TEST_USER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
-from tests.helpers.util.common import deepcamelize, update_expected_response_for_created_resources
+from tests.helpers.util.common import (
+    deepcamelize,
+    parse_ndjson_response,
+    update_expected_response_for_created_resources,
+)
 from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.license import change_to_inactive_license
@@ -3087,12 +3091,14 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
 
     # The contents of the annotated variants objects should be tested in more detail elsewhere.
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
-    response_data = response.json()
+    response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    for variant_urn, annotated_variant in response_data.items():
+    for annotation_response in response_data:
+        variant_urn = annotation_response.get("variant_urn")
+        annotated_variant = annotation_response.get("annotation")
         assert f"Pathogenicity evidence line {variant_urn}" in annotated_variant.get("description")
 
 
@@ -3114,12 +3120,13 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thre
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
-    response_data = response.json()
+    response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    for _, annotated_variant in response_data.items():
+    for annotation_response in response_data:
+        annotated_variant = annotation_response.get("annotation")
         assert annotated_variant is None
 
 
@@ -3136,12 +3143,13 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_cali
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
-    response_data = response.json()
+    response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    for _, annotated_variant in response_data.items():
+    for annotation_response in response_data:
+        annotated_variant = annotation_response.get("annotation")
         assert annotated_variant is None
 
 
@@ -3171,16 +3179,18 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_vari
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
-    response_data = response.json()
+    response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    for annotated_variant_urn, annotated_variant in response_data.items():
-        if annotated_variant_urn == first_var.urn:
+    for annotation_response in response_data:
+        variant_urn = annotation_response.get("variant_urn")
+        annotated_variant = annotation_response.get("annotation")
+        if variant_urn == first_var.urn:
             assert annotated_variant is None
         else:
-            assert f"Pathogenicity evidence line {annotated_variant_urn}" in annotated_variant.get("description")
+            assert f"Pathogenicity evidence line {variant_urn}" in annotated_variant.get("description")
 
 
 @pytest.mark.parametrize(
@@ -3207,12 +3217,13 @@ def test_get_annotated_functional_impact_statement_for_score_set(
     create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
-    response_data = response.json()
+    response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    for _, annotated_variant in response_data.items():
+    for annotation_response in response_data:
+        annotated_variant = annotation_response.get("annotation")
         assert annotated_variant.get("type") == "Statement"
 
 
@@ -3238,12 +3249,13 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_calib
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
-    response_data = response.json()
+    response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    for _, annotated_variant in response_data.items():
+    for annotation_response in response_data:
+        annotated_variant = annotation_response.get("annotation")
         assert annotated_variant is None
 
 
@@ -3260,12 +3272,13 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_thres
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
-    response_data = response.json()
+    response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    for _, annotated_variant in response_data.items():
+    for annotation_response in response_data:
+        annotated_variant = annotation_response.get("annotation")
         assert annotated_variant is None
 
 
@@ -3295,13 +3308,15 @@ def test_get_annotated_functional_impact_statement_for_score_set_when_some_varia
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
-    response_data = response.json()
+    response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    for annotated_variant_urn, annotated_variant in response_data.items():
-        if annotated_variant_urn == first_var.urn:
+    for annotation_response in response_data:
+        variant_urn = annotation_response.get("variant_urn")
+        annotated_variant = annotation_response.get("annotation")
+        if variant_urn == first_var.urn:
             assert annotated_variant is None
         else:
             assert annotated_variant.get("type") == "Statement"
@@ -3325,12 +3340,13 @@ def test_get_annotated_functional_study_result_for_score_set(
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
-    response_data = response.json()
+    response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    for _, annotated_variant in response_data.items():
+    for annotation_response in response_data:
+        annotated_variant = annotation_response.get("annotation")
         assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
 
 
@@ -3356,12 +3372,13 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
-    response_data = response.json()
+    response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    for _, annotated_variant in response_data.items():
+    for annotation_response in response_data:
+        annotated_variant = annotation_response.get("annotation")
         assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
 
 
@@ -3387,12 +3404,13 @@ def test_annotated_functional_study_result_exists_for_score_set_when_ranges_not_
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
-    response_data = response.json()
+    response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    for _, annotated_variant in response_data.items():
+    for annotation_response in response_data:
+        annotated_variant = annotation_response.get("annotation")
         assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
 
 
@@ -3409,12 +3427,13 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
-    response_data = response.json()
+    response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    for _, annotated_variant in response_data.items():
+    for annotation_response in response_data:
+        annotated_variant = annotation_response.get("annotation")
         assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
 
 
@@ -3442,13 +3461,15 @@ def test_annotated_functional_study_result_exists_for_score_set_when_some_varian
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
-    response_data = response.json()
+    response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
     assert len(response_data) == score_set["numVariants"]
 
-    for annotated_variant_urn, annotated_variant in response_data.items():
-        if annotated_variant_urn == first_var.urn:
+    for annotation_response in response_data:
+        variant_urn = annotation_response.get("variant_urn")
+        annotated_variant = annotation_response.get("annotation")
+        if variant_urn == first_var.urn:
             assert annotated_variant is None
         else:
             assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"

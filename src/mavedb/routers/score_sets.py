@@ -1,6 +1,7 @@
 import json
 import logging
-from datetime import date
+import time
+from datetime import date, datetime
 from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
 
 import pandas as pd
@@ -876,11 +877,87 @@ def get_score_set_mapped_variants(
     return mapped_variants
 
 
+def _stream_generated_annotations(mapped_variants, annotation_function):
+    """
+    Generator function to stream annotations as pure NDJSON data.
+
+    Metadata should be provided via HTTP headers:
+    - X-Total-Count: Total number of variants
+    - X-Processing-Started: ISO timestamp when processing began
+    - X-Stream-Type: Type of annotation being streamed
+
+    Progress updates are sent as structured log events that can be
+    consumed via Server-Sent Events if needed.
+    """
+    start_time = time.time()
+    total_variants = len(mapped_variants)
+    processed_count = 0
+    logger.info(f"Starting streaming processing of {total_variants} mapped variants")
+
+    for i, mv in enumerate(mapped_variants):
+        try:
+            annotation = annotation_function(mv)
+        except MappingDataDoesntExistException:
+            logger.debug(f"Mapping data does not exist for variant {mv.variant.urn}.")
+            annotation = None
+
+        # Send pure result data (no wrapper)
+        result = {
+            "variant_urn": mv.variant.urn,
+            "annotation": annotation.model_dump(exclude_none=True) if annotation else None,
+        }
+        yield json.dumps(result, default=str) + "\n"
+
+        # Log server-side progress
+        processed_count += 1
+        if processed_count % (total_variants // 10 + 1) == 0:
+            current_time = time.time()
+            elapsed = current_time - start_time
+            rate = processed_count / elapsed if elapsed > 0 else 0
+            percentage = (processed_count / total_variants) * 100
+            eta = (total_variants - processed_count) / rate if rate > 0 else 0
+
+            logger.debug(
+                f"Streamed {processed_count}/{total_variants} variants ({rate:.1f}/sec, {percentage:.1f}% complete, ETA: {eta:.1f}s)",
+                extra=logging_context(),
+            )
+
+    # Log final completion summary
+    end_time = time.time()
+    total_time = end_time - start_time
+    average_time_per_variant = round(total_time / processed_count, 4) if processed_count > 0 else 0
+    final_rate = round(processed_count / total_time, 1) if total_time > 0 else 0
+
+    save_to_logging_context(
+        {
+            "stream_completion": {
+                "total_processed": processed_count,
+                "total_time": round(total_time, 2),
+                "average_time_per_variant": average_time_per_variant,
+                "final_rate": final_rate,
+                "timestamp": end_time,
+            }
+        }
+    )
+    logger.info(
+        f"Completed streaming {processed_count} variants in {total_time:.2f} seconds (avg: {average_time_per_variant:.4f}s/variant)",
+        extra=logging_context(),
+    )
+
+
+class VariantPathogenicityEvidenceLineResponseType(TypedDict):
+    variant_urn: str
+    annotation: Optional[VariantPathogenicityEvidenceLine]
+
+
 @router.get(
     "/score-sets/{urn}/annotated-variants/pathogenicity-evidence-line",
-    status_code=200,
-    response_model=dict[str, Optional[VariantPathogenicityEvidenceLine]],
-    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {"application/x-ndjson": {}},
+            "description": "Stream pathogenicity evidence line annotations for mapped variants.",
+        },
+    },
 )
 def get_score_set_annotated_variants(
     *,
@@ -889,7 +966,45 @@ def get_score_set_annotated_variants(
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
     """
-    Return pathogenicity evidence line annotations for mapped variants within a score set.
+    Retrieve annotated variants with pathogenicity evidence for a given score set.
+
+    This endpoint streams pathogenicity evidence lines for all current mapped variants
+    associated with a specific score set. The response is returned as newline-delimited
+    JSON (NDJSON) format for efficient processing of large datasets.
+
+    NDJSON Response Format:
+        Each line in the response corresponds to a mapped variant and contains a JSON
+        object with the following structure:
+        ```
+        {
+            "variant_urn": "<URN of the mapped variant>",
+            "annotation": {
+                ... // Pathogenicity evidence line details
+            }
+        }
+        ```
+
+    Args:
+        urn (str): The Uniform Resource Name (URN) of the score set to retrieve
+            annotated variants for.
+        db (Session, optional): Database session dependency. Defaults to Depends(deps.get_db).
+        user_data (Optional[UserData], optional): Current user data for permission checking.
+            Defaults to Depends(get_current_user).
+
+    Returns:
+        Any: StreamingResponse containing newline-delimited JSON with pathogenicity
+            evidence lines for each mapped variant. Response includes headers with
+            total count, processing start time, and stream type information.
+
+    Raises:
+        HTTPException: 404 error if the score set with the given URN is not found.
+        HTTPException: 404 error if no mapped variants are associated with the score set.
+        HTTPException: 403 error if the user lacks READ permissions for the score set.
+
+    Note:
+        This function logs the request context and validates user permissions before
+        processing. Only current (non-historical) mapped variants are included in
+        the response.
     """
     save_to_logging_context(
         {"requested_resource": urn, "resource_property": "annotated-variants/pathogenicity-evidence-line"}
@@ -907,10 +1022,20 @@ def get_score_set_annotated_variants(
 
     mapped_variants = (
         db.query(MappedVariant)
+        .join(MappedVariant.variant)
+        .join(Variant.score_set)
         .filter(ScoreSet.urn == urn)
-        .filter(ScoreSet.id == Variant.score_set_id)
-        .filter(Variant.id == MappedVariant.variant_id)
-        .where(MappedVariant.current.is_(True))
+        .filter(MappedVariant.current.is_(True))
+        .options(
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set),
+            contains_eager(MappedVariant.variant)
+            .contains_eager(Variant.score_set)
+            .selectinload(ScoreSet.publication_identifier_associations),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.created_by),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.modified_by),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.license),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.experiment),
+        )
         .all()
     )
 
@@ -921,23 +1046,31 @@ def get_score_set_annotated_variants(
             detail=f"No mapped variants associated with score set URN {urn} were found. Could not construct evidence lines.",
         )
 
-    variant_evidence: dict[str, Optional[VariantPathogenicityEvidenceLine]] = {}
-    for mv in mapped_variants:
-        # TODO#372: Non-nullable URNs
-        try:
-            variant_evidence[mv.variant.urn] = variant_pathogenicity_evidence(mv)  # type: ignore
-        except MappingDataDoesntExistException:
-            logger.debug(msg=f"Mapping data does not exist for variant {mv.variant.urn}.", extra=logging_context())
-            variant_evidence[mv.variant.urn] = None  # type: ignore
+    return StreamingResponse(
+        _stream_generated_annotations(mapped_variants, variant_pathogenicity_evidence),
+        media_type="application/x-ndjson",
+        headers={
+            "X-Total-Count": str(len(mapped_variants)),
+            "X-Processing-Started": datetime.now().isoformat(),
+            "X-Stream-Type": "pathogenicity-evidence-line",
+            "Access-Control-Expose-Headers": "X-Total-Count, X-Processing-Started, X-Stream-Type",
+        },
+    )
 
-    return variant_evidence
+
+class FunctionalImpactStatementResponseType(TypedDict):
+    variant_urn: str
+    annotation: Optional[Statement]
 
 
 @router.get(
     "/score-sets/{urn}/annotated-variants/functional-impact-statement",
-    status_code=200,
-    response_model=dict[str, Optional[Statement]],
-    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {"application/x-ndjson": {}},
+            "description": "Stream functional impact statement annotations for mapped variants.",
+        },
+    },
 )
 def get_score_set_annotated_variants_functional_statement(
     *,
@@ -946,7 +1079,43 @@ def get_score_set_annotated_variants_functional_statement(
     user_data: Optional[UserData] = Depends(get_current_user),
 ):
     """
-    Return functional impact statement annotations for mapped variants within a score set.
+    Retrieve functional impact statements for annotated variants in a score set.
+
+    This endpoint streams functional impact statements for all current mapped variants
+    associated with a specific score set. The response is delivered as newline-delimited
+    JSON (NDJSON) format.
+
+    NDJSON Response Format:
+        Each line in the response corresponds to a mapped variant and contains a JSON
+        object with the following structure:
+        ```
+        {
+            "variant_urn": "<URN of the mapped variant>",
+            "annotation": {
+                ... // Functional impact statement details
+            }
+        }
+        ```
+
+    Args:
+        urn (str): The unique resource name (URN) identifying the score set.
+        db (Session): Database session dependency for querying data.
+        user_data (Optional[UserData]): Current authenticated user data for permission checks.
+
+    Returns:
+        StreamingResponse: NDJSON stream containing functional impact statements for each
+            mapped variant. Response includes headers with total count, processing start time,
+            and stream type information.
+
+    Raises:
+        HTTPException:
+            - 404 if the score set with the given URN is not found
+            - 404 if no mapped variants are associated with the score set
+            - 403 if the user lacks READ permission for the score set
+
+    Note:
+        Only current (non-historical) mapped variants are included in the response.
+        The function requires appropriate read permissions on the score set.
     """
     save_to_logging_context(
         {"requested_resource": urn, "resource_property": "annotated-variants/functional-impact-statement"}
@@ -964,10 +1133,20 @@ def get_score_set_annotated_variants_functional_statement(
 
     mapped_variants = (
         db.query(MappedVariant)
+        .join(MappedVariant.variant)
+        .join(Variant.score_set)
         .filter(ScoreSet.urn == urn)
-        .filter(ScoreSet.id == Variant.score_set_id)
-        .filter(Variant.id == MappedVariant.variant_id)
-        .where(MappedVariant.current.is_(True))
+        .filter(MappedVariant.current.is_(True))
+        .options(
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set),
+            contains_eager(MappedVariant.variant)
+            .contains_eager(Variant.score_set)
+            .selectinload(ScoreSet.publication_identifier_associations),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.created_by),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.modified_by),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.license),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.experiment),
+        )
         .all()
     )
 
@@ -978,23 +1157,31 @@ def get_score_set_annotated_variants_functional_statement(
             detail=f"No mapped variants associated with score set URN {urn} were found. Could not construct functional impact statements.",
         )
 
-    variant_impact_statements: dict[str, Optional[Statement]] = {}
-    for mv in mapped_variants:
-        # TODO#372: Non-nullable URNs
-        try:
-            variant_impact_statements[mv.variant.urn] = variant_functional_impact_statement(mv)  # type: ignore
-        except MappingDataDoesntExistException:
-            logger.debug(msg=f"Mapping data does not exist for variant {mv.variant.urn}.", extra=logging_context())
-            variant_impact_statements[mv.variant.urn] = None  # type: ignore
+    return StreamingResponse(
+        _stream_generated_annotations(mapped_variants, variant_functional_impact_statement),
+        media_type="application/x-ndjson",
+        headers={
+            "X-Total-Count": str(len(mapped_variants)),
+            "X-Processing-Started": datetime.now().isoformat(),
+            "X-Stream-Type": "functional-impact-statement",
+            "Access-Control-Expose-Headers": "X-Total-Count, X-Processing-Started, X-Stream-Type",
+        },
+    )
 
-    return variant_impact_statements
+
+class FunctionalStudyResultResponseType(TypedDict):
+    variant_urn: str
+    annotation: Optional[ExperimentalVariantFunctionalImpactStudyResult]
 
 
 @router.get(
     "/score-sets/{urn}/annotated-variants/functional-study-result",
-    status_code=200,
-    response_model=dict[str, Optional[ExperimentalVariantFunctionalImpactStudyResult]],
-    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {"application/x-ndjson": {}},
+            "description": "Stream functional study result annotations for mapped variants.",
+        },
+    },
 )
 def get_score_set_annotated_variants_functional_study_result(
     *,
@@ -1003,7 +1190,47 @@ def get_score_set_annotated_variants_functional_study_result(
     user_data: Optional[UserData] = Depends(get_current_user),
 ):
     """
-    Return functional study result annotations for mapped variants within a score set.
+    Retrieve functional study results for annotated variants in a score set.
+
+    This endpoint streams functional study result annotations for all current mapped variants
+    associated with a specific score set. The results are returned as newline-delimited JSON
+    (NDJSON) format for efficient streaming of large datasets.
+
+    NDJSON Response Format:
+        Each line in the response corresponds to a mapped variant and contains a JSON
+        object with the following structure:
+        ```
+        {
+            "variant_urn": "<URN of the mapped variant>",
+            "annotation": {
+                ... // Functional study result details
+            }
+        }
+        ```
+
+    Args:
+        urn (str): The URN (Uniform Resource Name) of the score set to retrieve variants for.
+        db (Session): Database session dependency for querying the database.
+        user_data (Optional[UserData]): Current user data for permission validation.
+
+    Returns:
+        StreamingResponse: A streaming response containing functional study results in NDJSON format.
+            Headers include:
+            - X-Total-Count: Total number of mapped variants being streamed
+            - X-Processing-Started: ISO timestamp when processing began
+            - X-Stream-Type: Set to "functional-study-result"
+            - Access-Control-Expose-Headers: Exposed headers for CORS
+
+    Raises:
+        HTTPException:
+            - 404 if the score set with the given URN is not found
+            - 404 if no mapped variants are associated with the score set
+            - 403 if the user lacks READ permission for the score set
+
+    Notes:
+        - Only returns current mapped variants (MappedVariant.current == True)
+        - Eagerly loads related ScoreSet data including publications, users, license, and experiment
+        - Logs requests and errors for monitoring and debugging purposes
     """
     save_to_logging_context(
         {"requested_resource": urn, "resource_property": "annotated-variants/functional-study-result"}
@@ -1021,10 +1248,20 @@ def get_score_set_annotated_variants_functional_study_result(
 
     mapped_variants = (
         db.query(MappedVariant)
+        .join(MappedVariant.variant)
+        .join(Variant.score_set)
         .filter(ScoreSet.urn == urn)
-        .filter(ScoreSet.id == Variant.score_set_id)
-        .filter(Variant.id == MappedVariant.variant_id)
-        .where(MappedVariant.current.is_(True))
+        .filter(MappedVariant.current.is_(True))
+        .options(
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set),
+            contains_eager(MappedVariant.variant)
+            .contains_eager(Variant.score_set)
+            .selectinload(ScoreSet.publication_identifier_associations),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.created_by),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.modified_by),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.license),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.experiment),
+        )
         .all()
     )
 
@@ -1035,16 +1272,16 @@ def get_score_set_annotated_variants_functional_study_result(
             detail=f"No mapped variants associated with score set URN {urn} were found. Could not construct study results.",
         )
 
-    variant_study_results: dict[str, Optional[ExperimentalVariantFunctionalImpactStudyResult]] = {}
-    for mv in mapped_variants:
-        # TODO#372: Non-nullable URNs
-        try:
-            variant_study_results[mv.variant.urn] = variant_study_result(mv)  # type: ignore
-        except MappingDataDoesntExistException:
-            logger.debug(msg=f"Mapping data does not exist for variant {mv.variant.urn}.", extra=logging_context())
-            variant_study_results[mv.variant.urn] = None  # type: ignore
-
-    return variant_study_results
+    return StreamingResponse(
+        _stream_generated_annotations(mapped_variants, variant_study_result),
+        media_type="application/x-ndjson",
+        headers={
+            "X-Total-Count": str(len(mapped_variants)),
+            "X-Processing-Started": datetime.now().isoformat(),
+            "X-Stream-Type": "functional-study-result",
+            "Access-Control-Expose-Headers": "X-Total-Count, X-Processing-Started, X-Stream-Type",
+        },
+    )
 
 
 @router.post(
