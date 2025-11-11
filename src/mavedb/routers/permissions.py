@@ -15,13 +15,21 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
+from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
+
+TAG_NAME = "Permissions"
 
 router = APIRouter(
-    prefix="/api/v1/permissions",
-    tags=["permissions"],
-    responses={404: {"description": "Not found"}},
+    prefix=f"{ROUTER_BASE_PREFIX}/permissions",
+    tags=[TAG_NAME],
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Check user permissions on various MaveDB resources.",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +46,8 @@ class ModelName(str, Enum):
     "/user-is-permitted/{model_name}/{urn}/{action}",
     status_code=200,
     response_model=bool,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Check user permissions on a resource",
 )
 async def check_permission(
     *,
@@ -48,7 +58,7 @@ async def check_permission(
     user_data: UserData = Depends(get_current_user),
 ) -> bool:
     """
-    Check whether users have authorizations in adding/editing/deleting/publishing experiment or score set.
+    Check whether users have permission to perform a given action on a resource.
     """
     save_to_logging_context({"requested_resource": urn})
 

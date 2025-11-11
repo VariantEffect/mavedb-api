@@ -11,22 +11,42 @@ from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.orcid import fetch_orcid_user
 from mavedb.models.user import User
+from mavedb.routers.shared import (
+    ACCESS_CONTROL_ERROR_RESPONSES,
+    BASE_401_RESPONSE,
+    GATEWAY_ERROR_RESPONSES,
+    PUBLIC_ERROR_RESPONSES,
+    ROUTER_BASE_PREFIX,
+)
 from mavedb.view_models import orcid
+
+TAG_NAME = "Orcid"
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/api/v1/orcid",
-    tags=["orcid"],
-    responses={404: {"description": "Not found"}},
+    prefix=f"{ROUTER_BASE_PREFIX}/orcid",
+    tags=[TAG_NAME],
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Look up ORCID users and handle ORCID authentication.",
+}
 
 ORCID_CLIENT_ID = os.getenv("ORCID_CLIENT_ID")
 ORCID_CLIENT_SECRET = os.getenv("ORCID_CLIENT_SECRET")
 
 
-@router.get("/users/{orcid_id}", status_code=200, response_model=orcid.OrcidUser)
+@router.get(
+    "/users/{orcid_id}",
+    status_code=200,
+    response_model=orcid.OrcidUser,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES, **GATEWAY_ERROR_RESPONSES},
+    summary="Look up an ORCID user by ORCID ID",
+)
 def lookup_orcid_user(
     orcid_id: str,
     user: User = Depends(require_current_user),
@@ -54,7 +74,8 @@ def lookup_orcid_user(
     "/token",
     status_code=200,
     response_model=orcid.OrcidAuthTokenResponse,
-    responses={404: {}, 500: {}},
+    responses={**BASE_401_RESPONSE},
+    summary="Exchange an ORCID authorization code for an access token",
     include_in_schema=False,
 )
 async def get_token_from_code(*, request: orcid.OrcidAuthTokenRequest) -> Any:

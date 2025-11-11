@@ -1,10 +1,10 @@
 import itertools
-from collections import OrderedDict, Counter
+from collections import Counter, OrderedDict
 from enum import Enum
-from typing import Any, Union, Optional
+from typing import Any, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import Table, func, select, Select
+from sqlalchemy import Select, Table, func, select
 from sqlalchemy.orm import Session
 
 from mavedb.deps import get_db
@@ -37,14 +37,21 @@ from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.user import User
+from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
+
+TAG_NAME = "Statistics"
+TARGET_ACCESSION_TAXONOMY = "Homo sapiens"
 
 router = APIRouter(
-    prefix="/api/v1/statistics",
-    tags=["statistics"],
-    responses={404: {"description": "Not found"}},
+    prefix=f"{ROUTER_BASE_PREFIX}/statistics",
+    tags=[TAG_NAME],
+    responses={**PUBLIC_ERROR_RESPONSES},
 )
 
-TARGET_ACCESSION_TAXONOMY = "Homo sapiens"
+metadata = {
+    "name": TAG_NAME,
+    "description": "Provides statistics and analytics for MaveDB records.",
+}
 
 ## Union types
 
@@ -129,7 +136,10 @@ def _count_for_identifier_in_query(db: Session, query: Select[tuple[Any, int]]) 
 
 
 @router.get(
-    "/record/{record}/keywords", status_code=200, response_model=Union[dict[str, int], dict[str, dict[str, int]]]
+    "/record/{record}/keywords",
+    status_code=200,
+    response_model=Union[dict[str, int], dict[str, dict[str, int]]],
+    summary="Get keyword statistics for a record",
 )
 def experiment_keyword_statistics(
     record: RecordNames, db: Session = Depends(get_db)
@@ -156,7 +166,12 @@ def experiment_keyword_statistics(
     return _count_for_identifier_in_query(db, query)
 
 
-@router.get("/record/{record}/publication-identifiers", status_code=200, response_model=dict[str, dict[str, int]])
+@router.get(
+    "/record/{record}/publication-identifiers",
+    status_code=200,
+    response_model=dict[str, dict[str, int]],
+    summary="Get publication identifier statistics for a record",
+)
 def experiment_publication_identifier_statistics(
     record: RecordNames, db: Session = Depends(get_db)
 ) -> dict[str, dict[str, int]]:
@@ -193,7 +208,12 @@ def experiment_publication_identifier_statistics(
     return publication_identifiers
 
 
-@router.get("/record/{record}/raw-read-identifiers", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/record/{record}/raw-read-identifiers",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get raw read identifier statistics for a record",
+)
 def experiment_raw_read_identifier_statistics(record: RecordNames, db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the `identifier` field (member of the `raw_read_identifiers` table).
@@ -213,7 +233,12 @@ def experiment_raw_read_identifier_statistics(record: RecordNames, db: Session =
     return _count_for_identifier_in_query(db, query)
 
 
-@router.get("/record/{record}/doi-identifiers", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/record/{record}/doi-identifiers",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get DOI identifier statistics for a record",
+)
 def experiment_doi_identifiers_statistics(record: RecordNames, db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the `identifier` field (member of the `doi_identifiers` table).
@@ -233,7 +258,12 @@ def experiment_doi_identifiers_statistics(record: RecordNames, db: Session = Dep
     return _count_for_identifier_in_query(db, query)
 
 
-@router.get("/record/{record}/created-by", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/record/{record}/created-by",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get created by statistics for a record",
+)
 def experiment_created_by_statistics(record: RecordNames, db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the `username` field (member of the `users` table).
@@ -251,7 +281,12 @@ def experiment_created_by_statistics(record: RecordNames, db: Session = Depends(
     return _count_for_identifier_in_query(db, query)
 
 
-@router.get("/record/{model}/published/count", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/record/{model}/published/count",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get published record counts",
+)
 def record_counts(model: RecordNames, group: Optional[GroupBy] = None, db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the number of published records of the `model` parameter.
@@ -277,7 +312,12 @@ def record_counts(model: RecordNames, group: Optional[GroupBy] = None, db: Sessi
     return OrderedDict(sorted(grouped.items()))
 
 
-@router.get("/record/score-set/variant/count", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/record/score-set/variant/count",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get variant statistics for score sets",
+)
 def record_variant_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the number of published and distinct variants in the database contained
@@ -293,7 +333,12 @@ def record_variant_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     return OrderedDict(sorted(filter(lambda item: item[1] > 0, grouped.items())))
 
 
-@router.get("/record/score-set/mapped-variant/count", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/record/score-set/mapped-variant/count",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get mapped variant statistics for score sets",
+)
 def record_mapped_variant_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the number of published and distinct mapped variants in the database contained
@@ -317,7 +362,12 @@ def record_mapped_variant_counts(db: Session = Depends(get_db)) -> dict[str, int
 ##### Accession based targets #####
 
 
-@router.get("/target/accession/accession", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/target/accession/accession",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get target accession statistics for accessions",
+)
 def target_accessions_accession_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the `accession` field (member of the `target_accessions` table).
@@ -330,7 +380,12 @@ def target_accessions_accession_counts(db: Session = Depends(get_db)) -> dict[st
     return _count_for_identifier_in_query(db, query)
 
 
-@router.get("/target/accession/assembly", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/target/accession/assembly",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get target accession statistics for assemblies",
+)
 def target_accessions_assembly_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the `assembly` field (member of the `target_accessions` table).
@@ -343,7 +398,12 @@ def target_accessions_assembly_counts(db: Session = Depends(get_db)) -> dict[str
     return _count_for_identifier_in_query(db, query)
 
 
-@router.get("/target/accession/gene", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/target/accession/gene",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get target accession statistics for genes",
+)
 def target_accessions_gene_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the `gene` field (member of the `target_accessions` table).
@@ -359,7 +419,12 @@ def target_accessions_gene_counts(db: Session = Depends(get_db)) -> dict[str, in
 ##### Sequence based targets #####
 
 
-@router.get("/target/sequence/sequence", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/target/sequence/sequence",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get target sequence statistics for sequences",
+)
 def target_sequences_sequence_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the `sequence` field (member of the `target_sequences` table).
@@ -372,7 +437,12 @@ def target_sequences_sequence_counts(db: Session = Depends(get_db)) -> dict[str,
     return _count_for_identifier_in_query(db, query)
 
 
-@router.get("/target/sequence/sequence-type", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/target/sequence/sequence-type",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get target sequence statistics for sequence types",
+)
 def target_sequences_sequence_type_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the `sequence_type` field (member of the `target_sequences` table).
@@ -388,7 +458,12 @@ def target_sequences_sequence_type_counts(db: Session = Depends(get_db)) -> dict
 ##### Target genes #####
 
 
-@router.get("/target/gene/category", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/target/gene/category",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get target gene statistics for categories",
+)
 def target_genes_category_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the `category` field (member of the `target_sequences` table).
@@ -401,7 +476,12 @@ def target_genes_category_counts(db: Session = Depends(get_db)) -> dict[str, int
     return _count_for_identifier_in_query(db, query)
 
 
-@router.get("/target/gene/organism", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/target/gene/organism",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get target gene statistics for organisms",
+)
 def target_genes_organism_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the `organism` field (member of the `taxonomies` table).
@@ -431,7 +511,12 @@ def target_genes_organism_counts(db: Session = Depends(get_db)) -> dict[str, int
     return organisms
 
 
-@router.get("/target/gene/ensembl-identifier", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/target/gene/ensembl-identifier",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get target gene statistics for Ensembl identifiers",
+)
 def target_genes_ensembl_identifier_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the `identifier` field (member of the `ensembl_identifiers` table).
@@ -447,7 +532,12 @@ def target_genes_ensembl_identifier_counts(db: Session = Depends(get_db)) -> dic
     return _count_for_identifier_in_query(db, query)
 
 
-@router.get("/target/gene/refseq-identifier", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/target/gene/refseq-identifier",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get target gene statistics for RefSeq identifiers",
+)
 def target_genes_refseq_identifier_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the `identifier` field (member of the `refseq_identifiers` table).
@@ -463,7 +553,12 @@ def target_genes_refseq_identifier_counts(db: Session = Depends(get_db)) -> dict
     return _count_for_identifier_in_query(db, query)
 
 
-@router.get("/target/gene/uniprot-identifier", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/target/gene/uniprot-identifier",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get target gene statistics for UniProt identifiers",
+)
 def target_genes_uniprot_identifier_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the `identifier` field (member of the `uniprot_identifiers` table).
@@ -479,7 +574,12 @@ def target_genes_uniprot_identifier_counts(db: Session = Depends(get_db)) -> dic
     return _count_for_identifier_in_query(db, query)
 
 
-@router.get("/target/mapped/gene")
+@router.get(
+    "/target/mapped/gene",
+    status_code=200,
+    response_model=dict[str, int],
+    summary="Get mapped target gene statistics for genes",
+)
 def mapped_target_gene_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the distinct values of the `gene` property within the `post_mapped_metadata`
@@ -509,7 +609,7 @@ def mapped_target_gene_counts(db: Session = Depends(get_db)) -> dict[str, int]:
 ########################################################################################
 
 
-@router.get("/variant/count", status_code=200, response_model=dict[str, int])
+@router.get("/variant/count", status_code=200, response_model=dict[str, int], summary="Get variant statistics")
 def variant_counts(group: Optional[GroupBy] = None, db: Session = Depends(get_db)) -> dict[str, int]:
     """
     Returns a dictionary of counts for the number of published and distinct variants in the database.
@@ -537,7 +637,9 @@ def variant_counts(group: Optional[GroupBy] = None, db: Session = Depends(get_db
     return OrderedDict(sorted(grouped.items()))
 
 
-@router.get("/mapped-variant/count", status_code=200, response_model=dict[str, int])
+@router.get(
+    "/mapped-variant/count", status_code=200, response_model=dict[str, int], summary="Get mapped variant statistics"
+)
 def mapped_variant_counts(
     group: Optional[GroupBy] = None, onlyCurrent: bool = True, db: Session = Depends(get_db)
 ) -> dict[str, int]:

@@ -1,9 +1,9 @@
 import logging
+from typing import Optional, Union
 
 from biocommons.seqrepo import SeqRepo
-from fastapi import APIRouter, Query, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from typing import Optional, Union
 
 from mavedb import deps
 from mavedb.lib.logging import LoggedRoute
@@ -12,21 +12,33 @@ from mavedb.lib.logging.context import (
     save_to_logging_context,
 )
 from mavedb.lib.seqrepo import get_sequence_ids, seqrepo_versions, sequence_generator
-
+from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models.seqrepo import SeqRepoMetadata, SeqRepoVersions
 
-
+TAG_NAME = "Seqrepo"
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/api/v1/seqrepo",
-    tags=["seqrepo"],
-    responses={404: {"description": "not found"}},
+    prefix=f"{ROUTER_BASE_PREFIX}/seqrepo",
+    tags=[TAG_NAME],
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
+metadata = {
+    "name": TAG_NAME,
+    "description": "Provides REST interfaces for biological sequences and their metadata stored in MaveDBs Seqrepo repository.",
+}
 
-@router.get("/sequence/{alias}")
+
+@router.get(
+    "/sequence/{alias}",
+    status_code=200,
+    responses={
+        200: {"description": "Successful response", "content": {"text/plain": {}}},
+    },
+    summary="Get sequence by alias",
+)
 def get_sequence(
     alias: str,
     start: Optional[int] = Query(None),
@@ -55,12 +67,14 @@ def get_sequence(
         raise HTTPException(status_code=404, detail="Sequence not found")
     if len(seq_ids) > 1:
         logger.error(msg="Multiple sequences found for alias", extra=logging_context())
-        raise HTTPException(status_code=422, detail=f"Multiple sequences exist for alias '{alias}'")
+        raise HTTPException(
+            status_code=400, detail=f"Multiple sequences exist for alias '{alias}'. Use an explicit namespace."
+        )
 
     return StreamingResponse(sequence_generator(sr, seq_ids[0], start, end), media_type="text/plain")
 
 
-@router.get("/metadata/{alias}", response_model=SeqRepoMetadata)
+@router.get("/metadata/{alias}", response_model=SeqRepoMetadata, summary="Get sequence metadata by alias")
 def get_metadata(alias: str, sr: SeqRepo = Depends(deps.get_seqrepo)) -> dict[str, Union[str, list[str]]]:
     save_to_logging_context({"requested_seqrepo_alias": alias, "requested_resource": "metadata"})
 
@@ -71,7 +85,9 @@ def get_metadata(alias: str, sr: SeqRepo = Depends(deps.get_seqrepo)) -> dict[st
         raise HTTPException(status_code=404, detail="Sequence not found")
     if len(seq_ids) > 1:
         logger.error(msg="Multiple sequences found for alias", extra=logging_context())
-        raise HTTPException(status_code=422, detail=f"Multiple sequences exist for alias '{alias}'")
+        raise HTTPException(
+            status_code=400, detail=f"Multiple sequences exist for alias '{alias}'. Use an explicit namespace."
+        )
 
     seq_id = seq_ids[0]
     seq_info = sr.sequences.fetch_seqinfo(seq_id)
@@ -85,6 +101,6 @@ def get_metadata(alias: str, sr: SeqRepo = Depends(deps.get_seqrepo)) -> dict[st
     }
 
 
-@router.get("/version", response_model=SeqRepoVersions)
+@router.get("/version", response_model=SeqRepoVersions, summary="Get SeqRepo version information")
 def get_versions() -> dict[str, str]:
     return seqrepo_versions()

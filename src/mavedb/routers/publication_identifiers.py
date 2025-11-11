@@ -11,24 +11,39 @@ from mavedb import deps
 from mavedb.lib.identifiers import find_generic_article
 from mavedb.lib.validation.constants.publication import valid_dbnames
 from mavedb.models.publication_identifier import PublicationIdentifier
+from mavedb.routers.shared import (
+    BASE_400_RESPONSE,
+    GATEWAY_ERROR_RESPONSES,
+    PUBLIC_ERROR_RESPONSES,
+    ROUTER_BASE_PREFIX,
+)
 from mavedb.view_models import publication_identifier
 from mavedb.view_models.search import TextSearch
+
+TAG_NAME = "Publication Identifiers"
 
 # I don't think we can escape the type: ignore hint here on a dynamically created enumerated type.
 PublicationDatabases = Enum("PublicationDataBases", ((x, x) for x in valid_dbnames))  # type: ignore
 
 
 router = APIRouter(
-    prefix="/api/v1/publication-identifiers",
-    tags=["publication identifiers"],
-    responses={404: {"description": "Not found"}},
+    prefix=f"{ROUTER_BASE_PREFIX}/publication-identifiers",
+    tags=[TAG_NAME],
+    responses={**PUBLIC_ERROR_RESPONSES},
 )
 
+metadata = {
+    "name": TAG_NAME,
+    "description": "Search and retrieve publication identifiers associated with MaveDB records and their metadata.",
+}
 
-@router.get("/", status_code=200, response_model=list[publication_identifier.PublicationIdentifier])
+
+@router.get(
+    "/", status_code=200, response_model=list[publication_identifier.PublicationIdentifier], summary="List publications"
+)
 def list_publications(*, db: Session = Depends(deps.get_db)) -> Any:
     """
-    List stored all stored publications.
+    List all stored publications.
     """
     items = db.query(PublicationIdentifier).all()
     return items
@@ -61,11 +76,11 @@ register_url_convertor("publication", PublicationIdentifierConverter())
     "/{identifier:publication}",
     status_code=200,
     response_model=publication_identifier.PublicationIdentifier,
-    responses={404: {}},
+    summary="Fetch publication by identifier",
 )
 def fetch_publication_by_identifier(*, identifier: str, db: Session = Depends(deps.get_db)) -> PublicationIdentifier:
     """
-    Fetch a single publication by identifier.
+    Fetch a single saved publication by identifier.
     """
     try:
         item = db.query(PublicationIdentifier).filter(PublicationIdentifier.identifier == identifier).one_or_none()
@@ -84,7 +99,7 @@ def fetch_publication_by_identifier(*, identifier: str, db: Session = Depends(de
     "/{db_name:str}/{identifier:publication}",
     status_code=200,
     response_model=publication_identifier.PublicationIdentifier,
-    responses={404: {}},
+    summary="Fetch publication by db name and identifier",
 )
 def fetch_publication_by_dbname_and_identifier(
     *,
@@ -93,7 +108,7 @@ def fetch_publication_by_dbname_and_identifier(
     db: Session = Depends(deps.get_db),
 ) -> PublicationIdentifier:
     """
-    Fetch a single publication by db name and identifier.
+    Fetch a single saved publication by db name and identifier.
     """
     try:
         item = (
@@ -115,34 +130,42 @@ def fetch_publication_by_dbname_and_identifier(
     return item
 
 
-@router.get("/journals", status_code=200, response_model=list[str], responses={404: {}})
-def list_publication_journal_names(*, db: Session = Depends(deps.get_db)) -> Any:
+@router.get("/journals", status_code=200, response_model=list[str], summary="List publication journal names")
+def list_publication_journal_names(*, db: Session = Depends(deps.get_db)) -> list[str]:
     """
-    List distinct journal names, in alphabetical order.
+    List distinct saved journal names, in alphabetical order.
     """
 
     items = db.scalars(
         select(PublicationIdentifier).where(PublicationIdentifier.publication_journal.is_not(None))
     ).all()
     journals = map(lambda item: item.publication_journal, items)
-    return sorted(list(set(journals)))
+    return sorted([journal for journal in set(journals) if journal is not None])
 
 
-@router.get("/databases", status_code=200, response_model=list[str], responses={404: {}})
-def list_publication_database_names(*, db: Session = Depends(deps.get_db)) -> Any:
+@router.get("/databases", status_code=200, response_model=list[str], summary="List publication database names")
+def list_publication_database_names(*, db: Session = Depends(deps.get_db)) -> list[str]:
     """
-    List distinct database names, in alphabetical order.
+    List distinct saved database names, in alphabetical order.
     """
 
     items = db.query(PublicationIdentifier).all()
     databases = map(lambda item: item.db_name, items)
-    return sorted(list(set(databases)))
+    return sorted([database for database in set(databases) if database is not None])
 
 
-@router.post("/search/identifier", status_code=200, response_model=list[publication_identifier.PublicationIdentifier])
+@router.post(
+    "/search/identifier",
+    status_code=200,
+    response_model=list[publication_identifier.PublicationIdentifier],
+    responses={
+        400: {"description": "Bad request"},
+    },
+    summary="Search publication identifiers",
+)
 def search_publication_identifier_identifiers(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
-    Search publication identifiers via a TextSearch query.
+    Search saved publication identifiers via a TextSearch query.
     """
 
     query = db.query(PublicationIdentifier)
@@ -151,7 +174,7 @@ def search_publication_identifier_identifiers(search: TextSearch, db: Session = 
         lower_search_text = search.text.strip().lower()
         query = query.filter(func.lower(PublicationIdentifier.identifier).contains(lower_search_text))
     else:
-        raise HTTPException(status_code=500, detail="Search text is required")
+        raise HTTPException(status_code=400, detail="Search text is required")
 
     items = query.order_by(PublicationIdentifier.identifier).limit(50).all()
     if not items:
@@ -159,10 +182,16 @@ def search_publication_identifier_identifiers(search: TextSearch, db: Session = 
     return items
 
 
-@router.post("/search/doi", status_code=200, response_model=list[publication_identifier.PublicationIdentifier])
+@router.post(
+    "/search/doi",
+    status_code=200,
+    response_model=list[publication_identifier.PublicationIdentifier],
+    responses={**BASE_400_RESPONSE},
+    summary="Search publication DOIs",
+)
 def search_publication_identifier_dois(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
-    Search publication DOIs via a TextSearch query.
+    Search saved publication DOIs via a TextSearch query.
     """
 
     query = db.query(PublicationIdentifier)
@@ -171,7 +200,7 @@ def search_publication_identifier_dois(search: TextSearch, db: Session = Depends
         lower_search_text = search.text.strip().lower()
         query = query.filter(func.lower(PublicationIdentifier.doi).contains(lower_search_text))
     else:
-        raise HTTPException(status_code=500, detail="Search text is required")
+        raise HTTPException(status_code=400, detail="Search text is required")
 
     items = query.order_by(PublicationIdentifier.doi).limit(50).all()
     if not items:
@@ -179,10 +208,18 @@ def search_publication_identifier_dois(search: TextSearch, db: Session = Depends
     return items
 
 
-@router.post("/search", status_code=200, response_model=list[publication_identifier.PublicationIdentifier])
+@router.post(
+    "/search",
+    status_code=200,
+    response_model=list[publication_identifier.PublicationIdentifier],
+    responses={
+        400: {"description": "Bad request"},
+    },
+    summary="Search publication identifiers and DOIs",
+)
 def search_publication_identifiers(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
-    Search publication identifiers via a TextSearch query, returning substring matches on DOI and Identifier.
+    Search saved publication identifiers via a TextSearch query, returning substring matches on DOI and Identifier.
     """
 
     query = db.query(PublicationIdentifier)
@@ -196,7 +233,7 @@ def search_publication_identifiers(search: TextSearch, db: Session = Depends(dep
             )
         )
     else:
-        raise HTTPException(status_code=500, detail="Search text is required")
+        raise HTTPException(status_code=400, detail="Search text is required")
 
     items = query.order_by(PublicationIdentifier.identifier).limit(50).all()
     if not items:
@@ -208,11 +245,11 @@ def search_publication_identifiers(search: TextSearch, db: Session = Depends(dep
     "/search/{identifier}",
     status_code=200,
     response_model=publication_identifier.PublicationIdentifier,
-    responses={404: {}, 500: {}},
+    summary="Search publication identifiers by their identifier",
 )
 async def search_publications_by_identifier(*, identifier: str, db: Session = Depends(deps.get_db)) -> Any:
     """
-    Search publication identifiers via their identifier.
+    Search saved publication identifiers via their identifier.
     """
     query = db.query(PublicationIdentifier).filter(PublicationIdentifier.identifier == identifier).all()
 
@@ -225,7 +262,7 @@ async def search_publications_by_identifier(*, identifier: str, db: Session = De
     "/search/{db_name}/{identifier}",
     status_code=200,
     response_model=list[publication_identifier.PublicationIdentifier],
-    responses={404: {}, 500: {}},
+    summary="Search publication identifiers by their identifier and database",
 )
 async def search_publications_by_identifier_and_db(
     *,
@@ -234,7 +271,7 @@ async def search_publications_by_identifier_and_db(
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """
-    Search all of the publication identifiers via their identifier and database.
+    Search all saved publication identifiers via their identifier and database.
     """
     query = (
         db.query(PublicationIdentifier)
@@ -251,19 +288,26 @@ async def search_publications_by_identifier_and_db(
 
 
 @router.post(
-    "/search-external", status_code=200, response_model=List[publication_identifier.ExternalPublicationIdentifier]
+    "/search-external",
+    status_code=200,
+    response_model=List[publication_identifier.ExternalPublicationIdentifier],
+    responses={
+        **BASE_400_RESPONSE,
+        **GATEWAY_ERROR_RESPONSES,
+    },
+    summary="Search external publication identifiers",
 )
 async def search_external_publication_identifiers(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
-    Search external publication identifiers via a TextSearch query.
-    Technically, this should be some sort of accepted publication identifier.
+    Search external publication identifiers via a TextSearch query. The provided text is searched against multiple external publication databases,
+    and should be a valid identifier in at least one of those databases.
     """
 
     if search.text and len(search.text.strip()) > 0:
         lower_search_text = search.text.strip().lower()
         items = await find_generic_article(db, lower_search_text)
     else:
-        raise HTTPException(status_code=500, detail="Search text is required")
+        raise HTTPException(status_code=400, detail="Search text is required")
 
     if not any(items.values()):
         raise HTTPException(status_code=404, detail="No publications matched the provided search text")

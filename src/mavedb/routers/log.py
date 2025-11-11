@@ -4,18 +4,26 @@ from fastapi import APIRouter
 
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
+
+TAG_NAME = "Log"
 
 router = APIRouter(
-    prefix="/api/v1/log",
-    tags=["log"],
-    responses={404: {"description": "Not found"}},
+    prefix=f"{ROUTER_BASE_PREFIX}/log",
+    tags=[TAG_NAME],
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Log interactions with the MaveDB API for auditing and debugging purposes.",
+}
 
 
 # NOTE: Despite not containing any calls to a logger, this route will log posted context
 #       by nature of its inheritance from LoggedRoute.
-@router.post("/", status_code=200, response_model=str, responses={404: {}})
+@router.post("/", status_code=200, response_model=str, summary="Log an interaction")
 def log_it(log_context: dict) -> Any:
     """
     Log an interaction.

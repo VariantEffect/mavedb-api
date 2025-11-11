@@ -5,8 +5,9 @@ from datetime import date, datetime
 from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
 
 import pandas as pd
+import requests
 from arq import ArqRedis
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import StreamingResponse
@@ -77,6 +78,14 @@ from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.variant import Variant
+from mavedb.routers.shared import (
+    ACCESS_CONTROL_ERROR_RESPONSES,
+    BASE_400_RESPONSE,
+    BASE_409_RESPONSE,
+    GATEWAY_ERROR_RESPONSES,
+    PUBLIC_ERROR_RESPONSES,
+    ROUTER_BASE_PREFIX,
+)
 from mavedb.view_models import clinical_control, gnomad_variant, mapped_variant, score_set
 from mavedb.view_models.contributor import ContributorCreate
 from mavedb.view_models.doi_identifier import DoiIdentifierCreate
@@ -85,6 +94,7 @@ from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 from mavedb.view_models.search import ScoreSetsSearch, ScoreSetsSearchFilterOptionsResponse, ScoreSetsSearchResponse
 from mavedb.view_models.target_gene import TargetGeneCreate
 
+TAG_NAME = "Score Sets"
 logger = logging.getLogger(__name__)
 
 SCORE_SET_SEARCH_MAX_LIMIT = 100
@@ -204,7 +214,7 @@ async def score_set_update(
             logger.info(
                 msg="Failed to update score set; The requested license does not exist.", extra=logging_context()
             )
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
+            raise HTTPException(status_code=404, detail="Unknown license")
 
             # Allow in-active licenses to be retained on update if they already exist on the item.
         elif not license_.active and item.license.id != item_update_license_id:
@@ -212,7 +222,7 @@ async def score_set_update(
                 msg="Failed to update score set license; The requested license is no longer active.",
                 extra=logging_context(),
             )
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid license")
+            raise HTTPException(status_code=409, detail="Invalid license")
 
         item.license = license_
 
@@ -230,10 +240,26 @@ async def score_set_update(
                 PublicationIdentifierCreate(**identifier)
                 for identifier in item_update_dict.get("primary_publication_identifiers") or []
             ]
-            primary_publication_identifiers = [
-                await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-                for identifier in primary_publication_identifiers_list
-            ]
+            try:
+                primary_publication_identifiers = [
+                    await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+                    for identifier in primary_publication_identifiers_list
+                ]
+            except requests.exceptions.ConnectTimeout:
+                logger.error(msg="Gateway timed out while creating publication identifiers.", extra=logging_context())
+                raise HTTPException(
+                    status_code=504,
+                    detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+                )
+
+            except requests.exceptions.HTTPError:
+                logger.error(
+                    msg="Encountered bad gateway while creating publication identifiers.", extra=logging_context()
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+                )
         else:
             # set to existing primary publication identifiers if not provided in update
             primary_publication_identifiers = [p for p in item.publication_identifiers if getattr(p, "primary", False)]
@@ -243,10 +269,27 @@ async def score_set_update(
                 PublicationIdentifierCreate(**identifier)
                 for identifier in item_update_dict.get("secondary_publication_identifiers") or []
             ]
-            secondary_publication_identifiers = [
-                await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-                for identifier in secondary_publication_identifiers_list
-            ]
+            try:
+                secondary_publication_identifiers = [
+                    await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+                    for identifier in secondary_publication_identifiers_list
+                ]
+            except requests.exceptions.ConnectTimeout:
+                logger.error(msg="Gateway timed out while creating publication identifiers.", extra=logging_context())
+                raise HTTPException(
+                    status_code=504,
+                    detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+                )
+
+            except requests.exceptions.HTTPError:
+                logger.error(
+                    msg="Encountered bad gateway while creating publication identifiers.", extra=logging_context()
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+                )
+
         else:
             # set to existing secondary publication identifiers if not provided in update
             secondary_publication_identifiers = [
@@ -273,7 +316,7 @@ async def score_set_update(
             ]
         except NonexistentOrcidUserError as e:
             logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-            raise HTTPException(status_code=422, detail=str(e))
+            raise HTTPException(status_code=404, detail=str(e))
 
     # Score set has not been published and attributes affecting scores may still be edited.
     if item.private:
@@ -308,7 +351,7 @@ async def score_set_update(
                             extra=logging_context(),
                         )
                         raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
+                            status_code=404,
                             detail=f"Unknown taxonomy {gene.target_sequence.taxonomy.code}",
                         )
 
@@ -486,14 +529,29 @@ async def fetch_score_set_by_urn(
 
 
 router = APIRouter(
-    prefix="/api/v1",
-    tags=["score sets"],
-    responses={404: {"description": "not found"}},
+    prefix=f"{ROUTER_BASE_PREFIX}",
+    tags=[TAG_NAME],
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
+metadata = {
+    "name": TAG_NAME,
+    "description": "Manage and retrieve Score Sets and their associated data.",
+    "externalDocs": {
+        "description": "Score Sets Documentation",
+        "url": "https://mavedb.org/docs/mavedb/record_types.html#score-sets",
+    },
+}
 
-@router.post("/score-sets/search", status_code=200, response_model=ScoreSetsSearchResponse)
+
+@router.post(
+    "/score-sets/search",
+    status_code=200,
+    response_model=ScoreSetsSearchResponse,
+    summary="Search score sets",
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+)
 def search_score_sets(
     search: ScoreSetsSearch,
     db: Session = Depends(deps.get_db),
@@ -506,7 +564,7 @@ def search_score_sets(
     # Disallow searches for unpublished score sets via this endpoint.
     if search.published is False:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             detail="Cannot search for private score sets except in the context of the current user's data.",
         )
     search.published = True
@@ -518,7 +576,7 @@ def search_score_sets(
         search.limit = SCORE_SET_SEARCH_MAX_LIMIT
     elif search.publication_identifiers is None and (search.limit is None or search.limit > SCORE_SET_SEARCH_MAX_LIMIT):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             detail=f"Cannot search for more than {SCORE_SET_SEARCH_MAX_LIMIT} score sets at a time. Please use the offset and limit parameters to run a paginated search.",
         )
 
@@ -529,7 +587,7 @@ def search_score_sets(
         and len(search.publication_identifiers) > SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS
     ):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             detail=f"Cannot search for score sets belonging to more than {SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS} publication identifiers at once.",
         )
 
@@ -553,7 +611,13 @@ def get_filter_options_for_search(
     return fetch_score_set_search_filter_options(db, None, search)
 
 
-@router.get("/score-sets/mapped-genes", status_code=200, response_model=dict[str, list[str]])
+@router.get(
+    "/score-sets/mapped-genes",
+    status_code=200,
+    response_model=dict[str, list[str]],
+    summary="Get score set to mapped gene symbol mapping",
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+)
 def score_set_mapped_gene_mapping(
     db: Session = Depends(deps.get_db), user_data: UserData = Depends(get_current_user)
 ) -> Any:
@@ -587,6 +651,8 @@ def score_set_mapped_gene_mapping(
 @router.post(
     "/me/score-sets/search",
     status_code=200,
+    summary="Search my score sets",
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     response_model=ScoreSetsSearchResponse,
 )
 def search_my_score_sets(
@@ -611,8 +677,9 @@ def search_my_score_sets(
     "/score-sets/{urn}",
     status_code=200,
     response_model=score_set.ScoreSet,
-    responses={404: {}, 500: {}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     response_model_exclude_none=True,
+    summary="Fetch score set by URN",
 )
 async def show_score_set(
     *,
@@ -637,8 +704,11 @@ async def show_score_set(
             "content": {"text/csv": {}},
             "description": """Variant data in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
             """ and hgvs_splice), plus score columns defined by the score set.""",
-        }
+        },
+        **BASE_400_RESPONSE,
+        **ACCESS_CONTROL_ERROR_RESPONSES,
     },
+    summary="Get score set variant data in CSV format",
 )
 def get_score_set_variants_csv(
     *,
@@ -698,10 +768,10 @@ def get_score_set_variants_csv(
 
     if start and start < 0:
         logger.info(msg="Could not fetch scores with negative start index.", extra=logging_context())
-        raise HTTPException(status_code=400, detail="Start index must be non-negative")
+        raise HTTPException(status_code=422, detail="Start index must be non-negative")
     if limit is not None and limit <= 0:
         logger.info(msg="Could not fetch scores with non-positive limit.", extra=logging_context())
-        raise HTTPException(status_code=400, detail="Limit must be positive")
+        raise HTTPException(status_code=422, detail="Limit must be positive")
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -732,8 +802,11 @@ def get_score_set_variants_csv(
             "content": {"text/csv": {}},
             "description": """Variant scores in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
             """ and hgvs_splice), plus score columns defined by the score set.""",
-        }
+        },
+        **BASE_400_RESPONSE,
+        **ACCESS_CONTROL_ERROR_RESPONSES,
     },
+    summary="Get score set scores in CSV format",
 )
 def get_score_set_scores_csv(
     *,
@@ -787,8 +860,11 @@ def get_score_set_scores_csv(
             "content": {"text/csv": {}},
             "description": """Variant counts in CSV format, with four fixed columns (accession, hgvs_nt, hgvs_pro,"""
             """ and hgvs_splice), plus score columns defined by the score set.""",
-        }
+        },
+        **BASE_400_RESPONSE,
+        **ACCESS_CONTROL_ERROR_RESPONSES,
     },
+    summary="Get score set counts in CSV format",
 )
 async def get_score_set_counts_csv(
     *,
@@ -838,13 +914,15 @@ async def get_score_set_counts_csv(
     "/score-sets/{urn}/mapped-variants",
     status_code=200,
     response_model=list[mapped_variant.MappedVariant],
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Get mapped variants from score set by URN",
 )
 def get_score_set_mapped_variants(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
-) -> Any:
+) -> list[MappedVariant]:
     """
     Return mapped variants from a score set, identified by URN.
     """
@@ -952,11 +1030,16 @@ class VariantPathogenicityEvidenceLineResponseType(TypedDict):
 
 @router.get(
     "/score-sets/{urn}/annotated-variants/pathogenicity-evidence-line",
+    status_code=200,
+    response_model=dict[str, Optional[VariantPathogenicityEvidenceLine]],
+    response_model_exclude_none=True,
+    summary="Get pathogenicity evidence line annotations for mapped variants within a score set",
     responses={
         200: {
             "content": {"application/x-ndjson": {}},
             "description": "Stream pathogenicity evidence line annotations for mapped variants.",
         },
+        **ACCESS_CONTROL_ERROR_RESPONSES,
     },
 )
 def get_score_set_annotated_variants(
@@ -1065,11 +1148,16 @@ class FunctionalImpactStatementResponseType(TypedDict):
 
 @router.get(
     "/score-sets/{urn}/annotated-variants/functional-impact-statement",
+    status_code=200,
+    response_model=dict[str, Optional[Statement]],
+    response_model_exclude_none=True,
+    summary="Get functional impact statement annotations for mapped variants within a score set",
     responses={
         200: {
             "content": {"application/x-ndjson": {}},
             "description": "Stream functional impact statement annotations for mapped variants.",
         },
+        **ACCESS_CONTROL_ERROR_RESPONSES,
     },
 )
 def get_score_set_annotated_variants_functional_statement(
@@ -1176,11 +1264,16 @@ class FunctionalStudyResultResponseType(TypedDict):
 
 @router.get(
     "/score-sets/{urn}/annotated-variants/functional-study-result",
+    status_code=200,
+    response_model=dict[str, Optional[ExperimentalVariantFunctionalImpactStudyResult]],
+    response_model_exclude_none=True,
+    summary="Get functional study result annotations for mapped variants within a score set",
     responses={
         200: {
             "content": {"application/x-ndjson": {}},
             "description": "Stream functional study result annotations for mapped variants.",
         },
+        **ACCESS_CONTROL_ERROR_RESPONSES,
     },
 )
 def get_score_set_annotated_variants_functional_study_result(
@@ -1287,8 +1380,9 @@ def get_score_set_annotated_variants_functional_study_result(
 @router.post(
     "/score-sets/",
     response_model=score_set.ScoreSet,
-    responses={422: {}},
     response_model_exclude_none=True,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE, **GATEWAY_ERROR_RESPONSES},
+    summary="Create a score set",
 )
 async def create_score_set(
     *,
@@ -1308,11 +1402,11 @@ async def create_score_set(
             logger.info(
                 msg="Failed to create score set; The requested experiment does not exist.", extra=logging_context()
             )
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown experiment")
+            raise HTTPException(status_code=404, detail="The requested experiment does not exist")
         # Not allow add score set in meta-analysis experiments.
         if any(s.meta_analyzes_score_sets for s in experiment.score_sets):
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
+                status_code=409,
                 detail="Score sets may not be added to a meta-analysis experiment.",
             )
 
@@ -1324,12 +1418,15 @@ async def create_score_set(
 
     if not license_:
         logger.info(msg="Failed to create score set; The requested license does not exist.", extra=logging_context())
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown license")
+        raise HTTPException(status_code=404, detail="The requested license does not exist")
     elif not license_.active:
         logger.info(
             msg="Failed to create score set; The requested license is no longer active.", extra=logging_context()
         )
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid license")
+        raise HTTPException(
+            status_code=409,
+            detail="Invalid license. The requested license is not active and may no longer be attached to score sets.",
+        )
 
     save_to_logging_context({"requested_superseded_score_set": item_create.superseded_score_set_urn})
     if item_create.superseded_score_set_urn is not None:
@@ -1343,8 +1440,8 @@ async def create_score_set(
                 extra=logging_context(),
             )
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Unknown superseded score set",
+                status_code=404,
+                detail="The requested superseded score set does not exist",
             )
     else:
         superseded_score_set = None
@@ -1367,7 +1464,7 @@ async def create_score_set(
                 extra=logging_context(),
             )
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=404,
                 detail=f"Unknown meta-analyzed score set {distinct_meta_analyzes_score_set_urns[i]}",
             )
 
@@ -1424,20 +1521,35 @@ async def create_score_set(
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e))
 
-    doi_identifiers = [
-        await find_or_create_doi_identifier(db, identifier.identifier)
-        for identifier in item_create.doi_identifiers or []
-    ]
-    primary_publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_create.primary_publication_identifiers or []
-    ]
-    publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_create.secondary_publication_identifiers or []
-    ] + primary_publication_identifiers
+    try:
+        doi_identifiers = [
+            await find_or_create_doi_identifier(db, identifier.identifier)
+            for identifier in item_create.doi_identifiers or []
+        ]
+        primary_publication_identifiers = [
+            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            for identifier in item_create.primary_publication_identifiers or []
+        ]
+        publication_identifiers = [
+            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            for identifier in item_create.secondary_publication_identifiers or []
+        ] + primary_publication_identifiers
+
+    except requests.exceptions.ConnectTimeout:
+        logger.error(msg="Gateway timed out while creating experiment identifiers.", extra=logging_context())
+        raise HTTPException(
+            status_code=504,
+            detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+        )
+
+    except requests.exceptions.HTTPError:
+        logger.error(msg="Encountered bad gateway while creating experiment identifiers.", extra=logging_context())
+        raise HTTPException(
+            status_code=502,
+            detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+        )
 
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
@@ -1472,7 +1584,7 @@ async def create_score_set(
                 logger.info(
                     msg="Failed to create score set; The requested taxonomy does not exist.", extra=logging_context()
                 )
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown taxonomy")
+                raise HTTPException(status_code=404, detail="The requested taxonomy does not exist")
 
             # If the target sequence has a label, use it. Otherwise, use the name from the target gene as the label.
             # View model validation rules enforce that sequences must have a label defined if there are more than one
@@ -1585,8 +1697,9 @@ async def create_score_set(
 @router.post(
     "/score-sets/{urn}/variants/data",
     response_model=score_set.ScoreSet,
-    responses={422: {}},
     response_model_exclude_none=True,
+    responses={**BASE_400_RESPONSE, **ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Upload score and variant count files for a score set",
 )
 async def upload_score_set_variant_data(
     *,
@@ -1656,8 +1769,9 @@ async def upload_score_set_variant_data(
 @router.patch(
     "/score-sets-with-variants/{urn}",
     response_model=score_set.ScoreSet,
-    responses={422: {}},
     response_model_exclude_none=True,
+    responses={**BASE_400_RESPONSE, **ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Update score ranges / calibrations for a score set",
 )
 async def update_score_set_with_variants(
     *,
@@ -1777,7 +1891,11 @@ async def update_score_set_with_variants(
 
 
 @router.put(
-    "/score-sets/{urn}", response_model=score_set.ScoreSet, responses={422: {}}, response_model_exclude_none=True
+    "/score-sets/{urn}",
+    response_model=score_set.ScoreSet,
+    response_model_exclude_none=True,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE, **GATEWAY_ERROR_RESPONSES},
+    summary="Update a score set",
 )
 async def update_score_set(
     *,
@@ -1819,7 +1937,12 @@ async def update_score_set(
     return score_set.ScoreSet.model_validate(updatedItem).copy(update={"experiment": enriched_experiment})
 
 
-@router.delete("/score-sets/{urn}", responses={422: {}})
+@router.delete(
+    "/score-sets/{urn}",
+    status_code=200,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Delete a score set",
+)
 async def delete_score_set(
     *,
     urn: str,
@@ -1857,6 +1980,7 @@ async def delete_score_set(
     status_code=200,
     response_model=score_set.ScoreSet,
     response_model_exclude_none=True,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE},
 )
 async def publish_score_set(
     *,
@@ -1883,7 +2007,7 @@ async def publish_score_set(
             extra=logging_context(),
         )
         raise HTTPException(
-            status_code=500,
+            status_code=409,
             detail="This score set does not belong to an experiment and cannot be published.",
         )
     if not item.experiment.experiment_set:
@@ -1892,7 +2016,7 @@ async def publish_score_set(
             extra=logging_context(),
         )
         raise HTTPException(
-            status_code=500,
+            status_code=409,
             detail="This score set's experiment does not belong to an experiment set and cannot be published.",
         )
     # TODO This can probably be done more efficiently; at least, it's worth checking the SQL query that SQLAlchemy
@@ -1903,7 +2027,7 @@ async def publish_score_set(
             extra=logging_context(),
         )
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=409,
             detail="cannot publish score set without variant scores",
         )
 
@@ -1959,6 +2083,8 @@ async def publish_score_set(
     status_code=200,
     response_model=list[clinical_control.ClinicalControlWithMappedVariants],
     response_model_exclude_none=True,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Get clinical controls for a score set",
 )
 async def get_clinical_controls_for_score_set(
     *,
@@ -2027,6 +2153,8 @@ async def get_clinical_controls_for_score_set(
     status_code=200,
     response_model=list[clinical_control.ClinicalControlOptions],
     response_model_exclude_none=True,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Get clinical control options for a score set",
 )
 async def get_clinical_controls_options_for_score_set(
     *,
@@ -2086,6 +2214,8 @@ async def get_clinical_controls_options_for_score_set(
     status_code=200,
     response_model=list[gnomad_variant.GnomADVariantWithMappedVariants],
     response_model_exclude_none=True,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Get gnomad variants for a score set",
 )
 async def get_gnomad_variants_for_score_set(
     *,

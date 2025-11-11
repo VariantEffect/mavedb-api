@@ -8,34 +8,46 @@ on Refget standards
 import logging
 import os
 import re
-
-from biocommons.seqrepo import SeqRepo, __version__ as seqrepo_dep_version
-from fastapi import APIRouter, Depends, Query, HTTPException, Header
-from fastapi.responses import StreamingResponse
 from typing import Optional, Union
 
-from mavedb import deps
+from biocommons.seqrepo import SeqRepo
+from biocommons.seqrepo import __version__ as seqrepo_dep_version
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import StreamingResponse
+
+from mavedb import __version__, deps
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.lib.seqrepo import get_sequence_ids, base64url_to_hex, sequence_generator
+from mavedb.lib.seqrepo import base64url_to_hex, get_sequence_ids, sequence_generator
+from mavedb.routers.shared import (
+    BASE_400_RESPONSE,
+    BASE_416_RESPONSE,
+    BASE_501_RESPONSE,
+    PUBLIC_ERROR_RESPONSES,
+    ROUTER_BASE_PREFIX,
+)
 from mavedb.view_models.refget import RefgetMetadataResponse, RefgetServiceInfo
 
-from mavedb import __version__
-
-
 RANGE_HEADER_REGEX = r"^bytes=(\d+)-(\d+)$"
+TAG_NAME = "Refget"
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/api/v1/refget",
-    tags=["refget"],
-    responses={404: {"description": "not found"}},
+    prefix=f"{ROUTER_BASE_PREFIX}/refget",
+    tags=[TAG_NAME],
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
+metadata = {
+    "name": TAG_NAME,
+    "description": "Implementation of the Refget sequences API for MaveDB.",
+    "externalDocs": {"description": "Refget API Documentation", "url": "https://ga4gh.github.io/refget/sequences"},
+}
 
-@router.get("/sequence/service-info", response_model=RefgetServiceInfo)
+
+@router.get("/sequence/service-info", response_model=RefgetServiceInfo, summary="Get Refget service information")
 def service_info() -> dict[str, Union[str, dict[str, Union[str, list[str], bool, None]]]]:
     """
     Returns information about the refget service.
@@ -61,8 +73,11 @@ def service_info() -> dict[str, Union[str, dict[str, Union[str, list[str], bool,
     }
 
 
-@router.get("/sequence/{alias}/metadata", response_model=RefgetMetadataResponse)
+@router.get("/sequence/{alias}/metadata", response_model=RefgetMetadataResponse, summary="Get Refget sequence metadata")
 def get_metadata(alias: str, sr: SeqRepo = Depends(deps.get_seqrepo)) -> dict[str, dict]:
+    """
+    Show metadata for a particular Refget sequence with the provided alias.
+    """
     save_to_logging_context({"requested_refget_alias": alias, "requested_resource": "metadata"})
 
     seq_ids = get_sequence_ids(sr, alias)
@@ -72,7 +87,9 @@ def get_metadata(alias: str, sr: SeqRepo = Depends(deps.get_seqrepo)) -> dict[st
         raise HTTPException(status_code=404, detail="Sequence not found")
     if len(seq_ids) > 1:
         logger.error(msg="Multiple sequences found for alias", extra=logging_context())
-        raise HTTPException(status_code=422, detail=f"Multiple sequences exist for alias '{alias}'")
+        raise HTTPException(
+            status_code=400, detail=f"Multiple sequences exist for alias '{alias}'. Use an explicit namespace"
+        )
 
     seq_id = seq_ids[0]
     seqinfo = sr.sequences.fetch_seqinfo(seq_id)
@@ -95,21 +112,32 @@ def get_metadata(alias: str, sr: SeqRepo = Depends(deps.get_seqrepo)) -> dict[st
     }
 
 
-@router.get("/sequence/{alias}")
+@router.get(
+    "/sequence/{alias}",
+    summary="Get Refget sequence",
+    responses={
+        200: {"description": "OK: Full sequence returned", "content": {"text/plain": {}}},
+        206: {"description": "Partial Content: Partial sequence returned", "content": {"text/plain": {}}},
+        **BASE_400_RESPONSE,
+        **BASE_416_RESPONSE,
+        **BASE_501_RESPONSE,
+    },
+)
 def get_sequence(
     alias: str,
     range_header: Optional[str] = Header(
         None,
         alias="Range",
-        description="""
-            Specify a substring as a single HTTP Range. One byte range is permitted, and is 0-based inclusive.
-            For example, 'Range: bytes=0-9' corresponds to '?start=0&end=10'.
-            """,
+        description="Specify a substring as a single HTTP Range. One byte range is permitted, "
+        "and is 0-based inclusive. For example, 'Range: bytes=0-9' corresponds to '?start=0&end=10'.",
     ),
     start: Optional[int] = Query(None, description="Request a subsequence of the data (0-based)."),
     end: Optional[int] = Query(None, description="Request a subsequence of the data by specifying the end."),
     sr: SeqRepo = Depends(deps.get_seqrepo),
 ) -> StreamingResponse:
+    """
+    Get a Refget sequence by alias.
+    """
     save_to_logging_context(
         {
             "requested_refget_alias": alias,
@@ -150,7 +178,9 @@ def get_sequence(
         raise HTTPException(status_code=404, detail="Sequence not found")
     if len(seq_ids) > 1:
         logger.error(msg="Multiple sequences found for alias", extra=logging_context())
-        raise HTTPException(status_code=422, detail=f"Multiple sequences exist for alias '{alias}'")
+        raise HTTPException(
+            status_code=400, detail=f"Multiple sequences exist for alias '{alias}'. Use an explicit namespace."
+        )
 
     seq_id = seq_ids[0]
     seqinfo = sr.sequences.fetch_seqinfo(seq_id)

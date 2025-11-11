@@ -1,6 +1,7 @@
 # ruff: noqa: E402
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
@@ -41,7 +42,7 @@ def test_get_sequence_multiple_ids(client):
     # This simulates a scenario where the alias resolves to multiple sequences
     with patch("mavedb.routers.seqrepo.get_sequence_ids", return_value=["seq1", "seq2"]):
         resp = client.get(f"/api/v1/seqrepo/sequence/{VALID_ENSEMBL_IDENTIFIER}")
-        assert resp.status_code == 422
+        assert resp.status_code == 400
         assert "Multiple sequences exist" in resp.text
 
 
@@ -76,7 +77,7 @@ def test_get_metadata_multiple_ids(client):
     # This simulates a scenario where the alias resolves to multiple sequences
     with patch("mavedb.routers.seqrepo.get_sequence_ids", return_value=["seq1", "seq2"]):
         resp = client.get(f"/api/v1/seqrepo/metadata/{VALID_ENSEMBL_IDENTIFIER}")
-        assert resp.status_code == 422
+        assert resp.status_code == 400
         assert "Multiple sequences exist" in resp.text
 
 

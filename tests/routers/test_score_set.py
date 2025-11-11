@@ -258,7 +258,7 @@ def test_cannot_create_score_set_with_nonexistent_contributor(client, mock_publi
     ):
         response = client.post("/api/v1/score-sets/", json=score_set)
 
-    assert response.status_code == 422
+    assert response.status_code == 404
     response_data = response.json()
     assert "No ORCID user was found for ORCID ID 1111-1111-1111-1111." in response_data["detail"]
 
@@ -281,7 +281,7 @@ def test_cannot_create_score_set_without_email(client, mock_publication_fetch, s
     score_set_post_payload["experimentUrn"] = experiment["urn"]
     client.put("api/v1/users/me", json={"email": None})
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
-    assert response.status_code == 400
+    assert response.status_code == 403
     response_data = response.json()
     assert response_data["detail"] in "There must be an email address associated with your account to use this feature."
 
@@ -645,7 +645,7 @@ def test_cannot_update_score_set_with_nonexistent_contributor(
     ):
         response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_update_payload)
 
-    assert response.status_code == 422
+    assert response.status_code == 404
     response_data = response.json()
     assert "No ORCID user was found for ORCID ID 1111-1111-1111-1111." in response_data["detail"]
 
@@ -1028,7 +1028,7 @@ def test_cannot_add_scores_to_score_set_without_email(session, client, setup_rou
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
             files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
         )
-    assert response.status_code == 400
+    assert response.status_code == 403
     response_data = response.json()
     assert response_data["detail"] in "There must be an email address associated with your account to use this feature."
 
@@ -1366,7 +1366,7 @@ def test_cannot_publish_score_set_without_variants(client, setup_router_db):
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
-        assert response.status_code == 422
+        assert response.status_code == 409
         worker_queue.assert_not_called()
         response_data = response.json()
 
@@ -1794,7 +1794,7 @@ def test_cannot_add_score_set_to_meta_analysis_experiment(session, data_provider
 
     response = client.post("/api/v1/score-sets/", json=score_set_2)
     response_data = response.json()
-    assert response.status_code == 403
+    assert response.status_code == 409
     assert "Score sets may not be added to a meta-analysis experiment." in response_data["detail"]
 
 
@@ -2494,7 +2494,7 @@ def test_cannot_create_score_set_with_inactive_license(session, client, setup_ro
     score_set_post_payload["experimentUrn"] = experiment["urn"]
     score_set_post_payload["licenseId"] = TEST_INACTIVE_LICENSE["id"]
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
-    assert response.status_code == 400
+    assert response.status_code == 409
 
 
 def test_cannot_modify_score_set_to_inactive_license(session, client, setup_router_db):
@@ -2503,7 +2503,7 @@ def test_cannot_modify_score_set_to_inactive_license(session, client, setup_rout
     score_set_post_payload = score_set.copy()
     score_set_post_payload.update({"licenseId": TEST_INACTIVE_LICENSE["id"], "urn": score_set["urn"]})
     response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_post_payload)
-    assert response.status_code == 400
+    assert response.status_code == 409
 
 
 def test_can_modify_metadata_for_score_set_with_inactive_license(session, client, setup_router_db):

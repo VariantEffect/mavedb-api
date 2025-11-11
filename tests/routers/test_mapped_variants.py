@@ -1,7 +1,8 @@
 # ruff: noqa: E402
 
-import pytest
 import json
+
+import pytest
 
 from tests.helpers.util.user import change_ownership
 
@@ -9,18 +10,18 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
-from sqlalchemy import select
-from sqlalchemy.orm.session import make_transient
 from urllib.parse import quote_plus
 
-from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
+from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
+from sqlalchemy import select
+from sqlalchemy.orm.session import make_transient
+
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant
 from mavedb.view_models.mapped_variant import SavedMappedVariant
-
-from tests.helpers.constants import TEST_BIORXIV_IDENTIFIER, TEST_PUBMED_IDENTIFIER, TEST_BRNICH_SCORE_CALIBRATION
+from tests.helpers.constants import TEST_BIORXIV_IDENTIFIER, TEST_BRNICH_SCORE_CALIBRATION, TEST_PUBMED_IDENTIFIER
 from tests.helpers.util.common import deepcamelize
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_calibration import create_publish_and_promote_score_calibration
@@ -182,7 +183,7 @@ def test_cannot_show_mapped_variant_study_result_when_no_mapping_data_exists(
 
     assert response.status_code == 404
     assert (
-        f"Could not construct a study result for mapped variant {score_set['urn']}#1: Variant {score_set['urn']}#1 does not have a post mapped variant."
+        f"No study result exists for mapped variant {score_set['urn']}#1: Variant {score_set['urn']}#1 does not have a post mapped variant."
         in response_data["detail"]
     )
 
@@ -301,7 +302,7 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_no_mapping_
 
     assert response.status_code == 404
     assert (
-        f"Could not construct a functional impact statement for mapped variant {score_set['urn']}#1: Variant {score_set['urn']}#1 does not have a post mapped variant."
+        f"No functional impact statement exists for mapped variant {score_set['urn']}#1: Variant {score_set['urn']}#1 does not have a post mapped variant."
         in response_data["detail"]
     )
 
@@ -325,7 +326,7 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_insufficien
 
     assert response.status_code == 404
     assert (
-        f"Could not construct a functional impact statement for mapped variant {score_set['urn']}#1. Variant does not have sufficient evidence to evaluate its functional impact"
+        f"No functional impact statement exists for mapped variant {score_set['urn']}#1. Variant does not have sufficient evidence to evaluate its functional impact"
         in response_data["detail"]
     )
 
@@ -444,7 +445,7 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_no_mapping_data_
 
     assert response.status_code == 404
     assert (
-        f"Could not construct a pathogenicity evidence line for mapped variant {score_set['urn']}#1: Variant {score_set['urn']}#1 does not have a post mapped variant."
+        f"No pathogenicity evidence line exists for mapped variant {score_set['urn']}#1: Variant {score_set['urn']}#1 does not have a post mapped variant."
         in response_data["detail"]
     )
 
@@ -466,7 +467,7 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_insufficient_pat
 
     assert response.status_code == 404
     assert (
-        f"Could not construct a pathogenicity evidence line for mapped variant {score_set['urn']}#1; Variant does not have sufficient evidence to evaluate its pathogenicity"
+        f"No pathogenicity evidence line exists for mapped variant {score_set['urn']}#1; Variant does not have sufficient evidence to evaluate its pathogenicity"
         in response_data["detail"]
     )
 
