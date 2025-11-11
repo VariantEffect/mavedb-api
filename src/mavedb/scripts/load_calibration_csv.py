@@ -296,7 +296,7 @@ def build_ranges(row: Dict[str, str], infer_strengths: bool = True) -> Tuple[Lis
     "--purge-publication-relationships", is_flag=True, default=False, help="Purge existing publication relationships"
 )
 def main(db: Session, csv_path: str, delimiter: str, overwrite: bool, purge_publication_relationships: bool):
-    """Load calibration CSV into score set score_ranges (container chosen by calibration_name).
+    """Load calibration CSV into score set score_calibrations.
 
     Rows skipped if no URNs or no valid ranges. Only the targeted container key is replaced (unless --overwrite).
     """
