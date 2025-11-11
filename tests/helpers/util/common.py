@@ -1,6 +1,8 @@
 import json
 from typing import Any, Dict
 
+from humps import camelize
+
 
 def update_expected_response_for_created_resources(
     expected_response: Dict[str, Any], created_experiment: Dict[str, Any], created_score_set: Dict[str, Any]
@@ -45,3 +47,12 @@ def parse_ndjson_response(response):
             response_data.append(variant_data)
 
     return response_data
+
+
+def deepcamelize(data: Any) -> Any:
+    if isinstance(data, dict):
+        return {camelize(k): deepcamelize(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [deepcamelize(item) for item in data]
+    else:
+        return data

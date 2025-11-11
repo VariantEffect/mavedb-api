@@ -9,7 +9,6 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
-from humps import camelize
 from sqlalchemy import select
 from sqlalchemy.orm.session import make_transient
 from urllib.parse import quote_plus
@@ -21,25 +20,17 @@ from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant
 from mavedb.view_models.mapped_variant import SavedMappedVariant
 
-from tests.helpers.constants import (
-    TEST_PUBMED_IDENTIFIER,
-    TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-    TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
-)
+from tests.helpers.constants import TEST_BIORXIV_IDENTIFIER, TEST_PUBMED_IDENTIFIER, TEST_BRNICH_SCORE_CALIBRATION
+from tests.helpers.util.common import deepcamelize
 from tests.helpers.util.experiment import create_experiment
+from tests.helpers.util.score_calibration import create_publish_and_promote_score_calibration
 from tests.helpers.util.score_set import (
     create_seq_score_set_with_mapped_variants,
     create_seq_score_set_with_variants,
 )
 
 
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
-def test_show_mapped_variant(client, session, data_provider, data_files, setup_router_db, mock_publication_fetch):
+def test_show_mapped_variant(client, session, data_provider, data_files, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
         client,
@@ -47,10 +38,6 @@ def test_show_mapped_variant(client, session, data_provider, data_files, setup_r
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}")
@@ -62,14 +49,7 @@ def test_show_mapped_variant(client, session, data_provider, data_files, setup_r
     SavedMappedVariant.model_validate_json(json.dumps(response_data))
 
 
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
-def test_cannot_show_mapped_variant_when_multiple_exist(
-    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
-):
+def test_cannot_show_mapped_variant_when_multiple_exist(client, session, data_provider, data_files, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
         client,
@@ -77,10 +57,6 @@ def test_cannot_show_mapped_variant_when_multiple_exist(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
@@ -99,14 +75,7 @@ def test_cannot_show_mapped_variant_when_multiple_exist(
     assert response_data["detail"] == f"Multiple variants with URN {score_set['urn']}#1 were found."
 
 
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
-def test_cannot_show_mapped_variant_when_none_exists(
-    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
-):
+def test_cannot_show_mapped_variant_when_none_exists(client, session, data_provider, data_files, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
         client,
@@ -114,10 +83,6 @@ def test_cannot_show_mapped_variant_when_none_exists(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}")
@@ -127,14 +92,7 @@ def test_cannot_show_mapped_variant_when_none_exists(
     assert response_data["detail"] == f"Mapped variant with URN {score_set['urn']}#1 not found"
 
 
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
-def test_show_mapped_variant_study_result(
-    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
-):
+def test_show_mapped_variant_study_result(client, session, data_provider, data_files, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
         client,
@@ -142,10 +100,6 @@ def test_show_mapped_variant_study_result(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/study-result")
@@ -157,13 +111,8 @@ def test_show_mapped_variant_study_result(
     ExperimentalVariantFunctionalImpactStudyResult.model_validate_json(json.dumps(response_data))
 
 
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
 def test_cannot_show_mapped_variant_study_result_when_multiple_exist(
-    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -172,10 +121,6 @@ def test_cannot_show_mapped_variant_study_result_when_multiple_exist(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
@@ -194,13 +139,8 @@ def test_cannot_show_mapped_variant_study_result_when_multiple_exist(
     assert response_data["detail"] == f"Multiple variants with URN {score_set['urn']}#1 were found."
 
 
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
 def test_cannot_show_mapped_variant_study_result_when_none_exists(
-    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -209,10 +149,6 @@ def test_cannot_show_mapped_variant_study_result_when_none_exists(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/study-result")
@@ -222,13 +158,8 @@ def test_cannot_show_mapped_variant_study_result_when_none_exists(
     assert response_data["detail"] == f"Mapped variant with URN {score_set['urn']}#1 not found"
 
 
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
 def test_cannot_show_mapped_variant_study_result_when_no_mapping_data_exists(
-    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -237,10 +168,6 @@ def test_cannot_show_mapped_variant_study_result_when_no_mapping_data_exists(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
@@ -262,7 +189,12 @@ def test_cannot_show_mapped_variant_study_result_when_no_mapping_data_exists(
 
 @pytest.mark.parametrize(
     "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
     indirect=["mock_publication_fetch"],
 )
 def test_show_mapped_variant_functional_impact_statement(
@@ -275,11 +207,8 @@ def test_show_mapped_variant_functional_impact_statement(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
+    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-impact")
     response_data = response.json()
@@ -290,13 +219,8 @@ def test_show_mapped_variant_functional_impact_statement(
     Statement.model_validate_json(json.dumps(response_data))
 
 
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
 def test_cannot_show_mapped_variant_functional_impact_statement_when_multiple_exist(
-    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -305,10 +229,6 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_multiple_ex
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
@@ -327,13 +247,8 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_multiple_ex
     assert response_data["detail"] == f"Multiple variants with URN {score_set['urn']}#1 were found."
 
 
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
 def test_cannot_show_mapped_variant_functional_impact_statement_when_none_exists(
-    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -342,10 +257,6 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_none_exists
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-impact")
@@ -357,7 +268,12 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_none_exists
 
 @pytest.mark.parametrize(
     "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_show_mapped_variant_functional_impact_statement_when_no_mapping_data_exists(
@@ -370,11 +286,8 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_no_mapping_
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
+    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
     assert item is not None
@@ -393,13 +306,8 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_no_mapping_
     )
 
 
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
-def test_cannot_show_mapped_variant_functional_impact_statement_when_no_score_ranges(
-    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
+def test_cannot_show_mapped_variant_functional_impact_statement_when_insufficient_functional_evidence(
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -408,11 +316,9 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_no_score_ra
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-        },
     )
+
+    # insufficient evidence = no (primary) calibrations
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-impact")
     response_data = response.json()
@@ -426,7 +332,12 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_no_score_ra
 
 @pytest.mark.parametrize(
     "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
     indirect=["mock_publication_fetch"],
 )
 def test_show_mapped_variant_clinical_evidence_line(
@@ -439,11 +350,8 @@ def test_show_mapped_variant_clinical_evidence_line(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
+    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#2')}/va/clinical-evidence")
     response_data = response.json()
@@ -454,13 +362,8 @@ def test_show_mapped_variant_clinical_evidence_line(
     VariantPathogenicityEvidenceLine.model_validate_json(json.dumps(response_data))
 
 
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
 def test_cannot_show_mapped_variant_clinical_evidence_line_when_multiple_exist(
-    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -469,10 +372,6 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_multiple_exist(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
@@ -491,13 +390,8 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_multiple_exist(
     assert response_data["detail"] == f"Multiple variants with URN {score_set['urn']}#1 were found."
 
 
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
 def test_cannot_show_mapped_variant_clinical_evidence_line_when_none_exists(
-    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -506,10 +400,6 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_none_exists(
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/clinical-evidence")
@@ -521,7 +411,12 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_none_exists(
 
 @pytest.mark.parametrize(
     "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_show_mapped_variant_clinical_evidence_line_when_no_mapping_data_exists(
@@ -534,11 +429,8 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_no_mapping_data_
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT),
-        },
     )
+    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
     assert item is not None
@@ -557,13 +449,8 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_no_mapping_data_
     )
 
 
-@pytest.mark.parametrize(
-    "mock_publication_fetch",
-    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
-    indirect=["mock_publication_fetch"],
-)
-def test_cannot_show_mapped_variant_clinical_evidence_line_when_no_score_calibrations_exist(
-    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
+def test_cannot_show_mapped_variant_clinical_evidence_line_when_insufficient_pathogenicity_evidence(
+    client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -572,10 +459,6 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_no_score_calibra
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
-        update={
-            "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED),
-        },
     )
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/clinical-evidence")

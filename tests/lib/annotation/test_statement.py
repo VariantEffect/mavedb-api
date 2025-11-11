@@ -39,8 +39,8 @@ def test_mapped_variant_to_functional_statement(mock_mapped_variant, classificat
     assert result.hasEvidenceLines[0] == evidence
 
 
-def test_mapped_variant_to_functional_statement_no_score_ranges(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges = None
+def test_mapped_variant_to_functional_statement_no_calibrations(mock_mapped_variant):
+    mock_mapped_variant.variant.score_set.score_calibrations = None
 
     proposition = mapped_variant_to_experimental_variant_functional_impact_proposition(mock_mapped_variant)
     evidence = functional_evidence_line(mock_mapped_variant, [variant_study_result(mock_mapped_variant)])
@@ -48,4 +48,6 @@ def test_mapped_variant_to_functional_statement_no_score_ranges(mock_mapped_vari
     with pytest.raises(ValueError) as exc:
         mapped_variant_to_functional_statement(mock_mapped_variant, proposition, [evidence])
 
-    assert f"Variant {mock_mapped_variant.variant.urn} does not have a score set with score ranges" in str(exc.value)
+    assert f"Variant {mock_mapped_variant.variant.urn} does not have a score set with score calibrations" in str(
+        exc.value
+    )

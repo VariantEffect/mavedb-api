@@ -13,6 +13,7 @@ from mavedb.lib.permissions import Action, has_permission
 from mavedb.models.collection import Collection
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
+from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 
 router = APIRouter(
@@ -30,6 +31,7 @@ class ModelName(str, Enum):
     experiment = "experiment"
     experiment_set = "experiment-set"
     score_set = "score-set"
+    score_calibration = "score-calibration"
 
 
 @router.get(
@@ -50,7 +52,7 @@ async def check_permission(
     """
     save_to_logging_context({"requested_resource": urn})
 
-    item: Optional[Union[Collection, ExperimentSet, Experiment, ScoreSet]] = None
+    item: Optional[Union[Collection, ExperimentSet, Experiment, ScoreSet, ScoreCalibration]] = None
 
     if model_name == ModelName.experiment_set:
         item = db.query(ExperimentSet).filter(ExperimentSet.urn == urn).one_or_none()
@@ -60,6 +62,8 @@ async def check_permission(
         item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     elif model_name == ModelName.collection:
         item = db.query(Collection).filter(Collection.urn == urn).one_or_none()
+    elif model_name == ModelName.score_calibration:
+        item = db.query(ScoreCalibration).filter(ScoreCalibration.urn == urn).one_or_none()
 
     if item:
         permission = has_permission(user_data, item, action).permitted

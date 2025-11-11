@@ -373,6 +373,7 @@ def test_create_variants_acc_score_set(setup_lib_db, session):
 def test_create_null_score_range(setup_lib_db, client, session):
     experiment = create_experiment(client)
     create_seq_score_set(client, experiment["urn"])
-    score_set = session.scalar(select(ScoreSet).where(ScoreSet.score_ranges.is_(None)))
+    score_set = session.scalar(select(ScoreSet).where(~ScoreSet.score_calibrations.any()))
 
+    assert not score_set.score_calibrations
     assert score_set is not None

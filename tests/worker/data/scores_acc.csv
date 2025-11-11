@@ -1,4 +1,4 @@
-hgvs_nt,score
-NM_001637.3:c.1G>C,0.3
-NM_001637.3:c.2A>G,0.0
-NM_001637.3:c.6C>A,-1.65
+hgvs_nt,score,s_0,s_1
+NM_001637.3:c.1G>C,0.3,val1,val1
+NM_001637.3:c.2A>G,0.0,val2,val2
+NM_001637.3:c.6C>A,-1.65,val3,val3

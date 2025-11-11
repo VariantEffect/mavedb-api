@@ -1,8 +1,8 @@
 from datetime import date
 from typing import Any, Optional, Sequence
-from typing_extensions import Self
 
 from pydantic import Field, model_validator
+from typing_extensions import Self
 
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.transform import transform_external_identifier_offsets_to_list, transform_score_set_to_urn
