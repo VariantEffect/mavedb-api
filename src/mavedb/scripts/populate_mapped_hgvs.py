@@ -97,8 +97,14 @@ def populate_mapped_hgvs(db: Session, urns: Sequence[Optional[str]], all: bool):
                 .where(MappedVariant.current == True)  # noqa: E712
             )
 
-            # for variant_urn, post_mapped, clingen_allele_id in variant_info:
-            for variant_urn, mapped_variant in variant_info:
+            variant_info_list = variant_info.all()
+            num_variants = len(variant_info_list)
+
+            for v_idx, (variant_urn, mapped_variant) in enumerate(variant_info_list):
+                if (v_idx + 1) % ((num_variants + 9) // 10) == 0:
+                    logger.info(
+                        f"Processing variant {v_idx+1}/{num_variants} ({variant_urn}) for score set {score_set.urn} ({idx+1}/{len(urns)})."
+                    )
                 # NOTE: get_hgvs_from_post_mapped currently does not support multi-variants
                 # returns None if no post-mapped object or if multi-variant
                 hgvs_assay_level = get_hgvs_from_post_mapped(mapped_variant.post_mapped)
