@@ -46,7 +46,6 @@ from mavedb.lib.score_sets import (
     columns_for_dataset,
     create_variants,
     create_variants_data,
-    get_hgvs_from_post_mapped,
 )
 from mavedb.lib.slack import log_and_send_slack_message, send_slack_error, send_slack_message
 from mavedb.lib.uniprot.constants import UNIPROT_ID_MAPPING_ENABLED
@@ -1297,9 +1296,9 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
         logging_context["linkage_failures"] = num_linkage_failures
         logging_context["linkage_successes"] = num_variant_urns - num_linkage_failures
 
-        assert len(linked_allele_ids) == num_variant_urns, (
-            f"{num_variant_urns - len(linked_allele_ids)} appear to not have been attempted to be linked."
-        )
+        assert (
+            len(linked_allele_ids) == num_variant_urns
+        ), f"{num_variant_urns - len(linked_allele_ids)} appear to not have been attempted to be linked."
 
         job_succeeded = False
         if not linkage_failures:
