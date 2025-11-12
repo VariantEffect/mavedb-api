@@ -105,7 +105,7 @@ def populate_mapped_hgvs(db: Session, urns: Sequence[Optional[str]], all: bool):
                     logger.info(
                         f"Processing variant {v_idx+1}/{num_variants} ({variant_urn}) for score set {score_set.urn} ({idx+1}/{len(urns)})."
                     )
-                # NOTE: get_hgvs_from_post_mapped currently does not support multi-variants
+                # TODO#469: support multi-target score sets
                 # returns None if no post-mapped object or if multi-variant
                 hgvs_assay_level = get_hgvs_from_post_mapped(mapped_variant.post_mapped)
 
@@ -114,7 +114,7 @@ def populate_mapped_hgvs(db: Session, urns: Sequence[Optional[str]], all: bool):
                 hgvs_p: Optional[str] = None
 
                 # NOTE: if no clingen allele id, could consider searching clingen using hgvs_assay_level. for now, skipping variant if no clingen allele id in db
-                # TODO skipping multi-variants for now
+                # TODO#469: implement support for multi-variants
                 if mapped_variant.clingen_allele_id and len(mapped_variant.clingen_allele_id.split(",")) == 1:
                     response = requests.get(f"{CLINGEN_API_URL}/{mapped_variant.clingen_allele_id}")
                     if response.status_code != 200:
@@ -147,7 +147,7 @@ def populate_mapped_hgvs(db: Session, urns: Sequence[Optional[str]], all: bool):
                                     # no transcript specified, use mane if available
                                     for allele in data["transcriptAlleles"]:
                                         if allele.get("MANE"):
-                                            # TODO consider prioritizing mane select over other mane statuses
+                                            # TODO#571 consider prioritizing certain MANE transcripts (e.g. MANE Select)
                                             hgvs_c = allele["MANE"].get("nucleotide", {}).get("RefSeq", {}).get("hgvs")
                                             hgvs_p = allele["MANE"].get("protein", {}).get("RefSeq", {}).get("hgvs")
                                             break
@@ -159,8 +159,6 @@ def populate_mapped_hgvs(db: Session, urns: Sequence[Optional[str]], all: bool):
                                 if allele.get("hgvs"):
                                     hgvs_p = allele["hgvs"][0]
                                     break
-
-                # TODO should we check that assay level hgvs mtches either g. or p.?
 
                 mapped_variant.hgvs_assay_level = hgvs_assay_level
                 mapped_variant.hgvs_g = hgvs_g
@@ -180,9 +178,6 @@ def populate_mapped_hgvs(db: Session, urns: Sequence[Optional[str]], all: bool):
             )
             logger.info(f"Rolling back all changes for scoreset {score_set.urn}")
             db.rollback()
-
-        # TODO if accession based and no post mapped object, use original variant hgvs if available?
-        # the problem with this is that it would be c. in a lot of cases, and we want g. if possible, since we map to the genome for c./n./g. variants
 
         logger.info(f"Done with score set {score_set.urn}. ({idx+1}/{len(urns)}).")
 
