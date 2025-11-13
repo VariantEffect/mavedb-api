@@ -715,8 +715,8 @@ def get_score_set_variants_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Maximum number of variants to return"),
-    namespaces: List[Literal["scores", "counts"]] = Query(
-        default=["scores"], description="One or more data types to include: scores, counts, clinVar, gnomAD"
+    namespaces: List[Literal["scores", "counts", "vep"]] = Query(
+        default=["scores"], description="One or more data types to include: scores, counts, clinVar, gnomAD, VEP"
     ),
     drop_na_columns: Optional[bool] = None,
     include_custom_columns: Optional[bool] = None,
@@ -741,7 +741,7 @@ def get_score_set_variants_csv(
         The index to start from. If None, starts from the beginning.
     limit : Optional[int]
         The maximum number of variants to return. If None, returns all variants.
-    namespaces: List[Literal["scores", "counts"]]
+    namespaces: List[Literal["scores", "counts", "vep"]]
         The namespaces of all columns except for accession, hgvs_nt, hgvs_pro, and hgvs_splice.
         We may add ClinVar and gnomAD in the future.
     drop_na_columns : bool, optional
