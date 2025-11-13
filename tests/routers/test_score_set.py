@@ -2714,7 +2714,6 @@ def test_download_variants_data_file(
             "mavedb.post_mapped_hgvs_at_assay_level",
             "mavedb.post_mapped_vrs_digest",
             "scores.score",
-            "vep.vep_functional_consequence",
         ]
     )
     rows = list(reader)
@@ -2884,8 +2883,10 @@ def test_download_scores_counts_and_post_mapped_variants_file(
             "accession",
             "hgvs_nt",
             "hgvs_pro",
+            "mavedb.post_mapped_hgvs_c",
             "mavedb.post_mapped_hgvs_g",
             "mavedb.post_mapped_hgvs_p",
+            "mavedb.post_mapped_hgvs_at_assay_level",
             "mavedb.post_mapped_vrs_digest",
             "scores.score",
             "scores.s_0",
