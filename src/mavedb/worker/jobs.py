@@ -196,7 +196,7 @@ async def create_variants_for_score_set(
 
             logger.info(msg="Deleted existing variants from score set.", extra=logging_context)
 
-            db.commit()
+            db.flush()
             db.refresh(score_set)
 
         variants_data = create_variants_data(validated_scores, validated_counts, None)
@@ -209,6 +209,11 @@ async def create_variants_for_score_set(
         score_set.processing_state = ProcessingState.failed
         score_set.processing_errors = {"exception": str(e), "detail": e.triggering_exceptions}
         score_set.mapping_state = MappingState.not_attempted
+
+        if score_set.num_variants:
+            score_set.processing_errors["exception"] = (
+                f"Update failed, variants were not updated. {score_set.processing_errors.get('exception', '')}"
+            )
 
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logging_context["processing_state"] = score_set.processing_state.name
@@ -225,6 +230,11 @@ async def create_variants_for_score_set(
         score_set.processing_state = ProcessingState.failed
         score_set.processing_errors = {"exception": str(e), "detail": []}
         score_set.mapping_state = MappingState.not_attempted
+
+        if score_set.num_variants:
+            score_set.processing_errors["exception"] = (
+                f"Update failed, variants were not updated. {score_set.processing_errors.get('exception', '')}"
+            )
 
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logging_context["processing_state"] = score_set.processing_state.name
@@ -1296,9 +1306,9 @@ async def link_clingen_variants(ctx: dict, correlation_id: str, score_set_id: in
         logging_context["linkage_failures"] = num_linkage_failures
         logging_context["linkage_successes"] = num_variant_urns - num_linkage_failures
 
-        assert len(linked_allele_ids) == num_variant_urns, (
-            f"{num_variant_urns - len(linked_allele_ids)} appear to not have been attempted to be linked."
-        )
+        assert (
+            len(linked_allele_ids) == num_variant_urns
+        ), f"{num_variant_urns - len(linked_allele_ids)} appear to not have been attempted to be linked."
 
         job_succeeded = False
         if not linkage_failures:
