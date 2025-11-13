@@ -116,15 +116,10 @@ async def enqueue_variant_creation(
     # create CSV from existing variants on the score set if no new dataframe provided
     existing_scores_df = None
     if new_scores_df is None:
-        score_columns = [
-            "hgvs_nt",
-            "hgvs_splice",
-            "hgvs_pro",
-        ] + item.dataset_columns.get("score_columns", [])
-        # score_columns = {
-        #         "core": ["hgvs_nt", "hgvs_splice", "hgvs_pro"],
-        #         "counts": item.dataset_columns["score_columns"],
-        #     }
+        score_columns = {
+            "core": ["hgvs_nt", "hgvs_splice", "hgvs_pro"],
+            "scores": item.dataset_columns["score_columns"],
+        }
         existing_scores_df = pd.DataFrame(
             variants_to_csv_rows(item.variants, columns=score_columns, namespaced=False)
         ).replace("NA", pd.NA)
@@ -132,15 +127,10 @@ async def enqueue_variant_creation(
     # create CSV from existing variants on the score set if no new dataframe provided
     existing_counts_df = None
     if new_counts_df is None and item.dataset_columns.get("count_columns"):
-        # count_columns = {
-        #     "core": ["hgvs_nt", "hgvs_splice", "hgvs_pro"],
-        #     "counts": item.dataset_columns["count_columns"],
-        # }
-        count_columns = [
-            "hgvs_nt",
-            "hgvs_splice",
-            "hgvs_pro",
-        ] + item.dataset_columns["count_columns"]
+        count_columns = {
+            "core": ["hgvs_nt", "hgvs_splice", "hgvs_pro"],
+            "counts": item.dataset_columns["count_columns"],
+        }
         existing_counts_df = pd.DataFrame(
             variants_to_csv_rows(item.variants, columns=count_columns, namespaced=False)
         ).replace("NA", pd.NA)
