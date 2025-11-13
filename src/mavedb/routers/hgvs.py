@@ -93,7 +93,9 @@ def list_genes():
     """
     # Even though it doesn't provide the most complete transcript pool, UTA does provide more direct
     # access to a complete list of genes which have transcript information available.
-    return list(chain.from_iterable(hgvs.dataproviders.uta.connect()._fetchall("select hgnc from gene")))
+    return list(
+        chain.from_iterable(hgvs.dataproviders.uta.connect()._fetchall("SELECT DISTINCT hgnc FROM transcript;"))
+    )
 
 
 @router.get("/genes/{gene}", status_code=200, response_model=dict[str, Any], summary="Show stored gene information")
