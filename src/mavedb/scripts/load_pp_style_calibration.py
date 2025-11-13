@@ -102,6 +102,7 @@ POINT_LABEL_MAPPINGS: Dict[int, str] = {
 }
 
 ALL_POINT_LABEL_MAPPINGS = {**POINT_LABEL_MAPPINGS, **{k * -1: v for k, v in POINT_LABEL_MAPPINGS.items()}}
+ZEIBERG_CALIBRATION_CITATION = {"identifier": "2025.04.29.651326", "db_name": "bioRxiv"}
 
 
 @click.command()
@@ -181,15 +182,35 @@ def main(db: Session, archive_path: str, dataset_map: str, overwrite: bool) -> N
                     db.flush()
                     click.echo(f"      Overwriting existing '{calibration_name}' in Score Set {score_set.urn}")
 
+            benign_has_lower_functional_scores = calibration_data.get("scoreset_flipped", False)
             functional_ranges: List[score_calibration.FunctionalRangeCreate] = []
             for points, range_data in calibration_data.get("point_ranges", {}).items():
                 if not range_data:
                     continue
 
-                range_data = tuple(float(bound) for bound in range_data[0])
+                lower_bound, upper_bound = range_data[0][0], range_data[0][1]
+
+                if lower_bound == float("-inf"):
+                    lower_bound = None
+                if upper_bound == float("inf"):
+                    upper_bound = None
+
+                range_data = (lower_bound, upper_bound)
                 points = int(points.strip())
                 ps_or_bs = "PS3" if points > 0 else "BS3"
                 strength_label = ALL_POINT_LABEL_MAPPINGS.get(points, "Unknown")
+
+                # The boundary of the functional range closest to the implied indeterminate range
+                # will always be non-inclusive, as we assign any variants with this score to the
+                # lowest points value.
+                if (benign_has_lower_functional_scores and points < 0) or (
+                    not benign_has_lower_functional_scores and points > 0
+                ):
+                    inclusive_lower = True if lower_bound is not None else False
+                    inclusive_upper = False
+                else:
+                    inclusive_lower = False
+                    inclusive_upper = True if upper_bound is not None else False
 
                 functional_range = score_calibration.FunctionalRangeCreate(
                     label=f"{ps_or_bs} {strength_label} ({points})",
@@ -198,8 +219,8 @@ def main(db: Session, archive_path: str, dataset_map: str, overwrite: bool) -> N
                     acmg_classification=acmg_classification.ACMGClassificationCreate(
                         points=int(points),
                     ),
-                    inclusive_lower_bound=True,
-                    inclusive_upper_bound=False,
+                    inclusive_lower_bound=inclusive_lower,
+                    inclusive_upper_bound=inclusive_upper,
                 )
                 functional_ranges.append(functional_range)
 
@@ -209,6 +230,7 @@ def main(db: Session, archive_path: str, dataset_map: str, overwrite: bool) -> N
                 research_use_only=True,
                 score_set_urn=score_set.urn,
                 calibration_metadata={"prior_probability_pathogenicity": calibration_data.get("prior", None)},
+                method_sources=[ZEIBERG_CALIBRATION_CITATION],
             )
 
             new_calibration_object = asyncio.run(
