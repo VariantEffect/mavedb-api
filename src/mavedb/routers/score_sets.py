@@ -4,6 +4,7 @@ import time
 from datetime import date, datetime
 from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
 
+import numpy as np
 import pandas as pd
 import requests
 from arq import ArqRedis
@@ -122,7 +123,7 @@ async def enqueue_variant_creation(
         }
         existing_scores_df = pd.DataFrame(
             variants_to_csv_rows(item.variants, columns=score_columns, namespaced=False)
-        ).replace("NA", pd.NA)
+        ).replace("NA", np.NaN)
 
     # create CSV from existing variants on the score set if no new dataframe provided
     existing_counts_df = None
@@ -133,7 +134,7 @@ async def enqueue_variant_creation(
         }
         existing_counts_df = pd.DataFrame(
             variants_to_csv_rows(item.variants, columns=count_columns, namespaced=False)
-        ).replace("NA", pd.NA)
+        ).replace("NA", np.NaN)
 
     # Await the insertion of this job into the worker queue, not the job itself.
     # Uses provided score and counts dataframes and metadata files, or falls back to existing data on the score set if not provided.
