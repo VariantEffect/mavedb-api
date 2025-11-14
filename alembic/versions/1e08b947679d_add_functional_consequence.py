@@ -1,17 +1,18 @@
 """Add functional consequence
 
 Revision ID: 1e08b947679d
-Revises: 019eb75ad9ae
+Revises: f5a72192fafd
 Create Date: 2025-09-17 11:15:52.091271
 
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "1e08b947679d"
-down_revision = "019eb75ad9ae"
+down_revision = "f5a72192fafd"
 branch_labels = None
 depends_on = None
 
