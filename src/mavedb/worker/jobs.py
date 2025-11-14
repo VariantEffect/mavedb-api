@@ -46,7 +46,6 @@ from mavedb.lib.score_sets import (
     columns_for_dataset,
     create_variants,
     create_variants_data,
-    get_hgvs_from_post_mapped,
 )
 from mavedb.lib.slack import log_and_send_slack_message, send_slack_error, send_slack_message
 from mavedb.lib.uniprot.constants import UNIPROT_ID_MAPPING_ENABLED
@@ -56,6 +55,7 @@ from mavedb.lib.validation.dataframe.dataframe import (
     validate_and_standardize_dataframe_pair,
 )
 from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.mapped_variant import MappedVariant

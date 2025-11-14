@@ -13,7 +13,7 @@ from mavedb.scripts.environment import with_database_session
 from mavedb.lib.clingen.services import ClinGenLdhService
 from mavedb.lib.clingen.constants import DEFAULT_LDH_SUBMISSION_BATCH_SIZE, LDH_SUBMISSION_ENDPOINT
 from mavedb.lib.clingen.content_constructors import construct_ldh_submission
-from mavedb.lib.score_sets import get_hgvs_from_post_mapped
+from mavedb.lib.variants import get_hgvs_from_post_mapped
 
 logger = logging.getLogger(__name__)
 

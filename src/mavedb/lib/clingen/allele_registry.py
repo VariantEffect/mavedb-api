@@ -4,7 +4,7 @@ import requests
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-CLINGEN_API_URL = "https://reg.test.genome.network/allele"
+CLINGEN_API_URL = "https://reg.genome.network/allele"
 
 
 def get_canonical_pa_ids(clingen_allele_id: str) -> list[str]:
