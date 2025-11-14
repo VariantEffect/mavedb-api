@@ -116,7 +116,7 @@ async def enqueue_variant_creation(
 
     # create CSV from existing variants on the score set if no new dataframe provided
     existing_scores_df = None
-    if new_scores_df is None:
+    if new_scores_df is None and item.dataset_columns.get("score_columns"):
         score_columns = {
             "core": ["hgvs_nt", "hgvs_splice", "hgvs_pro"],
             "scores": item.dataset_columns["score_columns"],
