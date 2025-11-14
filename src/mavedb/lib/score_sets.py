@@ -25,7 +25,7 @@ from mavedb.lib.mave.constants import (
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.utilities import is_null as validate_is_null
-from mavedb.lib.variants import get_digest_from_post_mapped
+from mavedb.lib.variants import get_digest_from_post_mapped, get_hgvs_from_post_mapped, is_hgvs_g, is_hgvs_p
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
@@ -782,8 +782,26 @@ def variant_to_csv_row(
     for column_key in columns.get("mavedb", []):
         if column_key == "post_mapped_hgvs_g":
             value = str(mapping.hgvs_g) if mapping and mapping.hgvs_g else na_rep
+            if value == na_rep:
+                fallback_hgvs = (
+                    get_hgvs_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
+                )
+                if fallback_hgvs is not None and is_hgvs_g(fallback_hgvs):
+                    value = fallback_hgvs
+                else:
+                    value = na_rep
+
         elif column_key == "post_mapped_hgvs_p":
             value = str(mapping.hgvs_p) if mapping and mapping.hgvs_p else na_rep
+            if value == na_rep:
+                fallback_hgvs = (
+                    get_hgvs_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
+                )
+                if fallback_hgvs is not None and is_hgvs_p(fallback_hgvs):
+                    value = fallback_hgvs
+                else:
+                    value = na_rep
+
         elif column_key == "post_mapped_hgvs_c":
             value = str(mapping.hgvs_c) if mapping and mapping.hgvs_c else na_rep
         elif column_key == "post_mapped_hgvs_at_assay_level":
