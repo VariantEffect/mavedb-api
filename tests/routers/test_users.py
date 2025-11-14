@@ -1,7 +1,8 @@
 # ruff: noqa: E402
 
-import pytest
 from unittest import mock
+
+import pytest
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
@@ -10,7 +11,6 @@ fastapi = pytest.importorskip("fastapi")
 from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import require_current_user
 from mavedb.models.enums.user_role import UserRole
-
 from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_USER, camelize
 from tests.helpers.dependency_overrider import DependencyOverrider
 
@@ -26,7 +26,7 @@ def test_cannot_list_users_as_anonymous_user(client, setup_router_db, anonymous_
 
 def test_cannot_list_users_as_normal_user(client, setup_router_db):
     response = client.get("/api/v1/users/")
-    assert response.status_code == 401
+    assert response.status_code == 403
     response_value = response.json()
     assert response_value["detail"] in "You are not authorized to use this feature"
 
@@ -117,7 +117,7 @@ def test_cannot_fetch_single_user_as_anonymous_user(client, setup_router_db, ses
 
 def test_cannot_fetch_single_user_as_normal_user(client, setup_router_db, session):
     response = client.get("/api/v1/users/2")
-    assert response.status_code == 401
+    assert response.status_code == 403
     assert response.json()["detail"] in "You are not authorized to use this feature"
 
     # Some lingering db transaction holds this test open unless it is explicitly closed.

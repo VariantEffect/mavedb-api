@@ -34,6 +34,15 @@ class MappedVariant(Base):
 
     clingen_allele_id = Column(String, index=True, nullable=True)
 
+    vep_functional_consequence = Column(String, nullable=True)
+    vep_access_date = Column(Date, nullable=True)
+
+    # mapped hgvs
+    hgvs_assay_level = Column(String, nullable=True)
+    hgvs_g = Column(String, nullable=True)
+    hgvs_c = Column(String, nullable=True)
+    hgvs_p = Column(String, nullable=True)
+
     clinical_controls: Mapped[list["ClinicalControl"]] = relationship(
         "ClinicalControl",
         secondary=mapped_variants_clinical_controls_association_table,

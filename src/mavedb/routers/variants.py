@@ -4,40 +4,68 @@ import re
 
 from fastapi import APIRouter, Depends
 from fastapi.exceptions import HTTPException
-from mavedb.lib.authentication import UserData, get_current_user
-from mavedb.lib.permissions import Action, assert_permission, has_permission
 from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.sql import or_
 
 from mavedb import deps
+from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.models.score_set import ScoreSet
+from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.models.variant_translation import VariantTranslation
+from mavedb.routers.shared import (
+    ACCESS_CONTROL_ERROR_RESPONSES,
+    BASE_400_RESPONSE,
+    PUBLIC_ERROR_RESPONSES,
+    ROUTER_BASE_PREFIX,
+)
 from mavedb.view_models.variant import (
-    ClingenAlleleIdVariantLookupsRequest,
     ClingenAlleleIdVariantLookupResponse,
+    ClingenAlleleIdVariantLookupsRequest,
     VariantEffectMeasurementWithScoreSet,
 )
 
-router = APIRouter(
-    prefix="/api/v1", tags=["access keys"], responses={404: {"description": "Not found"}}, route_class=LoggedRoute
-)
+TAG_NAME = "Variants"
 
 logger = logging.getLogger(__name__)
 
+router = APIRouter(
+    prefix=f"{ROUTER_BASE_PREFIX}",
+    tags=[TAG_NAME],
+    responses={**PUBLIC_ERROR_RESPONSES},
+    route_class=LoggedRoute,
+)
 
-@router.post("/variants/clingen-allele-id-lookups", response_model=list[ClingenAlleleIdVariantLookupResponse])
+metadata = {
+    "name": TAG_NAME,
+    "description": "Search and retrieve variants associated with MaveDB records.",
+}
+
+
+@router.post(
+    "/variants/clingen-allele-id-lookups",
+    status_code=200,
+    response_model=list[ClingenAlleleIdVariantLookupResponse],
+    responses={
+        **BASE_400_RESPONSE,
+        **ACCESS_CONTROL_ERROR_RESPONSES,
+    },
+    summary="Lookup variants by ClinGen Allele IDs",
+)
 def lookup_variants(
     *,
     request: ClingenAlleleIdVariantLookupsRequest,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(get_current_user),
 ):
+    """
+    Lookup variants by ClinGen Allele IDs.
+    """
     save_to_logging_context({"requested_resource": "clingen-allele-id-lookups"})
     save_to_logging_context({"clingen_allele_ids_to_lookup": request.clingen_allele_ids})
     logger.debug(msg="Looking up variants by Clingen Allele IDs", extra=logging_context())
@@ -409,8 +437,9 @@ def lookup_variants(
     "/variants/{urn}",
     status_code=200,
     response_model=VariantEffectMeasurementWithScoreSet,
-    responses={404: {}, 500: {}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     response_model_exclude_none=True,
+    summary="Fetch variant by URN",
 )
 def get_variant(*, urn: str, db: Session = Depends(deps.get_db), user_data: UserData = Depends(get_current_user)):
     """
@@ -421,9 +450,7 @@ def get_variant(*, urn: str, db: Session = Depends(deps.get_db), user_data: User
         query = db.query(Variant).filter(Variant.urn == urn)
         variant = query.one_or_none()
     except MultipleResultsFound:
-        logger.info(
-            msg="Could not fetch the requested score set; Multiple such variants exist.", extra=logging_context()
-        )
+        logger.info(msg="Could not fetch the requested variant; Multiple such variants exist.", extra=logging_context())
         raise HTTPException(status_code=500, detail=f"multiple variants with URN '{urn}' were found")
 
     if not variant:

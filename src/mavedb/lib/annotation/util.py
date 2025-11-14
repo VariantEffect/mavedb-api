@@ -1,3 +1,4 @@
+from typing import Literal
 from ga4gh.core.models import Extension
 from ga4gh.vrs.models import (
     MolecularVariation,
@@ -8,9 +9,9 @@ from ga4gh.vrs.models import (
     Expression,
     LiteralSequenceExpression,
 )
-from mavedb.lib.annotation.constants import CLINICAL_RANGES, FUNCTIONAL_RANGES
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
+from mavedb.view_models.score_calibration import SavedScoreCalibration
 
 
 def allele_from_mapped_variant_dictionary_result(allelic_mapping_results: dict) -> Allele:
@@ -162,31 +163,40 @@ def _can_annotate_variant_base_assumptions(mapped_variant: MappedVariant) -> boo
     return True
 
 
-def _variant_score_ranges_have_required_keys_and_ranges_for_annotation(
-    mapped_variant: MappedVariant, key_options: list[str]
+def _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
+    mapped_variant: MappedVariant, annotation_type: Literal["pathogenicity", "functional"]
 ) -> bool:
     """
-    Check if a mapped variant's score set contains any of the required score range keys for annotation and is present.
+    Check if a mapped variant's score set contains any of the required calibrations for annotation.
 
     Args:
         mapped_variant (MappedVariant): The mapped variant object containing the variant with score set data.
-        key_options (list[str]): List of possible score range keys to check for in the score set.
+        annotation_type (Literal["pathogenicity", "functional"]): The type of annotation to check for.
+            Must be either "pathogenicity" or "functional".
 
     Returns:
-        bool: False if none of the required keys are found or if all found keys have None values or if all found keys
-              do not have range data.
-              Returns True (implicitly) if at least one required key exists with a non-None value.
+        bool: False if none of the required kinds are found or if all found calibrations have None or empty functional
+         range values/do not have range data.
+              Returns True (implicitly) if at least one required kind exists and has a non-empty functional range.
     """
-    if mapped_variant.variant.score_set.score_ranges is None:
+    if mapped_variant.variant.score_set.score_calibrations is None:
         return False
 
-    if not any(
-        range_key in mapped_variant.variant.score_set.score_ranges
-        and mapped_variant.variant.score_set.score_ranges[range_key] is not None
-        and mapped_variant.variant.score_set.score_ranges[range_key]["ranges"]
-        for range_key in key_options
-    ):
+    # TODO#494: Support for multiple calibrations (all non-research use only).
+    primary_calibration = next((c for c in mapped_variant.variant.score_set.score_calibrations if c.primary), None)
+    if not primary_calibration:
         return False
+
+    saved_calibration = SavedScoreCalibration.model_validate(primary_calibration)
+    if annotation_type == "pathogenicity":
+        return (
+            saved_calibration.functional_ranges is not None
+            and len(saved_calibration.functional_ranges) > 0
+            and any(fr.acmg_classification is not None for fr in saved_calibration.functional_ranges)
+        )
+
+    if annotation_type == "functional":
+        return saved_calibration.functional_ranges is not None and len(saved_calibration.functional_ranges) > 0
 
     return True
 
@@ -195,10 +205,9 @@ def can_annotate_variant_for_pathogenicity_evidence(mapped_variant: MappedVarian
     """
     Determine if a mapped variant can be annotated for pathogenicity evidence.
 
-    This function checks whether a given mapped variant meets all the necessary
-    requirements to receive pathogenicity evidence annotations. It validates
-    both basic annotation assumptions and the presence of required clinical
-    score range keys.
+    This function checks if a variant meets all the necessary conditions to receive
+    pathogenicity evidence annotations by validating base assumptions and ensuring the variant's
+    score calibrations contain the required kinds for pathogenicity evidence annotation.
 
     Args:
         mapped_variant (MappedVariant): The mapped variant object to evaluate
@@ -211,14 +220,16 @@ def can_annotate_variant_for_pathogenicity_evidence(mapped_variant: MappedVarian
     Notes:
         The function performs two main validation checks:
         1. Basic annotation assumptions via _can_annotate_variant_base_assumptions
-        2. Required clinical range keys via _variant_score_ranges_have_required_keys_and_ranges_for_annotation
+        2. Verifies score calibrations have an appropriate calibration for pathogenicity evidence annotation.
 
         Both checks must pass for the variant to be considered eligible for
         pathogenicity evidence annotation.
     """
     if not _can_annotate_variant_base_assumptions(mapped_variant):
         return False
-    if not _variant_score_ranges_have_required_keys_and_ranges_for_annotation(mapped_variant, CLINICAL_RANGES):
+    if not _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
+        mapped_variant, "pathogenicity"
+    ):
         return False
 
     return True
@@ -230,7 +241,7 @@ def can_annotate_variant_for_functional_statement(mapped_variant: MappedVariant)
 
     This function checks if a variant meets all the necessary conditions to receive
     functional annotations by validating base assumptions and ensuring the variant's
-    score ranges contain the required keys for functional annotation.
+    score calibrations contain the required kinds for functional annotation.
 
     Args:
         mapped_variant (MappedVariant): The variant object to check for annotation
@@ -243,11 +254,13 @@ def can_annotate_variant_for_functional_statement(mapped_variant: MappedVariant)
     Notes:
         The function performs two main checks:
         1. Validates base assumptions using _can_annotate_variant_base_assumptions
-        2. Verifies score ranges have required keys using FUNCTIONAL_RANGES
+        2. Verifies score calibrations have an appropriate calibration for functional annotation.
     """
     if not _can_annotate_variant_base_assumptions(mapped_variant):
         return False
-    if not _variant_score_ranges_have_required_keys_and_ranges_for_annotation(mapped_variant, FUNCTIONAL_RANGES):
+    if not _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
+        mapped_variant, "functional"
+    ):
         return False
 
     return True

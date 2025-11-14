@@ -7,13 +7,25 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.lib.taxonomies import search_NCBI_taxonomy
 from mavedb.models.taxonomy import Taxonomy
+from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import taxonomy
 from mavedb.view_models.search import TextSearch
 
-router = APIRouter(prefix="/api/v1/taxonomies", tags=["taxonomies"], responses={404: {"description": "Not found"}})
+TAG_NAME = "Taxonomies"
+
+router = APIRouter(
+    prefix=f"{ROUTER_BASE_PREFIX}/taxonomies",
+    tags=[TAG_NAME],
+    responses={**PUBLIC_ERROR_RESPONSES},
+)
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Search and retrieve taxonomies associated with MaveDB records.",
+}
 
 
-@router.get("/", status_code=200, response_model=List[taxonomy.Taxonomy], responses={404: {}})
+@router.get("/", status_code=200, response_model=List[taxonomy.Taxonomy], summary="List taxonomies")
 def list_taxonomies(
     *,
     db: Session = Depends(deps.get_db),
@@ -25,7 +37,7 @@ def list_taxonomies(
     return items
 
 
-@router.get("/speciesNames", status_code=200, response_model=List[str], responses={404: {}})
+@router.get("/speciesNames", status_code=200, response_model=List[str], summary="List species names")
 def list_taxonomy_organism_names(
     *,
     db: Session = Depends(deps.get_db),
@@ -39,7 +51,7 @@ def list_taxonomy_organism_names(
     return sorted(list(set(organism_names)))
 
 
-@router.get("/commonNames", status_code=200, response_model=List[str], responses={404: {}})
+@router.get("/commonNames", status_code=200, response_model=List[str], summary="List common names")
 def list_taxonomy_common_names(
     *,
     db: Session = Depends(deps.get_db),
@@ -53,7 +65,7 @@ def list_taxonomy_common_names(
     return sorted(list(set(common_names)))
 
 
-@router.get("/{item_id}", status_code=200, response_model=taxonomy.Taxonomy, responses={404: {}})
+@router.get("/{item_id}", status_code=200, response_model=taxonomy.Taxonomy, summary="Fetch taxonomy by ID")
 def fetch_taxonomy(
     *,
     item_id: int,
@@ -68,7 +80,7 @@ def fetch_taxonomy(
     return item
 
 
-@router.get("/code/{item_id}", status_code=200, response_model=taxonomy.Taxonomy, responses={404: {}})
+@router.get("/code/{item_id}", status_code=200, response_model=taxonomy.Taxonomy, summary="Fetch taxonomy by code")
 def fetch_taxonomy_by_code(
     *,
     item_id: int,
@@ -83,7 +95,7 @@ def fetch_taxonomy_by_code(
     return item
 
 
-@router.post("/search", status_code=200, response_model=List[taxonomy.Taxonomy])
+@router.post("/search", status_code=200, response_model=List[taxonomy.Taxonomy], summary="Search taxonomies")
 async def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
     Search Taxonomy.

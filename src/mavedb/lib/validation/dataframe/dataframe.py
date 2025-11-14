@@ -1,25 +1,26 @@
-from typing import Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
 from mavedb.lib.exceptions import MixedTargetError
 from mavedb.lib.validation.constants.general import (
+    guide_sequence_column,
     hgvs_nt_column,
     hgvs_pro_column,
     hgvs_splice_column,
-    guide_sequence_column,
     required_score_column,
+)
+from mavedb.lib.validation.dataframe.column import validate_data_column
+from mavedb.lib.validation.dataframe.variant import (
+    validate_guide_sequence_column,
+    validate_hgvs_genomic_column,
+    validate_hgvs_prefix_combinations,
+    validate_hgvs_transgenic_column,
 )
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.target_gene import TargetGene
-from mavedb.lib.validation.dataframe.column import validate_data_column
-from mavedb.lib.validation.dataframe.variant import (
-    validate_hgvs_transgenic_column,
-    validate_hgvs_genomic_column,
-    validate_guide_sequence_column,
-    validate_hgvs_prefix_combinations,
-)
+from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 
 if TYPE_CHECKING:
     from cdot.hgvs.dataproviders import RESTDataProvider
@@ -28,12 +29,28 @@ if TYPE_CHECKING:
 STANDARD_COLUMNS = (hgvs_nt_column, hgvs_splice_column, hgvs_pro_column, required_score_column, guide_sequence_column)
 
 
+def clean_col_name(col: str) -> str:
+    col = col.strip()
+    # Only remove quotes if the column name is fully quoted
+    if (col.startswith('"') and col.endswith('"')) or (col.startswith("'") and col.endswith("'")):
+        col = col[1:-1]
+
+    return col.strip()
+
+
 def validate_and_standardize_dataframe_pair(
     scores_df: pd.DataFrame,
     counts_df: Optional[pd.DataFrame],
+    score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]],
+    count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]],
     targets: list[TargetGene],
     hdp: Optional["RESTDataProvider"],
-) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+) -> Tuple[
+    pd.DataFrame,
+    Optional[pd.DataFrame],
+    Optional[dict[str, DatasetColumnMetadata]],
+    Optional[dict[str, DatasetColumnMetadata]],
+]:
     """
     Perform validation and standardization on a pair of score and count dataframes.
 
@@ -43,6 +60,10 @@ def validate_and_standardize_dataframe_pair(
         The scores dataframe
     counts_df : Optional[pandas.DataFrame]
         The counts dataframe, can be None if not present
+    score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]]
+        The scores column metadata, can be None if not present
+    count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]]
+        The counts column metadata, can be None if not present
     targets : str
         The target genes on which to validate dataframes
     hdp : RESTDataProvider
@@ -50,8 +71,8 @@ def validate_and_standardize_dataframe_pair(
 
     Returns
     -------
-    Tuple[pd.DataFrame, Optional[pd.DataFrame]]
-        The standardized score and count dataframes, or score and None if no count dataframe was provided
+    Tuple[pd.DataFrame, Optional[pd.DataFrame], Optional[dict[str, DatasetColumnMetadata]], Optional[dict[str, DatasetColumnMetadata]]]
+        The standardized score and count dataframes, plus score column metadata and counts column metadata dictionaries. Counts dataframe and column metadata dictionaries can be None if not provided.
 
     Raises
     ------
@@ -65,11 +86,32 @@ def validate_and_standardize_dataframe_pair(
     standardized_counts_df = standardize_dataframe(counts_df) if counts_df is not None else None
 
     validate_dataframe(standardized_scores_df, "scores", targets, hdp)
+
+    if score_columns_metadata is not None:
+        standardized_score_columns_metadata = standardize_dict_keys(score_columns_metadata)
+        validate_df_column_metadata_match(standardized_scores_df, standardized_score_columns_metadata)
+    else:
+        standardized_score_columns_metadata = None
+
     if standardized_counts_df is not None:
         validate_dataframe(standardized_counts_df, "counts", targets, hdp)
         validate_variant_columns_match(standardized_scores_df, standardized_counts_df)
+        if count_columns_metadata is not None:
+            standardized_count_columns_metadata = standardize_dict_keys(count_columns_metadata)
+            validate_df_column_metadata_match(standardized_counts_df, standardized_count_columns_metadata)
+        else:
+            standardized_count_columns_metadata = None
+    else:
+        if count_columns_metadata is not None and len(count_columns_metadata.keys()) > 0:
+            raise ValidationError("Counts column metadata provided without counts dataframe")
+        standardized_count_columns_metadata = None
 
-    return standardized_scores_df, standardized_counts_df
+    return (
+        standardized_scores_df,
+        standardized_counts_df,
+        standardized_score_columns_metadata,
+        standardized_count_columns_metadata,
+    )
 
 
 def validate_dataframe(
@@ -163,6 +205,25 @@ def validate_dataframe(
     )
 
 
+def standardize_dict_keys(d: dict[str, Any]) -> dict[str, Any]:
+    """
+    Standardize the keys of a dictionary by stripping leading and trailing whitespace
+    and removing any quoted strings from the keys.
+
+    Parameters
+    ----------
+    d : dict[str, DatasetColumnMetadata]
+        The dictionary to standardize
+
+    Returns
+    -------
+    dict[str, DatasetColumnMetadata]
+        The standardized dictionary
+    """
+
+    return {clean_col_name(k): v for k, v in d.items()}
+
+
 def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """Standardize a dataframe by sorting the columns and changing the standard column names to lowercase.
     Also strips leading and trailing whitespace from column names and removes any quoted strings from column names.
@@ -186,15 +247,7 @@ def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         The standardized dataframe
     """
 
-    def clean_column(col: str) -> str:
-        col = col.strip()
-        # Only remove quotes if the column name is fully quoted
-        if (col.startswith('"') and col.endswith('"')) or (col.startswith("'") and col.endswith("'")):
-            col = col[1:-1]
-
-        return col.strip()
-
-    cleaned_columns = {c: clean_column(c) for c in df.columns}
+    cleaned_columns = {c: clean_col_name(c) for c in df.columns}
     df.rename(columns=cleaned_columns, inplace=True)
 
     column_mapper = {x: x.lower() for x in df.columns if x.lower() in STANDARD_COLUMNS}
@@ -366,6 +419,32 @@ def validate_variant_consistency(df: pd.DataFrame) -> None:
     """
     # TODO
     pass
+
+
+def validate_df_column_metadata_match(df: pd.DataFrame, columnMetadata: dict[str, DatasetColumnMetadata]):
+    """
+    Checks that metadata keys match the dataframe column names and exclude standard column names.
+
+    Parameters
+    ----------
+    df1 : pandas.DataFrame
+        Dataframe parsed from an uploaded scores file
+    columnMetadata : dict[str, DatasetColumnMetadata]
+        Metadata for the scores columns
+
+    Raises
+    ------
+    ValidationError
+        If any metadata keys do not match dataframe column names
+    ValidationError
+        If any metadata keys match standard columns
+
+    """
+    for key in columnMetadata.keys():
+        if key.lower() in STANDARD_COLUMNS:
+            raise ValidationError(f"standard column '{key}' cannot have metadata defined")
+        elif key not in df.columns:
+            raise ValidationError(f"column metadata key '{key}' does not match any dataframe column names")
 
 
 def validate_variant_columns_match(df1: pd.DataFrame, df2: pd.DataFrame):

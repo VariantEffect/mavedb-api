@@ -5,38 +5,54 @@ from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.models.license import License
+from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import license
 
-router = APIRouter(prefix="/api/v1/licenses", tags=["licenses"], responses={404: {"description": "Not found"}})
+TAG_NAME = "Licenses"
+
+router = APIRouter(
+    prefix=f"{ROUTER_BASE_PREFIX}/licenses",
+    tags=[TAG_NAME],
+    responses={**PUBLIC_ERROR_RESPONSES},
+)
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Retrieve information about licenses supported by MaveDB.",
+    "externalDocs": {
+        "description": "Licenses Documentation",
+        "url": "https://mavedb.org/docs/mavedb/data_licensing.html",
+    },
+}
 
 
-@router.get("/", status_code=200, response_model=List[license.ShortLicense], responses={404: {}})
+@router.get("/", status_code=200, response_model=List[license.ShortLicense], summary="List all licenses")
 def list_licenses(
     *,
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """
-    List licenses.
+    List all supported licenses.
     """
 
     items = db.query(License).order_by(License.short_name).all()
     return items
 
 
-@router.get("/active", status_code=200, response_model=List[license.ShortLicense], responses={404: {}})
+@router.get("/active", status_code=200, response_model=List[license.ShortLicense], summary="List active licenses")
 def list_active_licenses(
     *,
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """
-    List active licenses.
+    List all active licenses.
     """
 
     items = db.query(License).where(License.active.is_(True)).order_by(License.short_name).all()
     return items
 
 
-@router.get("/{item_id}", status_code=200, response_model=license.License, responses={404: {}})
+@router.get("/{item_id}", status_code=200, response_model=license.License, summary="Fetch license by ID")
 def fetch_license(
     *,
     item_id: int,

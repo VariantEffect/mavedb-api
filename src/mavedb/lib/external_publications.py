@@ -7,10 +7,10 @@ import json
 import logging
 import re
 from typing import Any, Optional, Union
-from typing_extensions import TypedDict
 
 import requests
 from idutils import is_doi
+from typing_extensions import TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ class RxivPublication:
         self.published_date = datetime.datetime.strptime(published_date, "%Y-%m-%d") if published_date else None
 
     def generate_author_list(self, metadata: dict[str, str]) -> list[PublicationAuthors]:
-        authors = [s.strip() for s in metadata.get("preprint_authors", "").split(";")]
+        authors = [s.strip() for s in metadata.get("authors", "").split(";")]
         return [{"name": author, "primary": idx == 0} for idx, author in enumerate(authors)]
 
 
@@ -201,10 +201,10 @@ class RxivPublicationDetail(RxivPublication):
               not be the case for certain publications.
         """
         super().__init__(metadata)
-        self.author_corresponding = metadata.get("preprint_author_corresponding")
-        self.author_corresponding_institution = metadata.get("preprint_author_corresponding_institution")
-        self.platform = metadata.get("preprint_platform")
-        self.abstract = metadata.get("preprint_abstract")
+        self.author_corresponding = metadata.get("author_corresponding")
+        self.author_corresponding_institution = metadata.get("author_corresponding_institution")
+        self.platform = metadata.get("platform")
+        self.abstract = metadata.get("abstract")
         self.published_journal = metadata.get("published_journal")
 
         self.authors = self.generate_author_list(metadata)

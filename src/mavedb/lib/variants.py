@@ -1,7 +1,6 @@
 import re
 from typing import Any, Optional
 
-
 HGVS_G_REGEX = re.compile(r"(^|:)g\.")
 HGVS_P_REGEX = re.compile(r"(^|:)p\.")
 
@@ -46,6 +45,23 @@ def get_hgvs_from_post_mapped(post_mapped_vrs: Optional[Any]) -> Optional[str]:
         # raise ValueError(f"Multiple variations found in variant {variant_urn}.")
 
     return variations_hgvs[0]
+
+
+def get_digest_from_post_mapped(post_mapped_vrs: Optional[Any]) -> Optional[str]:
+    """
+    Extract the digest value from a post-mapped VRS object.
+
+    Args:
+        post_mapped_vrs: A post-mapped VRS (Variation Representation Specification) object
+                        that may contain a digest field. Can be None.
+
+    Returns:
+        The digest string if present in the post_mapped_vrs object, otherwise None.
+    """
+    if not post_mapped_vrs:
+        return None
+
+    return post_mapped_vrs.get("digest")  # type: ignore
 
 
 # TODO (https://github.com/VariantEffect/mavedb-api/issues/440) Temporarily, we are using these functions to distinguish

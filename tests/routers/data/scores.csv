@@ -1,4 +1,4 @@
-hgvs_nt,hgvs_pro,score
-c.1A>T,p.Thr1Ser,0.3
-c.2C>T,p.Thr1Met,1.0
-c.6T>A,p.Phe2Leu,-1.65
+hgvs_nt,hgvs_pro,score,s_0,s_1
+c.1A>T,p.Thr1Ser,0.3,val1,val1
+c.2C>T,p.Thr1Met,1.0,val2,val2
+c.6T>A,p.Phe2Leu,-1.65,val3,val3

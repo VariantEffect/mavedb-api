@@ -6,19 +6,33 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.lib.keywords import search_keyword as _search_keyword
 from mavedb.models.controlled_keyword import ControlledKeyword
+from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import keyword
 
+TAG_NAME = "Controlled Keywords"
+
 router = APIRouter(
-    prefix="/api/v1/controlled-keywords", tags=["controlled-keywords"], responses={404: {"description": "Not found"}}
+    prefix=f"{ROUTER_BASE_PREFIX}/controlled-keywords",
+    tags=[TAG_NAME],
+    responses={**PUBLIC_ERROR_RESPONSES},
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Retrieve controlled keywords used for annotating MaveDB records.",
+    "externalDocs": {
+        "description": "Controlled Keywords Schema",
+        "url": "https://github.com/ave-dcd/mave_vocabulary?tab=readme-ov-file",
+    },
+}
 
 
 @router.get(
     "/{key}",
     status_code=200,
     response_model=list[keyword.Keyword],
-    responses={404: {}},
     response_model_exclude_none=True,
+    summary="Fetch keywords by category",
 )
 def fetch_keywords_by_key(
     *,
@@ -26,7 +40,7 @@ def fetch_keywords_by_key(
     db: Session = Depends(deps.get_db),
 ) -> list[ControlledKeyword]:
     """
-    Fetch keywords by category.
+    Fetch the controlled keywords for a given key.
     """
     lower_key = key.lower()
     items = (
@@ -40,9 +54,11 @@ def fetch_keywords_by_key(
     return items
 
 
-@router.post("/search/{key}/{value}", status_code=200, response_model=keyword.Keyword)
+@router.post(
+    "/search/{key}/{value}", status_code=200, response_model=keyword.Keyword, summary="Search keyword by key and value"
+)
 def search_keyword_by_key_and_value(key: str, label: str, db: Session = Depends(deps.get_db)) -> ControlledKeyword:
     """
-    Search keywords.
+    Search controlled keywords by key and label.
     """
     return _search_keyword(db, key, label)

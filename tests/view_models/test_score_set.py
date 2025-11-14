@@ -1,22 +1,22 @@
-import pytest
 from copy import deepcopy
 
-from humps import camelize
+import pytest
 
 from mavedb.view_models.publication_identifier import PublicationIdentifier, PublicationIdentifierCreate
-from mavedb.view_models.score_set import SavedScoreSet, ScoreSetCreate, ScoreSetModify
+from mavedb.view_models.score_set import SavedScoreSet, ScoreSetCreate, ScoreSetModify, ScoreSetUpdateAllOptional
 from mavedb.view_models.target_gene import SavedTargetGene, TargetGeneCreate
-
 from tests.helpers.constants import (
-    TEST_PUBMED_IDENTIFIER,
-    TEST_MINIMAL_ACC_SCORESET,
-    TEST_MINIMAL_SEQ_SCORESET,
-    TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED,
-    TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION,
-    TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT,
+    EXTRA_LICENSE,
+    EXTRA_USER,
     SAVED_PUBMED_PUBLICATION,
     TEST_BIORXIV_IDENTIFIER,
+    TEST_BRNICH_SCORE_CALIBRATION,
+    TEST_CROSSREF_IDENTIFIER,
+    TEST_MINIMAL_ACC_SCORESET,
+    TEST_MINIMAL_SEQ_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
+    TEST_PATHOGENICITY_SCORE_CALIBRATION,
+    TEST_PUBMED_IDENTIFIER,
     VALID_EXPERIMENT_URN,
     VALID_SCORE_SET_URN,
     VALID_TMP_URN,
@@ -230,65 +230,31 @@ def test_cannot_create_score_set_with_an_empty_method():
     assert "methodText" in str(exc_info.value)
 
 
-@pytest.mark.parametrize("publication_key", ["primary_publication_identifiers", "secondary_publication_identifiers"])
-def test_can_create_score_set_with_investigator_provided_score_range(publication_key):
+@pytest.mark.parametrize(
+    "calibration", [deepcopy(TEST_BRNICH_SCORE_CALIBRATION), deepcopy(TEST_PATHOGENICITY_SCORE_CALIBRATION)]
+)
+def test_can_create_score_set_with_complete_and_valid_provided_calibrations(calibration):
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)
-    score_set_test[publication_key] = [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}]
+    score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
+    score_set_test["score_calibrations"] = [calibration]
 
-    ScoreSetModify(**score_set_test)
+    score_set = ScoreSetCreate.model_validate(score_set_test)
+
+    assert len(score_set.score_calibrations) == 1
 
 
-def test_cannot_create_score_set_with_investigator_provided_score_range_if_odds_path_source_not_in_score_set_publications():
+def test_can_create_score_set_with_multiple_valid_calibrations():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)
+    score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
+    score_set_test["score_calibrations"] = [
+        deepcopy(TEST_BRNICH_SCORE_CALIBRATION),
+        deepcopy(TEST_BRNICH_SCORE_CALIBRATION),
+        deepcopy(TEST_PATHOGENICITY_SCORE_CALIBRATION),
+    ]
 
-    with pytest.raises(
-        ValueError,
-        match=r".*Odds path source publication at index {} is not defined in score set publications.*".format(0),
-    ):
-        ScoreSetModify(**score_set_test)
+    score_set = ScoreSetCreate.model_validate(score_set_test)
 
-
-def test_cannot_create_score_set_with_investigator_provided_score_range_if_source_not_in_score_set_publications():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_INVESTIGATOR_PROVIDED)
-    score_set_test["score_ranges"]["investigator_provided"]["odds_path_source"] = None
-
-    with pytest.raises(
-        ValueError,
-        match=r".*Score range source publication at index {} is not defined in score set publications.*".format(0),
-    ):
-        ScoreSetModify(**score_set_test)
-
-
-@pytest.mark.parametrize("publication_key", ["primary_publication_identifiers", "secondary_publication_identifiers"])
-def test_can_create_score_set_with_zeiberg_calibration_score_range(publication_key):
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION)
-    score_set_test[publication_key] = [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}]
-
-    ScoreSetModify(**score_set_test)
-
-
-def test_cannot_create_score_set_with_zeiberg_calibration_score_range_if_source_not_in_score_set_publications():
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ONLY_ZEIBERG_CALIBRATION)
-
-    with pytest.raises(
-        ValueError,
-        match=r".*Score range source publication at index {} is not defined in score set publications.*".format(0),
-    ):
-        ScoreSetModify(**score_set_test)
-
-
-@pytest.mark.parametrize("publication_key", ["primary_publication_identifiers", "secondary_publication_identifiers"])
-def test_can_create_score_set_with_ranges_and_calibrations(publication_key):
-    score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
-    score_set_test["score_ranges"] = deepcopy(TEST_SCORE_SET_RANGES_ALL_SCHEMAS_PRESENT)
-    score_set_test[publication_key] = [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}]
-
-    ScoreSetModify(**score_set_test)
+    assert len(score_set.score_calibrations) == 3
 
 
 def test_cannot_create_score_set_with_inconsistent_base_editor_flags():
@@ -383,65 +349,26 @@ def test_saved_score_set_synthetic_properties():
     )
 
 
-def test_saved_score_set_data_set_columns_are_camelized():
-    score_set = TEST_MINIMAL_SEQ_SCORESET_RESPONSE.copy()
-    score_set["urn"] = "urn:score-set-xxx"
-
-    # Remove pre-set synthetic properties
-    score_set.pop("metaAnalyzesScoreSetUrns")
-    score_set.pop("metaAnalyzedByScoreSetUrns")
-    score_set.pop("primaryPublicationIdentifiers")
-    score_set.pop("secondaryPublicationIdentifiers")
-    score_set.pop("datasetColumns")
-
-    # Convert fields expecting an object to attributed objects
-    external_identifiers = {"refseq_offset": None, "ensembl_offset": None, "uniprot_offset": None}
-    target_genes = [
-        dummy_attributed_object_from_dict({**target, **external_identifiers}) for target in score_set["targetGenes"]
-    ]
-    score_set["targetGenes"] = [SavedTargetGene.model_validate(target) for target in target_genes]
-
-    # Set synthetic properties with dummy attributed objects to mock SQLAlchemy model objects.
-    score_set["meta_analyzes_score_sets"] = [
-        dummy_attributed_object_from_dict({"urn": "urn:meta-analyzes-xxx", "superseding_score_set": None})
-    ]
-    score_set["meta_analyzed_by_score_sets"] = [
-        dummy_attributed_object_from_dict({"urn": "urn:meta-analyzed-xxx", "superseding_score_set": None})
-    ]
-    score_set["publication_identifier_associations"] = [
-        dummy_attributed_object_from_dict(
-            {
-                "publication": PublicationIdentifier(**SAVED_PUBMED_PUBLICATION),
-                "primary": True,
-            }
-        ),
-        dummy_attributed_object_from_dict(
-            {
-                "publication": PublicationIdentifier(
-                    **{**SAVED_PUBMED_PUBLICATION, **{"identifier": TEST_BIORXIV_IDENTIFIER}}
-                ),
-                "primary": False,
-            }
-        ),
-        dummy_attributed_object_from_dict(
-            {
-                "publication": PublicationIdentifier(
-                    **{**SAVED_PUBMED_PUBLICATION, **{"identifier": TEST_BIORXIV_IDENTIFIER}}
-                ),
-                "primary": False,
-            }
-        ),
-    ]
-
-    # The camelized dataset columns we are testing
-    score_set["dataset_columns"] = {"camelize_me": "test", "noNeed": "test"}
-
-    score_set_attributed_object = dummy_attributed_object_from_dict(score_set)
-    saved_score_set = SavedScoreSet.model_validate(score_set_attributed_object)
-
-    assert sorted(list(saved_score_set.dataset_columns.keys())) == sorted(
-        [camelize(k) for k in score_set["dataset_columns"].keys()]
-    )
+@pytest.mark.parametrize(
+    "attribute,updated_data",
+    [
+        ("title", "Updated Title"),
+        ("method_text", "Updated Method Text"),
+        ("abstract_text", "Updated Abstract Text"),
+        ("short_description", "Updated Abstract Text"),
+        ("title", "Updated Title"),
+        ("extra_metadata", {"updated": "metadata"}),
+        ("data_usage_policy", "data_usage_policy"),
+        ("contributors", [{"orcid_id": EXTRA_USER["username"]}]),
+        ("primary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}]),
+        ("secondary_publication_identifiers", [{"identifier": TEST_PUBMED_IDENTIFIER}]),
+        ("doi_identifiers", [{"identifier": TEST_CROSSREF_IDENTIFIER}]),
+        ("license_id", EXTRA_LICENSE["id"]),
+        ("target_genes", TEST_MINIMAL_SEQ_SCORESET["targetGenes"]),
+    ],
+)
+def test_score_set_update_all_optional(attribute, updated_data):
+    ScoreSetUpdateAllOptional(**{attribute: updated_data})
 
 
 @pytest.mark.parametrize(

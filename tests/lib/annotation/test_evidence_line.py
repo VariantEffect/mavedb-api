@@ -26,15 +26,22 @@ from mavedb.lib.annotation.proposition import mapped_variant_to_experimental_var
     ],
 )
 def test_acmg_evidence_line_with_met_valid_clinical_classification(
-    mock_mapped_variant, expected_outcome, expected_strength, expected_direction
+    mock_mapped_variant_with_pathogenicity_calibration_score_set,
+    expected_outcome,
+    expected_strength,
+    expected_direction,
 ):
     with patch(
-        "mavedb.lib.annotation.evidence_line.zeiberg_calibration_clinical_classification_of_variant",
+        "mavedb.lib.annotation.evidence_line.pathogenicity_classification_of_variant",
         return_value=(expected_outcome, expected_strength),
     ):
-        proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mock_mapped_variant)
-        evidence = variant_functional_impact_statement(mock_mapped_variant)
-        result = acmg_evidence_line(mock_mapped_variant, proposition, [evidence])
+        proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(
+            mock_mapped_variant_with_pathogenicity_calibration_score_set
+        )
+        evidence = variant_functional_impact_statement(mock_mapped_variant_with_pathogenicity_calibration_score_set)
+        result = acmg_evidence_line(
+            mock_mapped_variant_with_pathogenicity_calibration_score_set, proposition, [evidence]
+        )
 
     if expected_strength == StrengthOfEvidenceProvided.STRONG:
         expected_evidence_outcome = expected_outcome.value
@@ -42,7 +49,10 @@ def test_acmg_evidence_line_with_met_valid_clinical_classification(
         expected_evidence_outcome = f"{expected_outcome.value}_{expected_strength.name.lower()}"
 
     assert isinstance(result, VariantPathogenicityEvidenceLine)
-    assert result.description == f"Pathogenicity evidence line {mock_mapped_variant.variant.urn}."
+    assert (
+        result.description
+        == f"Pathogenicity evidence line {mock_mapped_variant_with_pathogenicity_calibration_score_set.variant.urn}."
+    )
     assert result.evidenceOutcome.primaryCoding.code.root == expected_evidence_outcome
     assert result.evidenceOutcome.primaryCoding.system == "ACMG Guidelines, 2015"
     assert result.evidenceOutcome.name == f"ACMG 2015 {expected_outcome.name} Criterion Met"
@@ -56,21 +66,30 @@ def test_acmg_evidence_line_with_met_valid_clinical_classification(
     assert result.hasEvidenceItems[0] == evidence
 
 
-def test_acmg_evidence_line_with_not_met_clinical_classification(mock_mapped_variant):
+def test_acmg_evidence_line_with_not_met_clinical_classification(
+    mock_mapped_variant_with_pathogenicity_calibration_score_set,
+):
     expected_outcome = VariantPathogenicityEvidenceLine.Criterion.PS3
     expected_strength = None
     expected_evidence_outcome = f"{expected_outcome.value}_not_met"
 
     with patch(
-        "mavedb.lib.annotation.evidence_line.zeiberg_calibration_clinical_classification_of_variant",
+        "mavedb.lib.annotation.evidence_line.pathogenicity_classification_of_variant",
         return_value=(expected_outcome, expected_strength),
     ):
-        proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mock_mapped_variant)
-        evidence = variant_functional_impact_statement(mock_mapped_variant)
-        result = acmg_evidence_line(mock_mapped_variant, proposition, [evidence])
+        proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(
+            mock_mapped_variant_with_pathogenicity_calibration_score_set
+        )
+        evidence = variant_functional_impact_statement(mock_mapped_variant_with_pathogenicity_calibration_score_set)
+        result = acmg_evidence_line(
+            mock_mapped_variant_with_pathogenicity_calibration_score_set, proposition, [evidence]
+        )
 
     assert isinstance(result, VariantPathogenicityEvidenceLine)
-    assert result.description == f"Pathogenicity evidence line {mock_mapped_variant.variant.urn}."
+    assert (
+        result.description
+        == f"Pathogenicity evidence line {mock_mapped_variant_with_pathogenicity_calibration_score_set.variant.urn}."
+    )
     assert result.evidenceOutcome.primaryCoding.code.root == expected_evidence_outcome
     assert result.evidenceOutcome.primaryCoding.system == "ACMG Guidelines, 2015"
     assert result.evidenceOutcome.name == f"ACMG 2015 {expected_outcome.name} Criterion Not Met"
@@ -83,15 +102,15 @@ def test_acmg_evidence_line_with_not_met_clinical_classification(mock_mapped_var
     assert result.hasEvidenceItems[0] == evidence
 
 
-def test_acmg_evidence_line_with_no_score_thresholds(mock_mapped_variant):
-    mock_mapped_variant.variant.score_set.score_ranges = None
+def test_acmg_evidence_line_with_no_calibrations(mock_mapped_variant):
+    mock_mapped_variant.variant.score_set.score_calibrations = None
 
     with pytest.raises(ValueError) as exc:
         proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mock_mapped_variant)
         evidence = variant_functional_impact_statement(mock_mapped_variant)
         acmg_evidence_line(mock_mapped_variant, proposition, [evidence])
 
-    assert f"Variant {mock_mapped_variant.variant.urn} does not have a score set with score thresholds" in str(
+    assert f"Variant {mock_mapped_variant.variant.urn} does not have a score set with score calibrations" in str(
         exc.value
     )
 

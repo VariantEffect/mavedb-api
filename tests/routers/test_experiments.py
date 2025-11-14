@@ -21,7 +21,6 @@ from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.view_models.orcid import OrcidUser
-
 from tests.helpers.constants import (
     EXTRA_USER,
     TEST_BIORXIV_IDENTIFIER,
@@ -41,9 +40,9 @@ from tests.helpers.constants import (
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.contributor import add_contributor
-from tests.helpers.util.user import change_ownership
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import create_seq_score_set, create_seq_score_set_with_variants, publish_score_set
+from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import mock_worker_variant_insertion
 
 
@@ -104,7 +103,7 @@ def test_cannot_create_experiment_with_nonexistent_contributor(client, setup_rou
     ):
         response = client.post("/api/v1/experiments/", json=experiment)
 
-    assert response.status_code == 422
+    assert response.status_code == 404
     response_data = response.json()
 
     assert "No ORCID user was found for ORCID ID 1111-1111-1111-1111." in response_data["detail"]
@@ -127,7 +126,7 @@ def test_create_experiment_with_keywords(session, client, setup_router_db):
 def test_cannot_create_experiment_without_email(client, setup_router_db):
     client.put("api/v1/users/me", json={"email": None})
     response = client.post("/api/v1/experiments/", json=TEST_MINIMAL_EXPERIMENT)
-    assert response.status_code == 400
+    assert response.status_code == 403
     response_data = response.json()
     assert response_data["detail"] == "There must be an email address associated with your account to use this feature."
 
@@ -734,7 +733,7 @@ def test_cannot_add_nonexistent_contributor_to_experiment(client, setup_router_d
     ):
         response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
 
-    assert response.status_code == 422
+    assert response.status_code == 404
     response_data = response.json()
 
     assert "No ORCID user was found for ORCID ID 1111-1111-1111-1111." in response_data["detail"]

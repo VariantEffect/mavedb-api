@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import APIRouter, Depends
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
+from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from mavedb import deps
@@ -17,14 +18,26 @@ from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.models.access_key import AccessKey
 from mavedb.models.enums.user_role import UserRole
+from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import access_key
 
+TAG_NAME = "Access Keys"
+
 router = APIRouter(
-    prefix="/api/v1",
-    tags=["access keys"],
-    responses={404: {"description": "Not found"}},
+    prefix=f"{ROUTER_BASE_PREFIX}",
+    tags=[TAG_NAME],
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Manage API access keys for programmatic access to the MaveDB API.",
+    "externalDocs": {
+        "description": "Access Keys Documentation",
+        "url": "https://mavedb.org/docs/mavedb/accounts.html#api-access-tokens",
+    },
+}
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +62,8 @@ def generate_key_pair():
     "/users/me/access-keys",
     status_code=200,
     response_model=list[access_key.AccessKey],
-    responses={404: {}, 500: {}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="List my access keys",
 )
 def list_my_access_keys(*, user_data: UserData = Depends(require_current_user)) -> Any:
     """
@@ -62,7 +76,8 @@ def list_my_access_keys(*, user_data: UserData = Depends(require_current_user)) 
     "/users/me/access-keys",
     status_code=200,
     response_model=access_key.NewAccessKey,
-    responses={404: {}, 500: {}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Create a new access key for myself",
 )
 def create_my_access_key(
     *,
@@ -88,7 +103,8 @@ def create_my_access_key(
     "/users/me/access-keys/{role}",
     status_code=200,
     response_model=access_key.NewAccessKey,
-    responses={404: {}, 500: {}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Create a new access key for myself with a specified role",
 )
 async def create_my_access_key_with_role(
     *,
@@ -125,7 +141,12 @@ async def create_my_access_key_with_role(
     return response_item
 
 
-@router.delete("/users/me/access-keys/{key_id}", status_code=200, responses={404: {}, 500: {}})
+@router.delete(
+    "/users/me/access-keys/{key_id}",
+    status_code=200,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Delete one of my access keys",
+)
 def delete_my_access_key(
     *,
     key_id: str,
@@ -135,8 +156,20 @@ def delete_my_access_key(
     """
     Delete one of the current user's access keys.
     """
-    item = db.query(AccessKey).filter(AccessKey.key_id == key_id).one_or_none()
-    if item and item.user.id == user_data.user.id:
-        db.delete(item)
-        db.commit()
-        logger.debug(msg="Successfully deleted provided API key.", extra=logging_context())
+    item = (
+        db.query(AccessKey)
+        .filter(and_(AccessKey.key_id == key_id, AccessKey.user_id == user_data.user.id))
+        .one_or_none()
+    )
+
+    if not item:
+        logger.warning(
+            msg="Could not delete API key; Provided key ID does not exist and/or does not belong to the current user.",
+            extra=logging_context(),
+        )
+        # Never acknowledge the existence of an access key that doesn't belong to the user.
+        raise HTTPException(status_code=404, detail=f"Access key with ID {key_id} not found.")
+
+    db.delete(item)
+    db.commit()
+    logger.debug(msg="Successfully deleted provided API key.", extra=logging_context())

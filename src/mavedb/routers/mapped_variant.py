@@ -4,31 +4,33 @@ from typing import Annotated, Any, Optional
 from fastapi import APIRouter, Depends, Path
 from fastapi.exceptions import HTTPException
 from ga4gh.core.identifiers import GA4GH_IR_REGEXP
-from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
+from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from sqlalchemy import or_, select
 from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.annotation.annotate import (
-    variant_study_result,
     variant_functional_impact_statement,
     variant_pathogenicity_evidence,
+    variant_study_result,
 )
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import get_current_user
-from mavedb.lib.permissions import has_permission
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
     logging_context,
     save_to_logging_context,
 )
-from mavedb.lib.permissions import Action, assert_permission
+from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
+from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import mapped_variant
+
+TAG_NAME = "Mapped Variants"
 
 logger = logging.getLogger(__name__)
 
@@ -69,19 +71,30 @@ async def fetch_mapped_variant_by_variant_urn(db: Session, user: Optional[UserDa
 
 
 router = APIRouter(
-    prefix="/api/v1/mapped-variants",
-    tags=["mapped variants"],
-    responses={404: {"description": "Not found"}},
+    prefix=f"{ROUTER_BASE_PREFIX}/mapped-variants",
+    tags=[TAG_NAME],
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
+metadata = {
+    "name": TAG_NAME,
+    "description": "Retrieve mapped variants and their associated variant annotations.",
+}
 
-@router.get("/{urn}", status_code=200, response_model=mapped_variant.MappedVariant, responses={404: {}, 500: {}})
+
+@router.get(
+    "/{urn}",
+    status_code=200,
+    response_model=mapped_variant.MappedVariant,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Fetch mapped variant by URN",
+)
 async def show_mapped_variant(
     *, urn: str, db: Session = Depends(deps.get_db), user: Optional[UserData] = Depends(get_current_user)
 ) -> Any:
     """
-    Fetch a mapped variant by URN.
+    Fetch a single mapped variant by URN.
     """
     save_to_logging_context({"requested_resource": urn})
 
@@ -92,13 +105,14 @@ async def show_mapped_variant(
     "/{urn}/va/study-result",
     status_code=200,
     response_model=ExperimentalVariantFunctionalImpactStudyResult,
-    responses={404: {}, 500: {}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Construct a VA-Spec StudyResult from a mapped variant",
 )
 async def show_mapped_variant_study_result(
     *, urn: str, db: Session = Depends(deps.get_db), user: Optional[UserData] = Depends(get_current_user)
 ) -> ExperimentalVariantFunctionalImpactStudyResult:
     """
-    Construct a VA-Spec StudyResult from a mapped variant.
+    Construct a single VA-Spec StudyResult from a mapped variant by URN.
     """
     save_to_logging_context({"requested_resource": urn})
 
@@ -111,16 +125,22 @@ async def show_mapped_variant_study_result(
             msg=f"Could not construct a study result for mapped variant {urn}: {e}",
             extra=logging_context(),
         )
-        raise HTTPException(status_code=404, detail=f"Could not construct a study result for mapped variant {urn}: {e}")
+        raise HTTPException(status_code=404, detail=f"No study result exists for mapped variant {urn}: {e}")
 
 
 # TODO#416: For now, this route supports only one statement per mapped variant. Eventually, we should support the possibility of multiple statements.
-@router.get("/{urn}/va/functional-impact", status_code=200, response_model=Statement, responses={404: {}, 500: {}})
+@router.get(
+    "/{urn}/va/functional-impact",
+    status_code=200,
+    response_model=Statement,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Construct a VA-Spec Statement from a mapped variant",
+)
 async def show_mapped_variant_functional_impact_statement(
     *, urn: str, db: Session = Depends(deps.get_db), user: Optional[UserData] = Depends(get_current_user)
 ) -> Statement:
     """
-    Construct a VA-Spec Statement from a mapped variant.
+    Construct a single VA-Spec Statement from a mapped variant by URN.
     """
     save_to_logging_context({"requested_resource": urn})
 
@@ -134,7 +154,7 @@ async def show_mapped_variant_functional_impact_statement(
             extra=logging_context(),
         )
         raise HTTPException(
-            status_code=404, detail=f"Could not construct a functional impact statement for mapped variant {urn}: {e}"
+            status_code=404, detail=f"No functional impact statement exists for mapped variant {urn}: {e}"
         )
 
     if not functional_impact:
@@ -144,7 +164,7 @@ async def show_mapped_variant_functional_impact_statement(
         )
         raise HTTPException(
             status_code=404,
-            detail=f"Could not construct a functional impact statement for mapped variant {urn}. Variant does not have sufficient evidence to evaluate its functional impact.",
+            detail=f"No functional impact statement exists for mapped variant {urn}. Variant does not have sufficient evidence to evaluate its functional impact.",
         )
 
     return functional_impact
@@ -155,13 +175,14 @@ async def show_mapped_variant_functional_impact_statement(
     "/{urn}/va/clinical-evidence",
     status_code=200,
     response_model=VariantPathogenicityEvidenceLine,
-    responses={404: {}, 500: {}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Construct a VA-Spec EvidenceLine from a mapped variant",
 )
 async def show_mapped_variant_acmg_evidence_line(
     *, urn: str, db: Session = Depends(deps.get_db), user: Optional[UserData] = Depends(get_current_user)
 ) -> VariantPathogenicityEvidenceLine:
     """
-    Construct a list of VA-Spec EvidenceLine(s) from a mapped variant.
+    Construct a list of VA-Spec EvidenceLine(s) from a mapped variant by URN.
     """
     save_to_logging_context({"requested_resource": urn})
 
@@ -175,7 +196,7 @@ async def show_mapped_variant_acmg_evidence_line(
             extra=logging_context(),
         )
         raise HTTPException(
-            status_code=404, detail=f"Could not construct a pathogenicity evidence line for mapped variant {urn}: {e}"
+            status_code=404, detail=f"No pathogenicity evidence line exists for mapped variant {urn}: {e}"
         )
 
     if not pathogenicity_evidence:
@@ -185,7 +206,7 @@ async def show_mapped_variant_acmg_evidence_line(
         )
         raise HTTPException(
             status_code=404,
-            detail=f"Could not construct a pathogenicity evidence line for mapped variant {urn}; Variant does not have sufficient evidence to evaluate its pathogenicity.",
+            detail=f"No pathogenicity evidence line exists for mapped variant {urn}; Variant does not have sufficient evidence to evaluate its pathogenicity.",
         )
 
     return pathogenicity_evidence
@@ -195,7 +216,8 @@ async def show_mapped_variant_acmg_evidence_line(
     "/vrs/{identifier}",
     status_code=200,
     response_model=list[mapped_variant.MappedVariant],
-    responses={404: {}, 500: {}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Fetch mapped variants by VRS identifier",
 )
 async def show_mapped_variants_by_identifier(
     *,
@@ -212,7 +234,7 @@ async def show_mapped_variants_by_identifier(
     user: Optional[UserData] = Depends(get_current_user),
 ) -> list[MappedVariant]:
     """
-    Fetch a mapped variant by GA4GH identifier.
+    Fetch a single mapped variant by GA4GH identifier.
     """
     query = select(MappedVariant).where(
         or_(MappedVariant.pre_mapped["id"].astext == identifier, MappedVariant.post_mapped["id"].astext == identifier)

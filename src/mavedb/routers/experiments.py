@@ -5,15 +5,16 @@ from typing import Any, Optional
 import requests
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy.orm import Session
 from sqlalchemy import or_
+from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.authorization import require_current_user, require_current_user_with_email
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import NonexistentOrcidUserError
-from mavedb.lib.experiments import search_experiments as _search_experiments, enrich_experiment_with_num_score_sets
+from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
+from mavedb.lib.experiments import search_experiments as _search_experiments
 from mavedb.lib.identifiers import (
     find_or_create_doi_identifier,
     find_or_create_publication_identifier,
@@ -22,7 +23,7 @@ from mavedb.lib.identifiers import (
 from mavedb.lib.keywords import search_keyword
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.lib.permissions import Action, assert_permission
+from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_sets import find_superseded_score_set_tail
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import validate_keyword_list
@@ -31,17 +32,34 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
+from mavedb.routers.shared import (
+    ACCESS_CONTROL_ERROR_RESPONSES,
+    GATEWAY_ERROR_RESPONSES,
+    PUBLIC_ERROR_RESPONSES,
+    ROUTER_BASE_PREFIX,
+)
 from mavedb.view_models import experiment, score_set
 from mavedb.view_models.search import ExperimentsSearch
+
+TAG_NAME = "Experiments"
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/api/v1",
-    tags=["experiments"],
-    responses={404: {"description": "Not found"}},
+    prefix=f"{ROUTER_BASE_PREFIX}",
+    tags=[TAG_NAME],
+    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
+
+metadata = {
+    "name": TAG_NAME,
+    "description": "Manage and retrieve experiments and their associated data.",
+    "externalDocs": {
+        "description": "Experiments Documentation",
+        "url": "https://mavedb.org/docs/mavedb/record_types.html#experiments",
+    },
+}
 
 
 # None of any part calls this function. Feel free to modify it if we need it in the future.
@@ -50,6 +68,8 @@ router = APIRouter(
     status_code=200,
     response_model=list[experiment.Experiment],
     response_model_exclude_none=True,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="List experiments",
 )
 def list_experiments(
     *,
@@ -58,15 +78,15 @@ def list_experiments(
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> list[Experiment]:
     """
-    List experiments.
+    List all experiments viewable by the current user.
     """
+    if editable and user_data is None:
+        logger.debug(msg="User is anonymous; Cannot list their experiments.", extra=logging_context())
+        return []
+
     query = db.query(Experiment)
 
-    if editable:
-        if user_data is None or user_data.user is None:
-            logger.debug(msg="User is anonymous; Cannot list their experiments.", extra=logging_context())
-            return []
-
+    if editable and user_data is not None:
         logger.debug(msg="Listing experiments for the current user.", extra=logging_context())
         query = query.filter(
             or_(
@@ -76,13 +96,14 @@ def list_experiments(
         )
 
     items = query.order_by(Experiment.urn).all()
-    return items
+    return [item for item in items if has_permission(user_data, item, Action.READ).permitted]
 
 
 @router.post(
     "/experiments/search",
     status_code=200,
     response_model=list[experiment.ShortExperiment],
+    summary="Search experiments",
 )
 def search_experiments(search: ExperimentsSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
@@ -96,6 +117,8 @@ def search_experiments(search: ExperimentsSearch, db: Session = Depends(deps.get
     "/me/experiments/search",
     status_code=200,
     response_model=list[experiment.ShortExperiment],
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Search my experiments",
 )
 def search_my_experiments(
     search: ExperimentsSearch,
@@ -113,7 +136,8 @@ def search_my_experiments(
     "/experiments/{urn}",
     status_code=200,
     response_model=experiment.Experiment,
-    responses={404: {}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Fetch experiment by URN",
     response_model_exclude_none=True,
 )
 def fetch_experiment(
@@ -141,7 +165,8 @@ def fetch_experiment(
     "/experiments/{urn}/score-sets",
     status_code=200,
     response_model=list[score_set.ScoreSet],
-    responses={404: {}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Get score sets for an experiment",
     response_model_exclude_none=True,
 )
 def get_experiment_score_sets(
@@ -178,24 +203,26 @@ def get_experiment_score_sets(
         logger.info(msg="No score sets are associated with the requested experiment.", extra=logging_context())
 
         raise HTTPException(status_code=404, detail="no associated score sets")
-    else:
-        filtered_score_sets.sort(key=attrgetter("urn"))
-        save_to_logging_context({"associated_resources": [item.urn for item in score_set_result]})
-        enriched_score_sets = []
-        for fs in filtered_score_sets:
-            enriched_experiment = enrich_experiment_with_num_score_sets(fs.experiment, user_data)
-            response_item = score_set.ScoreSet.model_validate(fs).copy(update={"experiment": enriched_experiment})
-            enriched_score_sets.append(response_item)
 
-        return enriched_score_sets
+    filtered_score_sets.sort(key=attrgetter("urn"))
+    save_to_logging_context({"associated_resources": [item.urn for item in score_set_result]})
+    enriched_score_sets = []
+    for fs in filtered_score_sets:
+        enriched_experiment = enrich_experiment_with_num_score_sets(fs.experiment, user_data)
+        response_item = score_set.ScoreSet.model_validate(fs).copy(update={"experiment": enriched_experiment})
+        enriched_score_sets.append(response_item)
 
-    return filtered_score_sets
+    return enriched_score_sets
 
 
 @router.post(
     "/experiments/",
+    status_code=200,
     response_model=experiment.Experiment,
-    responses={422: {}},
+    responses={
+        **ACCESS_CONTROL_ERROR_RESPONSES,
+        **GATEWAY_ERROR_RESPONSES,
+    },
     response_model_exclude_none=True,
 )
 async def create_experiment(
@@ -235,7 +262,7 @@ async def create_experiment(
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e))
 
     try:
         doi_identifiers = [
@@ -257,11 +284,17 @@ async def create_experiment(
 
     except requests.exceptions.ConnectTimeout:
         logger.error(msg="Gateway timed out while creating experiment identifiers.", extra=logging_context())
-        raise HTTPException(status_code=504, detail="Gateway Timeout")
+        raise HTTPException(
+            status_code=504,
+            detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+        )
 
     except requests.exceptions.HTTPError:
         logger.error(msg="Encountered bad gateway while creating experiment identifiers.", extra=logging_context())
-        raise HTTPException(status_code=502, detail="Bad Gateway")
+        raise HTTPException(
+            status_code=502,
+            detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+        )
 
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
@@ -327,8 +360,12 @@ async def create_experiment(
 
 @router.put(
     "/experiments/{urn}",
+    status_code=200,
     response_model=experiment.Experiment,
-    responses={422: {}},
+    responses={
+        **ACCESS_CONTROL_ERROR_RESPONSES,
+        **GATEWAY_ERROR_RESPONSES,
+    },
     response_model_exclude_none=True,
 )
 async def update_experiment(
@@ -368,7 +405,7 @@ async def update_experiment(
         ]
     }
     for var, value in pairs.items():  # vars(item_update).items():
-        setattr(item, var, value) if value else None
+        setattr(item, var, value)
 
     try:
         item.contributors = [
@@ -376,25 +413,40 @@ async def update_experiment(
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e))
 
-    doi_identifiers = [
-        await find_or_create_doi_identifier(db, identifier.identifier)
-        for identifier in item_update.doi_identifiers or []
-    ]
-    raw_read_identifiers = [
-        await find_or_create_raw_read_identifier(db, identifier.identifier)
-        for identifier in item_update.raw_read_identifiers or []
-    ]
+    try:
+        doi_identifiers = [
+            await find_or_create_doi_identifier(db, identifier.identifier)
+            for identifier in item_update.doi_identifiers or []
+        ]
+        raw_read_identifiers = [
+            await find_or_create_raw_read_identifier(db, identifier.identifier)
+            for identifier in item_update.raw_read_identifiers or []
+        ]
 
-    primary_publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_update.primary_publication_identifiers or []
-    ]
-    publication_identifiers = [
-        await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-        for identifier in item_update.secondary_publication_identifiers or []
-    ] + primary_publication_identifiers
+        primary_publication_identifiers = [
+            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            for identifier in item_update.primary_publication_identifiers or []
+        ]
+        publication_identifiers = [
+            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            for identifier in item_update.secondary_publication_identifiers or []
+        ] + primary_publication_identifiers
+
+    except requests.exceptions.ConnectTimeout:
+        logger.error(msg="Gateway timed out while creating experiment identifiers.", extra=logging_context())
+        raise HTTPException(
+            status_code=504,
+            detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+        )
+
+    except requests.exceptions.HTTPError:
+        logger.error(msg="Encountered bad gateway while creating experiment identifiers.", extra=logging_context())
+        raise HTTPException(
+            status_code=502,
+            detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
+        )
 
     # create a temporary `primary` attribute on each of our publications that indicates
     # to our association proxy whether it is a primary publication or not
@@ -430,7 +482,13 @@ async def update_experiment(
     return enrich_experiment_with_num_score_sets(item, user_data)
 
 
-@router.delete("/experiments/{urn}", response_model=None, responses={422: {}})
+@router.delete(
+    "/experiments/{urn}",
+    status_code=200,
+    response_model=None,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Delete an experiment",
+)
 async def delete_experiment(
     *,
     urn: str,
@@ -438,17 +496,7 @@ async def delete_experiment(
     user_data: UserData = Depends(require_current_user),
 ) -> None:
     """
-    Delete a experiment .
-
-    Raises
-
-    Returns
-    _______
-    Does not return anything
-    string : HTTP code 200 successful but returning content
-    or
-    communitcate to client whether the operation succeeded
-    204 if successful but not returning content - likely going with this
+    Delete an experiment.
     """
     save_to_logging_context({"requested_resource": urn})
 

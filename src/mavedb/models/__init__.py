@@ -20,6 +20,7 @@ __all__ = [
     "refseq_offset",
     "role",
     "score_set",
+    "score_calibration",
     "target_gene",
     "target_sequence",
     "taxonomy",
