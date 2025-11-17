@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING, Optional, Sequence
 
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
+
+if TYPE_CHECKING:
+    from mavedb.view_models.mapped_variant import MappedVariantCreate, MappedVariantForClinicalControl
 
 
 class ClinicalControlBase(BaseModel):
@@ -54,11 +57,3 @@ class ClinicalControlWithMappedVariants(SavedClinicalControlWithMappedVariants):
 class ClinicalControlOptions(BaseModel):
     db_name: str
     available_versions: list[str]
-
-
-# ruff: noqa: E402
-from mavedb.view_models.mapped_variant import MappedVariantCreate, MappedVariantForClinicalControl
-
-# ClinicalControlUpdate.model_rebuild()
-SavedClinicalControlWithMappedVariants.model_rebuild()
-ClinicalControlWithMappedVariants.model_rebuild()

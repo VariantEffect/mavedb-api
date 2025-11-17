@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING, Optional, Sequence
 
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
+
+if TYPE_CHECKING:
+    from mavedb.view_models.mapped_variant import MappedVariant, MappedVariantCreate, SavedMappedVariant
 
 
 class GnomADVariantBase(BaseModel):
@@ -67,11 +70,3 @@ class GnomADVariantWithMappedVariants(SavedGnomADVariantWithMappedVariants):
     """GnomAD variant view model with mapped variants for non-admin clients."""
 
     mapped_variants: Sequence["MappedVariant"]
-
-
-# ruff: noqa: E402
-from mavedb.view_models.mapped_variant import MappedVariant, SavedMappedVariant, MappedVariantCreate
-
-GnomADVariantUpdate.model_rebuild()
-SavedGnomADVariantWithMappedVariants.model_rebuild()
-GnomADVariantWithMappedVariants.model_rebuild()

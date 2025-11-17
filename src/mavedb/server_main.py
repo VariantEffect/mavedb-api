@@ -18,6 +18,8 @@ from starlette_context.plugins import (
     UserAgentPlugin,
 )
 
+# Import the model rebuild module to ensure all view model forward references are resolved
+import mavedb.view_models.model_rebuild  # noqa: F401
 from mavedb import __version__
 from mavedb.lib.exceptions import (
     AmbiguousIdentifierError,
