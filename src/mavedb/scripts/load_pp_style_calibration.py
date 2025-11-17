@@ -92,9 +92,9 @@ from mavedb.view_models import acmg_classification, score_calibration
 
 POINT_LABEL_MAPPINGS: Dict[int, str] = {
     8: "Very Strong",
-    7: "Very Strong",
-    6: "Very Strong",
-    5: "Very Strong",
+    7: "Strong",
+    6: "Strong",
+    5: "Strong",
     4: "Strong",
     3: "Moderate+",
     2: "Moderate",
