@@ -122,7 +122,7 @@ def rebuild_all_models():
 
         remaining_models = models_for_next_pass
 
-    logger.info(
+    logger.debug(
         "Rebuilt %d Pydantic models successfully, %d models with circular dependencies remain.",
         successful_rebuilds,
         len(remaining_models),
