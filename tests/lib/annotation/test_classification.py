@@ -218,7 +218,7 @@ def test_pathogenicity_classification_of_variant_with_invalid_evidence_strength_
     )
     assert primary_cal is not None
     for r in primary_cal.functional_ranges:
-        r["acmgClassification"]["evidenceStrength"] = "moderate_plus"
+        r["acmgClassification"]["evidenceStrength"] = "MODERATE_PLUS"
         r["oddspathsRatio"] = None
 
     with pytest.raises(ValueError) as exc:

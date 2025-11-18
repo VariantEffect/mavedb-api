@@ -47,7 +47,7 @@ def test_can_create_valid_functional_range(functional_range):
 
     assert fr.label == functional_range["label"]
     assert fr.description == functional_range.get("description")
-    assert fr.classification == functional_range["classification"]
+    assert fr.classification.value == functional_range["classification"]
     assert fr.range == tuple(functional_range["range"])
     assert fr.inclusive_lower_bound == functional_range.get("inclusive_lower_bound", True)
     assert fr.inclusive_upper_bound == functional_range.get("inclusive_upper_bound", False)
@@ -154,6 +154,50 @@ def test_is_contained_by_range():
 
     assert not fr.is_contained_by_range(1.0), "1.0 (exclusive upper bound) should not be contained in the range"
     assert not fr.is_contained_by_range(0.0), "0.0 (exclusive lower bound) should not be contained in the range"
+
+
+def test_inclusive_bounds_get_default_when_unset_and_range_exists():
+    fr = FunctionalRangeCreate.model_validate(
+        {
+            "label": "test range",
+            "classification": "abnormal",
+            "range": (0.0, 1.0),
+        }
+    )
+
+    assert fr.inclusive_lower_bound is True, "inclusive_lower_bound should default to True"
+    assert fr.inclusive_upper_bound is False, "inclusive_upper_bound should default to False"
+
+
+def test_inclusive_bounds_remain_none_when_range_is_none():
+    fr = FunctionalRangeCreate.model_validate(
+        {
+            "label": "test range",
+            "classification": "abnormal",
+            "range": None,
+        }
+    )
+
+    assert fr.inclusive_lower_bound is None, "inclusive_lower_bound should remain None"
+    assert fr.inclusive_upper_bound is None, "inclusive_upper_bound should remain None"
+
+
+@pytest.mark.parametrize(
+    "bound_property, bound_value, match_text",
+    [
+        ("inclusive_lower_bound", True, "An inclusive lower bound requires a defined range."),
+        ("inclusive_upper_bound", True, "An inclusive upper bound requires a defined range."),
+    ],
+)
+def test_cant_set_inclusive_bounds_when_range_is_none(bound_property, bound_value, match_text):
+    invalid_data = {
+        "label": "test range",
+        "classification": "abnormal",
+        "range": None,
+        bound_property: bound_value,
+    }
+    with pytest.raises(ValidationError, match=match_text):
+        FunctionalRangeCreate.model_validate(invalid_data)
 
 
 ##############################################################################

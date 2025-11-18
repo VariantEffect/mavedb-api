@@ -5,7 +5,7 @@ associated publication/odds path references used by the API layer.
 """
 
 from datetime import date
-from typing import Any, Collection, Literal, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Collection, Optional, Sequence, Union
 
 from pydantic import field_validator, model_validator
 
@@ -16,6 +16,7 @@ from mavedb.lib.validation.transform import (
     transform_score_set_to_urn,
 )
 from mavedb.lib.validation.utilities import inf_or_float
+from mavedb.models.enums.functional_classification import FunctionalClassification
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.acmg_classification import (
     ACMGClassification,
@@ -33,6 +34,12 @@ from mavedb.view_models.publication_identifier import (
 )
 from mavedb.view_models.user import SavedUser, User
 
+if TYPE_CHECKING:
+    from mavedb.view_models.variant import (
+        SavedVariantEffectMeasurement,
+        VariantEffectMeasurement,
+    )
+
 ### Functional range models
 
 
@@ -46,11 +53,11 @@ class FunctionalRangeBase(BaseModel):
 
     label: str
     description: Optional[str] = None
-    classification: Literal["normal", "abnormal", "not_specified"] = "not_specified"
+    classification: FunctionalClassification = FunctionalClassification.not_specified
 
-    range: tuple[Union[float, None], Union[float, None]]
-    inclusive_lower_bound: bool = True
-    inclusive_upper_bound: bool = False
+    range: Optional[tuple[Union[float, None], Union[float, None]]] = None  # (lower_bound, upper_bound)
+    inclusive_lower_bound: Optional[bool] = None
+    inclusive_upper_bound: Optional[bool] = None
 
     acmg_classification: Optional[ACMGClassificationBase] = None
 
@@ -59,9 +66,12 @@ class FunctionalRangeBase(BaseModel):
 
     @field_validator("range")
     def ranges_are_not_backwards(
-        cls, field_value: tuple[Union[float, None], Union[float, None]]
-    ) -> tuple[Union[float, None], Union[float, None]]:
+        cls, field_value: Optional[tuple[Union[float, None], Union[float, None]]]
+    ) -> Optional[tuple[Union[float, None], Union[float, None]]]:
         """Reject reversed or zero-width intervals."""
+        if field_value is None:
+            return None
+
         lower = inf_or_float(field_value[0], True)
         upper = inf_or_float(field_value[1], False)
         if lower > upper:
@@ -79,11 +89,27 @@ class FunctionalRangeBase(BaseModel):
         return field_value
 
     @model_validator(mode="after")
+    def inclusive_bounds_require_range(self: "FunctionalRangeBase") -> "FunctionalRangeBase":
+        """Inclusive bounds may only be set if a range is provided. If they are unset, default them."""
+        if self.range is None:
+            if self.inclusive_lower_bound:
+                raise ValidationError("An inclusive lower bound requires a defined range.")
+            if self.inclusive_upper_bound:
+                raise ValidationError("An inclusive upper bound requires a defined range.")
+        else:
+            if self.inclusive_lower_bound is None:
+                self.inclusive_lower_bound = True
+            if self.inclusive_upper_bound is None:
+                self.inclusive_upper_bound = False
+
+        return self
+
+    @model_validator(mode="after")
     def inclusive_bounds_do_not_include_infinity(self: "FunctionalRangeBase") -> "FunctionalRangeBase":
         """Disallow inclusive bounds on unbounded (infinite) ends."""
-        if self.inclusive_lower_bound and self.range[0] is None:
+        if self.inclusive_lower_bound and self.range is not None and self.range[0] is None:
             raise ValidationError("An inclusive lower bound may not include negative infinity.")
-        if self.inclusive_upper_bound and self.range[1] is None:
+        if self.inclusive_upper_bound and self.range is not None and self.range[1] is None:
             raise ValidationError("An inclusive upper bound may not include positive infinity.")
 
         return self
@@ -95,9 +121,9 @@ class FunctionalRangeBase(BaseModel):
             return self
 
         if (
-            self.classification == "normal"
+            self.classification is FunctionalClassification.normal
             and self.acmg_classification.criterion.is_pathogenic
-            or self.classification == "abnormal"
+            or self.classification is FunctionalClassification.abnormal
             and self.acmg_classification.criterion.is_benign
         ):
             raise ValidationError(
@@ -129,13 +155,16 @@ class FunctionalRangeBase(BaseModel):
 
     def is_contained_by_range(self, score: float) -> bool:
         """Determine if a given score falls within this functional range."""
+        if not self.range:
+            return False
+
         lower_bound, upper_bound = (
             inf_or_float(self.range[0], lower=True),
             inf_or_float(self.range[1], lower=False),
         )
 
-        lower_check = score > lower_bound or (self.inclusive_lower_bound and score == lower_bound)
-        upper_check = score < upper_bound or (self.inclusive_upper_bound and score == upper_bound)
+        lower_check = score > lower_bound or (self.inclusive_lower_bound is True and score == lower_bound)
+        upper_check = score < upper_bound or (self.inclusive_upper_bound is True and score == upper_bound)
 
         return lower_check and upper_check
 
@@ -157,14 +186,22 @@ class SavedFunctionalRange(FunctionalRangeBase):
 
     record_type: str = None  # type: ignore
     acmg_classification: Optional[SavedACMGClassification] = None
+    variants: Sequence["SavedVariantEffectMeasurement"] = []
 
     _record_type_factory = record_type_validator()(set_record_type)
+
+    class Config:
+        """Pydantic configuration (ORM mode)."""
+
+        from_attributes = True
+        arbitrary_types_allowed = True
 
 
 class FunctionalRange(SavedFunctionalRange):
     """Complete functional range model returned by the API."""
 
     acmg_classification: Optional[ACMGClassification] = None
+    variants: Sequence["VariantEffectMeasurement"] = []
 
 
 ### Score calibration models
@@ -197,7 +234,12 @@ class ScoreCalibrationBase(BaseModel):
 
         def test_overlap(range_test: FunctionalRangeBase, range_check: FunctionalRangeBase) -> bool:
             # Allow 'not_specified' classifications to overlap with anything.
-            if range_test.classification == "not_specified" or range_check.classification == "not_specified":
+            if (
+                range_test.classification is FunctionalClassification.not_specified
+                or range_check.classification is FunctionalClassification.not_specified
+                or range_test.range is None
+                or range_check.range is None
+            ):
                 return False
 
             if min(inf_or_float(range_test.range[0], True), inf_or_float(range_check.range[0], True)) == inf_or_float(
@@ -207,14 +249,15 @@ class ScoreCalibrationBase(BaseModel):
             else:
                 first, second = range_check, range_test
 
+            # The range types below that mypy complains about are verified by the earlier checks for None.
             touching_and_inclusive = (
                 first.inclusive_upper_bound
                 and second.inclusive_lower_bound
-                and inf_or_float(first.range[1], False) == inf_or_float(second.range[0], True)
+                and inf_or_float(first.range[1], False) == inf_or_float(second.range[0], True)  # type: ignore
             )
             if touching_and_inclusive:
                 return True
-            if inf_or_float(first.range[1], False) > inf_or_float(second.range[0], True):
+            if inf_or_float(first.range[1], False) > inf_or_float(second.range[0], True):  # type: ignore
                 return True
 
             return False
@@ -263,7 +306,10 @@ class ScoreCalibrationBase(BaseModel):
             return self
 
         for fr in self.functional_ranges:
-            if fr.is_contained_by_range(self.baseline_score) and fr.classification != "normal":
+            if (
+                fr.is_contained_by_range(self.baseline_score)
+                and fr.classification is not FunctionalClassification.normal
+            ):
                 raise ValidationError(
                     f"The provided baseline score of {self.baseline_score} falls within a non-normal range ({fr.label}). Baseline scores may not fall within non-normal ranges.",
                     custom_loc=["body", "baselineScore"],

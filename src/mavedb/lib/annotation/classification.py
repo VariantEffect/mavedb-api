@@ -5,6 +5,7 @@ from typing import Optional
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
 
+from mavedb.models.enums.functional_classification import FunctionalClassification
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.view_models.score_calibration import FunctionalRange
 
@@ -62,9 +63,9 @@ def functional_classification_of_variant(
         functional_range_view = FunctionalRange.model_validate(functional_range)
 
         if functional_range_view.is_contained_by_range(functional_score):
-            if functional_range_view.classification == "normal":
+            if functional_range_view.classification is FunctionalClassification.normal:
                 return ExperimentalVariantFunctionalImpactClassification.NORMAL
-            elif functional_range_view.classification == "abnormal":
+            elif functional_range_view.classification is FunctionalClassification.abnormal:
                 return ExperimentalVariantFunctionalImpactClassification.ABNORMAL
             else:
                 return ExperimentalVariantFunctionalImpactClassification.INDETERMINATE

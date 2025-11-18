@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
 from mavedb.lib.score_calibrations import (
+    create_functional_classification,
     create_score_calibration,
     create_score_calibration_in_score_set,
     delete_score_calibration,
@@ -24,8 +25,8 @@ from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.view_models.score_calibration import ScoreCalibrationCreate, ScoreCalibrationModify
-
 from tests.helpers.constants import (
+    EXTRA_USER,
     TEST_BIORXIV_IDENTIFIER,
     TEST_BRNICH_SCORE_CALIBRATION,
     TEST_CROSSREF_IDENTIFIER,
@@ -34,10 +35,171 @@ from tests.helpers.constants import (
     TEST_PUBMED_IDENTIFIER,
     TEST_SEQ_SCORESET,
     VALID_SCORE_SET_URN,
-    EXTRA_USER,
 )
 from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.score_calibration import create_test_score_calibration_in_score_set
+
+################################################################################
+# Tests for create_functional_classification
+################################################################################
+
+
+def test_create_functional_classification_without_acmg_classification(setup_lib_db, session):
+    # Create a mock calibration
+    calibration = ScoreCalibration()
+
+    # Create mock functional range without ACMG classification
+    MockFunctionalRangeCreate = create_model(
+        "MockFunctionalRangeCreate",
+        label=(str, "Test Label"),
+        description=(str, "Test Description"),
+        range=(list, [0.0, 1.0]),
+        inclusive_lower_bound=(bool, True),
+        inclusive_upper_bound=(bool, False),
+        classification=(str, "pathogenic"),
+        oddspaths_ratio=(float, 1.5),
+        positive_likelihood_ratio=(float, 2.0),
+        acmg_classification=(type(None), None),
+    )
+
+    result = create_functional_classification(session, MockFunctionalRangeCreate(), calibration)
+
+    assert result.description == "Test Description"
+    assert result.range == [0.0, 1.0]
+    assert result.inclusive_lower_bound is True
+    assert result.inclusive_upper_bound is False
+    assert result.classification == "pathogenic"
+    assert result.oddspaths_ratio == 1.5
+    assert result.positive_likelihood_ratio == 2.0
+    assert result.acmg_classification is None
+    assert result.acmg_classification_id is None
+    assert result.calibration == calibration
+
+
+def test_create_functional_classification_with_acmg_classification(setup_lib_db, session):
+    # Create a mock calibration
+    calibration = ScoreCalibration()
+
+    # Create mock ACMG classification
+    mock_criterion = "PS1"
+    mock_evidence_strength = "STRONG"
+    mock_points = 4
+    MockAcmgClassification = create_model(
+        "MockAcmgClassification",
+        criterion=(str, mock_criterion),
+        evidence_strength=(str, mock_evidence_strength),
+        points=(int, mock_points),
+    )
+
+    # Create mock functional range with ACMG classification
+    MockFunctionalRangeCreate = create_model(
+        "MockFunctionalRangeCreate",
+        label=(str, "Test Label"),
+        description=(str, "Test Description"),
+        range=(list, [0.0, 1.0]),
+        inclusive_lower_bound=(bool, True),
+        inclusive_upper_bound=(bool, False),
+        classification=(str, "pathogenic"),
+        oddspaths_ratio=(float, 1.5),
+        positive_likelihood_ratio=(float, 2.0),
+        acmg_classification=(MockAcmgClassification, MockAcmgClassification()),
+    )
+
+    functional_range_create = MockFunctionalRangeCreate()
+
+    with mock.patch("mavedb.lib.score_calibrations.find_or_create_acmg_classification") as mock_find_or_create:
+        # Mock the ACMG classification with an ID
+        MockPersistedAcmgClassification = create_model(
+            "MockPersistedAcmgClassification",
+            id=(int, 123),
+        )
+
+        mocked_persisted_acmg_classification = MockPersistedAcmgClassification()
+        mock_find_or_create.return_value = mocked_persisted_acmg_classification
+        result = create_functional_classification(session, functional_range_create, calibration)
+
+        # Verify find_or_create_acmg_classification was called with correct parameters
+        mock_find_or_create.assert_called_once_with(
+            session,
+            criterion=mock_criterion,
+            evidence_strength=mock_evidence_strength,
+            points=mock_points,
+        )
+
+        # Verify the result
+        assert result.label == "Test Label"
+        assert result.description == "Test Description"
+        assert result.range == [0.0, 1.0]
+        assert result.inclusive_lower_bound is True
+        assert result.inclusive_upper_bound is False
+        assert result.classification == "pathogenic"
+        assert result.oddspaths_ratio == 1.5
+        assert result.positive_likelihood_ratio == 2.0
+        assert result.acmg_classification == mocked_persisted_acmg_classification
+        assert result.acmg_classification_id == 123
+        assert result.calibration == calibration
+
+
+def test_create_functional_classification_propagates_acmg_errors(setup_lib_db, session):
+    # Create a mock calibration
+    calibration = ScoreCalibration()
+
+    # Create mock ACMG classification
+    MockAcmgClassification = create_model(
+        "MockAcmgClassification",
+        criterion=(str, "PS1"),
+        evidence_strength=(str, "strong"),
+        points=(int, 4),
+    )
+
+    # Create mock functional range with ACMG classification
+    MockFunctionalRangeCreate = create_model(
+        "MockFunctionalRangeCreate",
+        label=(str, "Test Label"),
+        description=(str, "Test Description"),
+        range=(list, [0.0, 1.0]),
+        inclusive_lower_bound=(bool, True),
+        inclusive_upper_bound=(bool, False),
+        classification=(str, "pathogenic"),
+        oddspaths_ratio=(float, 1.5),
+        positive_likelihood_ratio=(float, 2.0),
+        acmg_classification=(MockAcmgClassification, MockAcmgClassification()),
+    )
+
+    functional_range_create = MockFunctionalRangeCreate()
+
+    with (
+        pytest.raises(ValueError, match="ACMG error"),
+        mock.patch(
+            "mavedb.lib.score_calibrations.find_or_create_acmg_classification",
+            side_effect=ValueError("ACMG error"),
+        ),
+    ):
+        create_functional_classification(session, functional_range_create, calibration)
+
+
+def test_create_functional_classification_does_not_commit_transaction(setup_lib_db, session):
+    # Create a mock calibration
+    calibration = ScoreCalibration()
+
+    # Create mock functional range without ACMG classification
+    MockFunctionalRangeCreate = create_model(
+        "MockFunctionalRangeCreate",
+        label=(str, "Test Label"),
+        description=(str, "Test Description"),
+        range=(list, [0.0, 1.0]),
+        inclusive_lower_bound=(bool, True),
+        inclusive_upper_bound=(bool, False),
+        classification=(str, "pathogenic"),
+        oddspaths_ratio=(float, 1.5),
+        positive_likelihood_ratio=(float, 2.0),
+        acmg_classification=(type(None), None),
+    )
+
+    with mock.patch.object(session, "commit") as mock_commit:
+        create_functional_classification(session, MockFunctionalRangeCreate(), calibration)
+        mock_commit.assert_not_called()
+
 
 ################################################################################
 # Tests for create_score_calibration
@@ -83,6 +245,7 @@ async def test_create_score_calibration_in_score_set_creates_score_calibration_w
         threshold_sources=(list, []),
         classification_sources=(list, []),
         method_sources=(list, []),
+        functional_ranges=(list, []),
     )
 
     calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), test_user)
@@ -102,6 +265,7 @@ async def test_create_score_calibration_in_score_set_investigator_provided_set_w
         threshold_sources=(list, []),
         classification_sources=(list, []),
         method_sources=(list, []),
+        functional_ranges=(list, []),
     )
 
     calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), test_user)
@@ -133,6 +297,7 @@ async def test_create_score_calibration_in_score_set_investigator_provided_set_w
         threshold_sources=(list, []),
         classification_sources=(list, []),
         method_sources=(list, []),
+        functional_ranges=(list, []),
     )
 
     calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), extra_user)
@@ -153,6 +318,7 @@ async def test_create_score_calibration_in_score_set_investigator_provided_not_s
         threshold_sources=(list, []),
         classification_sources=(list, []),
         method_sources=(list, []),
+        functional_ranges=(list, []),
     )
 
     # invoke from a different user context
@@ -191,6 +357,7 @@ async def test_create_score_calibration_creates_score_calibration_when_score_set
         threshold_sources=(list, []),
         classification_sources=(list, []),
         method_sources=(list, []),
+        functional_ranges=(list, []),
     )
 
     calibration = await create_score_calibration(session, MockCalibrationCreate(), test_user)
@@ -225,6 +392,7 @@ async def test_create_score_calibration_propagates_errors_from_publication_find_
         ),
         classification_sources=(list, []),
         method_sources=(list, []),
+        functional_ranges=(list, []),
     )
     with (
         pytest.raises(
@@ -277,6 +445,7 @@ async def test_create_score_calibration_publication_identifier_associations_crea
         threshold_sources=(list, []),
         classification_sources=(list, []),
         method_sources=(list, []),
+        functional_ranges=(list, []),
     )
 
     test_user = session.execute(select(User)).scalars().first()
@@ -312,6 +481,7 @@ async def test_create_score_calibration_user_is_set_as_creator_and_modifier(
         threshold_sources=(list, []),
         classification_sources=(list, []),
         method_sources=(list, []),
+        functional_ranges=(list, []),
     )
 
     test_user = session.execute(select(User)).scalars().first()
@@ -411,6 +581,7 @@ async def test_modify_score_calibration_modifies_score_calibration_when_score_se
         threshold_sources=(list, []),
         classification_sources=(list, []),
         method_sources=(list, []),
+        functional_ranges=(list, []),
     )
 
     modified_calibration = await modify_score_calibration(
@@ -447,6 +618,7 @@ async def test_modify_score_calibration_clears_existing_publication_identifier_a
         threshold_sources=(list, []),
         classification_sources=(list, []),
         method_sources=(list, []),
+        functional_ranges=(list, []),
     )
 
     mocked_calibration = MockCalibrationModify()
@@ -493,6 +665,7 @@ async def test_modify_score_calibration_publication_identifier_associations_crea
         threshold_sources=(list, []),
         classification_sources=(list, []),
         method_sources=(list, []),
+        functional_ranges=(list, []),
     )
 
     mocked_calibration = MockCalibrationModify()
@@ -566,6 +739,7 @@ async def test_modify_score_calibration_retains_existing_publication_relationshi
                 for pub_dict in TEST_BRNICH_SCORE_CALIBRATION["method_sources"]
             ],
         ),
+        functional_ranges=(list, []),
     )
 
     modified_calibration = await modify_score_calibration(
@@ -611,6 +785,7 @@ async def test_modify_score_calibration_adds_new_publication_association(
         ),
         classification_sources=(list, []),
         method_sources=(list, []),
+        functional_ranges=(list, []),
     )
 
     modified_calibration = await modify_score_calibration(
@@ -651,6 +826,7 @@ async def test_modify_score_calibration_user_is_set_as_modifier(
         threshold_sources=(list, []),
         classification_sources=(list, []),
         method_sources=(list, []),
+        functional_ranges=(list, []),
     )
 
     modify_user = session.execute(select(User).where(User.id != test_user.id)).scalars().first()
@@ -700,6 +876,7 @@ async def test_modify_score_calibration_new_score_set(setup_lib_db_with_score_se
         threshold_sources=(list, []),
         classification_sources=(list, []),
         method_sources=(list, []),
+        functional_ranges=(list, []),
     )
 
     modified_calibration = await modify_score_calibration(
@@ -707,6 +884,42 @@ async def test_modify_score_calibration_new_score_set(setup_lib_db_with_score_se
     )
     assert modified_calibration is not None
     assert modified_calibration.score_set == new_containing_score_set
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ],
+    ],
+    indirect=["mock_publication_fetch"],
+)
+async def test_modify_score_calibration_clears_functional_ranges(
+    setup_lib_db_with_score_set, session, mock_publication_fetch
+):
+    test_user = session.execute(select(User)).scalars().first()
+
+    existing_calibration = await create_test_score_calibration_in_score_set(
+        session, setup_lib_db_with_score_set.urn, test_user
+    )
+
+    MockCalibrationModify = create_model(
+        "MockCalibrationModify",
+        score_set_urn=(str | None, setup_lib_db_with_score_set.urn),
+        threshold_sources=(list, []),
+        classification_sources=(list, []),
+        method_sources=(list, []),
+        functional_ranges=(list, []),
+    )
+
+    modified_calibration = await modify_score_calibration(
+        session, existing_calibration, MockCalibrationModify(), test_user
+    )
+    assert modified_calibration is not None
+    assert len(modified_calibration.functional_ranges) == 0
 
 
 @pytest.mark.asyncio

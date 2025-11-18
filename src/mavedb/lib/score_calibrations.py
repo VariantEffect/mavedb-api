@@ -1,14 +1,73 @@
 """Utilities for building and mutating score calibration ORM objects."""
 
+from typing import Union
+
 from sqlalchemy.orm import Session
 
+from mavedb.lib.acmg import find_or_create_acmg_classification
 from mavedb.lib.identifiers import find_or_create_publication_identifier
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
 from mavedb.models.score_calibration import ScoreCalibration
-from mavedb.models.score_set import ScoreSet
+from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_calibration_publication_identifier import ScoreCalibrationPublicationIdentifierAssociation
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.view_models import score_calibration
+
+
+def create_functional_classification(
+    db: Session,
+    functional_range_create: Union[score_calibration.FunctionalRangeCreate, score_calibration.FunctionalRangeModify],
+    containing_calibration: ScoreCalibration,
+) -> ScoreCalibrationFunctionalClassification:
+    """
+    Create a functional classification entity for score calibration.
+    This function creates a new ScoreCalibrationFunctionalClassification object
+    based on the provided functional range data. It optionally creates or finds
+    an associated ACMG classification if one is specified in the input data.
+
+    Args:
+        db (Session): Database session for performing database operations.
+        functional_range_create (score_calibration.FunctionalRangeCreate):
+            Input data containing the functional range parameters including label,
+            description, range bounds, inclusivity flags, and optional ACMG
+            classification information.
+
+    Returns:
+        ScoreCalibrationFunctionalClassification: The newly created functional
+            classification entity that has been added to the database session.
+
+    Note:
+        The function adds the created functional classification to the database
+        session but does not commit the transaction. The caller is responsible
+        for committing the changes.
+    """
+    acmg_classification = None
+    if functional_range_create.acmg_classification:
+        acmg_classification = find_or_create_acmg_classification(
+            db,
+            criterion=functional_range_create.acmg_classification.criterion,
+            evidence_strength=functional_range_create.acmg_classification.evidence_strength,
+            points=functional_range_create.acmg_classification.points,
+        )
+    else:
+        acmg_classification = None
+
+    functional_classification = ScoreCalibrationFunctionalClassification(
+        label=functional_range_create.label,
+        description=functional_range_create.description,
+        range=functional_range_create.range,
+        inclusive_lower_bound=functional_range_create.inclusive_lower_bound,
+        inclusive_upper_bound=functional_range_create.inclusive_upper_bound,
+        acmg_classification=acmg_classification,
+        classification=functional_range_create.classification,
+        oddspaths_ratio=functional_range_create.oddspaths_ratio,  # type: ignore[arg-type]
+        positive_likelihood_ratio=functional_range_create.positive_likelihood_ratio,  # type: ignore[arg-type]
+        acmg_classification_id=acmg_classification.id if acmg_classification else None,
+        calibration=containing_calibration,
+    )
+
+    return functional_classification
 
 
 async def _create_score_calibration(
@@ -89,6 +148,7 @@ async def _create_score_calibration(
         **calibration_create.model_dump(
             by_alias=False,
             exclude={
+                "functional_ranges",
                 "threshold_sources",
                 "classification_sources",
                 "method_sources",
@@ -96,9 +156,17 @@ async def _create_score_calibration(
             },
         ),
         publication_identifier_associations=calibration_pub_assocs,
+        functional_ranges=[],
         created_by=user,
         modified_by=user,
     )  # type: ignore[call-arg]
+
+    for functional_range_create in calibration_create.functional_ranges or []:
+        persisted_functional_range = create_functional_classification(
+            db, functional_range_create, containing_calibration=calibration
+        )
+        db.add(persisted_functional_range)
+        calibration.functional_ranges.append(persisted_functional_range)
 
     return calibration
 
@@ -328,12 +396,18 @@ async def modify_score_calibration(
             db.add(pub)
             db.flush()
 
-    # Remove associations that are no longer present
+    # Remove associations and calibrations that are no longer present
     for assoc in existing_assocs_map.values():
         db.delete(assoc)
+    for functional_classification in calibration.functional_ranges:
+        db.delete(functional_classification)
+    calibration.functional_ranges.clear()
+    db.flush()
+    db.refresh(calibration)
 
     for attr, value in calibration_update.model_dump().items():
         if attr not in {
+            "functional_ranges",
             "threshold_sources",
             "classification_sources",
             "method_sources",
@@ -348,6 +422,13 @@ async def modify_score_calibration(
     calibration.score_set = containing_score_set
     calibration.publication_identifier_associations = updated_assocs
     calibration.modified_by = user
+
+    for functional_range_update in calibration_update.functional_ranges or []:
+        persisted_functional_range = create_functional_classification(
+            db, functional_range_update, containing_calibration=calibration
+        )
+        db.add(persisted_functional_range)
+        calibration.functional_ranges.append(persisted_functional_range)
 
     db.add(calibration)
     return calibration

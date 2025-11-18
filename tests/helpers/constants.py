@@ -1355,44 +1355,52 @@ TEST_BASELINE_SCORE = 1.0
 
 TEST_ACMG_BS3_STRONG_CLASSIFICATION = {
     "criterion": "BS3",
-    "evidence_strength": "strong",
+    "evidence_strength": "STRONG",
 }
 
 TEST_SAVED_ACMG_BS3_STRONG_CLASSIFICATION = {
     "recordType": "ACMGClassification",
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
     **{camelize(k): v for k, v in TEST_ACMG_BS3_STRONG_CLASSIFICATION.items()},
 }
 
 TEST_ACMG_PS3_STRONG_CLASSIFICATION = {
     "criterion": "PS3",
-    "evidence_strength": "strong",
+    "evidence_strength": "STRONG",
 }
 
 TEST_SAVED_ACMG_PS3_STRONG_CLASSIFICATION = {
     "recordType": "ACMGClassification",
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
     **{camelize(k): v for k, v in TEST_ACMG_PS3_STRONG_CLASSIFICATION.items()},
 }
 
 
 TEST_ACMG_BS3_STRONG_CLASSIFICATION_WITH_POINTS = {
     "criterion": "BS3",
-    "evidence_strength": "strong",
+    "evidence_strength": "STRONG",
     "points": -4,
 }
 
 TEST_SAVED_ACMG_BS3_STRONG_CLASSIFICATION_WITH_POINTS = {
     "recordType": "ACMGClassification",
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
     **{camelize(k): v for k, v in TEST_ACMG_BS3_STRONG_CLASSIFICATION_WITH_POINTS.items()},
 }
 
 TEST_ACMG_PS3_STRONG_CLASSIFICATION_WITH_POINTS = {
     "criterion": "PS3",
-    "evidence_strength": "strong",
+    "evidence_strength": "STRONG",
     "points": 4,
 }
 
 TEST_SAVED_ACMG_PS3_STRONG_CLASSIFICATION_WITH_POINTS = {
     "recordType": "ACMGClassification",
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
     **{camelize(k): v for k, v in TEST_ACMG_PS3_STRONG_CLASSIFICATION_WITH_POINTS.items()},
 }
 
@@ -1416,6 +1424,7 @@ TEST_SAVED_FUNCTIONAL_RANGE_NORMAL = {
     "recordType": "FunctionalRange",
     **{camelize(k): v for k, v in TEST_FUNCTIONAL_RANGE_NORMAL.items() if k not in ("acmg_classification",)},
     "acmgClassification": TEST_SAVED_ACMG_BS3_STRONG_CLASSIFICATION,
+    "variants": [],
 }
 
 
@@ -1435,6 +1444,7 @@ TEST_SAVED_FUNCTIONAL_RANGE_ABNORMAL = {
     "recordType": "FunctionalRange",
     **{camelize(k): v for k, v in TEST_FUNCTIONAL_RANGE_ABNORMAL.items() if k not in ("acmg_classification",)},
     "acmgClassification": TEST_SAVED_ACMG_PS3_STRONG_CLASSIFICATION,
+    "variants": [],
 }
 
 
@@ -1450,6 +1460,7 @@ TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED = {
 TEST_SAVED_FUNCTIONAL_RANGE_NOT_SPECIFIED = {
     "recordType": "FunctionalRange",
     **{camelize(k): v for k, v in TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED.items()},
+    "variants": [],
 }
 
 

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
 from mavedb.lib.urns import generate_calibration_urn
+from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_calibration_publication_identifier import ScoreCalibrationPublicationIdentifierAssociation
 
 if TYPE_CHECKING:
@@ -42,7 +43,12 @@ class ScoreCalibration(Base):
 
     # Ranges and sources are stored as JSONB (intersection structure) to avoid complex joins for now.
     # ranges: list[ { label, description?, classification, range:[lower,upper], inclusive_lower_bound, inclusive_upper_bound } ]
-    functional_ranges = Column(JSONB(none_as_null=True), nullable=True)
+    functional_ranges_deprecated_json = Column(JSONB(none_as_null=True), nullable=True)
+    functional_ranges: Mapped[list["ScoreCalibrationFunctionalClassification"]] = relationship(
+        "ScoreCalibrationFunctionalClassification",
+        back_populates="calibration",
+        cascade="all, delete-orphan",
+    )
 
     publication_identifier_associations: Mapped[list[ScoreCalibrationPublicationIdentifierAssociation]] = relationship(
         "ScoreCalibrationPublicationIdentifierAssociation",

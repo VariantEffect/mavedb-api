@@ -1,58 +1,11 @@
-from enum import Enum
 from typing import Optional
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-class ACMGCriterion(str, Enum):
-    """Enum for ACMG criteria codes."""
-
-    PVS1 = "PVS1"
-    PS1 = "PS1"
-    PS2 = "PS2"
-    PS3 = "PS3"
-    PS4 = "PS4"
-    PM1 = "PM1"
-    PM2 = "PM2"
-    PM3 = "PM3"
-    PM4 = "PM4"
-    PM5 = "PM5"
-    PM6 = "PM6"
-    PP1 = "PP1"
-    PP2 = "PP2"
-    PP3 = "PP3"
-    PP4 = "PP4"
-    PP5 = "PP5"
-    BA1 = "BA1"
-    BS1 = "BS1"
-    BS2 = "BS2"
-    BS3 = "BS3"
-    BS4 = "BS4"
-    BP1 = "BP1"
-    BP2 = "BP2"
-    BP3 = "BP3"
-    BP4 = "BP4"
-    BP5 = "BP5"
-    BP6 = "BP6"
-    BP7 = "BP7"
-
-    @property
-    def is_pathogenic(self) -> bool:
-        """Return True if the criterion is pathogenic, False if benign."""
-        return self.name.startswith("P")  # PVS, PS, PM, PP are pathogenic criteria
-
-    @property
-    def is_benign(self) -> bool:
-        """Return True if the criterion is benign, False if pathogenic."""
-        return self.name.startswith("B")  # BA, BS, BP are benign criteria
-
-
-class StrengthOfEvidenceProvided(str, Enum):
-    """Enum for strength of evidence provided."""
-
-    VERY_STRONG = "very_strong"
-    STRONG = "strong"
-    MODERATE_PLUS = "moderate_plus"
-    MODERATE = "moderate"
-    SUPPORTING = "supporting"
+from mavedb.models.acmg_classification import ACMGClassification
+from mavedb.models.enums.acmg_criterion import ACMGCriterion
+from mavedb.models.enums.strength_of_evidence import StrengthOfEvidenceProvided
 
 
 def points_evidence_strength_equivalent(
@@ -121,3 +74,61 @@ def points_evidence_strength_equivalent(
         return (ACMGCriterion.BS3, StrengthOfEvidenceProvided.STRONG)
     else:  # points <= -8
         return (ACMGCriterion.BS3, StrengthOfEvidenceProvided.VERY_STRONG)
+
+
+def find_or_create_acmg_classification(
+    db: Session,
+    criterion: Optional[ACMGCriterion],
+    evidence_strength: Optional[StrengthOfEvidenceProvided],
+    points: Optional[int],
+):
+    """Create or find an ACMG classification based on criterion, evidence strength, and points.
+
+    Parameters
+    ----------
+    db : Session
+        The database session to use for querying and creating the ACMG classification.
+    criterion : Optional[ACMGCriterion]
+        The ACMG criterion for the classification.
+    evidence_strength : Optional[StrengthOfEvidenceProvided]
+        The strength of evidence provided for the classification.
+    points : Optional[int]
+        The point value associated with the classification.
+
+    Returns
+    -------
+    ACMGClassification
+        The existing or newly created ACMG classification instance.
+
+    Raises
+    ------
+    ValueError
+        If the combination of criterion, evidence strength, and points does not correspond to a valid ACMG classification.
+
+    Notes
+    -----
+    - This function does not commit the new entry to the database; the caller is responsible for committing the session.
+    """
+    if (criterion is None) != (evidence_strength is None):
+        raise ValueError("Both criterion and evidence_strength must be provided together or both be None, with points.")
+    elif criterion is None and evidence_strength is None and points is not None:
+        criterion, evidence_strength = points_evidence_strength_equivalent(points)
+
+    # If we cannot infer a classification, return None
+    if criterion is None and evidence_strength is None:
+        return None
+
+    acmg_classification = db.execute(
+        select(ACMGClassification)
+        .where(ACMGClassification.criterion == criterion)
+        .where(ACMGClassification.evidence_strength == evidence_strength)
+        .where(ACMGClassification.points == points)
+    ).scalar_one_or_none()
+
+    if not acmg_classification:
+        acmg_classification = ACMGClassification(
+            criterion=criterion, evidence_strength=evidence_strength, points=points
+        )
+        db.add(acmg_classification)
+
+    return acmg_classification
