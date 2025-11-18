@@ -41,9 +41,6 @@ class ScoreCalibration(Base):
     baseline_score = Column(Float, nullable=True)
     baseline_score_description = Column(String, nullable=True)
 
-    # Ranges and sources are stored as JSONB (intersection structure) to avoid complex joins for now.
-    # ranges: list[ { label, description?, classification, range:[lower,upper], inclusive_lower_bound, inclusive_upper_bound } ]
-    functional_ranges_deprecated_json = Column(JSONB(none_as_null=True), nullable=True)
     functional_ranges: Mapped[list["ScoreCalibrationFunctionalClassification"]] = relationship(
         "ScoreCalibrationFunctionalClassification",
         back_populates="calibration",
