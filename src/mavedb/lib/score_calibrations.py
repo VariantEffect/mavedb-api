@@ -1,17 +1,21 @@
 """Utilities for building and mutating score calibration ORM objects."""
 
+import math
 from typing import Union
 
+from sqlalchemy import Float, and_, select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.acmg import find_or_create_acmg_classification
 from mavedb.lib.identifiers import find_or_create_publication_identifier
+from mavedb.lib.validation.utilities import inf_or_float
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_calibration_publication_identifier import ScoreCalibrationPublicationIdentifierAssociation
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
+from mavedb.models.variant import Variant
 from mavedb.view_models import score_calibration
 
 
@@ -66,6 +70,9 @@ def create_functional_classification(
         acmg_classification_id=acmg_classification.id if acmg_classification else None,
         calibration=containing_calibration,
     )
+
+    contained_variants = variants_for_functional_classification(db, functional_classification, use_sql=True)
+    functional_classification.variants = contained_variants
 
     return functional_classification
 
@@ -598,3 +605,102 @@ def delete_score_calibration(db: Session, calibration: ScoreCalibration) -> None
 
     db.delete(calibration)
     return None
+
+
+def variants_for_functional_classification(
+    db: Session,
+    functional_classification: ScoreCalibrationFunctionalClassification,
+    use_sql: bool = False,
+) -> list[Variant]:
+    """Return variants in the parent score set whose numeric score falls inside the
+    functional classification's range.
+
+    The variant score is extracted from the JSONB ``Variant.data`` field using
+    ``score_json_path`` (default: ("score_data", "score") meaning
+    ``variant.data['score_data']['score']``). The classification's existing
+    ``score_is_contained_in_range`` method is used for interval logic, including
+    inclusive/exclusive behaviors.
+
+    Parameters
+    ----------
+    db : Session
+        Active SQLAlchemy session.
+    functional_classification : ScoreCalibrationFunctionalClassification
+        The ORM row defining the interval to test against.
+    use_sql : bool
+        When True, perform filtering in the database using JSONB extraction and
+        range predicates; falls back to Python filtering if an error occurs.
+
+    Returns
+    -------
+    list[Variant]
+        Variants whose score falls within the specified range. Empty list if
+        classification has no usable range.
+
+    Notes
+    -----
+    * If use_sql=False (default) filtering occurs in Python after loading all
+      variants for the score set. For large sets set use_sql=True to push
+      comparison into Postgres.
+    * Variants lacking a score or with non-numeric scores are skipped.
+    * If ``functional_classification.range`` is ``None`` an empty list is
+      returned immediately.
+    """
+    if not functional_classification.range:
+        return []
+
+    # Resolve score set id from attached calibration (relationship may be lazy)
+    score_set_id = functional_classification.calibration.score_set_id  # type: ignore[attr-defined]
+
+    if use_sql:
+        try:
+            # Build score extraction expression: data['score_data']['score']::text::float
+            score_expr = Variant.data["score_data"]["score"].astext.cast(Float)
+
+            lower_raw, upper_raw = functional_classification.range
+
+            # Convert 'inf' sentinels (or None) to float infinities for condition omission.
+            lower_bound = inf_or_float(lower_raw, lower=True)
+            upper_bound = inf_or_float(upper_raw, lower=False)
+
+            conditions = [Variant.score_set_id == score_set_id]
+            if not math.isinf(lower_bound):
+                if functional_classification.inclusive_lower_bound:
+                    conditions.append(score_expr >= lower_bound)
+                else:
+                    conditions.append(score_expr > lower_bound)
+            if not math.isinf(upper_bound):
+                if functional_classification.inclusive_upper_bound:
+                    conditions.append(score_expr <= upper_bound)
+                else:
+                    conditions.append(score_expr < upper_bound)
+
+            stmt = select(Variant).where(and_(*conditions))
+            return list(db.execute(stmt).scalars())
+
+        except Exception:  # noqa: BLE001
+            # Fall back to Python filtering if casting/JSON path errors occur.
+            pass
+
+    # Python filtering fallback / default path
+    variants = db.execute(select(Variant).where(Variant.score_set_id == score_set_id)).scalars().all()
+    matches: list[Variant] = []
+    for v in variants:
+        try:
+            container = v.data.get("score_data") if isinstance(v.data, dict) else None
+            if not container or not isinstance(container, dict):
+                continue
+
+            raw = container.get("score")
+            if raw is None:
+                continue
+
+            score = float(raw)
+
+        except Exception:  # noqa: BLE001
+            continue
+
+        if functional_classification.score_is_contained_in_range(score):
+            matches.append(v)
+
+    return matches
