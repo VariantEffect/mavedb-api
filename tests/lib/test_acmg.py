@@ -1,5 +1,9 @@
+# ruff: noqa: E402
+
 import pytest
 from sqlalchemy import select
+
+pytest.importorskip("psycopg2")
 
 from mavedb.lib.acmg import (
     ACMGCriterion,

@@ -1411,7 +1411,7 @@ TEST_PS3_STRONG_ODDS_PATH_RATIO = 18.7
 TEST_FUNCTIONAL_RANGE_NORMAL = {
     "label": "test normal functional range",
     "description": "A normal functional range",
-    "classification": "normal",
+    "functional_classification": "normal",
     "range": [1.0, 5.0],
     "acmg_classification": TEST_ACMG_BS3_STRONG_CLASSIFICATION,
     "oddspaths_ratio": TEST_BS3_STRONG_ODDS_PATH_RATIO,
@@ -1421,7 +1421,7 @@ TEST_FUNCTIONAL_RANGE_NORMAL = {
 
 
 TEST_SAVED_FUNCTIONAL_RANGE_NORMAL = {
-    "recordType": "FunctionalRange",
+    "recordType": "FunctionalClassification",
     **{camelize(k): v for k, v in TEST_FUNCTIONAL_RANGE_NORMAL.items() if k not in ("acmg_classification",)},
     "acmgClassification": TEST_SAVED_ACMG_BS3_STRONG_CLASSIFICATION,
     "variants": [],
@@ -1431,7 +1431,7 @@ TEST_SAVED_FUNCTIONAL_RANGE_NORMAL = {
 TEST_FUNCTIONAL_RANGE_ABNORMAL = {
     "label": "test abnormal functional range",
     "description": "An abnormal functional range",
-    "classification": "abnormal",
+    "functional_classification": "abnormal",
     "range": [-5.0, -1.0],
     "acmg_classification": TEST_ACMG_PS3_STRONG_CLASSIFICATION,
     "oddspaths_ratio": TEST_PS3_STRONG_ODDS_PATH_RATIO,
@@ -1441,7 +1441,7 @@ TEST_FUNCTIONAL_RANGE_ABNORMAL = {
 
 
 TEST_SAVED_FUNCTIONAL_RANGE_ABNORMAL = {
-    "recordType": "FunctionalRange",
+    "recordType": "FunctionalClassification",
     **{camelize(k): v for k, v in TEST_FUNCTIONAL_RANGE_ABNORMAL.items() if k not in ("acmg_classification",)},
     "acmgClassification": TEST_SAVED_ACMG_PS3_STRONG_CLASSIFICATION,
     "variants": [],
@@ -1450,7 +1450,7 @@ TEST_SAVED_FUNCTIONAL_RANGE_ABNORMAL = {
 
 TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED = {
     "label": "test not specified functional range",
-    "classification": "not_specified",
+    "functional_classification": "not_specified",
     "range": [-1.0, 1.0],
     "inclusive_lower_bound": True,
     "inclusive_upper_bound": False,
@@ -1458,8 +1458,58 @@ TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED = {
 
 
 TEST_SAVED_FUNCTIONAL_RANGE_NOT_SPECIFIED = {
-    "recordType": "FunctionalRange",
+    "recordType": "FunctionalClassification",
     **{camelize(k): v for k, v in TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED.items()},
+    "variants": [],
+}
+
+
+TEST_FUNCTIONAL_CLASSIFICATION_NORMAL = {
+    "label": "test normal functional class",
+    "description": "A normal functional class",
+    "functional_classification": "normal",
+    "class": "normal_class",
+    "acmg_classification": TEST_ACMG_BS3_STRONG_CLASSIFICATION,
+    "oddspaths_ratio": TEST_BS3_STRONG_ODDS_PATH_RATIO,
+}
+
+
+TEST_SAVED_FUNCTIONAL_CLASSIFICATION_NORMAL = {
+    "recordType": "FunctionalClassification",
+    **{camelize(k): v for k, v in TEST_FUNCTIONAL_CLASSIFICATION_NORMAL.items() if k not in ("acmg_classification",)},
+    "acmgClassification": TEST_SAVED_ACMG_BS3_STRONG_CLASSIFICATION,
+    "variants": [],
+}
+
+
+TEST_FUNCTIONAL_CLASSIFICATION_ABNORMAL = {
+    "label": "test abnormal functional class",
+    "description": "An abnormal functional class",
+    "functional_classification": "abnormal",
+    "class": "abnormal_class",
+    "acmg_classification": TEST_ACMG_PS3_STRONG_CLASSIFICATION,
+    "oddspaths_ratio": TEST_PS3_STRONG_ODDS_PATH_RATIO,
+}
+
+
+TEST_SAVED_FUNCTIONAL_CLASSIFICATION_ABNORMAL = {
+    "recordType": "FunctionalClassification",
+    **{camelize(k): v for k, v in TEST_FUNCTIONAL_CLASSIFICATION_ABNORMAL.items() if k not in ("acmg_classification",)},
+    "acmgClassification": TEST_SAVED_ACMG_PS3_STRONG_CLASSIFICATION,
+    "variants": [],
+}
+
+
+TEST_FUNCTIONAL_CLASSIFICATION_NOT_SPECIFIED = {
+    "label": "test not specified functional class",
+    "functional_classification": "not_specified",
+    "class": "not_specified_class",
+}
+
+
+TEST_SAVED_FUNCTIONAL_CLASSIFICATION_NOT_SPECIFIED = {
+    "recordType": "FunctionalClassification",
+    **{camelize(k): v for k, v in TEST_FUNCTIONAL_CLASSIFICATION_NOT_SPECIFIED.items()},
     "variants": [],
 }
 
@@ -1467,7 +1517,7 @@ TEST_SAVED_FUNCTIONAL_RANGE_NOT_SPECIFIED = {
 TEST_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY = {
     "label": "test functional range including negative infinity",
     "description": "A functional range including negative infinity",
-    "classification": "not_specified",
+    "functional_classification": "not_specified",
     "range": [None, 0.0],
     "inclusive_lower_bound": False,
     "inclusive_upper_bound": False,
@@ -1475,7 +1525,7 @@ TEST_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY = {
 
 
 TEST_SAVED_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY = {
-    "recordType": "FunctionalRange",
+    "recordType": "FunctionalClassification",
     **{camelize(k): v for k, v in TEST_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY.items()},
 }
 
@@ -1483,7 +1533,7 @@ TEST_SAVED_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY = {
 TEST_FUNCTIONAL_RANGE_INCLUDING_POSITIVE_INFINITY = {
     "label": "test functional range including positive infinity",
     "description": "A functional range including positive infinity",
-    "classification": "not_specified",
+    "functional_classification": "not_specified",
     "range": [0.0, None],
     "inclusive_lower_bound": False,
     "inclusive_upper_bound": False,
@@ -1494,7 +1544,7 @@ TEST_MINIMAL_CALIBRATION = {
     "title": "Test BRNICH Score Calibration",
     "research_use_only": False,
     "investigator_provided": False,
-    "functional_ranges": [
+    "functional_classifications": [
         TEST_FUNCTIONAL_RANGE_NORMAL,
         TEST_FUNCTIONAL_RANGE_ABNORMAL,
         TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED,
@@ -1506,12 +1556,12 @@ TEST_MINIMAL_CALIBRATION = {
 }
 
 
-TEST_BRNICH_SCORE_CALIBRATION = {
+TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED = {
     "title": "Test BRNICH Score Calibration",
     "research_use_only": False,
     "baseline_score": TEST_BASELINE_SCORE,
     "baseline_score_description": "Test baseline score description",
-    "functional_ranges": [
+    "functional_classifications": [
         TEST_FUNCTIONAL_RANGE_NORMAL,
         TEST_FUNCTIONAL_RANGE_ABNORMAL,
         TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED,
@@ -1525,14 +1575,14 @@ TEST_BRNICH_SCORE_CALIBRATION = {
     "calibration_metadata": {},
 }
 
-TEST_SAVED_BRNICH_SCORE_CALIBRATION = {
+TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED = {
     "recordType": "ScoreCalibration",
     **{
         camelize(k): v
-        for k, v in TEST_BRNICH_SCORE_CALIBRATION.items()
-        if k not in ("functional_ranges", "classification_sources", "threshold_sources", "method_sources")
+        for k, v in TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED.items()
+        if k not in ("functional_classifications", "classification_sources", "threshold_sources", "method_sources")
     },
-    "functionalRanges": [
+    "functionalClassifications": [
         TEST_SAVED_FUNCTIONAL_RANGE_NORMAL,
         TEST_SAVED_FUNCTIONAL_RANGE_ABNORMAL,
         TEST_SAVED_FUNCTIONAL_RANGE_NOT_SPECIFIED,
@@ -1562,12 +1612,31 @@ TEST_SAVED_BRNICH_SCORE_CALIBRATION = {
     "modificationDate": date.today().isoformat(),
 }
 
+
+TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED = {
+    **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+    "functional_classifications": [
+        TEST_FUNCTIONAL_CLASSIFICATION_NORMAL,
+        TEST_FUNCTIONAL_CLASSIFICATION_ABNORMAL,
+        TEST_FUNCTIONAL_CLASSIFICATION_NOT_SPECIFIED,
+    ],
+}
+
+TEST_SAVED_BRNICH_SCORE_CALIBRATION_CLASS_BASED = {
+    **TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+    "functionalClassifications": [
+        TEST_SAVED_FUNCTIONAL_CLASSIFICATION_NORMAL,
+        TEST_SAVED_FUNCTIONAL_CLASSIFICATION_ABNORMAL,
+        TEST_SAVED_FUNCTIONAL_CLASSIFICATION_NOT_SPECIFIED,
+    ],
+}
+
 TEST_PATHOGENICITY_SCORE_CALIBRATION = {
     "title": "Test Pathogenicity Score Calibration",
     "research_use_only": False,
     "baseline_score": TEST_BASELINE_SCORE,
     "baseline_score_description": "Test baseline score description",
-    "functional_ranges": [
+    "functional_classifications": [
         TEST_FUNCTIONAL_RANGE_NORMAL,
         TEST_FUNCTIONAL_RANGE_ABNORMAL,
     ],
@@ -1582,9 +1651,9 @@ TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION = {
     **{
         camelize(k): v
         for k, v in TEST_PATHOGENICITY_SCORE_CALIBRATION.items()
-        if k not in ("functional_ranges", "classification_sources", "threshold_sources", "method_sources")
+        if k not in ("functional_classifications", "classification_sources", "threshold_sources", "method_sources")
     },
-    "functionalRanges": [
+    "functionalClassifications": [
         TEST_SAVED_FUNCTIONAL_RANGE_NORMAL,
         TEST_SAVED_FUNCTIONAL_RANGE_ABNORMAL,
     ],

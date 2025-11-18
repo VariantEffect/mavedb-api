@@ -21,7 +21,9 @@ from mavedb.view_models import score_calibration
 
 def create_functional_classification(
     db: Session,
-    functional_range_create: Union[score_calibration.FunctionalRangeCreate, score_calibration.FunctionalRangeModify],
+    functional_range_create: Union[
+        score_calibration.FunctionalClassificationCreate, score_calibration.FunctionalClassificationModify
+    ],
     containing_calibration: ScoreCalibration,
 ) -> ScoreCalibrationFunctionalClassification:
     """
@@ -32,7 +34,7 @@ def create_functional_classification(
 
     Args:
         db (Session): Database session for performing database operations.
-        functional_range_create (score_calibration.FunctionalRangeCreate):
+        functional_range_create (score_calibration.FunctionalClassificationCreate):
             Input data containing the functional range parameters including label,
             description, range bounds, inclusivity flags, and optional ACMG
             classification information.
@@ -64,7 +66,7 @@ def create_functional_classification(
         inclusive_lower_bound=functional_range_create.inclusive_lower_bound,
         inclusive_upper_bound=functional_range_create.inclusive_upper_bound,
         acmg_classification=acmg_classification,
-        classification=functional_range_create.classification,
+        functional_classification=functional_range_create.functional_classification,
         oddspaths_ratio=functional_range_create.oddspaths_ratio,  # type: ignore[arg-type]
         positive_likelihood_ratio=functional_range_create.positive_likelihood_ratio,  # type: ignore[arg-type]
         acmg_classification_id=acmg_classification.id if acmg_classification else None,
@@ -155,7 +157,7 @@ async def _create_score_calibration(
         **calibration_create.model_dump(
             by_alias=False,
             exclude={
-                "functional_ranges",
+                "functional_classifications",
                 "threshold_sources",
                 "classification_sources",
                 "method_sources",
@@ -163,17 +165,17 @@ async def _create_score_calibration(
             },
         ),
         publication_identifier_associations=calibration_pub_assocs,
-        functional_ranges=[],
+        functional_classifications=[],
         created_by=user,
         modified_by=user,
     )  # type: ignore[call-arg]
 
-    for functional_range_create in calibration_create.functional_ranges or []:
+    for functional_range_create in calibration_create.functional_classifications or []:
         persisted_functional_range = create_functional_classification(
             db, functional_range_create, containing_calibration=calibration
         )
         db.add(persisted_functional_range)
-        calibration.functional_ranges.append(persisted_functional_range)
+        calibration.functional_classifications.append(persisted_functional_range)
 
     return calibration
 
@@ -406,15 +408,15 @@ async def modify_score_calibration(
     # Remove associations and calibrations that are no longer present
     for assoc in existing_assocs_map.values():
         db.delete(assoc)
-    for functional_classification in calibration.functional_ranges:
+    for functional_classification in calibration.functional_classifications:
         db.delete(functional_classification)
-    calibration.functional_ranges.clear()
+    calibration.functional_classifications.clear()
     db.flush()
     db.refresh(calibration)
 
     for attr, value in calibration_update.model_dump().items():
         if attr not in {
-            "functional_ranges",
+            "functional_classifications",
             "threshold_sources",
             "classification_sources",
             "method_sources",
@@ -430,12 +432,12 @@ async def modify_score_calibration(
     calibration.publication_identifier_associations = updated_assocs
     calibration.modified_by = user
 
-    for functional_range_update in calibration_update.functional_ranges or []:
+    for functional_range_update in calibration_update.functional_classifications or []:
         persisted_functional_range = create_functional_classification(
             db, functional_range_update, containing_calibration=calibration
         )
         db.add(persisted_functional_range)
-        calibration.functional_ranges.append(persisted_functional_range)
+        calibration.functional_classifications.append(persisted_functional_range)
 
     db.add(calibration)
     return calibration

@@ -10,7 +10,7 @@ from tests.helpers.constants import (
     EXTRA_USER,
     SAVED_PUBMED_PUBLICATION,
     TEST_BIORXIV_IDENTIFIER,
-    TEST_BRNICH_SCORE_CALIBRATION,
+    TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_CROSSREF_IDENTIFIER,
     TEST_MINIMAL_ACC_SCORESET,
     TEST_MINIMAL_SEQ_SCORESET,
@@ -231,7 +231,7 @@ def test_cannot_create_score_set_with_an_empty_method():
 
 
 @pytest.mark.parametrize(
-    "calibration", [deepcopy(TEST_BRNICH_SCORE_CALIBRATION), deepcopy(TEST_PATHOGENICITY_SCORE_CALIBRATION)]
+    "calibration", [deepcopy(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED), deepcopy(TEST_PATHOGENICITY_SCORE_CALIBRATION)]
 )
 def test_can_create_score_set_with_complete_and_valid_provided_calibrations(calibration):
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
@@ -247,8 +247,8 @@ def test_can_create_score_set_with_multiple_valid_calibrations():
     score_set_test = TEST_MINIMAL_SEQ_SCORESET.copy()
     score_set_test["experiment_urn"] = VALID_EXPERIMENT_URN
     score_set_test["score_calibrations"] = [
-        deepcopy(TEST_BRNICH_SCORE_CALIBRATION),
-        deepcopy(TEST_BRNICH_SCORE_CALIBRATION),
+        deepcopy(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        deepcopy(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
         deepcopy(TEST_PATHOGENICITY_SCORE_CALIBRATION),
     ]
 

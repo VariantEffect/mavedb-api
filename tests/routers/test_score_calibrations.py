@@ -16,7 +16,7 @@ from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from tests.helpers.constants import (
     EXTRA_USER,
     TEST_BIORXIV_IDENTIFIER,
-    TEST_BRNICH_SCORE_CALIBRATION,
+    TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_PATHOGENICITY_SCORE_CALIBRATION,
     TEST_PUBMED_IDENTIFIER,
     VALID_CALIBRATION_URN,
@@ -67,7 +67,7 @@ def test_anonymous_user_cannot_get_score_calibration_when_private(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(anonymous_app_overrides):
@@ -100,7 +100,7 @@ def test_other_user_cannot_get_score_calibration_when_private(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(extra_user_app_overrides):
@@ -133,7 +133,7 @@ def test_creating_user_can_get_score_calibration_when_private(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
@@ -166,7 +166,7 @@ def test_contributing_user_can_get_score_calibration_when_private_and_investigat
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     add_contributor(
@@ -218,7 +218,7 @@ def test_contributing_user_cannot_get_score_calibration_when_private_and_not_inv
 
     with DependencyOverrider(admin_app_overrides):
         calibration = create_test_score_calibration_in_score_set_via_client(
-            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
         )
 
     add_contributor(
@@ -260,7 +260,7 @@ def test_admin_user_can_get_score_calibration_when_private(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(admin_app_overrides):
@@ -294,7 +294,7 @@ def test_anonymous_user_can_get_score_calibration_when_public(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
 
@@ -329,7 +329,7 @@ def test_other_user_can_get_score_calibration_when_public(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
 
@@ -364,7 +364,7 @@ def test_creating_user_can_get_score_calibration_when_public(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
 
@@ -398,7 +398,7 @@ def test_contributing_user_can_get_score_calibration_when_public(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
 
@@ -442,7 +442,7 @@ def test_admin_user_can_get_score_calibration_when_public(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
 
@@ -511,7 +511,7 @@ def test_anonymous_user_cannot_get_score_calibrations_for_score_set_when_private
         data_files / "scores.csv",
     )
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(anonymous_app_overrides):
@@ -544,7 +544,7 @@ def test_other_user_cannot_get_score_calibrations_for_score_set_when_private(
         data_files / "scores.csv",
     )
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(extra_user_app_overrides):
@@ -577,7 +577,7 @@ def test_anonymous_user_cannot_get_score_calibrations_for_score_set_when_publish
         data_files / "scores.csv",
     )
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
@@ -613,7 +613,7 @@ def test_other_user_cannot_get_score_calibrations_for_score_set_when_published_b
         data_files / "scores.csv",
     )
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
@@ -649,7 +649,7 @@ def test_creating_user_can_get_score_calibrations_for_score_set_when_private(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
@@ -692,11 +692,11 @@ def test_contributing_user_can_get_investigator_provided_score_calibrations_for_
 
     with DependencyOverrider(admin_app_overrides):
         create_test_score_calibration_in_score_set_via_client(
-            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
         )
 
     investigator_calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     add_contributor(
@@ -740,7 +740,7 @@ def test_admin_user_can_get_score_calibrations_for_score_set_when_private(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(admin_app_overrides):
@@ -775,12 +775,12 @@ def test_anonymous_user_can_get_score_calibrations_for_score_set_when_public(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     # add another calibration that will remain private. The anonymous user should not see this one
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     publish_test_score_calibration_via_client(client, calibration["urn"])
@@ -820,12 +820,12 @@ def test_other_user_can_get_score_calibrations_for_score_set_when_public(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     # add another calibration that will remain private. The other user should not see this one
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     publish_test_score_calibration_via_client(client, calibration["urn"])
@@ -865,12 +865,12 @@ def test_anonymous_user_cannot_get_score_calibrations_for_score_set_when_calibra
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     # add another calibration that will remain private. The anonymous user should not see this one
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     publish_test_score_calibration_via_client(client, calibration["urn"])
@@ -905,12 +905,12 @@ def test_other_user_cannot_get_score_calibrations_for_score_set_when_calibration
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     # add another calibration that will remain private. The other user should not see this one
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     publish_test_score_calibration_via_client(client, calibration["urn"])
@@ -945,13 +945,13 @@ def test_creating_user_can_get_score_calibrations_for_score_set_when_public(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     publish_test_score_calibration_via_client(client, calibration["urn"])
 
     # add another calibration that is private. The creating user should see this one too
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
@@ -985,13 +985,13 @@ def test_contributing_user_can_get_score_calibrations_for_score_set_when_public(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     publish_test_score_calibration_via_client(client, calibration["urn"])
 
     # add another calibration that is private. The contributing user should see this one too
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     add_contributor(
@@ -1035,13 +1035,13 @@ def test_admin_user_can_get_score_calibrations_for_score_set_when_public(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     publish_test_score_calibration_via_client(client, calibration["urn"])
 
     # add another calibration that is private. The admin user should see this one too
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(admin_app_overrides):
@@ -1110,7 +1110,7 @@ def test_cannot_get_primary_score_calibration_for_score_set_when_none_exist(
         data_files / "scores.csv",
     )
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}/primary")
@@ -1145,7 +1145,7 @@ def test_get_primary_score_calibration_for_score_set_when_exists(
         data_files / "scores.csv",
     )
     calibration = create_publish_and_promote_score_calibration(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}/primary")
@@ -1180,9 +1180,11 @@ def test_get_primary_score_calibration_for_score_set_when_multiple_exist(
         data_files / "scores.csv",
     )
 
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
     calibration2 = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     publish_test_score_calibration_via_client(client, calibration2["urn"])
 
@@ -1208,7 +1210,7 @@ def test_get_primary_score_calibration_for_score_set_when_multiple_exist(
 def test_cannot_create_score_calibration_when_missing_score_set_urn(client, setup_router_db):
     response = client.post(
         "/api/v1/score-calibrations",
-        json={**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)},
+        json={**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
     )
 
     assert response.status_code == 422
@@ -1221,7 +1223,7 @@ def test_cannot_create_score_calibration_when_score_set_does_not_exist(client, s
         "/api/v1/score-calibrations",
         json={
             "scoreSetUrn": "urn:ngs:score-set:nonexistent",
-            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
         },
     )
 
@@ -1257,7 +1259,7 @@ def test_cannot_create_score_calibration_when_score_set_not_owned_by_user(
             "/api/v1/score-calibrations",
             json={
                 "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
             },
         )
 
@@ -1296,7 +1298,7 @@ def test_cannot_create_score_calibration_in_public_score_set_when_score_set_not_
             "/api/v1/score-calibrations",
             json={
                 "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
             },
         )
 
@@ -1332,7 +1334,7 @@ def test_cannot_create_score_calibration_as_anonymous_user(
             "/api/v1/score-calibrations",
             json={
                 "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
             },
         )
 
@@ -1367,7 +1369,7 @@ def test_can_create_score_calibration_as_score_set_owner(
         "/api/v1/score-calibrations",
         json={
             "scoreSetUrn": score_set["urn"],
-            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
         },
     )
 
@@ -1413,7 +1415,7 @@ def test_can_create_score_calibration_as_score_set_contributor(
             "/api/v1/score-calibrations",
             json={
                 "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
             },
         )
 
@@ -1450,7 +1452,7 @@ def test_can_create_score_calibration_as_admin_user(
             "/api/v1/score-calibrations",
             json={
                 "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
             },
         )
 
@@ -1487,7 +1489,7 @@ def test_cannot_update_score_calibration_when_score_set_not_exists(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     response = client.put(
@@ -1560,7 +1562,7 @@ def test_cannot_update_score_calibration_as_anonymous_user(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(anonymous_app_overrides):
@@ -1599,7 +1601,7 @@ def test_cannot_update_score_calibration_when_score_set_not_owned_by_user(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(extra_user_app_overrides):
@@ -1638,7 +1640,7 @@ def test_cannot_update_score_calibration_in_published_score_set_when_score_set_n
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
@@ -1680,7 +1682,7 @@ def test_can_update_score_calibration_as_score_set_owner(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     response = client.put(
@@ -1720,7 +1722,7 @@ def test_cannot_update_published_score_calibration_as_score_set_owner(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     publish_test_score_calibration_via_client(client, calibration["urn"])
@@ -1760,7 +1762,7 @@ def test_can_update_investigator_provided_score_calibration_as_score_set_contrib
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     add_contributor(
@@ -1819,7 +1821,7 @@ def test_cannot_update_non_investigator_score_calibration_as_score_set_contribut
 
     with DependencyOverrider(admin_app_overrides):
         calibration = create_test_score_calibration_in_score_set_via_client(
-            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
         )
 
     add_contributor(
@@ -1867,7 +1869,7 @@ def test_can_update_score_calibration_as_admin_user(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(admin_app_overrides):
@@ -1908,7 +1910,7 @@ def test_can_update_published_score_calibration_as_admin_user(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     publish_test_score_calibration_via_client(client, calibration["urn"])
@@ -1958,7 +1960,7 @@ def test_anonymous_user_may_not_move_calibration_to_another_score_set(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set1["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set1["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(anonymous_app_overrides):
@@ -1966,7 +1968,7 @@ def test_anonymous_user_may_not_move_calibration_to_another_score_set(
             f"/api/v1/score-calibrations/{calibration['urn']}",
             json={
                 "scoreSetUrn": score_set2["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
             },
         )
 
@@ -2004,7 +2006,7 @@ def test_user_may_not_move_investigator_calibration_when_lacking_permissions_on_
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set1["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set1["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     # Give user permissions on the first score set only
@@ -2022,7 +2024,7 @@ def test_user_may_not_move_investigator_calibration_when_lacking_permissions_on_
             f"/api/v1/score-calibrations/{calibration['urn']}",
             json={
                 "scoreSetUrn": score_set2["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
             },
         )
 
@@ -2060,7 +2062,7 @@ def test_user_may_move_investigator_calibration_when_has_permissions_on_destinat
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set1["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set1["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     # Give user permissions on both score sets
@@ -2090,7 +2092,7 @@ def test_user_may_move_investigator_calibration_when_has_permissions_on_destinat
             f"/api/v1/score-calibrations/{calibration['urn']}",
             json={
                 "scoreSetUrn": score_set2["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
             },
         )
 
@@ -2129,7 +2131,7 @@ def test_admin_user_may_move_calibration_to_another_score_set(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set1["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set1["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(admin_app_overrides):
@@ -2137,7 +2139,7 @@ def test_admin_user_may_move_calibration_to_another_score_set(
             f"/api/v1/score-calibrations/{calibration['urn']}",
             json={
                 "scoreSetUrn": score_set2["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
             },
         )
 
@@ -2182,7 +2184,7 @@ def test_cannot_delete_score_calibration_as_anonymous_user(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(anonymous_app_overrides):
@@ -2215,7 +2217,7 @@ def test_cannot_delete_score_calibration_when_score_set_not_owned_by_user(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(extra_user_app_overrides):
@@ -2248,7 +2250,7 @@ def test_can_delete_score_calibration_as_score_set_owner(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
@@ -2282,7 +2284,7 @@ def test_cannot_delete_published_score_calibration_as_owner(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     publish_test_score_calibration_via_client(client, calibration["urn"])
 
@@ -2315,7 +2317,7 @@ def test_cannot_delete_investigator_score_calibration_as_score_set_contributor(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     add_contributor(
@@ -2366,7 +2368,7 @@ def test_cannot_delete_non_investigator_calibration_as_score_set_contributor(
 
     with DependencyOverrider(admin_app_overrides):
         calibration = create_test_score_calibration_in_score_set_via_client(
-            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
         )
 
     add_contributor(
@@ -2406,7 +2408,7 @@ def test_can_delete_score_calibration_as_admin_user(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(admin_app_overrides):
@@ -2441,7 +2443,7 @@ def test_can_delete_published_score_calibration_as_admin_user(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     publish_test_score_calibration_via_client(client, calibration["urn"])
 
@@ -2477,7 +2479,7 @@ def test_cannot_delete_primary_score_calibration(
         data_files / "scores.csv",
     )
     calibration = create_publish_and_promote_score_calibration(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
@@ -2525,7 +2527,7 @@ def test_cannot_promote_score_calibration_as_anonymous_user(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     publish_test_score_calibration_via_client(client, calibration["urn"])
 
@@ -2559,7 +2561,7 @@ def test_cannot_promote_score_calibration_when_score_calibration_not_owned_by_us
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     publish_test_score_calibration_via_client(client, calibration["urn"])
 
@@ -2595,7 +2597,7 @@ def test_can_promote_score_calibration_as_score_set_owner(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     publish_test_score_calibration_via_client(client, calibration["urn"])
     response = client.post(f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary")
@@ -2629,7 +2631,7 @@ def test_can_promote_score_calibration_as_score_set_contributor(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     publish_test_score_calibration_via_client(client, calibration["urn"])
 
@@ -2674,7 +2676,7 @@ def test_can_promote_score_calibration_as_admin_user(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     publish_test_score_calibration_via_client(client, calibration["urn"])
 
@@ -2710,7 +2712,7 @@ def test_can_promote_existing_primary_to_primary(
         data_files / "scores.csv",
     )
     primary_calibration = create_publish_and_promote_score_calibration(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     response = client.post(f"/api/v1/score-calibrations/{primary_calibration['urn']}/promote-to-primary")
@@ -2746,7 +2748,7 @@ def test_cannot_promote_research_use_only_to_primary(
     calibration = create_test_score_calibration_in_score_set_via_client(
         client,
         score_set["urn"],
-        deepcamelize({**TEST_BRNICH_SCORE_CALIBRATION, "researchUseOnly": True}),
+        deepcamelize({**TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, "researchUseOnly": True}),
     )
     publish_test_score_calibration_via_client(client, calibration["urn"])
 
@@ -2781,7 +2783,7 @@ def test_cannot_promote_private_calibration_to_primary(
     calibration = create_test_score_calibration_in_score_set_via_client(
         client,
         score_set["urn"],
-        deepcamelize({**TEST_BRNICH_SCORE_CALIBRATION, "private": True}),
+        deepcamelize({**TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, "private": True}),
     )
 
     response = client.post(f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary")
@@ -2812,7 +2814,9 @@ def test_cannot_promote_to_primary_if_primary_exists(
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
     secondary_calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION)
     )
@@ -2847,7 +2851,7 @@ def test_can_promote_to_primary_if_primary_exists_when_demote_existing_is_true(
         data_files / "scores.csv",
     )
     primary_calibration = create_publish_and_promote_score_calibration(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     secondary_calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION)
@@ -2894,7 +2898,7 @@ def test_cannot_promote_to_primary_with_demote_existing_flag_if_user_does_not_ha
     )
     with DependencyOverrider(admin_app_overrides):
         primary_calibration = create_publish_and_promote_score_calibration(
-            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
         )
     secondary_calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION)
@@ -2954,7 +2958,7 @@ def test_cannot_demote_score_calibration_as_anonymous_user(
         data_files / "scores.csv",
     )
     calibration = create_publish_and_promote_score_calibration(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(anonymous_app_overrides):
@@ -2989,7 +2993,7 @@ def test_cannot_demote_score_calibration_when_score_calibration_not_owned_by_use
         data_files / "scores.csv",
     )
     calibration = create_publish_and_promote_score_calibration(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(extra_user_app_overrides):
@@ -3024,7 +3028,7 @@ def test_can_demote_score_calibration_as_score_set_contributor(
         data_files / "scores.csv",
     )
     calibration = create_publish_and_promote_score_calibration(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     add_contributor(
@@ -3070,7 +3074,7 @@ def test_can_demote_score_calibration_as_score_set_owner(
         data_files / "scores.csv",
     )
     calibration = create_publish_and_promote_score_calibration(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     response = client.post(
@@ -3106,7 +3110,7 @@ def test_can_demote_score_calibration_as_admin_user(
         data_files / "scores.csv",
     )
     calibration = create_publish_and_promote_score_calibration(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(admin_app_overrides):
@@ -3142,7 +3146,9 @@ def test_can_demote_non_primary_score_calibration(
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
     secondary_calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION)
     )
@@ -3207,7 +3213,7 @@ def test_cannot_publish_score_calibration_as_anonymous_user(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(anonymous_app_overrides):
@@ -3242,7 +3248,7 @@ def test_cannot_publish_score_calibration_when_score_calibration_not_owned_by_us
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(extra_user_app_overrides):
@@ -3277,7 +3283,7 @@ def test_can_publish_score_calibration_as_score_set_owner(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     response = client.post(
@@ -3313,7 +3319,7 @@ def test_can_publish_score_calibration_as_admin_user(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with DependencyOverrider(admin_app_overrides):
@@ -3350,7 +3356,7 @@ def test_can_publish_already_published_calibration(
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     # publish it first

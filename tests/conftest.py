@@ -25,7 +25,7 @@ from mavedb.models.variant import Variant
 from tests.helpers.constants import (
     ADMIN_USER,
     EXTRA_USER,
-    TEST_BRNICH_SCORE_CALIBRATION,
+    TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_INACTIVE_LICENSE,
     TEST_LICENSE,
     TEST_PATHOGENICITY_SCORE_CALIBRATION,
@@ -143,7 +143,7 @@ def mock_experiment():
 def mock_score_set(mock_user, mock_experiment, mock_publication_associations):
     score_set = mock.Mock(spec=ScoreSet)
     score_set.urn = VALID_SCORE_SET_URN
-    score_set.score_calibrations = [TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]
+    score_set.score_calibrations = [TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]
     score_set.license.short_name = "MIT"
     score_set.created_by = mock_user
     score_set.modified_by = mock_user

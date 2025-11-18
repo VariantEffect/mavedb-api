@@ -87,7 +87,7 @@ def test_functional_classification_of_variant_without_ranges_in_primary_calibrat
         None,
     )
     assert primary_cal is not None
-    primary_cal.functional_ranges = None
+    primary_cal.functional_classifications = None
 
     with pytest.raises(ValueError) as exc:
         functional_classification_of_variant(mock_mapped_variant_with_functional_calibration_score_set)
@@ -171,7 +171,7 @@ def test_pathogenicity_classification_of_variant_without_ranges_in_primary_calib
         None,
     )
     assert primary_cal is not None
-    primary_cal.functional_ranges = None
+    primary_cal.functional_classifications = None
 
     with pytest.raises(ValueError) as exc:
         pathogenicity_classification_of_variant(mock_mapped_variant_with_pathogenicity_calibration_score_set)
@@ -194,7 +194,7 @@ def test_pathogenicity_classification_of_variant_without_acmg_classification_in_
         None,
     )
     assert primary_cal is not None
-    for r in primary_cal.functional_ranges:
+    for r in primary_cal.functional_classifications:
         r["acmgClassification"] = None
 
     criterion, strength = pathogenicity_classification_of_variant(
@@ -217,7 +217,7 @@ def test_pathogenicity_classification_of_variant_with_invalid_evidence_strength_
         None,
     )
     assert primary_cal is not None
-    for r in primary_cal.functional_ranges:
+    for r in primary_cal.functional_classifications:
         r["acmgClassification"]["evidenceStrength"] = "MODERATE_PLUS"
         r["oddspathsRatio"] = None
 

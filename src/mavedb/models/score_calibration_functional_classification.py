@@ -11,7 +11,7 @@ from sqlalchemy.orm import Mapped, relationship
 from mavedb.db.base import Base
 from mavedb.lib.validation.utilities import inf_or_float
 from mavedb.models.acmg_classification import ACMGClassification
-from mavedb.models.enums.functional_classification import FunctionalClassification
+from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassificationOptions
 from mavedb.models.score_calibration_functional_classification_variant_association import (
     score_calibration_functional_classification_variants_association_table,
 )
@@ -32,13 +32,15 @@ class ScoreCalibrationFunctionalClassification(Base):
     label = Column(String, nullable=False)
     description = Column(String, nullable=True)
 
-    classification = Column(
-        Enum(FunctionalClassification, native_enum=False, validate_strings=True, length=32),
+    functional_classification = Column(
+        Enum(FunctionalClassificationOptions, native_enum=False, validate_strings=True, length=32),
         nullable=False,
-        default=FunctionalClassification.not_specified,
+        default=FunctionalClassificationOptions.not_specified,
     )
 
     range = Column(JSONB(none_as_null=True), nullable=True)  # (lower_bound, upper_bound)
+    class_ = Column(String, nullable=True)
+
     inclusive_lower_bound = Column(Boolean, nullable=True, default=True)
     inclusive_upper_bound = Column(Boolean, nullable=True, default=False)
 

@@ -7,7 +7,7 @@ associated publication/odds path references used by the API layer.
 from datetime import date
 from typing import TYPE_CHECKING, Any, Collection, Optional, Sequence, Union
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from mavedb.lib.oddspaths import oddspaths_evidence_strength_equivalent
 from mavedb.lib.validation.exceptions import ValidationError
@@ -16,7 +16,7 @@ from mavedb.lib.validation.transform import (
     transform_score_set_to_urn,
 )
 from mavedb.lib.validation.utilities import inf_or_float
-from mavedb.models.enums.functional_classification import FunctionalClassification
+from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassifcationOptions
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.acmg_classification import (
     ACMGClassification,
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 ### Functional range models
 
 
-class FunctionalRangeBase(BaseModel):
+class FunctionalClassificationBase(BaseModel):
     """Base functional range model.
 
     Represents a labeled numeric score interval with optional evidence metadata.
@@ -53,9 +53,11 @@ class FunctionalRangeBase(BaseModel):
 
     label: str
     description: Optional[str] = None
-    classification: FunctionalClassification = FunctionalClassification.not_specified
+    functional_classification: FunctionalClassifcationOptions = FunctionalClassifcationOptions.not_specified
 
     range: Optional[tuple[Union[float, None], Union[float, None]]] = None  # (lower_bound, upper_bound)
+    class_: Optional[str] = Field(None, alias="class", serialization_alias="class")
+
     inclusive_lower_bound: Optional[bool] = None
     inclusive_upper_bound: Optional[bool] = None
 
@@ -63,6 +65,9 @@ class FunctionalRangeBase(BaseModel):
 
     oddspaths_ratio: Optional[float] = None
     positive_likelihood_ratio: Optional[float] = None
+
+    class Config:
+        populate_by_name = True
 
     @field_validator("range")
     def ranges_are_not_backwards(
@@ -88,15 +93,52 @@ class FunctionalRangeBase(BaseModel):
 
         return field_value
 
+    @field_validator("class_", "label", mode="before")
+    def labels_and_class_strip_whitespace_and_validate_not_empty(cls, field_value: Optional[str]) -> Optional[str]:
+        """Strip leading/trailing whitespace from class names."""
+        if field_value is None:
+            return None
+
+        field_value = field_value.strip()
+        if not field_value:
+            raise ValidationError("This field may not be empty or contain only whitespace.")
+
+        return field_value
+
     @model_validator(mode="after")
-    def inclusive_bounds_require_range(self: "FunctionalRangeBase") -> "FunctionalRangeBase":
+    def At_least_one_of_range_or_class_must_be_provided(
+        self: "FunctionalClassificationBase",
+    ) -> "FunctionalClassificationBase":
+        """Either a range or a class must be provided."""
+        if self.range is None and self.class_ is None:
+            raise ValidationError("A functional range must specify either a numeric range or a class.")
+
+        return self
+
+    @model_validator(mode="after")
+    def class_and_range_mutually_exclusive(
+        self: "FunctionalClassificationBase",
+    ) -> "FunctionalClassificationBase":
+        """Either a range or a class may be provided, but not both."""
+        if self.range is not None and self.class_ is not None:
+            raise ValidationError("A functional range may not specify both a numeric range and a class.")
+
+        return self
+
+    @model_validator(mode="after")
+    def inclusive_bounds_require_range(self: "FunctionalClassificationBase") -> "FunctionalClassificationBase":
         """Inclusive bounds may only be set if a range is provided. If they are unset, default them."""
-        if self.range is None:
+        if self.class_ is not None:
             if self.inclusive_lower_bound:
-                raise ValidationError("An inclusive lower bound requires a defined range.")
+                raise ValidationError(
+                    "An inclusive lower bound may not be set on a class based functional classification."
+                )
             if self.inclusive_upper_bound:
-                raise ValidationError("An inclusive upper bound requires a defined range.")
-        else:
+                raise ValidationError(
+                    "An inclusive upper bound may not be set on a class based functional classification."
+                )
+
+        if self.range is not None:
             if self.inclusive_lower_bound is None:
                 self.inclusive_lower_bound = True
             if self.inclusive_upper_bound is None:
@@ -105,7 +147,9 @@ class FunctionalRangeBase(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def inclusive_bounds_do_not_include_infinity(self: "FunctionalRangeBase") -> "FunctionalRangeBase":
+    def inclusive_bounds_do_not_include_infinity(
+        self: "FunctionalClassificationBase",
+    ) -> "FunctionalClassificationBase":
         """Disallow inclusive bounds on unbounded (infinite) ends."""
         if self.inclusive_lower_bound and self.range is not None and self.range[0] is None:
             raise ValidationError("An inclusive lower bound may not include negative infinity.")
@@ -115,25 +159,29 @@ class FunctionalRangeBase(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def acmg_classification_evidence_agrees_with_classification(self: "FunctionalRangeBase") -> "FunctionalRangeBase":
+    def acmg_classification_evidence_agrees_with_classification(
+        self: "FunctionalClassificationBase",
+    ) -> "FunctionalClassificationBase":
         """If oddspaths is provided, ensure its evidence agrees with the classification."""
         if self.acmg_classification is None or self.acmg_classification.criterion is None:
             return self
 
         if (
-            self.classification is FunctionalClassification.normal
+            self.functional_classification is FunctionalClassifcationOptions.normal
             and self.acmg_classification.criterion.is_pathogenic
-            or self.classification is FunctionalClassification.abnormal
+            or self.functional_classification is FunctionalClassifcationOptions.abnormal
             and self.acmg_classification.criterion.is_benign
         ):
             raise ValidationError(
-                f"The ACMG classification criterion ({self.acmg_classification.criterion}) must agree with the functional range classification ({self.classification})."
+                f"The ACMG classification criterion ({self.acmg_classification.criterion}) must agree with the functional range classification ({self.functional_classification})."
             )
 
         return self
 
     @model_validator(mode="after")
-    def oddspaths_ratio_agrees_with_acmg_classification(self: "FunctionalRangeBase") -> "FunctionalRangeBase":
+    def oddspaths_ratio_agrees_with_acmg_classification(
+        self: "FunctionalClassificationBase",
+    ) -> "FunctionalClassificationBase":
         """If both oddspaths and acmg_classification are provided, ensure they agree."""
         if self.oddspaths_ratio is None or self.acmg_classification is None:
             return self
@@ -168,20 +216,30 @@ class FunctionalRangeBase(BaseModel):
 
         return lower_check and upper_check
 
+    @property
+    def class_based(self) -> bool:
+        """Determine if this functional classification is class-based."""
+        return self.class_ is not None
 
-class FunctionalRangeModify(FunctionalRangeBase):
+    @property
+    def range_based(self) -> bool:
+        """Determine if this functional classification is range-based."""
+        return self.range is not None
+
+
+class FunctionalClassificationModify(FunctionalClassificationBase):
     """Model used to modify an existing functional range."""
 
     acmg_classification: Optional[ACMGClassificationModify] = None
 
 
-class FunctionalRangeCreate(FunctionalRangeModify):
+class FunctionalClassificationCreate(FunctionalClassificationModify):
     """Model used to create a new functional range."""
 
     acmg_classification: Optional[ACMGClassificationCreate] = None
 
 
-class SavedFunctionalRange(FunctionalRangeBase):
+class SavedFunctionalClassification(FunctionalClassificationBase):
     """Persisted functional range model (includes record type metadata)."""
 
     record_type: str = None  # type: ignore
@@ -197,7 +255,7 @@ class SavedFunctionalRange(FunctionalRangeBase):
         arbitrary_types_allowed = True
 
 
-class FunctionalRange(SavedFunctionalRange):
+class FunctionalClassification(SavedFunctionalClassification):
     """Complete functional range model returned by the API."""
 
     acmg_classification: Optional[ACMGClassification] = None
@@ -220,23 +278,23 @@ class ScoreCalibrationBase(BaseModel):
     baseline_score_description: Optional[str] = None
     notes: Optional[str] = None
 
-    functional_ranges: Optional[Sequence[FunctionalRangeBase]] = None
+    functional_classifications: Optional[Sequence[FunctionalClassificationBase]] = None
     threshold_sources: Optional[Sequence[PublicationIdentifierBase]] = None
     classification_sources: Optional[Sequence[PublicationIdentifierBase]] = None
     method_sources: Optional[Sequence[PublicationIdentifierBase]] = None
     calibration_metadata: Optional[dict] = None
 
-    @field_validator("functional_ranges")
+    @field_validator("functional_classifications")
     def ranges_do_not_overlap(
-        cls, field_value: Optional[Sequence[FunctionalRangeBase]]
-    ) -> Optional[Sequence[FunctionalRangeBase]]:
+        cls, field_value: Optional[Sequence[FunctionalClassificationBase]]
+    ) -> Optional[Sequence[FunctionalClassificationBase]]:
         """Ensure that no two functional ranges overlap (respecting inclusivity)."""
 
-        def test_overlap(range_test: FunctionalRangeBase, range_check: FunctionalRangeBase) -> bool:
+        def test_overlap(range_test: FunctionalClassificationBase, range_check: FunctionalClassificationBase) -> bool:
             # Allow 'not_specified' classifications to overlap with anything.
             if (
-                range_test.classification is FunctionalClassification.not_specified
-                or range_check.classification is FunctionalClassification.not_specified
+                range_test.functional_classification is FunctionalClassifcationOptions.not_specified
+                or range_check.functional_classification is FunctionalClassifcationOptions.not_specified
                 or range_test.range is None
                 or range_check.range is None
             ):
@@ -275,23 +333,34 @@ class ScoreCalibrationBase(BaseModel):
         return field_value
 
     @model_validator(mode="after")
-    def functional_range_labels_must_be_unique(self: "ScoreCalibrationBase") -> "ScoreCalibrationBase":
-        """Enforce uniqueness (post-strip) of functional range labels."""
-        if not self.functional_ranges:
+    def functional_range_labels_classes_must_be_unique(self: "ScoreCalibrationBase") -> "ScoreCalibrationBase":
+        """Enforce uniqueness (post-strip) of functional range labels and classes."""
+        if not self.functional_classifications:
             return self
 
-        seen, dupes = set(), set()
-        for i, fr in enumerate(self.functional_ranges):
-            fr.label = fr.label.strip()
-            if fr.label in seen:
-                dupes.add((fr.label, i))
+        seen_l, dupes_l = set(), set()
+        seen_c, dupes_c = set(), set()
+        for i, fr in enumerate(self.functional_classifications):
+            if fr.label in seen_l:
+                dupes_l.add((fr.label, i))
             else:
-                seen.add(fr.label)
+                seen_l.add(fr.label)
 
-        if dupes:
+            if fr.class_ is not None:
+                if fr.class_ in seen_c:
+                    dupes_c.add((fr.class_, i))
+                else:
+                    seen_c.add(fr.class_)
+
+        if dupes_l:
             raise ValidationError(
-                f"Detected repeated label(s): {', '.join(label for label, _ in dupes)}. Functional range labels must be unique.",
-                custom_loc=["body", "functionalRanges", dupes.pop()[1], "label"],
+                f"Detected repeated label(s): {', '.join(label for label, _ in dupes_l)}. Functional range labels must be unique.",
+                custom_loc=["body", "functionalClassifications", dupes_l.pop()[1], "label"],
+            )
+        if dupes_c:
+            raise ValidationError(
+                f"Detected repeated class name(s): {', '.join(class_name for class_name, _ in dupes_c)}. Functional range class names must be unique.",
+                custom_loc=["body", "functionalClassifications", dupes_c.pop()[1], "class"],
             )
 
         return self
@@ -299,16 +368,16 @@ class ScoreCalibrationBase(BaseModel):
     @model_validator(mode="after")
     def validate_baseline_score(self: "ScoreCalibrationBase") -> "ScoreCalibrationBase":
         """If a baseline score is provided and it falls within a functional range, it may only be contained in a normal range."""
-        if not self.functional_ranges:
+        if not self.functional_classifications:
             return self
 
         if self.baseline_score is None:
             return self
 
-        for fr in self.functional_ranges:
+        for fr in self.functional_classifications:
             if (
                 fr.is_contained_by_range(self.baseline_score)
-                and fr.classification is not FunctionalClassification.normal
+                and fr.functional_classification is not FunctionalClassifcationOptions.normal
             ):
                 raise ValidationError(
                     f"The provided baseline score of {self.baseline_score} falls within a non-normal range ({fr.label}). Baseline scores may not fall within non-normal ranges.",
@@ -317,13 +386,48 @@ class ScoreCalibrationBase(BaseModel):
 
         return self
 
+    @model_validator(mode="after")
+    def functional_classifications_must_be_of_same_type(
+        self: "ScoreCalibrationBase",
+    ) -> "ScoreCalibrationBase":
+        """All functional classifications must be either range-based or class-based."""
+        if not self.functional_classifications:
+            return self
+
+        range_based_count = sum(1 for fc in self.functional_classifications if fc.range_based)
+        class_based_count = sum(1 for fc in self.functional_classifications if fc.class_based)
+
+        if range_based_count > 0 and class_based_count > 0:
+            raise ValidationError(
+                "All functional classifications within a score calibration must be of the same type (either all range-based or all class-based).",
+                custom_loc=["body", "functionalClassifications"],
+            )
+
+        return self
+
+    @property
+    def range_based(self) -> bool:
+        """Determine if this score calibration is range-based."""
+        if not self.functional_classifications:
+            return False
+
+        return self.functional_classifications[0].range_based
+
+    @property
+    def class_based(self) -> bool:
+        """Determine if this score calibration is class-based."""
+        if not self.functional_classifications:
+            return False
+
+        return self.functional_classifications[0].class_based
+
 
 class ScoreCalibrationModify(ScoreCalibrationBase):
     """Model used to modify an existing score calibration."""
 
     score_set_urn: Optional[str] = None
 
-    functional_ranges: Optional[Sequence[FunctionalRangeModify]] = None
+    functional_classifications: Optional[Sequence[FunctionalClassificationModify]] = None
     threshold_sources: Optional[Sequence[PublicationIdentifierCreate]] = None
     classification_sources: Optional[Sequence[PublicationIdentifierCreate]] = None
     method_sources: Optional[Sequence[PublicationIdentifierCreate]] = None
@@ -332,7 +436,7 @@ class ScoreCalibrationModify(ScoreCalibrationBase):
 class ScoreCalibrationCreate(ScoreCalibrationModify):
     """Model used to create a new score calibration."""
 
-    functional_ranges: Optional[Sequence[FunctionalRangeCreate]] = None
+    functional_classifications: Optional[Sequence[FunctionalClassificationCreate]] = None
     threshold_sources: Optional[Sequence[PublicationIdentifierCreate]] = None
     classification_sources: Optional[Sequence[PublicationIdentifierCreate]] = None
     method_sources: Optional[Sequence[PublicationIdentifierCreate]] = None
@@ -352,7 +456,7 @@ class SavedScoreCalibration(ScoreCalibrationBase):
     primary: bool = False
     private: bool = True
 
-    functional_ranges: Optional[Sequence[SavedFunctionalRange]] = None
+    functional_classifications: Optional[Sequence[SavedFunctionalClassification]] = None
     threshold_sources: Optional[Sequence[SavedPublicationIdentifier]] = None
     classification_sources: Optional[Sequence[SavedPublicationIdentifier]] = None
     method_sources: Optional[Sequence[SavedPublicationIdentifier]] = None
@@ -430,7 +534,7 @@ class SavedScoreCalibration(ScoreCalibrationBase):
 class ScoreCalibration(SavedScoreCalibration):
     """Complete score calibration model returned by the API."""
 
-    functional_ranges: Optional[Sequence[FunctionalRange]] = None
+    functional_classifications: Optional[Sequence[FunctionalClassification]] = None
     threshold_sources: Optional[Sequence[PublicationIdentifier]] = None
     classification_sources: Optional[Sequence[PublicationIdentifier]] = None
     method_sources: Optional[Sequence[PublicationIdentifier]] = None

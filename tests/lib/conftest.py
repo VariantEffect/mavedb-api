@@ -36,7 +36,7 @@ from tests.helpers.constants import (
     TEST_MINIMAL_MAPPED_VARIANT,
     TEST_MINIMAL_VARIANT,
     TEST_PUBMED_IDENTIFIER,
-    TEST_SAVED_BRNICH_SCORE_CALIBRATION,
+    TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION,
     TEST_SAVED_TAXONOMY,
     TEST_SEQ_SCORESET,
@@ -187,7 +187,7 @@ def mock_experiment():
 def mock_functional_calibration(mock_user):
     calibration = mock.Mock(spec=ScoreCalibration)
 
-    for key, value in TEST_SAVED_BRNICH_SCORE_CALIBRATION.items():
+    for key, value in TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED.items():
         setattr(calibration, decamelize(key), deepcopy(value))
 
     calibration.primary = True  # Ensure functional calibration is primary for tests

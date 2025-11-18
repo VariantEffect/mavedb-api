@@ -106,7 +106,7 @@ from mavedb.models.user import User
 from mavedb.scripts.environment import with_database_session
 from mavedb.view_models.acmg_classification import ACMGClassificationCreate
 from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
-from mavedb.view_models.score_calibration import FunctionalRangeCreate, ScoreCalibrationCreate
+from mavedb.view_models.score_calibration import FunctionalClassificationCreate, ScoreCalibrationCreate
 
 BRNICH_PMID = "31892348"
 RANGE_PATTERN = re.compile(r"^\s*([\[(])\s*([^,]+)\s*,\s*([^\])]+)\s*([])])\s*$", re.IGNORECASE)
@@ -274,7 +274,7 @@ def build_ranges(row: Dict[str, str], infer_strengths: bool = True) -> Tuple[Lis
 
         label = row.get(f"class_{i}_name", "").strip()
         ranges.append(
-            FunctionalRangeCreate(
+            FunctionalClassificationCreate(
                 label=label,
                 classification=classification,
                 range=(lower, upper),
@@ -366,7 +366,7 @@ def main(db: Session, csv_path: str, delimiter: str, overwrite: bool, purge_publ
                     method_sources=method_publications,
                     classification_sources=calculation_publications,
                     research_use_only=False,
-                    functional_ranges=ranges,
+                    functional_classifications=ranges,
                     notes=calibration_notes,
                 )
             except Exception as e:  # broad to keep import running

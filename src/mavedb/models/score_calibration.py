@@ -41,7 +41,7 @@ class ScoreCalibration(Base):
     baseline_score = Column(Float, nullable=True)
     baseline_score_description = Column(String, nullable=True)
 
-    functional_ranges: Mapped[list["ScoreCalibrationFunctionalClassification"]] = relationship(
+    functional_classifications: Mapped[list["ScoreCalibrationFunctionalClassification"]] = relationship(
         "ScoreCalibrationFunctionalClassification",
         back_populates="calibration",
         cascade="all, delete-orphan",
