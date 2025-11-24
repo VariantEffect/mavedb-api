@@ -1,13 +1,15 @@
 """Utilities for building and mutating score calibration ORM objects."""
 
 import math
-from typing import Union
+from typing import Optional, Union
 
+import pandas as pd
 from sqlalchemy import Float, and_, select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.acmg import find_or_create_acmg_classification
 from mavedb.lib.identifiers import find_or_create_publication_identifier
+from mavedb.lib.validation.constants.general import calibration_class_column_name, calibration_variant_column_name
 from mavedb.lib.validation.utilities import inf_or_float
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
 from mavedb.models.score_calibration import ScoreCalibration
@@ -25,6 +27,7 @@ def create_functional_classification(
         score_calibration.FunctionalClassificationCreate, score_calibration.FunctionalClassificationModify
     ],
     containing_calibration: ScoreCalibration,
+    variant_classes: Optional[dict[str, list[str]]] = None,
 ) -> ScoreCalibrationFunctionalClassification:
     """
     Create a functional classification entity for score calibration.
@@ -38,6 +41,9 @@ def create_functional_classification(
             Input data containing the functional range parameters including label,
             description, range bounds, inclusivity flags, and optional ACMG
             classification information.
+        containing_calibration (ScoreCalibration): The ScoreCalibration instance.
+        variant_classes (Optional[dict[str, list[str]]]): Optional dictionary mapping variant classes
+            to their corresponding variant identifiers.
 
     Returns:
         ScoreCalibrationFunctionalClassification: The newly created functional
@@ -63,6 +69,7 @@ def create_functional_classification(
         label=functional_range_create.label,
         description=functional_range_create.description,
         range=functional_range_create.range,
+        class_=functional_range_create.class_,
         inclusive_lower_bound=functional_range_create.inclusive_lower_bound,
         inclusive_upper_bound=functional_range_create.inclusive_upper_bound,
         acmg_classification=acmg_classification,
@@ -73,14 +80,20 @@ def create_functional_classification(
         calibration=containing_calibration,
     )
 
-    contained_variants = variants_for_functional_classification(db, functional_classification, use_sql=True)
+    contained_variants = variants_for_functional_classification(
+        db, functional_classification, variant_classes=variant_classes, use_sql=True
+    )
     functional_classification.variants = contained_variants
 
     return functional_classification
 
 
 async def _create_score_calibration(
-    db: Session, calibration_create: score_calibration.ScoreCalibrationCreate, user: User
+    db: Session,
+    calibration_create: score_calibration.ScoreCalibrationCreate,
+    user: User,
+    variant_classes: Optional[dict[str, list[str]]] = None,
+    containing_score_set: Optional[ScoreSet] = None,
 ) -> ScoreCalibration:
     """
     Create a ScoreCalibration ORM instance (not yet persisted) together with its
@@ -170,9 +183,13 @@ async def _create_score_calibration(
         modified_by=user,
     )  # type: ignore[call-arg]
 
+    if containing_score_set:
+        calibration.score_set = containing_score_set
+        calibration.score_set_id = containing_score_set.id
+
     for functional_range_create in calibration_create.functional_classifications or []:
         persisted_functional_range = create_functional_classification(
-            db, functional_range_create, containing_calibration=calibration
+            db, functional_range_create, containing_calibration=calibration, variant_classes=variant_classes
         )
         db.add(persisted_functional_range)
         calibration.functional_classifications.append(persisted_functional_range)
@@ -181,7 +198,10 @@ async def _create_score_calibration(
 
 
 async def create_score_calibration_in_score_set(
-    db: Session, calibration_create: score_calibration.ScoreCalibrationCreate, user: User
+    db: Session,
+    calibration_create: score_calibration.ScoreCalibrationCreate,
+    user: User,
+    variant_classes: Optional[dict[str, list[str]]] = None,
 ) -> ScoreCalibration:
     """
     Create a new score calibration and associate it with an existing score set.
@@ -197,6 +217,8 @@ async def create_score_calibration_in_score_set(
             object containing the fields required to create a score calibration. Must include
             a non-empty score_set_urn.
         user (User): Authenticated user information used for auditing
+        variant_classes (Optional[dict[str, list[str]]]): Optional dictionary mapping variant classes
+            to their corresponding variant identifiers.
 
     Returns:
         ScoreCalibration: The newly created and persisted score calibration object with its
@@ -219,8 +241,7 @@ async def create_score_calibration_in_score_set(
         raise ValueError("score_set_urn must be provided to create a score calibration within a score set.")
 
     containing_score_set = db.query(ScoreSet).where(ScoreSet.urn == calibration_create.score_set_urn).one()
-    calibration = await _create_score_calibration(db, calibration_create, user)
-    calibration.score_set = containing_score_set
+    calibration = await _create_score_calibration(db, calibration_create, user, variant_classes, containing_score_set)
 
     if user.username in [contributor.orcid_id for contributor in containing_score_set.contributors] + [
         containing_score_set.created_by.username,
@@ -235,7 +256,10 @@ async def create_score_calibration_in_score_set(
 
 
 async def create_score_calibration(
-    db: Session, calibration_create: score_calibration.ScoreCalibrationCreate, user: User
+    db: Session,
+    calibration_create: score_calibration.ScoreCalibrationCreate,
+    user: User,
+    variant_classes: Optional[dict[str, list[str]]] = None,
 ) -> ScoreCalibration:
     """
     Asynchronously create and persist a new ScoreCalibration record.
@@ -253,6 +277,8 @@ async def create_score_calibration(
         score set identifiers).
     user : User
         Authenticated user context; the user to be recorded for audit
+    variant_classes (Optional[dict[str, list[str]]]): Optional dictionary mapping variant classes
+        to their corresponding variant identifiers.
 
     Returns
     -------
@@ -284,7 +310,9 @@ async def create_score_calibration(
     if calibration_create.score_set_urn:
         raise ValueError("score_set_urn must not be provided to create a score calibration outside a score set.")
 
-    created_calibration = await _create_score_calibration(db, calibration_create, user)
+    created_calibration = await _create_score_calibration(
+        db, calibration_create, user, variant_classes, containing_score_set=None
+    )
 
     db.add(created_calibration)
     return created_calibration
@@ -295,76 +323,79 @@ async def modify_score_calibration(
     calibration: ScoreCalibration,
     calibration_update: score_calibration.ScoreCalibrationModify,
     user: User,
+    variant_classes: Optional[dict[str, list[str]]] = None,
 ) -> ScoreCalibration:
     """
-       Asynchronously modify an existing ScoreCalibration record and its related publication
-       identifier associations.
+    Asynchronously modify an existing ScoreCalibration record and its related publication
+    identifier associations.
 
-       This function:
-       1. Validates that a score_set_urn is provided in the update model (raises ValueError if absent).
-       2. Loads (via SELECT ... WHERE urn = :score_set_urn) the ScoreSet that will contain the calibration.
-       3. Reconciles publication identifier associations for three relation categories:
-           - threshold_sources  -> ScoreCalibrationRelation.threshold
-           - classification_sources -> ScoreCalibrationRelation.classification
-           - method_sources -> ScoreCalibrationRelation.method
-           For each provided source identifier:
-             * Calls find_or_create_publication_identifier to obtain (or persist) the identifier row.
-             * Preserves an existing association if already present.
-             * Creates a new association if missing.
-           Any previously existing associations not referenced in the update are deleted from the session.
-       4. Updates mutable scalar fields on the calibration instance from calibration_update, excluding:
-           threshold_sources, classification_sources, method_sources, created_at, created_by,
-           modified_at, modified_by.
-       5. Reassigns the calibration to the resolved ScoreSet, replaces its association collection,
-           and stamps modified_by with the requesting user.
-       6. Adds the modified calibration back into the SQLAlchemy session and returns it (no commit).
+    This function:
+    1. Validates that a score_set_urn is provided in the update model (raises ValueError if absent).
+    2. Loads (via SELECT ... WHERE urn = :score_set_urn) the ScoreSet that will contain the calibration.
+    3. Reconciles publication identifier associations for three relation categories:
+        - threshold_sources  -> ScoreCalibrationRelation.threshold
+        - classification_sources -> ScoreCalibrationRelation.classification
+        - method_sources -> ScoreCalibrationRelation.method
+        For each provided source identifier:
+          * Calls find_or_create_publication_identifier to obtain (or persist) the identifier row.
+          * Preserves an existing association if already present.
+          * Creates a new association if missing.
+        Any previously existing associations not referenced in the update are deleted from the session.
+    4. Updates mutable scalar fields on the calibration instance from calibration_update, excluding:
+        threshold_sources, classification_sources, method_sources, created_at, created_by,
+        modified_at, modified_by.
+    5. Reassigns the calibration to the resolved ScoreSet, replaces its association collection,
+        and stamps modified_by with the requesting user.
+    6. Adds the modified calibration back into the SQLAlchemy session and returns it (no commit).
 
-       Parameters
-       ----------
-       db : Session
-            An active SQLAlchemy session (synchronous engine session used within an async context).
-       calibration : ScoreCalibration
-            The existing calibration ORM instance to be modified (must be persistent or pending).
-    del carrying updated field values plus source identifier lists:
-            - score_set_urn (required)
-            - threshold_sources, classification_sources, method_sources (iterables of identifier objects)
-            - Additional mutable calibration attributes.
-       user : User
-            Context for the authenticated user; the user to be recorded for audit.
+    Parameters
+    ----------
+     db : Session
+         An active SQLAlchemy session (synchronous engine session used within an async context).
+     calibration : ScoreCalibration
+         The existing calibration ORM instance to be modified (must be persistent or pending).
+     calibration_update : score_calibration.ScoreCalibrationModify
+         - score_set_urn (required)
+         - threshold_sources, classification_sources, method_sources (iterables of identifier objects)
+         - Additional mutable calibration attributes.
+     user : User
+         Context for the authenticated user; the user to be recorded for audit.
+     variant_classes (Optional[dict[str, list[str]]]): Optional dictionary mapping variant classes
+         to their corresponding variant identifiers.
 
-       Returns
-       -------
-       ScoreCalibration
-            The in-memory (and session-added) updated calibration instance. Changes are not committed.
+    Returns
+    -------
+    ScoreCalibration
+         The in-memory (and session-added) updated calibration instance. Changes are not committed.
 
-       Raises
-       ------
-       ValueError
-            If score_set_urn is missing in the update model.
-       sqlalchemy.orm.exc.NoResultFound
-            If no ScoreSet exists with the provided URN.
-       sqlalchemy.orm.exc.MultipleResultsFound
-            If more than one ScoreSet matches the provided URN.
-       Any exception raised by find_or_create_publication_identifier
-            If identifier resolution/creation fails.
+    Raises
+    ------
+    ValueError
+         If score_set_urn is missing in the update model.
+    sqlalchemy.orm.exc.NoResultFound
+         If no ScoreSet exists with the provided URN.
+    sqlalchemy.orm.exc.MultipleResultsFound
+         If more than one ScoreSet matches the provided URN.
+    Any exception raised by find_or_create_publication_identifier
+         If identifier resolution/creation fails.
 
-       Side Effects
-       ------------
-       - Issues SELECT statements for the ScoreSet and publication identifiers.
-       - May INSERT new publication identifiers and association rows.
-       - May DELETE association rows no longer referenced.
-       - Mutates the provided calibration object in-place.
+    Side Effects
+    ------------
+    - Issues SELECT statements for the ScoreSet and publication identifiers.
+    - May INSERT new publication identifiers and association rows.
+    - May DELETE association rows no longer referenced.
+    - Mutates the provided calibration object in-place.
 
-       Concurrency / Consistency Notes
-       -------------------------------
-       The reconciliation of associations assumes no concurrent modification of the same calibration's
-       association set within the active transaction. To prevent races leading to duplicate associations,
-       enforce appropriate transaction isolation or unique constraints at the database level.
+    Concurrency / Consistency Notes
+    -------------------------------
+    The reconciliation of associations assumes no concurrent modification of the same calibration's
+    association set within the active transaction. To prevent races leading to duplicate associations,
+    enforce appropriate transaction isolation or unique constraints at the database level.
 
-       Commit Responsibility
-       ---------------------
-       This function does NOT call commit or flush explicitly; the caller is responsible for committing
-       the session to persist changes.
+    Commit Responsibility
+    ---------------------
+    This function does NOT call commit or flush explicitly; the caller is responsible for committing
+    the session to persist changes.
 
     """
     if not calibration_update.score_set_urn:
@@ -411,6 +442,7 @@ async def modify_score_calibration(
     for functional_classification in calibration.functional_classifications:
         db.delete(functional_classification)
     calibration.functional_classifications.clear()
+
     db.flush()
     db.refresh(calibration)
 
@@ -429,12 +461,13 @@ async def modify_score_calibration(
             setattr(calibration, attr, value)
 
     calibration.score_set = containing_score_set
+    calibration.score_set_id = containing_score_set.id
     calibration.publication_identifier_associations = updated_assocs
     calibration.modified_by = user
 
     for functional_range_update in calibration_update.functional_classifications or []:
         persisted_functional_range = create_functional_classification(
-            db, functional_range_update, containing_calibration=calibration
+            db, functional_range_update, variant_classes=variant_classes, containing_calibration=calibration
         )
         db.add(persisted_functional_range)
         calibration.functional_classifications.append(persisted_functional_range)
@@ -612,9 +645,11 @@ def delete_score_calibration(db: Session, calibration: ScoreCalibration) -> None
 def variants_for_functional_classification(
     db: Session,
     functional_classification: ScoreCalibrationFunctionalClassification,
+    variant_classes: Optional[dict[str, list[str]]] = None,
     use_sql: bool = False,
 ) -> list[Variant]:
-    """Return variants in the parent score set whose numeric score falls inside the
+    """
+    Return variants in the parent score set whose numeric score falls inside the
     functional classification's range.
 
     The variant score is extracted from the JSONB ``Variant.data`` field using
@@ -629,6 +664,9 @@ def variants_for_functional_classification(
         Active SQLAlchemy session.
     functional_classification : ScoreCalibrationFunctionalClassification
         The ORM row defining the interval to test against.
+    variant_classes : Optional[dict[str, list[str]]]
+        If provided, a dictionary mapping variant classes to their corresponding variant identifiers
+        to use for classification rather than the range property of the functional_classification.
     use_sql : bool
         When True, perform filtering in the database using JSONB extraction and
         range predicates; falls back to Python filtering if an error occurs.
@@ -648,34 +686,39 @@ def variants_for_functional_classification(
     * If ``functional_classification.range`` is ``None`` an empty list is
       returned immediately.
     """
-    if not functional_classification.range:
-        return []
-
     # Resolve score set id from attached calibration (relationship may be lazy)
     score_set_id = functional_classification.calibration.score_set_id  # type: ignore[attr-defined]
-
     if use_sql:
         try:
             # Build score extraction expression: data['score_data']['score']::text::float
             score_expr = Variant.data["score_data"]["score"].astext.cast(Float)
 
-            lower_raw, upper_raw = functional_classification.range
-
-            # Convert 'inf' sentinels (or None) to float infinities for condition omission.
-            lower_bound = inf_or_float(lower_raw, lower=True)
-            upper_bound = inf_or_float(upper_raw, lower=False)
-
             conditions = [Variant.score_set_id == score_set_id]
-            if not math.isinf(lower_bound):
-                if functional_classification.inclusive_lower_bound:
-                    conditions.append(score_expr >= lower_bound)
-                else:
-                    conditions.append(score_expr > lower_bound)
-            if not math.isinf(upper_bound):
-                if functional_classification.inclusive_upper_bound:
-                    conditions.append(score_expr <= upper_bound)
-                else:
-                    conditions.append(score_expr < upper_bound)
+            if variant_classes is not None and functional_classification.class_ is not None:
+                variant_urns = variant_classes.get(functional_classification.class_, [])
+                conditions.append(Variant.urn.in_(variant_urns))
+
+            elif functional_classification.range is not None and len(functional_classification.range) == 2:
+                lower_raw, upper_raw = functional_classification.range
+
+                # Convert 'inf' sentinels (or None) to float infinities for condition omission.
+                lower_bound = inf_or_float(lower_raw, lower=True)
+                upper_bound = inf_or_float(upper_raw, lower=False)
+
+                if not math.isinf(lower_bound):
+                    if functional_classification.inclusive_lower_bound:
+                        conditions.append(score_expr >= lower_bound)
+                    else:
+                        conditions.append(score_expr > lower_bound)
+                if not math.isinf(upper_bound):
+                    if functional_classification.inclusive_upper_bound:
+                        conditions.append(score_expr <= upper_bound)
+                    else:
+                        conditions.append(score_expr < upper_bound)
+
+            else:
+                # No usable classification mechanism; return empty list.
+                return []
 
             stmt = select(Variant).where(and_(*conditions))
             return list(db.execute(stmt).scalars())
@@ -688,21 +731,63 @@ def variants_for_functional_classification(
     variants = db.execute(select(Variant).where(Variant.score_set_id == score_set_id)).scalars().all()
     matches: list[Variant] = []
     for v in variants:
-        try:
-            container = v.data.get("score_data") if isinstance(v.data, dict) else None
-            if not container or not isinstance(container, dict):
+        if variant_classes is not None and functional_classification.class_ is not None:
+            variant_urns = variant_classes.get(functional_classification.class_, [])
+            if v.urn in variant_urns:
+                matches.append(v)
+
+        elif functional_classification.range is not None and len(functional_classification.range) == 2:
+            try:
+                container = v.data.get("score_data") if isinstance(v.data, dict) else None
+                if not container or not isinstance(container, dict):
+                    continue
+
+                raw = container.get("score")
+                if raw is None:
+                    continue
+
+                score = float(raw)
+
+            except Exception:  # noqa: BLE001
                 continue
 
-            raw = container.get("score")
-            if raw is None:
-                continue
-
-            score = float(raw)
-
-        except Exception:  # noqa: BLE001
-            continue
-
-        if functional_classification.score_is_contained_in_range(score):
-            matches.append(v)
+            if functional_classification.score_is_contained_in_range(score):
+                matches.append(v)
 
     return matches
+
+
+def variant_classification_df_to_dict(
+    df: pd.DataFrame,
+) -> dict[str, list[str]]:
+    """
+    Convert a DataFrame of variant classifications into a dictionary mapping
+    functional class labels to lists of distinct variant URNs.
+
+    The input DataFrame is expected to have at least two columns:
+    - The unique identifier for each variant (given by calibration_variant_column_name).
+    - The functional classification label for each variant (given by calibration_class_column_name).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing variant classifications with 'variant_urn' and
+        'functional_class' columns.
+
+    Returns
+    -------
+    dict[str, list[str]]
+        A dictionary where keys are functional class labels and values are lists
+        of distinct variant URNs belonging to each class.
+    """
+    classification_dict: dict[str, list[str]] = {}
+    for _, row in df.iterrows():
+        variant_urn = row[calibration_variant_column_name]
+        functional_class = row[calibration_class_column_name]
+
+        if functional_class not in classification_dict:
+            classification_dict[functional_class] = []
+
+        classification_dict[functional_class].append(variant_urn)
+
+    return {k: list(set(v)) for k, v in classification_dict.items()}

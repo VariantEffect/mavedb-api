@@ -6,6 +6,7 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
+import json
 from unittest.mock import patch
 
 from arq import ArqRedis
@@ -16,6 +17,7 @@ from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from tests.helpers.constants import (
     EXTRA_USER,
     TEST_BIORXIV_IDENTIFIER,
+    TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED,
     TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_PATHOGENICITY_SCORE_CALIBRATION,
     TEST_PUBMED_IDENTIFIER,
@@ -1389,6 +1391,43 @@ def test_can_create_score_calibration_as_score_set_owner(
     ],
     indirect=["mock_publication_fetch"],
 )
+def test_can_create_score_calibration_as_score_set_owner_form(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    response = client.post(
+        "/api/v1/score-calibrations",
+        data={
+            "calibration_json": json.dumps(
+                {"scoreSetUrn": score_set["urn"], **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)}
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["scoreSetUrn"] == score_set["urn"]
+    assert calibration_response["private"] is True
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
 def test_can_create_score_calibration_as_score_set_contributor(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
 ):
@@ -1460,6 +1499,53 @@ def test_can_create_score_calibration_as_admin_user(
     calibration_response = response.json()
     assert calibration_response["scoreSetUrn"] == score_set["urn"]
     assert calibration_response["private"] is True
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_create_class_based_score_calibration_form(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+
+    classification_csv_path = data_files / "calibration_classes.csv"
+    with open(classification_csv_path, "rb") as class_file:
+        response = client.post(
+            "/api/v1/score-calibrations",
+            files={"classes_file": (classification_csv_path.name, class_file, "text/csv")},
+            data={
+                "calibration_json": json.dumps(
+                    {"scoreSetUrn": score_set["urn"], **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED)}
+                ),
+            },
+        )
+
+    print(response.text)
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["scoreSetUrn"] == score_set["urn"]
+    assert calibration_response["private"] is True
+    assert all(
+        len(classification["variants"]) == 1 for classification in calibration_response["functionalClassifications"]
+    )
 
 
 ###########################################################
@@ -1690,6 +1776,47 @@ def test_can_update_score_calibration_as_score_set_owner(
         json={
             "scoreSetUrn": score_set["urn"],
             **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
+        },
+    )
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["urn"] == calibration["urn"]
+    assert calibration_response["scoreSetUrn"] == score_set["urn"]
+    assert calibration_response["private"] is True
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_update_score_calibration_as_score_set_owner_form(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    response = client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        data={
+            "calibration_json": json.dumps(
+                {"scoreSetUrn": score_set["urn"], **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION)}
+            ),
         },
     )
 
@@ -2147,6 +2274,55 @@ def test_admin_user_may_move_calibration_to_another_score_set(
     calibration_response = response.json()
     assert calibration_response["urn"] == calibration["urn"]
     assert calibration_response["scoreSetUrn"] == score_set2["urn"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_modify_score_calibration_to_class_based(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    classification_csv_path = data_files / "calibration_classes.csv"
+    updated_calibration_data = deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED)
+
+    with open(classification_csv_path, "rb") as class_file:
+        response = client.put(
+            f"/api/v1/score-calibrations/{calibration['urn']}",
+            files={"classes_file": (classification_csv_path.name, class_file, "text/csv")},
+            data={
+                "calibration_json": json.dumps({"scoreSetUrn": score_set["urn"], **updated_calibration_data}),
+            },
+        )
+    print(response.text)
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["urn"] == calibration["urn"]
+    assert all(
+        len(classification["variants"]) == 1 for classification in calibration_response["functionalClassifications"]
+    )
 
 
 ###########################################################
