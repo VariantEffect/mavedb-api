@@ -129,11 +129,11 @@ class FunctionalClassificationBase(BaseModel):
     def inclusive_bounds_require_range(self: "FunctionalClassificationBase") -> "FunctionalClassificationBase":
         """Inclusive bounds may only be set if a range is provided. If they are unset, default them."""
         if self.class_ is not None:
-            if self.inclusive_lower_bound:
+            if self.inclusive_lower_bound is not None:
                 raise ValidationError(
                     "An inclusive lower bound may not be set on a class based functional classification."
                 )
-            if self.inclusive_upper_bound:
+            if self.inclusive_upper_bound is not None:
                 raise ValidationError(
                     "An inclusive upper bound may not be set on a class based functional classification."
                 )
