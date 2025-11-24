@@ -41,8 +41,8 @@ class ScoreCalibrationFunctionalClassification(Base):
     range = Column(JSONB(none_as_null=True), nullable=True)  # (lower_bound, upper_bound)
     class_ = Column(String, nullable=True)
 
-    inclusive_lower_bound = Column(Boolean, nullable=True, default=True)
-    inclusive_upper_bound = Column(Boolean, nullable=True, default=False)
+    inclusive_lower_bound = Column(Boolean, nullable=True)
+    inclusive_upper_bound = Column(Boolean, nullable=True)
 
     oddspaths_ratio = Column(Float, nullable=True)
     positive_likelihood_ratio = Column(Float, nullable=True)
