@@ -50,7 +50,9 @@ def validate_and_standardize_calibration_classes_dataframe(
         and data content.
     """
     if not calibration.class_based:
-        raise ValueError("Calibration classes file can only be provided for functional classification calibrations.")
+        raise ValidationError(
+            "Calibration classes file can only be provided for functional classification calibrations."
+        )
 
     standardized_classes_df = standardize_dataframe(classes_df, STANDARD_CALIBRATION_COLUMNS)
     validate_calibration_df_column_names(standardized_classes_df)
@@ -174,7 +176,7 @@ def validate_calibration_classes(
                         that are missing from the series.
     """
     if not calibration.functional_classifications:
-        raise ValueError("Calibration must have functional classifications defined for class validation.")
+        raise ValidationError("Calibration must have functional classifications defined for class validation.")
 
     defined_classes = {c.class_ for c in calibration.functional_classifications}
     provided_classes = set(classes.tolist())
