@@ -26,6 +26,7 @@ from mavedb.lib.score_calibrations import (
 from mavedb.lib.score_sets import csv_data_to_df
 from mavedb.lib.validation.constants.general import calibration_class_column_name, calibration_variant_column_name
 from mavedb.lib.validation.dataframe.calibration import validate_and_standardize_calibration_classes_dataframe
+from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 from mavedb.view_models import score_calibration
@@ -290,10 +291,16 @@ async def create_score_calibration_route(
                 status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values."
             )
 
-        standardized_classes_df = validate_and_standardize_calibration_classes_dataframe(
-            db, score_set, calibration, classes_df
-        )
-        variant_classes = variant_classification_df_to_dict(standardized_classes_df)
+        try:
+            standardized_classes_df = validate_and_standardize_calibration_classes_dataframe(
+                db, score_set, calibration, classes_df
+            )
+            variant_classes = variant_classification_df_to_dict(standardized_classes_df)
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=422,
+                detail=[{"loc": [e.custom_loc or "classesFile"], "msg": str(e), "type": "value_error"}],
+            )
 
     created_calibration = await create_score_calibration_in_score_set(
         db, calibration, user_data.user, variant_classes if classes_file else None
@@ -438,10 +445,16 @@ async def modify_score_calibration_route(
                 status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values."
             )
 
-        standardized_classes_df = validate_and_standardize_calibration_classes_dataframe(
-            db, score_set, calibration_update, classes_df
-        )
-        variant_classes = variant_classification_df_to_dict(standardized_classes_df)
+        try:
+            standardized_classes_df = validate_and_standardize_calibration_classes_dataframe(
+                db, score_set, calibration_update, classes_df
+            )
+            variant_classes = variant_classification_df_to_dict(standardized_classes_df)
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=422,
+                detail=[{"loc": [e.custom_loc or "classesFile"], "msg": str(e), "type": "value_error"}],
+            )
 
     updated_calibration = await modify_score_calibration(
         db, item, calibration_update, user_data.user, variant_classes if classes_file else None

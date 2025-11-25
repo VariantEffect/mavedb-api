@@ -80,7 +80,7 @@ class TestValidateAndStandardizeCalibrationClassesDataframe:
         mock_dependencies["validate_data_column"].assert_called_once()
 
     def test_validate_and_standardize_calibration_classes_dataframe_not_class_based(self):
-        """Test ValueError when calibration is not class-based."""
+        """Test ValidationError when calibration is not class-based."""
         mock_db = Mock()
         mock_score_set = Mock()
         mock_calibration = Mock()
@@ -88,7 +88,7 @@ class TestValidateAndStandardizeCalibrationClassesDataframe:
         input_df = pd.DataFrame({"variant": ["var1"], "class": ["A"]})
 
         with pytest.raises(
-            ValueError,
+            ValidationError,
             match="Calibration classes file can only be provided for functional classification calibrations.",
         ):
             validate_and_standardize_calibration_classes_dataframe(mock_db, mock_score_set, mock_calibration, input_df)
@@ -170,7 +170,7 @@ class TestValidateAndStandardizeCalibrationClassesDataframe:
         mock_calibration.functional_classifications = None
 
         with pytest.raises(
-            ValueError, match="Calibration must have functional classifications defined for class validation."
+            ValidationError, match="Calibration must have functional classifications defined for class validation."
         ):
             validate_and_standardize_calibration_classes_dataframe(mock_db, mock_score_set, mock_calibration, input_df)
 
@@ -634,24 +634,24 @@ class TestValidateCalibrationClasses:
         validate_calibration_classes(calibration, classes)
 
     def test_validate_calibration_classes_no_functional_classifications(self):
-        """Test ValueError when calibration has no functional classifications."""
+        """Test ValidationError when calibration has no functional classifications."""
         calibration = Mock(spec=score_calibration.ScoreCalibrationCreate)
         calibration.functional_classifications = None
         classes = pd.Series(["class_a", "class_b"])
 
         with pytest.raises(
-            ValueError, match="Calibration must have functional classifications defined for class validation."
+            ValidationError, match="Calibration must have functional classifications defined for class validation."
         ):
             validate_calibration_classes(calibration, classes)
 
     def test_validate_calibration_classes_empty_functional_classifications(self):
-        """Test ValueError when calibration has empty functional classifications."""
+        """Test ValidationError when calibration has empty functional classifications."""
         calibration = Mock(spec=score_calibration.ScoreCalibrationCreate)
         calibration.functional_classifications = []
         classes = pd.Series(["class_a", "class_b"])
 
         with pytest.raises(
-            ValueError, match="Calibration must have functional classifications defined for class validation."
+            ValidationError, match="Calibration must have functional classifications defined for class validation."
         ):
             validate_calibration_classes(calibration, classes)
 
