@@ -1319,6 +1319,80 @@ def test_cannot_create_score_calibration_in_public_score_set_when_score_set_not_
     ],
     indirect=["mock_publication_fetch"],
 )
+def test_cannot_create_class_based_score_calibration_without_classes_file(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    response = client.post(
+        "/api/v1/score-calibrations",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED),
+        },
+    )
+
+    assert response.status_code == 422
+    error = response.json()
+    assert "A classes_file must be provided when creating a class-based calibration" in str(error["detail"])
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_range_based_score_calibration_with_classes_file(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    classification_csv_path = data_files / "calibration_classes.csv"
+    with open(classification_csv_path, "rb") as class_file:
+        response = client.post(
+            "/api/v1/score-calibrations",
+            files={"classes_file": (classification_csv_path.name, class_file, "text/csv")},
+            data={
+                "calibration_json": json.dumps(
+                    {"scoreSetUrn": score_set["urn"], **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)}
+                ),
+            },
+        )
+
+    assert response.status_code == 422
+    error = response.json()
+    assert "A classes_file should not be provided when creating a range-based calibration" in str(error["detail"])
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
 def test_cannot_create_score_calibration_as_anonymous_user(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
 ):
@@ -1624,6 +1698,89 @@ def test_cannot_update_score_calibration_when_calibration_not_exists(
     assert response.status_code == 404
     error = response.json()
     assert "The requested score calibration does not exist" in error["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_update_class_based_score_calibration_without_class_file(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    response = client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED),
+        },
+    )
+
+    assert response.status_code == 422
+    error = response.json()
+    assert "A classes_file must be provided when modifying a class-based calibration" in str(error["detail"])
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_update_range_based_score_calibration_with_class_file(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    classification_csv_path = data_files / "calibration_classes.csv"
+    with open(classification_csv_path, "rb") as class_file:
+        response = client.put(
+            f"/api/v1/score-calibrations/{calibration['urn']}",
+            files={"classes_file": (classification_csv_path.name, class_file, "text/csv")},
+            data={
+                "calibration_json": json.dumps(
+                    {
+                        "scoreSetUrn": score_set["urn"],
+                        **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
+                    }
+                ),
+            },
+        )
+
+    assert response.status_code == 422
+    error = response.json()
+    assert "A classes_file should not be provided when modifying a range-based calibration" in str(error["detail"])
 
 
 @pytest.mark.parametrize(
@@ -2315,7 +2472,6 @@ def test_can_modify_score_calibration_to_class_based(
                 "calibration_json": json.dumps({"scoreSetUrn": score_set["urn"], **updated_calibration_data}),
             },
         )
-    print(response.text)
 
     assert response.status_code == 200
     calibration_response = response.json()

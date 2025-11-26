@@ -283,7 +283,19 @@ async def create_score_calibration_route(
     #           permission to update the score set itself.
     assert_permission(user_data, score_set, Action.UPDATE)
 
+    if calibration.class_based and not classes_file:
+        raise HTTPException(
+            status_code=422,
+            detail="A classes_file must be provided when creating a class-based calibration.",
+        )
+
     if classes_file:
+        if calibration.range_based:
+            raise HTTPException(
+                status_code=422,
+                detail="A classes_file should not be provided when creating a range-based calibration.",
+            )
+
         try:
             classes_df = csv_data_to_df(classes_file.file, induce_hgvs_cols=False)
         except UnicodeDecodeError as e:
@@ -437,7 +449,19 @@ async def modify_score_calibration_route(
 
     assert_permission(user_data, item, Action.UPDATE)
 
+    if calibration_update.class_based and not classes_file:
+        raise HTTPException(
+            status_code=422,
+            detail="A classes_file must be provided when modifying a class-based calibration.",
+        )
+
     if classes_file:
+        if calibration_update.range_based:
+            raise HTTPException(
+                status_code=422,
+                detail="A classes_file should not be provided when modifying a range-based calibration.",
+            )
+
         try:
             classes_df = csv_data_to_df(classes_file.file, induce_hgvs_cols=False)
         except UnicodeDecodeError as e:
