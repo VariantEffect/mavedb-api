@@ -139,4 +139,5 @@ def downgrade():
     op.drop_table("score_calibration_functional_classification_variants")
     op.drop_table("score_calibration_functional_classifications")
     op.drop_table("acmg_classifications")
+    op.alter_column("score_calibrations", "functional_ranges_deprecated_json", new_column_name="functional_ranges")
     # ### end Alembic commands ###
