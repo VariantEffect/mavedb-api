@@ -36,12 +36,16 @@ class TestValidateAndStandardizeCalibrationClassesDataframe:
             patch("mavedb.lib.validation.dataframe.calibration.validate_no_null_rows") as mock_validate_no_null,
             patch("mavedb.lib.validation.dataframe.calibration.validate_variant_column") as mock_validate_variant,
             patch("mavedb.lib.validation.dataframe.calibration.validate_data_column") as mock_validate_data,
+            patch(
+                "mavedb.lib.validation.dataframe.calibration.validate_index_existence_in_score_set"
+            ) as mock_validate_index_existence,
         ):
             yield {
                 "standardize_dataframe": mock_standardize,
                 "validate_no_null_rows": mock_validate_no_null,
                 "validate_variant_column": mock_validate_variant,
                 "validate_data_column": mock_validate_data,
+                "validate_index_existence_in_score_set": mock_validate_index_existence,
             }
 
     def test_validate_and_standardize_calibration_classes_dataframe_success(self, mock_dependencies):
@@ -350,6 +354,52 @@ class TestValidateAndStandardizeCalibrationClassesDataframe:
 
         with pytest.raises(ValidationError, match=f"missing required column: '{calibration_class_column_name}'"):
             validate_and_standardize_calibration_classes_dataframe(mock_db, mock_score_set, mock_calibration, input_df)
+
+    def test_validate_and_standardize_calibration_classes_dataframe_multiple_candidate_index_columns(
+        self, mock_dependencies
+    ):
+        """Test successful validation when multiple candidate index columns are present."""
+        mock_db = Mock()
+        mock_score_set = Mock()
+        mock_score_set.id = 123
+        mock_calibration = Mock()
+        mock_calibration.class_based = True
+
+        input_df = pd.DataFrame(
+            {
+                calibration_variant_column_name: ["var1", "var2"],
+                hgvs_nt_column: ["NM_000546.5:c.215C>G", "NM_000546.5:c.743G>A"],
+                calibration_class_column_name: ["A", "B"],
+            }
+        )
+        standardized_df = pd.DataFrame(
+            {
+                calibration_variant_column_name: ["var1", "var2"],
+                hgvs_nt_column: ["NM_000546.5:c.215C>G", "NM_000546.5:c.743G>A"],
+                calibration_class_column_name: ["A", "B"],
+            }
+        )
+
+        mock_dependencies["standardize_dataframe"].return_value = standardized_df
+        mock_dependencies["validate_index_existence_in_score_set"].return_value = None
+
+        mock_scalars = Mock()
+        mock_scalars.all.return_value = ["var1", "var2"]
+        mock_db.scalars.return_value = mock_scalars
+
+        mock_classification1 = Mock()
+        mock_classification1.class_ = "A"
+        mock_classification2 = Mock()
+        mock_classification2.class_ = "B"
+        mock_calibration.functional_classifications = [mock_classification1, mock_classification2]
+
+        result, index_column = validate_and_standardize_calibration_classes_dataframe(
+            mock_db, mock_score_set, mock_calibration, input_df
+        )
+
+        assert result.equals(standardized_df)
+        assert index_column == calibration_variant_column_name
+        mock_dependencies["validate_index_existence_in_score_set"].assert_called_once()
 
 
 class TestValidateCalibrationDfColumnNames:

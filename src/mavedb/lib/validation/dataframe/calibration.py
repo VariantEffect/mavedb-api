@@ -76,10 +76,14 @@ def validate_and_standardize_calibration_classes_dataframe(
     for c in column_mapping:
         if c in {calibration_variant_column_name, hgvs_nt_column, hgvs_pro_column}:
             validate_variant_column(standardized_classes_df[c], column_mapping[c] == index_column)
-            validate_index_existence_in_score_set(db, score_set, standardized_classes_df[c], index_column)
         elif c == calibration_class_column_name:
             validate_data_column(standardized_classes_df[c], force_numeric=False)
             validate_calibration_classes(calibration, standardized_classes_df[c])
+
+        if c == index_column:
+            validate_index_existence_in_score_set(
+                db, score_set, standardized_classes_df[column_mapping[c]], column_mapping[c]
+            )
 
     return standardized_classes_df, index_column
 
@@ -146,6 +150,9 @@ def validate_index_existence_in_score_set(
     Returns:
         None: Function returns nothing if validation passes.
     """
+    print(index_column.tolist())
+    print(index_column_name)
+
     if index_column_name.lower() == calibration_variant_column_name:
         existing_resources = set(
             db.scalars(
