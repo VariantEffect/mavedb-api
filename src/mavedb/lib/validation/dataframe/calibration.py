@@ -74,7 +74,7 @@ def validate_and_standardize_calibration_classes_dataframe(
     ).reset_index(drop=True)
 
     for c in column_mapping:
-        if c == index_column.lower():
+        if c in {calibration_variant_column_name, hgvs_nt_column, hgvs_pro_column}:
             validate_variant_column(standardized_classes_df[c], column_mapping[c] == index_column)
             validate_index_existence_in_score_set(db, score_set, standardized_classes_df[c], index_column)
         elif c == calibration_class_column_name:
