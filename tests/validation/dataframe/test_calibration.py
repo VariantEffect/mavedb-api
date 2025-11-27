@@ -185,7 +185,9 @@ class TestValidateAndStandardizeCalibrationClassesDataframe:
 
         assert result.equals(expected_df)
 
-    def test_validate_and_standardize_calibration_classes_dataframe_invalid_variants(self, mock_dependencies):
+    def test_validate_and_standardize_calibration_classes_dataframe_propagates_nonexistent_variants(
+        self, mock_dependencies
+    ):
         """Test ValidationError when variant URN validation fails."""
         mock_db = Mock()
         mock_score_set = Mock()
@@ -203,6 +205,14 @@ class TestValidateAndStandardizeCalibrationClassesDataframe:
         mock_scalars = Mock()
         mock_scalars.all.return_value = []
         mock_db.scalars.return_value = mock_scalars
+
+        mock_classification1 = Mock()
+        mock_classification1.class_ = "A"
+        mock_calibration.functional_classifications = [mock_classification1]
+
+        mock_dependencies["validate_index_existence_in_score_set"].side_effect = ValidationError(
+            "The following resources do not exist in the score set: var1"
+        )
 
         with pytest.raises(ValidationError, match="The following resources do not exist in the score set: var1"):
             validate_and_standardize_calibration_classes_dataframe(mock_db, mock_score_set, mock_calibration, input_df)

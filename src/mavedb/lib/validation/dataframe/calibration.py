@@ -80,7 +80,7 @@ def validate_and_standardize_calibration_classes_dataframe(
             validate_data_column(standardized_classes_df[c], force_numeric=False)
             validate_calibration_classes(calibration, standardized_classes_df[c])
 
-        if c == index_column:
+        if column_mapping[c] == index_column:
             validate_index_existence_in_score_set(
                 db, score_set, standardized_classes_df[column_mapping[c]], column_mapping[c]
             )
@@ -150,9 +150,6 @@ def validate_index_existence_in_score_set(
     Returns:
         None: Function returns nothing if validation passes.
     """
-    print(index_column.tolist())
-    print(index_column_name)
-
     if index_column_name.lower() == calibration_variant_column_name:
         existing_resources = set(
             db.scalars(
