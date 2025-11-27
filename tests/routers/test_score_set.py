@@ -35,6 +35,7 @@ from tests.helpers.constants import (
     SAVED_PUBMED_PUBLICATION,
     SAVED_SHORT_EXTRA_LICENSE,
     TEST_BIORXIV_IDENTIFIER,
+    TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED,
     TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_CROSSREF_IDENTIFIER,
     TEST_GNOMAD_DATA_VERSION,
@@ -232,6 +233,34 @@ def test_create_score_set_with_score_calibration(client, mock_publication_fetch,
 
     response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
     assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        (
+            [
+                {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+                {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+            ]
+        )
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_score_set_with_class_based_calibration(client, mock_publication_fetch, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    score_set.update(
+        {
+            "scoreCalibrations": [deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED)],
+        }
+    )
+
+    response = client.post("/api/v1/score-sets/", json=score_set)
+    assert response.status_code == 409
+    response_data = response.json()
+    assert "Class-based calibrations are not supported on score set creation" in response_data["detail"]
 
 
 @pytest.mark.parametrize(
