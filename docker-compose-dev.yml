@@ -49,6 +49,7 @@ services:
 
   dcd-mapping:
     build: ../dcd_mapping
+    platform: linux/amd64
     image: dcd-mapping:dev
     command: bash -c "uvicorn api.server_main:app --host 0.0.0.0 --port 8000 --reload"
     depends_on:
