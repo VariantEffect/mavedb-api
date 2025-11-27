@@ -1,19 +1,25 @@
 # ruff: noqa: E402
 
-from unittest.mock import Mock, patch
-
 import pytest
 
 pytest.importorskip("psycopg2")
 
+from unittest.mock import Mock, patch
+
 import pandas as pd
 
-from mavedb.lib.validation.constants.general import calibration_class_column_name, calibration_variant_column_name
+from mavedb.lib.validation.constants.general import (
+    calibration_class_column_name,
+    calibration_variant_column_name,
+    hgvs_nt_column,
+    hgvs_pro_column,
+)
 from mavedb.lib.validation.dataframe.calibration import (
+    choose_calibration_index_column,
     validate_and_standardize_calibration_classes_dataframe,
     validate_calibration_classes,
     validate_calibration_df_column_names,
-    validate_calibration_variant_urns,
+    validate_index_existence_in_score_set,
 )
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models import score_calibration
@@ -69,7 +75,7 @@ class TestValidateAndStandardizeCalibrationClassesDataframe:
         mock_classification2.class_ = "B"
         mock_calibration.functional_classifications = [mock_classification1, mock_classification2]
 
-        result = validate_and_standardize_calibration_classes_dataframe(
+        result, index_column = validate_and_standardize_calibration_classes_dataframe(
             mock_db, mock_score_set, mock_calibration, input_df
         )
 
@@ -93,19 +99,22 @@ class TestValidateAndStandardizeCalibrationClassesDataframe:
         ):
             validate_and_standardize_calibration_classes_dataframe(mock_db, mock_score_set, mock_calibration, input_df)
 
-    def test_validate_and_standardize_calibration_classes_dataframe_invalid_column_names(self, mock_dependencies):
+    def test_validate_and_standardize_calibration_classes_dataframe_missing_index_columns(self, mock_dependencies):
         """Test ValidationError when column validation fails."""
         mock_db = Mock()
         mock_score_set = Mock()
         mock_calibration = Mock()
         mock_calibration.class_based = True
 
-        input_df = pd.DataFrame({calibration_variant_column_name: ["var1"], "invalid": ["A"]})
-        standardized_df = pd.DataFrame({calibration_variant_column_name: ["var1"], "invalid": ["A"]})
+        input_df = pd.DataFrame({calibration_class_column_name: ["c"], "invalid": ["A"]})
+        standardized_df = pd.DataFrame({calibration_class_column_name: ["c"], "invalid": ["A"]})
 
         mock_dependencies["standardize_dataframe"].return_value = standardized_df
 
-        with pytest.raises(ValidationError, match=f"missing required column: '{calibration_class_column_name}'"):
+        with pytest.raises(
+            ValidationError,
+            match=f"at least one of {', '.join({hgvs_nt_column, hgvs_pro_column, calibration_variant_column_name})} must be present",
+        ):
             validate_and_standardize_calibration_classes_dataframe(mock_db, mock_score_set, mock_calibration, input_df)
 
     def test_validate_and_standardize_calibration_classes_dataframe_null_rows(self, mock_dependencies):
@@ -126,6 +135,52 @@ class TestValidateAndStandardizeCalibrationClassesDataframe:
         with pytest.raises(ValidationError, match="null rows detected"):
             validate_and_standardize_calibration_classes_dataframe(mock_db, mock_score_set, mock_calibration, input_df)
 
+    def test_validate_and_standardize_calibration_classes_dataframe_drops_null_class_rows(self, mock_dependencies):
+        """Test that rows with null calibration class are dropped."""
+        mock_db = Mock()
+        mock_score_set = Mock()
+        mock_score_set.id = 123
+        mock_calibration = Mock()
+        mock_calibration.class_based = True
+
+        input_df = pd.DataFrame(
+            {
+                calibration_variant_column_name: ["var1", "var2", "var3", "var4"],
+                calibration_class_column_name: ["A", None, "B", pd.NA],
+            }
+        )
+        standardized_df = pd.DataFrame(
+            {
+                calibration_variant_column_name: ["var1", "var2", "var3", "var4"],
+                calibration_class_column_name: ["A", None, "B", pd.NA],
+            }
+        )
+
+        mock_dependencies["standardize_dataframe"].return_value = standardized_df
+
+        mock_scalars = Mock()
+        mock_scalars.all.return_value = ["var1", "var3"]
+        mock_db.scalars.return_value = mock_scalars
+
+        mock_classification1 = Mock()
+        mock_classification1.class_ = "A"
+        mock_classification2 = Mock()
+        mock_classification2.class_ = "B"
+        mock_calibration.functional_classifications = [mock_classification1, mock_classification2]
+
+        result, index_column = validate_and_standardize_calibration_classes_dataframe(
+            mock_db, mock_score_set, mock_calibration, input_df
+        )
+
+        expected_df = pd.DataFrame(
+            {
+                calibration_variant_column_name: ["var1", "var3"],
+                calibration_class_column_name: ["A", "B"],
+            }
+        )
+
+        assert result.equals(expected_df)
+
     def test_validate_and_standardize_calibration_classes_dataframe_invalid_variants(self, mock_dependencies):
         """Test ValidationError when variant URN validation fails."""
         mock_db = Mock()
@@ -145,7 +200,7 @@ class TestValidateAndStandardizeCalibrationClassesDataframe:
         mock_scalars.all.return_value = []
         mock_db.scalars.return_value = mock_scalars
 
-        with pytest.raises(ValidationError, match="The following variant URNs do not exist in the score set: var1"):
+        with pytest.raises(ValidationError, match="The following resources do not exist in the score set: var1"):
             validate_and_standardize_calibration_classes_dataframe(mock_db, mock_score_set, mock_calibration, input_df)
 
     def test_validate_and_standardize_calibration_classes_dataframe_invalid_classes(self, mock_dependencies):
@@ -172,35 +227,6 @@ class TestValidateAndStandardizeCalibrationClassesDataframe:
         with pytest.raises(
             ValidationError, match="Calibration must have functional classifications defined for class validation."
         ):
-            validate_and_standardize_calibration_classes_dataframe(mock_db, mock_score_set, mock_calibration, input_df)
-
-    def test_validate_and_standardize_calibration_classes_dataframe_unexpected_column(self, mock_dependencies):
-        """Test ValidationError when unexpected column is present."""
-        mock_db = Mock()
-        mock_score_set = Mock()
-        mock_calibration = Mock()
-        mock_calibration.class_based = True
-
-        input_df = pd.DataFrame(
-            {
-                calibration_variant_column_name: ["var1"],
-                calibration_class_column_name: ["A"],
-                "extra1": ["X"],
-                "extra2": ["Y"],
-            }
-        )
-        standardized_df = pd.DataFrame(
-            {
-                calibration_variant_column_name: ["var1"],
-                calibration_class_column_name: ["A"],
-                "extra1": ["X"],
-                "extra2": ["Y"],
-            }
-        )
-
-        mock_dependencies["standardize_dataframe"].return_value = standardized_df
-
-        with pytest.raises(ValidationError, match="unexpected column\(s\) in calibration classes file: extra1, extra2"):
             validate_and_standardize_calibration_classes_dataframe(mock_db, mock_score_set, mock_calibration, input_df)
 
     def test_validate_and_standardize_calibration_classes_dataframe_variant_column_validation_fails(
@@ -273,14 +299,11 @@ class TestValidateAndStandardizeCalibrationClassesDataframe:
         mock_classification.class_ = "A"
         mock_calibration.functional_classifications = [mock_classification]
 
-        result = validate_and_standardize_calibration_classes_dataframe(
+        result, index_column = validate_and_standardize_calibration_classes_dataframe(
             mock_db, mock_score_set, mock_calibration, input_df
         )
 
         assert result.equals(standardized_df)
-        mock_dependencies["validate_data_column"].assert_called_once_with(
-            standardized_df[calibration_class_column_name], force_numeric=False
-        )
 
     def test_validate_and_standardize_calibration_classes_dataframe_with_score_calibration_modify(
         self, mock_dependencies
@@ -307,7 +330,7 @@ class TestValidateAndStandardizeCalibrationClassesDataframe:
         mock_classification.class_ = "A"
         mock_calibration.functional_classifications = [mock_classification]
 
-        result = validate_and_standardize_calibration_classes_dataframe(
+        result, index_column = validate_and_standardize_calibration_classes_dataframe(
             mock_db, mock_score_set, mock_calibration, input_df
         )
 
@@ -325,7 +348,7 @@ class TestValidateAndStandardizeCalibrationClassesDataframe:
 
         mock_dependencies["standardize_dataframe"].return_value = standardized_df
 
-        with pytest.raises(ValidationError, match=f"missing required column: '{calibration_variant_column_name}'"):
+        with pytest.raises(ValidationError, match=f"missing required column: '{calibration_class_column_name}'"):
             validate_and_standardize_calibration_classes_dataframe(mock_db, mock_score_set, mock_calibration, input_df)
 
 
@@ -399,7 +422,12 @@ class TestValidateCalibrationDfColumnNames:
         df = pd.DataFrame({calibration_class_column_name: ["A", "B"], "other": ["X", "Y"]})
 
         # Act & Assert
-        with pytest.raises(ValidationError, match=f"missing required column: '{calibration_variant_column_name}'"):
+        with pytest.raises(
+            ValidationError,
+            match="at least one of {} must be present".format(
+                ", ".join({hgvs_nt_column, hgvs_pro_column, calibration_variant_column_name})
+            ),
+        ):
             validate_calibration_df_column_names(df)
 
     def test_validate_calibration_df_column_names_missing_class_column(self):
@@ -415,21 +443,7 @@ class TestValidateCalibrationDfColumnNames:
         df = pd.DataFrame({"other1": ["X", "Y"], "other2": ["A", "B"]})
 
         # Act & Assert
-        with pytest.raises(ValidationError, match=f"missing required column: '{calibration_variant_column_name}'"):
-            validate_calibration_df_column_names(df)
-
-    def test_validate_calibration_df_column_names_unexpected_extra_columns(self):
-        """Test ValidationError when unexpected columns are present."""
-        df = pd.DataFrame(
-            {
-                calibration_variant_column_name: ["var1", "var2"],
-                calibration_class_column_name: ["A", "B"],
-                "extra_column": ["X", "Y"],
-            }
-        )
-
-        # Act & Assert
-        with pytest.raises(ValidationError, match="unexpected column\(s\) in calibration classes file: extra_column"):
+        with pytest.raises(ValidationError, match=f"missing required column: '{calibration_class_column_name}'"):
             validate_calibration_df_column_names(df)
 
     def test_validate_calibration_df_column_names_fewer_than_expected_columns(self):
@@ -459,7 +473,7 @@ class TestValidateCalibrationDfColumnNames:
         df = pd.DataFrame()
 
         # Act & Assert
-        with pytest.raises(ValidationError, match=f"missing required column: '{calibration_variant_column_name}'"):
+        with pytest.raises(ValidationError, match=f"missing required column: '{calibration_class_column_name}'"):
             validate_calibration_df_column_names(df)
 
     def test_validate_calibration_df_column_names_with_numeric_and_string_mix(self):
@@ -479,139 +493,306 @@ class TestValidateCalibrationDfColumnNames:
             validate_calibration_df_column_names(df)
 
 
-class TestValidateCalibrationVariantUrns:
-    """Test suite for validate_calibration_variant_urns function."""
+class TestValidateIndexExistenceInScoreSet:
+    """Test suite for validate_index_existence_in_score_set function."""
 
-    def test_validate_calibration_variant_urns_success(self):
+    @pytest.mark.parametrize(
+        "index_column_name,existing_resources_return_value,index_values",
+        [
+            (
+                calibration_variant_column_name,
+                ["urn:variant:1", "urn:variant:2", "urn:variant:3"],
+                ["urn:variant:1", "urn:variant:2", "urn:variant:3"],
+            ),
+            (
+                hgvs_nt_column,
+                ["NM_000546.5:c.215C>G", "NM_000546.5:c.743G>A"],
+                ["NM_000546.5:c.215C>G", "NM_000546.5:c.743G>A"],
+            ),
+            (
+                hgvs_pro_column,
+                ["NP_000537.3:p.Arg72Pro", "NP_000537.3:p.Gly248Trp"],
+                ["NP_000537.3:p.Arg72Pro", "NP_000537.3:p.Gly248Trp"],
+            ),
+        ],
+    )
+    def test_validate_index_existence_in_score_set_success(
+        self, index_column_name, existing_resources_return_value, index_values
+    ):
         """Test successful validation when all variant URNs exist in score set."""
         mock_db = Mock()
         mock_scalars = Mock()
-        mock_scalars.all.return_value = ["urn:variant:1", "urn:variant:2", "urn:variant:3"]
+        mock_scalars.all.return_value = existing_resources_return_value
         mock_db.scalars.return_value = mock_scalars
 
         mock_score_set = Mock()
         mock_score_set.id = 123
 
-        variant_urns = pd.Series(["urn:variant:1", "urn:variant:2", "urn:variant:3"])
+        variant_urns = pd.Series(index_values)
 
-        validate_calibration_variant_urns(mock_db, mock_score_set, variant_urns)
+        validate_index_existence_in_score_set(mock_db, mock_score_set, variant_urns, index_column_name)
 
         mock_db.scalars.assert_called_once()
 
-    def test_validate_calibration_variant_urns_missing_variants(self):
+    @pytest.mark.parametrize(
+        "index_column_name,existing_resources_return_value,index_values",
+        [
+            (
+                calibration_variant_column_name,
+                ["urn:variant:1", "urn:variant:2"],
+                ["urn:variant:1", "urn:variant:2", "urn:variant:3"],
+            ),
+            (
+                hgvs_nt_column,
+                ["NM_000546.5:c.215C>G"],
+                ["NM_000546.5:c.215C>G", "NM_000546.5:c.743G>A"],
+            ),
+            (
+                hgvs_pro_column,
+                ["NP_000537.3:p.Arg72Pro"],
+                ["NP_000537.3:p.Arg72Pro", "NP_000537.3:p.Gly248Trp"],
+            ),
+        ],
+    )
+    def test_validate_index_existence_in_score_set_missing_variants(
+        self, index_column_name, existing_resources_return_value, index_values
+    ):
         """Test ValidationError when some variant URNs don't exist in score set."""
         mock_db = Mock()
         mock_scalars = Mock()
-        mock_scalars.all.return_value = ["urn:variant:1", "urn:variant:2"]
+        mock_scalars.all.return_value = existing_resources_return_value
         mock_db.scalars.return_value = mock_scalars
 
         mock_score_set = Mock()
         mock_score_set.id = 123
 
-        variant_urns = pd.Series(["urn:variant:1", "urn:variant:2", "urn:variant:3"])
+        variant_urns = pd.Series(index_values)
 
         # Act & Assert
         with pytest.raises(
-            ValidationError, match="The following variant URNs do not exist in the score set: urn:variant:3"
+            ValidationError,
+            match="The following resources do not exist in the score set: {}".format(
+                ", ".join(sorted(set(index_values) - set(existing_resources_return_value)))
+            ),
         ):
-            validate_calibration_variant_urns(mock_db, mock_score_set, variant_urns)
+            validate_index_existence_in_score_set(
+                mock_db,
+                mock_score_set,
+                variant_urns,
+                index_column_name,
+            )
 
-    def test_validate_calibration_variant_urns_multiple_missing_variants(self):
-        """Test ValidationError when multiple variant URNs don't exist in score set."""
+    @pytest.mark.parametrize(
+        "index_column_name,existing_resources_return_value,index_values",
+        [
+            (
+                calibration_variant_column_name,
+                ["urn:variant:1"],
+                ["urn:variant:1", "urn:variant:2", "urn:variant:3"],
+            ),
+            (
+                hgvs_nt_column,
+                ["NM_000546.5:c.215C>G"],
+                ["NM_000546.5:c.215C>G", "NM_000546.5:c.743G>A", "NM_000546.5:c.999A>T"],
+            ),
+            (
+                hgvs_pro_column,
+                ["NP_000537.3:p.Arg72Pro"],
+                ["NP_000537.3:p.Arg72Pro", "NP_000537.3:p.Gly248Trp", "NP_000537.3:p.Ser215Ile"],
+            ),
+        ],
+    )
+    def test_validate_index_existence_in_score_set_multiple_missing_variants(
+        self, index_column_name, existing_resources_return_value, index_values
+    ):
+        """Test ValidationError when multiple variant resources don't exist in score set."""
         mock_db = Mock()
         mock_scalars = Mock()
-        mock_scalars.all.return_value = ["urn:variant:1"]
+        mock_scalars.all.return_value = existing_resources_return_value
         mock_db.scalars.return_value = mock_scalars
 
         mock_score_set = Mock()
         mock_score_set.id = 456
 
-        variant_urns = pd.Series(["urn:variant:1", "urn:variant:2", "urn:variant:3"])
+        variant_urns = pd.Series(index_values)
 
         # Act & Assert
         with pytest.raises(
             ValidationError,
-            match="The following variant URNs do not exist in the score set: urn:variant:2, urn:variant:3",
+            match="The following resources do not exist in the score set: {}".format(
+                ", ".join(sorted(set(index_values) - set(existing_resources_return_value)))
+            ),
         ):
-            validate_calibration_variant_urns(mock_db, mock_score_set, variant_urns)
+            validate_index_existence_in_score_set(mock_db, mock_score_set, variant_urns, index_column_name)
 
-    def test_validate_calibration_variant_urns_all_missing(self):
+    @pytest.mark.parametrize(
+        "index_column_name,existing_resources_return_value,index_values",
+        [
+            (calibration_variant_column_name, [], ["urn:variant:1", "urn:variant:2", "urn:variant:3"]),
+            (hgvs_nt_column, [], ["NM_000546.5:c.215C>G", "NM_000546.5:c.743G>A"]),
+            (hgvs_pro_column, [], ["NP_000537.3:p.Arg72Pro", "NP_000537.3:p.Gly248Trp"]),
+        ],
+    )
+    def test_validate_index_existence_in_score_set_all_missing(
+        self, index_column_name, existing_resources_return_value, index_values
+    ):
         """Test ValidationError when all variant URNs are missing from score set."""
         mock_db = Mock()
         mock_scalars = Mock()
-        mock_scalars.all.return_value = []
+        mock_scalars.all.return_value = existing_resources_return_value
         mock_db.scalars.return_value = mock_scalars
 
         mock_score_set = Mock()
         mock_score_set.id = 789
 
-        variant_urns = pd.Series(["urn:variant:1", "urn:variant:2"])
+        variant_urns = pd.Series(index_values)
 
         # Act & Assert
         with pytest.raises(
             ValidationError,
-            match="The following variant URNs do not exist in the score set: urn:variant:1, urn:variant:2",
+            match="The following resources do not exist in the score set: {}".format(
+                ", ".join(sorted(set(index_values) - set(existing_resources_return_value)))
+            ),
         ):
-            validate_calibration_variant_urns(mock_db, mock_score_set, variant_urns)
+            validate_index_existence_in_score_set(mock_db, mock_score_set, variant_urns, index_column_name)
 
-    def test_validate_calibration_variant_urns_empty_series(self):
-        """Test successful validation with empty variant URNs series."""
+    @pytest.mark.parametrize(
+        "index_column_name,existing_resources_return_value,index_values",
+        [
+            (calibration_variant_column_name, [], []),
+            (hgvs_nt_column, [], []),
+            (hgvs_pro_column, [], []),
+        ],
+    )
+    def test_validate_index_existence_in_score_set_empty_series(
+        self, index_column_name, existing_resources_return_value, index_values
+    ):
+        """Test successful validation with empty index resources series."""
         mock_db = Mock()
         mock_scalars = Mock()
-        mock_scalars.all.return_value = []
+        mock_scalars.all.return_value = existing_resources_return_value
         mock_db.scalars.return_value = mock_scalars
 
         mock_score_set = Mock()
         mock_score_set.id = 123
 
-        variant_urns = pd.Series([], dtype=object)
+        variant_urns = pd.Series(index_values, dtype=object)
 
         # Act & Assert - should not raise any exception
-        validate_calibration_variant_urns(mock_db, mock_score_set, variant_urns)
+        validate_index_existence_in_score_set(mock_db, mock_score_set, variant_urns, index_column_name)
 
-    def test_validate_calibration_variant_urns_single_variant(self):
-        """Test successful validation with single variant URN."""
+    @pytest.mark.parametrize(
+        "index_column_name,existing_resources_return_value,index_values",
+        [
+            (calibration_variant_column_name, ["urn:variant:1"], ["urn:variant:1"]),
+            (hgvs_nt_column, ["NM_000546.5:c.215C>G"], ["NM_000546.5:c.215C>G"]),
+            (hgvs_pro_column, ["NP_000537.3:p.Arg72Pro"], ["NP_000537.3:p.Arg72Pro"]),
+        ],
+    )
+    def test_validate_calibration_index_existence_single_variant(
+        self, index_column_name, existing_resources_return_value, index_values
+    ):
+        """Test successful validation with single index value URN."""
         mock_db = Mock()
         mock_scalars = Mock()
-        mock_scalars.all.return_value = ["urn:variant:single"]
+        mock_scalars.all.return_value = existing_resources_return_value
         mock_db.scalars.return_value = mock_scalars
 
         mock_score_set = Mock()
         mock_score_set.id = 123
 
-        variant_urns = pd.Series(["urn:variant:single"])
+        variant_urns = pd.Series(index_values)
 
         # Act & Assert - should not raise any exception
-        validate_calibration_variant_urns(mock_db, mock_score_set, variant_urns)
+        validate_index_existence_in_score_set(mock_db, mock_score_set, variant_urns, index_column_name)
 
-    def test_validate_calibration_variant_urns_duplicate_urns_in_series(self):
-        """Test validation with duplicate URNs in input series."""
+    @pytest.mark.parametrize(
+        "index_column_name,existing_resources_return_value,index_values",
+        [
+            (
+                calibration_variant_column_name,
+                ["urn:variant:1", "urn:variant:2"],
+                [
+                    "urn:variant:1",
+                    "urn:variant:2",
+                    "urn:variant:1",
+                    "urn:variant:2",
+                ],
+            ),
+            (
+                hgvs_nt_column,
+                ["NM_000546.5:c.215C>G", "NM_000546.5:c.743G>A"],
+                [
+                    "NM_000546.5:c.215C>G",
+                    "NM_000546.5:c.743G>A",
+                    "NM_000546.5:c.215C>G",
+                    "NM_000546.5:c.743G>A",
+                ],
+            ),
+            (
+                hgvs_pro_column,
+                ["NP_000537.3:p.Arg72Pro", "NP_000537.3:p.Gly248Trp"],
+                [
+                    "NP_000537.3:p.Arg72Pro",
+                    "NP_000537.3:p.Gly248Trp",
+                    "NP_000537.3:p.Arg72Pro",
+                    "NP_000537.3:p.Gly248Trp",
+                ],
+            ),
+        ],
+    )
+    def test_validate_calibration_index_existence_duplicate_values_in_series(
+        self, index_column_name, existing_resources_return_value, index_values
+    ):
+        """Test validation with duplicate index values in input series."""
         mock_db = Mock()
         mock_scalars = Mock()
-        mock_scalars.all.return_value = ["urn:variant:1", "urn:variant:2"]
+        mock_scalars.all.return_value = existing_resources_return_value
         mock_db.scalars.return_value = mock_scalars
 
         mock_score_set = Mock()
         mock_score_set.id = 123
 
-        variant_urns = pd.Series(["urn:variant:1", "urn:variant:2", "urn:variant:1", "urn:variant:2"])
+        variant_urns = pd.Series(index_values)
 
         # Act & Assert - should not raise any exception
-        validate_calibration_variant_urns(mock_db, mock_score_set, variant_urns)
+        validate_index_existence_in_score_set(mock_db, mock_score_set, variant_urns, index_column_name)
 
-    def test_validate_calibration_variant_urns_database_query_parameters(self):
+    @pytest.mark.parametrize(
+        "index_column_name,existing_resources_return_value,index_values",
+        [
+            (
+                calibration_variant_column_name,
+                ["urn:variant:1", "urn:variant:2", "urn:variant:3"],
+                ["urn:variant:1", "urn:variant:2", "urn:variant:3"],
+            ),
+            (
+                hgvs_nt_column,
+                ["NM_000546.5:c.215C>G", "NM_000546.5:c.743G>A", "NM_000546.5:c.999A>T"],
+                ["NM_000546.5:c.215C>G", "NM_000546.5:c.743G>A", "NM_000546.5:c.999A>T"],
+            ),
+            (
+                hgvs_pro_column,
+                ["NP_000537.3:p.Arg72Pro", "NP_000537.3:p.Gly248Trp", "NP_000537.3:p.Ser215Ile"],
+                ["NP_000537.3:p.Arg72Pro", "NP_000537.3:p.Gly248Trp", "NP_000537.3:p.Ser215Ile"],
+            ),
+        ],
+    )
+    def test_validate_calibration_index_existence_database_query_parameters(
+        self, index_column_name, existing_resources_return_value, index_values
+    ):
         """Test that database query is constructed with correct parameters."""
         mock_db = Mock()
         mock_scalars = Mock()
-        mock_scalars.all.return_value = ["urn:variant:1", "urn:variant:2"]
+        mock_scalars.all.return_value = existing_resources_return_value
         mock_db.scalars.return_value = mock_scalars
 
         mock_score_set = Mock()
         mock_score_set.id = 999
 
-        variant_urns = pd.Series(["urn:variant:1", "urn:variant:2"])
+        variant_urns = pd.Series(index_values)
 
-        validate_calibration_variant_urns(mock_db, mock_score_set, variant_urns)
+        validate_index_existence_in_score_set(mock_db, mock_score_set, variant_urns, index_column_name)
 
         mock_db.scalars.assert_called_once()
 
@@ -741,3 +922,89 @@ class TestValidateCalibrationClasses:
         classes = pd.Series(["single_class", "single_class"])
 
         validate_calibration_classes(calibration, classes)
+
+
+class TestChooseCalibrationIndexColumn:
+    """Test suite for choose_calibration_index_column function."""
+
+    def test_choose_variant_column_priority(self):
+        """Should return the variant column if present and not all NaN."""
+        df = pd.DataFrame(
+            {
+                calibration_variant_column_name: ["v1", "v2"],
+                calibration_class_column_name: ["A", "B"],
+                hgvs_nt_column: [None, None],
+                hgvs_pro_column: [None, None],
+            }
+        )
+        result = choose_calibration_index_column(df)
+        assert result == calibration_variant_column_name
+
+    def test_choose_hgvs_nt_column_if_variant_missing(self):
+        """Should return hgvs_nt_column if variant column is missing or all NaN."""
+        df = pd.DataFrame(
+            {
+                hgvs_nt_column: ["c.1A>G", "c.2T>C"],
+                calibration_class_column_name: ["A", "B"],
+            }
+        )
+        result = choose_calibration_index_column(df)
+        assert result == hgvs_nt_column
+
+    def test_choose_hgvs_pro_column_if_variant_and_nt_missing(self):
+        """Should return hgvs_pro_column if variant and hgvs_nt columns are missing or all NaN."""
+        df = pd.DataFrame(
+            {
+                hgvs_pro_column: ["p.A1G", "p.T2C"],
+                calibration_class_column_name: ["A", "B"],
+            }
+        )
+        result = choose_calibration_index_column(df)
+        assert result == hgvs_pro_column
+
+    def test_ignores_all_nan_columns(self):
+        """Should ignore columns that are all NaN when choosing index column."""
+        df = pd.DataFrame(
+            {
+                calibration_variant_column_name: [float("nan"), float("nan")],
+                hgvs_nt_column: ["c.1A>G", "c.2T>C"],
+                calibration_class_column_name: ["A", "B"],
+            }
+        )
+        result = choose_calibration_index_column(df)
+        assert result == hgvs_nt_column
+
+    def test_case_insensitive_column_names(self):
+        """Should handle column names in different cases."""
+        df = pd.DataFrame(
+            {
+                calibration_variant_column_name.upper(): ["v1", "v2"],
+                calibration_class_column_name.capitalize(): ["A", "B"],
+            }
+        )
+        result = choose_calibration_index_column(df)
+        assert result == calibration_variant_column_name.upper()
+
+    def test_raises_if_no_valid_index_column(self):
+        """Should raise ValidationError if no valid index column is found."""
+        df = pd.DataFrame(
+            {
+                calibration_class_column_name: ["A", "B"],
+                "other": ["x", "y"],
+            }
+        )
+        with pytest.raises(ValidationError, match="failed to find valid calibration index column"):
+            choose_calibration_index_column(df)
+
+    def test_raises_if_all_index_columns_are_nan(self):
+        """Should raise ValidationError if all possible index columns are all NaN."""
+        df = pd.DataFrame(
+            {
+                calibration_variant_column_name: [float("nan"), float("nan")],
+                hgvs_nt_column: [float("nan"), float("nan")],
+                hgvs_pro_column: [float("nan"), float("nan")],
+                calibration_class_column_name: ["A", "B"],
+            }
+        )
+        with pytest.raises(ValidationError, match="failed to find valid calibration index column"):
+            choose_calibration_index_column(df)

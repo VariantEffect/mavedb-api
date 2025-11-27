@@ -2,6 +2,8 @@
 
 import pytest
 
+from mavedb.lib.validation.exceptions import ValidationError
+
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
@@ -1244,6 +1246,96 @@ def test_cannot_create_score_calibration_when_score_set_does_not_exist(client, s
     ],
     indirect=["mock_publication_fetch"],
 )
+def test_cannot_create_score_calibration_when_csv_file_fails_decoding(
+    client, setup_router_db, session, data_provider, data_files, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration_csv_path = data_files / "calibration_classes_by_urn.csv"
+    with (
+        open(calibration_csv_path, "rb") as class_file,
+        patch(
+            "mavedb.routers.score_calibrations.csv_data_to_df",
+            side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "invalid start byte"),
+        ),
+    ):
+        response = client.post(
+            "/api/v1/score-calibrations",
+            files={"classes_file": (calibration_csv_path.name, class_file, "text/csv")},
+            data={
+                "calibration_json": json.dumps(
+                    {"scoreSetUrn": score_set["urn"], **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED)}
+                ),
+            },
+        )
+
+    assert response.status_code == 400
+    error = response.json()
+    assert "Error decoding file:" in str(error["detail"])
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_score_calibration_when_validation_error_is_raised_from_score_calibration_file_standardization(
+    client, setup_router_db, session, data_provider, data_files, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration_csv_path = data_files / "calibration_classes_by_urn.csv"
+    with (
+        open(calibration_csv_path, "rb") as class_file,
+        patch(
+            "mavedb.routers.score_calibrations.validate_and_standardize_calibration_classes_dataframe",
+            side_effect=ValidationError("Test validation error"),
+        ),
+    ):
+        response = client.post(
+            "/api/v1/score-calibrations",
+            files={"classes_file": (calibration_csv_path.name, class_file, "text/csv")},
+            data={
+                "calibration_json": json.dumps(
+                    {"scoreSetUrn": score_set["urn"], **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED)}
+                ),
+            },
+        )
+
+    assert response.status_code == 422
+    error = response.json()
+    assert "Test validation error" in str(error["detail"][0]["msg"])
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
 def test_cannot_create_score_calibration_when_score_set_not_owned_by_user(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
 ):
@@ -1354,8 +1446,12 @@ def test_cannot_create_class_based_score_calibration_without_classes_file(
     ],
     indirect=["mock_publication_fetch"],
 )
+@pytest.mark.parametrize(
+    "calibration_csv_path",
+    ["calibration_classes_by_urn.csv", "calibration_classes_by_hgvs_nt.csv", "calibration_classes_by_hgvs_prot.csv"],
+)
 def test_cannot_create_range_based_score_calibration_with_classes_file(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, calibration_csv_path
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -1366,7 +1462,7 @@ def test_cannot_create_range_based_score_calibration_with_classes_file(
         data_files / "scores.csv",
     )
 
-    classification_csv_path = data_files / "calibration_classes.csv"
+    classification_csv_path = data_files / calibration_csv_path
     with open(classification_csv_path, "rb") as class_file:
         response = client.post(
             "/api/v1/score-calibrations",
@@ -1585,8 +1681,12 @@ def test_can_create_score_calibration_as_admin_user(
     ],
     indirect=["mock_publication_fetch"],
 )
+@pytest.mark.parametrize(
+    "calibration_csv_path",
+    ["calibration_classes_by_urn.csv", "calibration_classes_by_hgvs_nt.csv", "calibration_classes_by_hgvs_prot.csv"],
+)
 def test_can_create_class_based_score_calibration_form(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, calibration_csv_path
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -1599,7 +1699,7 @@ def test_can_create_class_based_score_calibration_form(
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
         score_set = publish_score_set(client, score_set["urn"])
 
-    classification_csv_path = data_files / "calibration_classes.csv"
+    classification_csv_path = data_files / calibration_csv_path
     with open(classification_csv_path, "rb") as class_file:
         response = client.post(
             "/api/v1/score-calibrations",
@@ -1610,8 +1710,6 @@ def test_can_create_class_based_score_calibration_form(
                 ),
             },
         )
-
-    print(response.text)
 
     assert response.status_code == 200
     calibration_response = response.json()
@@ -1710,6 +1808,108 @@ def test_cannot_update_score_calibration_when_calibration_not_exists(
     ],
     indirect=["mock_publication_fetch"],
 )
+def test_cannot_update_score_calibration_when_csv_file_fails_decoding(
+    client, setup_router_db, session, data_provider, data_files, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    calibration_csv_path = data_files / "calibration_classes_by_urn.csv"
+    with (
+        open(calibration_csv_path, "rb") as class_file,
+        patch(
+            "mavedb.routers.score_calibrations.csv_data_to_df",
+            side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "invalid start byte"),
+        ),
+    ):
+        response = client.put(
+            f"/api/v1/score-calibrations/{calibration['urn']}",
+            files={"classes_file": (calibration_csv_path.name, class_file, "text/csv")},
+            data={
+                "calibration_json": json.dumps(
+                    {
+                        "scoreSetUrn": score_set["urn"],
+                        **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED),
+                    }
+                ),
+            },
+        )
+
+    assert response.status_code == 400
+    error = response.json()
+    assert "Error decoding file:" in str(error["detail"])
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_update_score_calibration_when_validation_error_is_raised_from_score_calibration_file_standardization(
+    client, setup_router_db, session, data_provider, data_files, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    calibration_csv_path = data_files / "calibration_classes_by_urn.csv"
+    with (
+        open(calibration_csv_path, "rb") as class_file,
+        patch(
+            "mavedb.routers.score_calibrations.validate_and_standardize_calibration_classes_dataframe",
+            side_effect=ValidationError("Test validation error"),
+        ),
+    ):
+        response = client.put(
+            f"/api/v1/score-calibrations/{calibration['urn']}",
+            files={"classes_file": (calibration_csv_path.name, class_file, "text/csv")},
+            data={
+                "calibration_json": json.dumps(
+                    {
+                        "scoreSetUrn": score_set["urn"],
+                        **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED),
+                    }
+                ),
+            },
+        )
+
+    assert response.status_code == 422
+    error = response.json()
+    assert "Test validation error" in str(error["detail"][0]["msg"])
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
 def test_cannot_update_class_based_score_calibration_without_class_file(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
@@ -1748,8 +1948,12 @@ def test_cannot_update_class_based_score_calibration_without_class_file(
     ],
     indirect=["mock_publication_fetch"],
 )
+@pytest.mark.parametrize(
+    "calibration_csv_path",
+    ["calibration_classes_by_urn.csv", "calibration_classes_by_hgvs_nt.csv", "calibration_classes_by_hgvs_prot.csv"],
+)
 def test_cannot_update_range_based_score_calibration_with_class_file(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, calibration_csv_path
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -1763,7 +1967,7 @@ def test_cannot_update_range_based_score_calibration_with_class_file(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    classification_csv_path = data_files / "calibration_classes.csv"
+    classification_csv_path = data_files / calibration_csv_path
     with open(classification_csv_path, "rb") as class_file:
         response = client.put(
             f"/api/v1/score-calibrations/{calibration['urn']}",
@@ -2443,8 +2647,12 @@ def test_admin_user_may_move_calibration_to_another_score_set(
     ],
     indirect=["mock_publication_fetch"],
 )
+@pytest.mark.parametrize(
+    "calibration_csv_path",
+    ["calibration_classes_by_urn.csv", "calibration_classes_by_hgvs_nt.csv", "calibration_classes_by_hgvs_prot.csv"],
+)
 def test_can_modify_score_calibration_to_class_based(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, calibration_csv_path
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -2461,7 +2669,7 @@ def test_can_modify_score_calibration_to_class_based(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    classification_csv_path = data_files / "calibration_classes.csv"
+    classification_csv_path = data_files / calibration_csv_path
     updated_calibration_data = deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED)
 
     with open(classification_csv_path, "rb") as class_file:

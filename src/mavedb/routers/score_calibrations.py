@@ -304,10 +304,10 @@ async def create_score_calibration_route(
             )
 
         try:
-            standardized_classes_df = validate_and_standardize_calibration_classes_dataframe(
+            standardized_classes_df, index_column = validate_and_standardize_calibration_classes_dataframe(
                 db, score_set, calibration, classes_df
             )
-            variant_classes = variant_classification_df_to_dict(standardized_classes_df)
+            variant_classes = variant_classification_df_to_dict(standardized_classes_df, index_column)
         except ValidationError as e:
             raise HTTPException(
                 status_code=422,
@@ -425,9 +425,9 @@ async def modify_score_calibration_route(
 
     # If the user supplies a new score_set_urn, validate it exists and the user has permission to use it.
     if calibration_update.score_set_urn is not None:
-        score_set = db.query(ScoreSet).filter(ScoreSet.urn == calibration_update.score_set_urn).one_or_none()
+        score_set_update = db.query(ScoreSet).filter(ScoreSet.urn == calibration_update.score_set_urn).one_or_none()
 
-        if not score_set:
+        if not score_set_update:
             logger.debug("ScoreSet not found", extra=logging_context())
             raise HTTPException(
                 status_code=404, detail=f"score set with URN '{calibration_update.score_set_urn}' not found"
@@ -435,7 +435,9 @@ async def modify_score_calibration_route(
 
         # TODO#539: Allow any authenticated user to upload a score calibration for a score set, not just those with
         #           permission to update the score set itself.
-        assert_permission(user_data, score_set, Action.UPDATE)
+        assert_permission(user_data, score_set_update, Action.UPDATE)
+    else:
+        score_set_update = None
 
     item = (
         db.query(ScoreCalibration)
@@ -448,6 +450,7 @@ async def modify_score_calibration_route(
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
 
     assert_permission(user_data, item, Action.UPDATE)
+    score_set = score_set_update or item.score_set
 
     if calibration_update.class_based and not classes_file:
         raise HTTPException(
@@ -470,10 +473,10 @@ async def modify_score_calibration_route(
             )
 
         try:
-            standardized_classes_df = validate_and_standardize_calibration_classes_dataframe(
+            standardized_classes_df, index_column = validate_and_standardize_calibration_classes_dataframe(
                 db, score_set, calibration_update, classes_df
             )
-            variant_classes = variant_classification_df_to_dict(standardized_classes_df)
+            variant_classes = variant_classification_df_to_dict(standardized_classes_df, index_column)
         except ValidationError as e:
             raise HTTPException(
                 status_code=422,

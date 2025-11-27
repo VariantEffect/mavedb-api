@@ -9,7 +9,13 @@ from sqlalchemy.orm import Session
 
 from mavedb.lib.acmg import find_or_create_acmg_classification
 from mavedb.lib.identifiers import find_or_create_publication_identifier
-from mavedb.lib.validation.constants.general import calibration_class_column_name, calibration_variant_column_name
+from mavedb.lib.types.score_calibrations import ClassificationDict
+from mavedb.lib.validation.constants.general import (
+    calibration_class_column_name,
+    calibration_variant_column_name,
+    hgvs_nt_column,
+    hgvs_pro_column,
+)
 from mavedb.lib.validation.utilities import inf_or_float
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
 from mavedb.models.score_calibration import ScoreCalibration
@@ -27,7 +33,7 @@ def create_functional_classification(
         score_calibration.FunctionalClassificationCreate, score_calibration.FunctionalClassificationModify
     ],
     containing_calibration: ScoreCalibration,
-    variant_classes: Optional[dict[str, list[str]]] = None,
+    variant_classes: Optional[ClassificationDict] = None,
 ) -> ScoreCalibrationFunctionalClassification:
     """
     Create a functional classification entity for score calibration.
@@ -42,7 +48,7 @@ def create_functional_classification(
             description, range bounds, inclusivity flags, and optional ACMG
             classification information.
         containing_calibration (ScoreCalibration): The ScoreCalibration instance.
-        variant_classes (Optional[dict[str, list[str]]]): Optional dictionary mapping variant classes
+        variant_classes (Optional[ClassificationDict]): Optional dictionary mapping variant classes
             to their corresponding variant identifiers.
 
     Returns:
@@ -92,7 +98,7 @@ async def _create_score_calibration(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
     user: User,
-    variant_classes: Optional[dict[str, list[str]]] = None,
+    variant_classes: Optional[ClassificationDict] = None,
     containing_score_set: Optional[ScoreSet] = None,
 ) -> ScoreCalibration:
     """
@@ -125,6 +131,10 @@ async def _create_score_calibration(
         optional lists of publication source identifiers grouped by relation type.
     user : User
         Authenticated user context; the user to be recorded for audit
+    variant_classes (Optional[ClassificationDict]):
+        Optional dictionary mapping variant classes to their corresponding variant identifiers.
+    containing_score_set : Optional[ScoreSet]
+        If provided, the ScoreSet instance to which the new calibration will belong.
 
     Returns
     -------
@@ -201,7 +211,7 @@ async def create_score_calibration_in_score_set(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
     user: User,
-    variant_classes: Optional[dict[str, list[str]]] = None,
+    variant_classes: Optional[ClassificationDict] = None,
 ) -> ScoreCalibration:
     """
     Create a new score calibration and associate it with an existing score set.
@@ -217,7 +227,7 @@ async def create_score_calibration_in_score_set(
             object containing the fields required to create a score calibration. Must include
             a non-empty score_set_urn.
         user (User): Authenticated user information used for auditing
-        variant_classes (Optional[dict[str, list[str]]]): Optional dictionary mapping variant classes
+        variant_classes (Optional[ClassificationDict]): Optional dictionary mapping variant classes
             to their corresponding variant identifiers.
 
     Returns:
@@ -259,7 +269,7 @@ async def create_score_calibration(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
     user: User,
-    variant_classes: Optional[dict[str, list[str]]] = None,
+    variant_classes: Optional[ClassificationDict] = None,
 ) -> ScoreCalibration:
     """
     Asynchronously create and persist a new ScoreCalibration record.
@@ -277,7 +287,7 @@ async def create_score_calibration(
         score set identifiers).
     user : User
         Authenticated user context; the user to be recorded for audit
-    variant_classes (Optional[dict[str, list[str]]]): Optional dictionary mapping variant classes
+    variant_classes (Optional[ClassificationDict]): Optional dictionary mapping variant classes
         to their corresponding variant identifiers.
 
     Returns
@@ -323,7 +333,7 @@ async def modify_score_calibration(
     calibration: ScoreCalibration,
     calibration_update: score_calibration.ScoreCalibrationModify,
     user: User,
-    variant_classes: Optional[dict[str, list[str]]] = None,
+    variant_classes: Optional[ClassificationDict] = None,
 ) -> ScoreCalibration:
     """
     Asynchronously modify an existing ScoreCalibration record and its related publication
@@ -360,7 +370,7 @@ async def modify_score_calibration(
          - Additional mutable calibration attributes.
      user : User
          Context for the authenticated user; the user to be recorded for audit.
-     variant_classes (Optional[dict[str, list[str]]]): Optional dictionary mapping variant classes
+     variant_classes (Optional[ClassificationDict]): Optional dictionary mapping variant classes
          to their corresponding variant identifiers.
 
     Returns
@@ -645,7 +655,7 @@ def delete_score_calibration(db: Session, calibration: ScoreCalibration) -> None
 def variants_for_functional_classification(
     db: Session,
     functional_classification: ScoreCalibrationFunctionalClassification,
-    variant_classes: Optional[dict[str, list[str]]] = None,
+    variant_classes: Optional[ClassificationDict] = None,
     use_sql: bool = False,
 ) -> list[Variant]:
     """
@@ -664,7 +674,7 @@ def variants_for_functional_classification(
         Active SQLAlchemy session.
     functional_classification : ScoreCalibrationFunctionalClassification
         The ORM row defining the interval to test against.
-    variant_classes : Optional[dict[str, list[str]]]
+    variant_classes : Optional[ClassificationDict]
         If provided, a dictionary mapping variant classes to their corresponding variant identifiers
         to use for classification rather than the range property of the functional_classification.
     use_sql : bool
@@ -688,6 +698,14 @@ def variants_for_functional_classification(
     """
     # Resolve score set id from attached calibration (relationship may be lazy)
     score_set_id = functional_classification.calibration.score_set_id  # type: ignore[attr-defined]
+
+    if variant_classes and variant_classes["indexed_by"] not in [
+        hgvs_nt_column,
+        hgvs_pro_column,
+        calibration_variant_column_name,
+    ]:
+        raise ValueError(f"Unsupported index column `{variant_classes['indexed_by']}` for variant classification.")
+
     if use_sql:
         try:
             # Build score extraction expression: data['score_data']['score']::text::float
@@ -695,8 +713,16 @@ def variants_for_functional_classification(
 
             conditions = [Variant.score_set_id == score_set_id]
             if variant_classes is not None and functional_classification.class_ is not None:
-                variant_urns = variant_classes.get(functional_classification.class_, [])
-                conditions.append(Variant.urn.in_(variant_urns))
+                index_element = variant_classes["classifications"].get(functional_classification.class_, set())
+
+                if variant_classes["indexed_by"] == hgvs_nt_column:
+                    conditions.append(Variant.hgvs_nt.in_(index_element))
+                elif variant_classes["indexed_by"] == hgvs_pro_column:
+                    conditions.append(Variant.hgvs_pro.in_(index_element))
+                elif variant_classes["indexed_by"] == calibration_variant_column_name:
+                    conditions.append(Variant.urn.in_(index_element))
+                else:  # pragma: no cover
+                    return []
 
             elif functional_classification.range is not None and len(functional_classification.range) == 2:
                 lower_raw, upper_raw = functional_classification.range
@@ -732,9 +758,19 @@ def variants_for_functional_classification(
     matches: list[Variant] = []
     for v in variants:
         if variant_classes is not None and functional_classification.class_ is not None:
-            variant_urns = variant_classes.get(functional_classification.class_, [])
-            if v.urn in variant_urns:
-                matches.append(v)
+            index_element = variant_classes["classifications"].get(functional_classification.class_, set())
+
+            if variant_classes["indexed_by"] == hgvs_nt_column:
+                if v.hgvs_nt in index_element:
+                    matches.append(v)
+            elif variant_classes["indexed_by"] == hgvs_pro_column:
+                if v.hgvs_pro in index_element:
+                    matches.append(v)
+            elif variant_classes["indexed_by"] == calibration_variant_column_name:
+                if v.urn in index_element:
+                    matches.append(v)
+            else:  # pragma: no cover
+                continue
 
         elif functional_classification.range is not None and len(functional_classification.range) == 2:
             try:
@@ -759,7 +795,8 @@ def variants_for_functional_classification(
 
 def variant_classification_df_to_dict(
     df: pd.DataFrame,
-) -> dict[str, list[str]]:
+    index_column: str,
+) -> ClassificationDict:
     """
     Convert a DataFrame of variant classifications into a dictionary mapping
     functional class labels to lists of distinct variant URNs.
@@ -776,18 +813,19 @@ def variant_classification_df_to_dict(
 
     Returns
     -------
-    dict[str, list[str]]
-        A dictionary where keys are functional class labels and values are lists
-        of distinct variant URNs belonging to each class.
+    ClassificationDict
+        A dictionary with two keys: 'indexed_by' indicating the index column name,
+        and 'classifications' mapping each functional class label to a list of
+        distinct variant URNs.
     """
-    classification_dict: dict[str, list[str]] = {}
+    classifications: dict[str, set[str]] = {}
     for _, row in df.iterrows():
-        variant_urn = row[calibration_variant_column_name]
+        index_element = row[index_column]
         functional_class = row[calibration_class_column_name]
 
-        if functional_class not in classification_dict:
-            classification_dict[functional_class] = []
+        if functional_class not in classifications:
+            classifications[functional_class] = set()
 
-        classification_dict[functional_class].append(variant_urn)
+        classifications[functional_class].add(index_element)
 
-    return {k: list(set(v)) for k, v in classification_dict.items()}
+    return {"indexed_by": index_column, "classifications": classifications}

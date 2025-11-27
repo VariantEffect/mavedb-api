@@ -23,7 +23,12 @@ from mavedb.lib.score_calibrations import (
     variant_classification_df_to_dict,
     variants_for_functional_classification,
 )
-from mavedb.lib.validation.constants.general import calibration_class_column_name, calibration_variant_column_name
+from mavedb.lib.validation.constants.general import (
+    calibration_class_column_name,
+    calibration_variant_column_name,
+    hgvs_nt_column,
+    hgvs_pro_column,
+)
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
@@ -182,8 +187,11 @@ def test_create_functional_classification_with_variant_classes(setup_lib_db, ses
             functional_range_create,
             calibration,
             variant_classes={
-                "pathogenic": ["variant_urn_1", "variant_urn_2"],
-                "benign": ["variant_urn_3"],
+                "indexed_by": calibration_variant_column_name,
+                "classifications": {
+                    "pathogenic": ["variant_urn_1", "variant_urn_2"],
+                    "benign": ["variant_urn_3"],
+                },
             },
         )
 
@@ -1768,9 +1776,47 @@ def test_variants_for_functional_classification_returns_empty_list_when_range_is
 
 
 @pytest.mark.parametrize(
-    "range_,class_,variant_classes",
+    "use_sql",
+    [True, False],
+)
+def test_variants_for_functional_classification_raises_error_when_index_column_not_found(
+    setup_lib_db, session, use_sql
+):
+    mock_calibration = mock.Mock(spec=ScoreCalibration)
+    mock_calibration.score_set_id = 1
+    mock_functional_calibration = mock.Mock(spec=ScoreCalibrationFunctionalClassification)
+    mock_functional_calibration.range = None
+    mock_functional_calibration.class_ = "benign"
+    mock_functional_calibration.calibration = mock_calibration
+
+    variant_classes = pd.DataFrame(
+        {
+            "some_other_column": [
+                "urn:mavedb:variant-1",
+                "urn:mavedb:variant-2",
+                "urn:mavedb:variant-3",
+            ],
+            calibration_class_column_name: [
+                "pathogenic",
+                "benign",
+                "pathogenic",
+            ],
+        }
+    )
+
+    with pytest.raises(ValueError, match="Unsupported index column `some_other_column` for variant classification."):
+        variants_for_functional_classification(
+            session,
+            mock_functional_calibration,
+            variant_classes=variant_classification_df_to_dict(variant_classes, index_column="some_other_column"),
+            use_sql=use_sql,
+        )
+
+
+@pytest.mark.parametrize(
+    "range_,class_,variant_classes,index_column",
     [
-        ([1.0, 2.0], None, None),
+        ([1.0, 2.0], None, None, None),
         (
             None,
             "benign",
@@ -1788,26 +1834,71 @@ def test_variants_for_functional_classification_returns_empty_list_when_range_is
                     ],
                 }
             ),
+            calibration_variant_column_name,
+        ),
+        (
+            None,
+            "benign",
+            pd.DataFrame(
+                {
+                    hgvs_nt_column: [
+                        "NC_000001.11:g.1000A>T",
+                        "NC_000001.11:g.1001G>C",
+                        "NC_000001.11:g.1002T>A",
+                    ],
+                    calibration_class_column_name: [
+                        "pathogenic",
+                        "benign",
+                        "pathogenic",
+                    ],
+                }
+            ),
+            hgvs_nt_column,
+        ),
+        (
+            None,
+            "benign",
+            pd.DataFrame(
+                {
+                    hgvs_pro_column: [
+                        "NP_000000.1:p.Lys100Asn",
+                        "NP_000000.1:p.Gly101Arg",
+                        "NP_000000.1:p.Ser102Thr",
+                    ],
+                    calibration_class_column_name: [
+                        "pathogenic",
+                        "benign",
+                        "pathogenic",
+                    ],
+                }
+            ),
+            hgvs_pro_column,
         ),
     ],
 )
 def test_variants_for_functional_classification_python_filtering_with_valid_variants(
-    setup_lib_db_with_score_set, session, range_, class_, variant_classes
+    setup_lib_db_with_score_set, session, range_, class_, variant_classes, index_column
 ):
     variant_1 = Variant(
         data={"score_data": {"score": 0.5}},
         score_set_id=setup_lib_db_with_score_set.id,
         urn="urn:mavedb:variant-1",
+        hgvs_nt="NC_000001.11:g.1000A>T",
+        hgvs_pro="NP_000000.1:p.Lys100Asn",
     )
     variant_2 = Variant(
         data={"score_data": {"score": 1.5}},
         score_set_id=setup_lib_db_with_score_set.id,
         urn="urn:mavedb:variant-2",
+        hgvs_nt="NC_000001.11:g.1001G>C",
+        hgvs_pro="NP_000000.1:p.Gly101Arg",
     )
     variant_3 = Variant(
         data={"score_data": {"score": 2.5}},
         score_set_id=setup_lib_db_with_score_set.id,
         urn="urn:mavedb:variant-3",
+        hgvs_nt="NC_000001.11:g.1002T>A",
+        hgvs_pro="NP_000000.1:p.Ser102Thr",
     )
 
     session.add_all([variant_1, variant_2, variant_3])
@@ -1824,7 +1915,9 @@ def test_variants_for_functional_classification_python_filtering_with_valid_vari
     result = variants_for_functional_classification(
         session,
         mock_functional_classification,
-        variant_classes=variant_classification_df_to_dict(variant_classes) if variant_classes is not None else None,
+        variant_classes=variant_classification_df_to_dict(variant_classes, index_column)
+        if variant_classes is not None
+        else None,
         use_sql=False,
     )
 
@@ -2061,9 +2154,9 @@ def test_variants_for_functional_classification_python_filtering_skips_variants_
     [True, False],
 )
 @pytest.mark.parametrize(
-    "range_,class_,variant_classes",
+    "range_,class_,variant_classes,index_column",
     [
-        ([1.0, 2.0], None, None),
+        ([1.0, 2.0], None, None, None),
         (
             None,
             "benign",
@@ -2085,20 +2178,83 @@ def test_variants_for_functional_classification_python_filtering_skips_variants_
                     ],
                 }
             ),
+            calibration_variant_column_name,
+        ),
+        (
+            None,
+            "benign",
+            pd.DataFrame(
+                {
+                    hgvs_nt_column: [
+                        "NC_000001.11:g.1000A>T",
+                        "NC_000001.11:g.1001G>C",
+                        "NC_000001.11:g.1002T>A",
+                        "NC_000001.11:g.1003C>G",
+                        "NC_000001.11:g.1004G>A",
+                    ],
+                    calibration_class_column_name: [
+                        "pathogenic",
+                        "benign",
+                        "benign",
+                        "benign",
+                        "pathogenic",
+                    ],
+                }
+            ),
+            hgvs_nt_column,
+        ),
+        (
+            None,
+            "benign",
+            pd.DataFrame(
+                {
+                    hgvs_pro_column: [
+                        "NP_000000.1:p.Lys100Asn",
+                        "NP_000000.1:p.Gly101Arg",
+                        "NP_000000.1:p.Ser102Thr",
+                        "NP_000000.1:p.Ala103Pro",
+                        "NP_000000.1:p.Val104Met",
+                    ],
+                    calibration_class_column_name: [
+                        "pathogenic",
+                        "benign",
+                        "benign",
+                        "benign",
+                        "pathogenic",
+                    ],
+                }
+            ),
+            hgvs_pro_column,
         ),
     ],
 )
 def test_variants_for_functional_classification_filters_by_conditions(
-    setup_lib_db_with_score_set, session, use_sql, range_, class_, variant_classes
+    setup_lib_db_with_score_set, session, use_sql, range_, class_, variant_classes, index_column
 ):
     # Create variants with different scores
     variants = []
     scores = [0.5, 1.0, 1.5, 2.0, 2.5]
+    hgvs_nts = [
+        "NC_000001.11:g.1000A>T",
+        "NC_000001.11:g.1001G>C",
+        "NC_000001.11:g.1002T>A",
+        "NC_000001.11:g.1003C>G",
+        "NC_000001.11:g.1004G>A",
+    ]
+    hgvs_pros = [
+        "NP_000000.1:p.Lys100Asn",
+        "NP_000000.1:p.Gly101Arg",
+        "NP_000000.1:p.Ser102Thr",
+        "NP_000000.1:p.Ala103Pro",
+        "NP_000000.1:p.Val104Met",
+    ]
     for i, score in enumerate(scores, 1):
         variant = Variant(
             data={"score_data": {"score": score}},
             score_set_id=setup_lib_db_with_score_set.id,
             urn=f"urn:mavedb:variant-{i}",
+            hgvs_nt=hgvs_nts[i - 1],
+            hgvs_pro=hgvs_pros[i - 1],
         )
         variants.append(variant)
 
@@ -2119,7 +2275,9 @@ def test_variants_for_functional_classification_filters_by_conditions(
         result = variants_for_functional_classification(
             session,
             mock_functional_classification,
-            variant_classes=variant_classification_df_to_dict(variant_classes) if variant_classes is not None else None,
+            variant_classes=variant_classification_df_to_dict(variant_classes, index_column)
+            if variant_classes is not None
+            else None,
             use_sql=use_sql,
         )
 
@@ -2130,9 +2288,9 @@ def test_variants_for_functional_classification_filters_by_conditions(
 
 
 @pytest.mark.parametrize(
-    "range_,class_,variant_classes",
+    "range_,class_,variant_classes,index_column",
     [
-        ([1.0, 2.0], None, None),
+        ([1.0, 2.0], None, None, None),
         (
             None,
             "benign",
@@ -2150,17 +2308,58 @@ def test_variants_for_functional_classification_filters_by_conditions(
                     ],
                 }
             ),
+            calibration_variant_column_name,
+        ),
+        (
+            None,
+            "benign",
+            pd.DataFrame(
+                {
+                    hgvs_nt_column: [
+                        "NC_000001.11:g.1000A>T",
+                        "NC_000001.11:g.1001G>C",
+                        "NC_000001.11:g.1002T>A",
+                    ],
+                    calibration_class_column_name: [
+                        "benign",
+                        "pathogenic",
+                        "pathogenic",
+                    ],
+                }
+            ),
+            hgvs_nt_column,
+        ),
+        (
+            None,
+            "benign",
+            pd.DataFrame(
+                {
+                    hgvs_pro_column: [
+                        "NP_000000.1:p.Lys100Asn",
+                        "NP_000000.1:p.Gly101Arg",
+                        "NP_000000.1:p.Ser102Thr",
+                    ],
+                    calibration_class_column_name: [
+                        "benign",
+                        "pathogenic",
+                        "pathogenic",
+                    ],
+                }
+            ),
+            hgvs_pro_column,
         ),
     ],
 )
 def test_variants_for_functional_classification_sql_fallback_on_exception(
-    setup_lib_db_with_score_set, session, range_, class_, variant_classes
+    setup_lib_db_with_score_set, session, range_, class_, variant_classes, index_column
 ):
     # Create a variant
     variant = Variant(
         data={"score_data": {"score": 1.5}},
         score_set_id=setup_lib_db_with_score_set.id,
         urn="urn:mavedb:variant-1",
+        hgvs_nt="NC_000001.11:g.1000A>T",
+        hgvs_pro="NP_000000.1:p.Lys100Asn",
     )
     session.add(variant)
     session.commit()
@@ -2185,7 +2384,9 @@ def test_variants_for_functional_classification_sql_fallback_on_exception(
         result = variants_for_functional_classification(
             session,
             mock_functional_classification,
-            variant_classes=variant_classification_df_to_dict(variant_classes) if variant_classes is not None else None,
+            variant_classes=variant_classification_df_to_dict(variant_classes, index_column)
+            if variant_classes is not None
+            else None,
             use_sql=True,
         )
         mocked_execute.assert_called()
@@ -2369,10 +2570,14 @@ def test_variant_classification_df_to_dict_with_single_class():
         }
     )
 
-    result = variant_classification_df_to_dict(df)
+    result = variant_classification_df_to_dict(df, calibration_variant_column_name)
 
-    expected = {"pathogenic": sorted(["var1", "var2", "var3"])}
-    assert {k: sorted(v) for k, v in result.items()} == expected
+    expected = {
+        "indexed_by": calibration_variant_column_name,
+        "classifications": {"pathogenic": set(["var1", "var2", "var3"])},
+    }
+    assert result["classifications"] == expected["classifications"]
+    assert result["indexed_by"] == expected["indexed_by"]
 
 
 def test_variant_classification_df_to_dict_with_multiple_classes():
@@ -2384,44 +2589,39 @@ def test_variant_classification_df_to_dict_with_multiple_classes():
         }
     )
 
-    result = variant_classification_df_to_dict(df)
+    result = variant_classification_df_to_dict(df, calibration_variant_column_name)
 
-    expected = {"pathogenic": ["var1", "var3"], "benign": sorted(["var2", "var5"]), "uncertain": ["var4"]}
-    assert {k: sorted(v) for k, v in result.items()} == expected
+    expected = {
+        "indexed_by": calibration_variant_column_name,
+        "classifications": {
+            "pathogenic": set(["var1", "var3"]),
+            "benign": set(["var2", "var5"]),
+            "uncertain": set(["var4"]),
+        },
+    }
+    assert result["classifications"] == expected["classifications"]
+    assert result["indexed_by"] == expected["indexed_by"]
 
 
 def test_variant_classification_df_to_dict_with_empty_dataframe():
     """Test conversion with empty DataFrame."""
     df = pd.DataFrame(columns=[calibration_variant_column_name, calibration_class_column_name])
 
-    result = variant_classification_df_to_dict(df)
+    result = variant_classification_df_to_dict(df, calibration_variant_column_name)
 
-    assert result == {}
+    assert result["classifications"] == {}
+    assert result["indexed_by"] == calibration_variant_column_name
 
 
 def test_variant_classification_df_to_dict_with_single_row():
     """Test conversion with DataFrame containing single row."""
     df = pd.DataFrame({calibration_variant_column_name: ["var1"], calibration_class_column_name: ["pathogenic"]})
 
-    result = variant_classification_df_to_dict(df)
+    result = variant_classification_df_to_dict(df, calibration_variant_column_name)
 
-    expected = {"pathogenic": ["var1"]}
-    assert result == expected
-
-
-def test_variant_classification_df_to_dict_preserves_order_within_classes():
-    """Test that variant order is preserved within each functional class."""
-    df = pd.DataFrame(
-        {
-            calibration_variant_column_name: ["var1", "var2", "var3", "var4"],
-            calibration_class_column_name: ["pathogenic", "pathogenic", "benign", "pathogenic"],
-        }
-    )
-
-    result = variant_classification_df_to_dict(df)
-
-    expected = {"pathogenic": sorted(["var1", "var2", "var4"]), "benign": ["var3"]}
-    assert {k: sorted(v) for k, v in result.items()} == expected
+    expected = {"indexed_by": calibration_variant_column_name, "classifications": {"pathogenic": set(["var1"])}}
+    assert result["classifications"] == expected["classifications"]
+    assert result["indexed_by"] == expected["indexed_by"]
 
 
 def test_variant_classification_df_to_dict_with_extra_columns():
@@ -2435,10 +2635,14 @@ def test_variant_classification_df_to_dict_with_extra_columns():
         }
     )
 
-    result = variant_classification_df_to_dict(df)
+    result = variant_classification_df_to_dict(df, calibration_variant_column_name)
 
-    expected = {"pathogenic": ["var1"], "benign": ["var2"]}
-    assert {k: sorted(v) for k, v in result.items()} == expected
+    expected = {
+        "indexed_by": calibration_variant_column_name,
+        "classifications": {"pathogenic": set(["var1"]), "benign": set(["var2"])},
+    }
+    assert result["classifications"] == expected["classifications"]
+    assert result["indexed_by"] == expected["indexed_by"]
 
 
 def test_variant_classification_df_to_dict_with_duplicate_variants_in_same_class():
@@ -2450,10 +2654,14 @@ def test_variant_classification_df_to_dict_with_duplicate_variants_in_same_class
         }
     )
 
-    result = variant_classification_df_to_dict(df)
+    result = variant_classification_df_to_dict(df, calibration_variant_column_name)
 
-    expected = {"pathogenic": ["var1"], "benign": ["var2"]}
-    assert {k: sorted(v) for k, v in result.items()} == expected
+    expected = {
+        "indexed_by": calibration_variant_column_name,
+        "classifications": {"pathogenic": set(["var1"]), "benign": set(["var2"])},
+    }
+    assert result["classifications"] == expected["classifications"]
+    assert result["indexed_by"] == expected["indexed_by"]
 
 
 def test_variant_classification_df_to_dict_with_none_values():
@@ -2465,10 +2673,14 @@ def test_variant_classification_df_to_dict_with_none_values():
         }
     )
 
-    result = variant_classification_df_to_dict(df)
+    result = variant_classification_df_to_dict(df, calibration_variant_column_name)
 
-    expected = {"pathogenic": ["var1"], None: ["var2"], "benign": ["var3"]}
-    assert {k: sorted(v) for k, v in result.items()} == expected
+    expected = {
+        "indexed_by": calibration_variant_column_name,
+        "classifications": {"pathogenic": set(["var1"]), None: set(["var2"]), "benign": set(["var3"])},
+    }
+    assert result["classifications"] == expected["classifications"]
+    assert result["indexed_by"] == expected["indexed_by"]
 
 
 def test_variant_classification_df_to_dict_with_numeric_classes():
@@ -2477,10 +2689,14 @@ def test_variant_classification_df_to_dict_with_numeric_classes():
         {calibration_variant_column_name: ["var1", "var2", "var3"], calibration_class_column_name: [1, 2, 1]}
     )
 
-    result = variant_classification_df_to_dict(df)
+    result = variant_classification_df_to_dict(df, calibration_variant_column_name)
 
-    expected = {1: sorted(["var1", "var3"]), 2: ["var2"]}
-    assert {k: sorted(v) for k, v in result.items()} == expected
+    expected = {
+        "indexed_by": calibration_variant_column_name,
+        "classifications": {1: set(["var1", "var3"]), 2: set(["var2"])},
+    }
+    assert result["classifications"] == expected["classifications"]
+    assert result["indexed_by"] == expected["indexed_by"]
 
 
 def test_variant_classification_df_to_dict_with_mixed_type_classes():
@@ -2492,7 +2708,11 @@ def test_variant_classification_df_to_dict_with_mixed_type_classes():
         }
     )
 
-    result = variant_classification_df_to_dict(df)
+    result = variant_classification_df_to_dict(df, calibration_variant_column_name)
 
-    expected = {"pathogenic": ["var1"], 1: sorted(["var2", "var4"]), "benign": ["var3"]}
-    assert {k: sorted(v) for k, v in result.items()} == expected
+    expected = {
+        "indexed_by": calibration_variant_column_name,
+        "classifications": {"pathogenic": set(["var1"]), 1: set(["var2", "var4"]), "benign": set(["var3"])},
+    }
+    assert result["classifications"] == expected["classifications"]
+    assert result["indexed_by"] == expected["indexed_by"]
