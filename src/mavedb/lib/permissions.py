@@ -458,6 +458,11 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(True)
             elif roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
+            elif private:
+                # Do not acknowledge the existence of a private entity.
+                return PermissionResponse(False, 404, f"score calibration with URN '{item.urn}' not found")
+            elif user_data is None or user_data.user is None:
+                return PermissionResponse(False, 401, f"insufficient permissions for URN '{item.urn}'")
             else:
                 return PermissionResponse(False, 403, f"insufficient permissions for URN '{item.urn}'")
 
