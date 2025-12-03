@@ -484,18 +484,24 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(True)
             elif roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
+            elif user_data is None or user_data.user is None:
+                return PermissionResponse(False, 401, "Insufficient permissions for user view.")
             else:
-                return PermissionResponse(False, 403, "Insufficient permissions for user update.")
+                return PermissionResponse(False, 403, "Insufficient permissions for user view.")
         elif action == Action.UPDATE:
             if user_is_self:
                 return PermissionResponse(True)
             elif roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
+            elif user_data is None or user_data.user is None:
+                return PermissionResponse(False, 401, "Insufficient permissions for user update.")
             else:
                 return PermissionResponse(False, 403, "Insufficient permissions for user update.")
         elif action == Action.ADD_ROLE:
             if roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
+            elif user_data is None or user_data.user is None:
+                return PermissionResponse(False, 401, "Insufficient permissions to add user role.")
             else:
                 return PermissionResponse(False, 403, "Insufficient permissions to add user role.")
         elif action == Action.DELETE:
