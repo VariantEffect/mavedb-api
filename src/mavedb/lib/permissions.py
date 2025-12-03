@@ -279,11 +279,11 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
                 return PermissionResponse(False, 404, f"experiment set with URN '{item.urn}' not found")
             else:
                 return PermissionResponse(False)
-        # Only the owner may publish a private score set.
+        # Only the owner or admins may publish a private score set.
         elif action == Action.PUBLISH:
             if user_may_edit:
                 return PermissionResponse(True)
-            elif roles_permitted(active_roles, []):
+            elif roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
             elif private:
                 # Do not acknowledge the existence of a private entity.
