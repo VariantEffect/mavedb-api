@@ -379,6 +379,9 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
             # Both collection admins and MaveDB admins can add a user to a collection role
             if user_is_admin or roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
+            elif private and not user_may_view_private:
+                # Do not acknowledge the existence of a private entity.
+                return PermissionResponse(False, 404, f"collection with URN '{item.urn}' not found")
             else:
                 return PermissionResponse(False, 403, "Insufficient permissions to add user role.")
         # only MaveDB admins may add a badge name to a collection, which makes the collection considered "official"
