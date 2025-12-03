@@ -349,7 +349,7 @@ def has_permission(user_data: Optional[UserData], item: Base, action: Action) ->
         elif action == Action.PUBLISH:
             if user_is_admin:
                 return PermissionResponse(True)
-            elif roles_permitted(active_roles, []):
+            elif roles_permitted(active_roles, [UserRole.admin]):
                 return PermissionResponse(True)
             elif private and not user_may_view_private:
                 # Do not acknowledge the existence of a private entity.
