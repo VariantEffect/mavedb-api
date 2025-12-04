@@ -14,12 +14,11 @@ fastapi = pytest.importorskip("fastapi")
 from mavedb.lib.validation.urn_re import MAVEDB_COLLECTION_URN_RE
 from mavedb.models.enums.contribution_role import ContributionRole
 from mavedb.view_models.collection import Collection
-
 from tests.helpers.constants import (
     EXTRA_USER,
-    TEST_USER,
     TEST_COLLECTION,
     TEST_COLLECTION_RESPONSE,
+    TEST_USER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.collection import create_collection
@@ -198,7 +197,7 @@ def test_unauthorized_user_cannot_read_private_collection(session, client, setup
         response = client.get(f"/api/v1/collections/{collection['urn']}")
 
     assert response.status_code == 404
-    assert f"collection with URN '{collection['urn']}' not found" in response.json()["detail"]
+    assert f"Collection with URN '{collection['urn']}'" in response.json()["detail"]
 
 
 def test_anonymous_cannot_read_private_collection(session, client, setup_router_db, anonymous_app_overrides):
@@ -208,7 +207,7 @@ def test_anonymous_cannot_read_private_collection(session, client, setup_router_
         response = client.get(f"/api/v1/collections/{collection['urn']}")
 
     assert response.status_code == 404
-    assert f"collection with URN '{collection['urn']}' not found" in response.json()["detail"]
+    assert f"Collection with URN '{collection['urn']}'" in response.json()["detail"]
 
 
 def test_anonymous_can_read_public_collection(session, client, setup_router_db, anonymous_app_overrides):
@@ -360,7 +359,7 @@ def test_viewer_cannot_add_experiment_to_collection(
 
     assert response.status_code == 403
     response_data = response.json()
-    assert f"insufficient permissions for URN '{collection['urn']}'" in response_data["detail"]
+    assert f"insufficient permissions on Collection with URN '{collection['urn']}'" in response_data["detail"]
 
 
 def test_unauthorized_user_cannot_add_experiment_to_collection(
@@ -385,7 +384,7 @@ def test_unauthorized_user_cannot_add_experiment_to_collection(
         )
 
     assert response.status_code == 404
-    assert f"collection with URN '{collection['urn']}' not found" in response.json()["detail"]
+    assert f"Collection with URN '{collection['urn']}' not found" in response.json()["detail"]
 
 
 def test_anonymous_cannot_add_experiment_to_collection(
@@ -544,7 +543,7 @@ def test_viewer_cannot_add_score_set_to_collection(
 
     assert response.status_code == 403
     response_data = response.json()
-    assert f"insufficient permissions for URN '{collection['urn']}'" in response_data["detail"]
+    assert f"insufficient permissions on Collection with URN '{collection['urn']}'" in response_data["detail"]
 
 
 def test_unauthorized_user_cannot_add_score_set_to_collection(
@@ -568,7 +567,7 @@ def test_unauthorized_user_cannot_add_score_set_to_collection(
         )
 
     assert response.status_code == 404
-    assert f"collection with URN '{collection['urn']}' not found" in response.json()["detail"]
+    assert f"Collection with URN '{collection['urn']}' not found" in response.json()["detail"]
 
 
 def test_anonymous_cannot_add_score_set_to_collection(

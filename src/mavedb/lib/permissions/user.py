@@ -4,7 +4,7 @@ from mavedb.lib.authentication import UserData
 from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.models import PermissionResponse
-from mavedb.lib.permissions.utils import roles_permitted
+from mavedb.lib.permissions.utils import deny_action_for_entity, roles_permitted
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.user import User
 
@@ -19,8 +19,8 @@ def has_permission(user_data: Optional[UserData], entity: User, action: Action) 
 
     Args:
         user_data: The user's authentication data and roles. None for anonymous users.
-        action: The action to be performed (READ, UPDATE, DELETE).
         entity: The User entity to check permissions for.
+        action: The action to be performed (READ, UPDATE, LOOKUP, ADD_ROLE).
 
     Returns:
         PermissionResponse: Contains permission result, HTTP status code, and message.
@@ -101,7 +101,7 @@ def _handle_read_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return _deny_action_for_user(entity, user_data)
+    return deny_action_for_entity(entity, False, user_data, False)
 
 
 def _handle_lookup_action(
@@ -129,7 +129,7 @@ def _handle_lookup_action(
     if user_data is not None and user_data.user is not None:
         return PermissionResponse(True)
 
-    return _deny_action_for_user(entity, user_data)
+    return deny_action_for_entity(entity, False, user_data, False)
 
 
 def _handle_update_action(
@@ -160,7 +160,7 @@ def _handle_update_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return _deny_action_for_user(entity, user_data)
+    return deny_action_for_entity(entity, False, user_data, False)
 
 
 def _handle_add_role_action(
@@ -188,33 +188,4 @@ def _handle_add_role_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return _deny_action_for_user(entity, user_data)
-
-
-def _deny_action_for_user(
-    entity: User,
-    user_data: Optional[UserData],
-) -> PermissionResponse:
-    """
-    Generate appropriate denial response for User permission checks.
-
-    This helper function determines the correct HTTP status code and message
-    when denying access to a User entity based on authentication status.
-
-    Args:
-        entity: The User entity being accessed.
-        user_data: The user's authentication data (None for anonymous).
-
-    Returns:
-        PermissionResponse: Denial response with appropriate HTTP status and message.
-
-    Note:
-        For User entities, we don't use 404 responses as user existence
-        is typically not considered sensitive information in this context.
-    """
-    # No authenticated user is present.
-    if user_data is None or user_data.user is None:
-        return PermissionResponse(False, 401, f"insufficient permissions for user '{entity.username}'")
-
-    # The authenticated user lacks sufficient permissions.
-    return PermissionResponse(False, 403, f"insufficient permissions for user '{entity.username}'")
+    return deny_action_for_entity(entity, False, user_data, False)

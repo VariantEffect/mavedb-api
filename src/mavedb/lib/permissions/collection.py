@@ -4,7 +4,7 @@ from mavedb.lib.authentication import UserData
 from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.models import PermissionResponse
-from mavedb.lib.permissions.utils import roles_permitted
+from mavedb.lib.permissions.utils import deny_action_for_entity, roles_permitted
 from mavedb.models.collection import Collection
 from mavedb.models.enums.contribution_role import ContributionRole
 from mavedb.models.enums.user_role import UserRole
@@ -20,8 +20,8 @@ def has_permission(user_data: Optional[UserData], entity: Collection, action: Ac
 
     Args:
         user_data: The user's authentication data and roles. None for anonymous users.
-        action: The action to be performed (READ, UPDATE, DELETE, ADD_EXPERIMENT_SET).
         entity: The Collection entity to check permissions for.
+        action: The action to be performed (READ, UPDATE, DELETE, ADD_EXPERIMENT, ADD_SCORE_SET, ADD_ROLE, ADD_BADGE).
 
     Returns:
         PermissionResponse: Contains permission result, HTTP status code, and message.
@@ -107,6 +107,7 @@ def _handle_read_action(
         user_data: The user's authentication data.
         entity: The Collection entity being accessed.
         private: Whether the Collection is private.
+        official_collection: Whether the Collection is an official collection.
         user_is_owner: Whether the user owns the Collection.
         collection_roles: The user's roles in this Collection (admin/editor/viewer).
         active_roles: List of the user's active roles.
@@ -128,7 +129,7 @@ def _handle_read_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return _deny_action_for_collection(entity, private, user_data, bool(collection_roles) or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)
 
 
 def _handle_update_action(
@@ -149,6 +150,7 @@ def _handle_update_action(
         user_data: The user's authentication data.
         entity: The Collection entity being updated.
         private: Whether the Collection is private.
+        official_collection: Whether the Collection is an official collection.
         user_is_owner: Whether the user owns the Collection.
         collection_roles: The user's roles in this Collection (admin/editor/viewer).
         active_roles: List of the user's active roles.
@@ -167,7 +169,7 @@ def _handle_update_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return _deny_action_for_collection(entity, private, user_data, bool(collection_roles) or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)
 
 
 def _handle_delete_action(
@@ -189,6 +191,7 @@ def _handle_delete_action(
         user_data: The user's authentication data.
         entity: The Collection entity being deleted.
         private: Whether the Collection is private.
+        official_collection: Whether the Collection is official.
         user_is_owner: Whether the user owns the Collection.
         collection_roles: The user's roles in this Collection (admin/editor/viewer).
         active_roles: List of the user's active roles.
@@ -202,16 +205,12 @@ def _handle_delete_action(
         return PermissionResponse(True)
     # Other users may only delete non-official collections.
     if not official_collection:
-        # Owners may delete a collection only if it has not been published.
+        # Owners may delete a collection only if it is still private.
         # Collection admins/editors/viewers may not delete collections.
-        if user_is_owner:
-            return PermissionResponse(
-                private,
-                403,
-                f"insufficient permissions for URN '{entity.urn}'",
-            )
+        if user_is_owner and private:
+            return PermissionResponse(True)
 
-    return _deny_action_for_collection(entity, private, user_data, bool(collection_roles) or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)
 
 
 def _handle_publish_action(
@@ -232,6 +231,7 @@ def _handle_publish_action(
         user_data: The user's authentication data.
         entity: The Collection entity being published.
         private: Whether the Collection is private.
+        official_collection: Whether the Collection is official.
         user_is_owner: Whether the user owns the Collection.
         collection_roles: The user's roles in this Collection (admin/editor/viewer).
         active_roles: List of the user's active roles.
@@ -249,7 +249,7 @@ def _handle_publish_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return _deny_action_for_collection(entity, private, user_data, bool(collection_roles) or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)
 
 
 def _handle_add_experiment_action(
@@ -290,7 +290,7 @@ def _handle_add_experiment_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return _deny_action_for_collection(entity, private, user_data, bool(collection_roles) or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)
 
 
 def _handle_add_score_set_action(
@@ -330,7 +330,7 @@ def _handle_add_score_set_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return _deny_action_for_collection(entity, private, user_data, bool(collection_roles) or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)
 
 
 def _handle_add_role_action(
@@ -369,7 +369,7 @@ def _handle_add_role_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return _deny_action_for_collection(entity, private, user_data, bool(collection_roles) or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)
 
 
 def _handle_add_badge_action(
@@ -402,40 +402,4 @@ def _handle_add_badge_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return _deny_action_for_collection(entity, private, user_data, bool(collection_roles) or user_is_owner)
-
-
-def _deny_action_for_collection(
-    entity: Collection,
-    private: bool,
-    user_data: Optional[UserData],
-    user_may_view_private: bool = False,
-) -> PermissionResponse:
-    """
-    Generate appropriate denial response for Collection permission checks.
-
-    This helper function determines the correct HTTP status code and message
-    when denying access to a Collection based on its privacy and user authentication.
-
-    Args:
-        entity: The Collection entity being accessed.
-        private: Whether the Collection is private.
-        user_data: The user's authentication data (None for anonymous).
-        user_may_view_private: Whether the user has any role allowing them to view private collections.
-
-    Returns:
-        PermissionResponse: Denial response with appropriate HTTP status and message.
-
-    Note:
-        Returns 404 for private entities to avoid information disclosure,
-        401 for unauthenticated users, and 403 for insufficient permissions.
-    """
-    # Do not acknowledge the existence of a private collection.
-    if private and not user_may_view_private:
-        return PermissionResponse(False, 404, f"collection with URN '{entity.urn}' not found")
-    # No authenticated user is present.
-    if user_data is None or user_data.user is None:
-        return PermissionResponse(False, 401, f"insufficient permissions for URN '{entity.urn}'")
-
-    # The authenticated user lacks sufficient permissions.
-    return PermissionResponse(False, 403, f"insufficient permissions for URN '{entity.urn}'")
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)

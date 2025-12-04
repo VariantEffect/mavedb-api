@@ -7,7 +7,6 @@ import pytest
 
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.score_calibration import (
-    _deny_action_for_score_calibration,
     _handle_change_rank_action,
     _handle_delete_action,
     _handle_publish_action,
@@ -549,49 +548,3 @@ class TestScoreCalibrationChangeRankActionHandler:
         assert result.permitted == test_case.should_be_permitted
         if not test_case.should_be_permitted and test_case.expected_code:
             assert result.http_code == test_case.expected_code
-
-
-class TestScoreCalibrationDenyActionHandler:
-    """Test score calibration deny action handler."""
-
-    def test_deny_action_for_private_score_calibration_not_contributor(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_score_calibration helper function for private ScoreCalibration."""
-        score_calibration = entity_helper.create_score_calibration("private", True)
-
-        # Private entity should return 404
-        result = _deny_action_for_score_calibration(
-            score_calibration, True, entity_helper.create_user_data("other_user"), False
-        )
-        assert result.permitted is False
-        assert result.http_code == 404
-
-    def test_deny_action_for_public_score_calibration_anonymous_user(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_score_calibration helper function for public ScoreCalibration with anonymous user."""
-        score_calibration = entity_helper.create_score_calibration("published", True)
-
-        # Public entity, anonymous user should return 401
-        result = _deny_action_for_score_calibration(score_calibration, False, None, False)
-        assert result.permitted is False
-        assert result.http_code == 401
-
-    def test_deny_action_for_public_score_calibration_authenticated_user(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_score_calibration helper function for public ScoreCalibration with authenticated user."""
-        score_calibration = entity_helper.create_score_calibration("published", True)
-
-        # Public entity, authenticated user should return 403
-        result = _deny_action_for_score_calibration(
-            score_calibration, False, entity_helper.create_user_data("other_user"), False
-        )
-        assert result.permitted is False
-        assert result.http_code == 403
-
-    def test_deny_action_for_private_score_calibration_with_contributor(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_score_calibration helper function for private ScoreCalibration with contributor user."""
-        score_calibration = entity_helper.create_score_calibration("private", True)
-
-        # Private entity with contributor user should return 403
-        result = _deny_action_for_score_calibration(
-            score_calibration, True, entity_helper.create_user_data("contributor"), True
-        )
-        assert result.permitted is False
-        assert result.http_code == 403

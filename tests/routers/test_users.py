@@ -241,7 +241,7 @@ def test_user_cannot_update_other_users(client, setup_router_db, field_name, fie
     response = client.put("/api/v1/users//2", json=user_update)
     assert response.status_code == 403
     response_value = response.json()
-    assert response_value["detail"] in "Insufficient permissions for user update."
+    assert response_value["detail"] in "insufficient permissions on User with ID '2'"
 
 
 @pytest.mark.parametrize(

@@ -4,7 +4,7 @@ from mavedb.lib.authentication import UserData
 from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.models import PermissionResponse
-from mavedb.lib.permissions.utils import roles_permitted
+from mavedb.lib.permissions.utils import deny_action_for_entity, roles_permitted
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.score_set import ScoreSet
 
@@ -19,8 +19,8 @@ def has_permission(user_data: Optional[UserData], entity: ScoreSet, action: Acti
 
     Args:
         user_data: The user's authentication data and roles. None for anonymous users.
-        action: The action to be performed (READ, UPDATE, DELETE, PUBLISH, SET_SCORES).
         entity: The ScoreSet entity to check permissions for.
+        action: The action to be performed (READ, UPDATE, DELETE, PUBLISH, SET_SCORES).
 
     Returns:
         PermissionResponse: Contains permission result, HTTP status code, and message.
@@ -109,7 +109,7 @@ def _handle_read_action(
     if roles_permitted(active_roles, [UserRole.admin, UserRole.mapper]):
         return PermissionResponse(True)
 
-    return _deny_action_for_score_set(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
 
 
 def _handle_update_action(
@@ -144,7 +144,7 @@ def _handle_update_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return _deny_action_for_score_set(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
 
 
 def _handle_delete_action(
@@ -176,16 +176,11 @@ def _handle_delete_action(
     # Admins may delete any score set.
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
-    # Owners may delete a score set only if it has not been published. Contributors may not delete a score set.
-    if user_is_owner:
-        published = not private
-        return PermissionResponse(
-            not published,
-            403,
-            f"insufficient permissions for URN '{entity.urn}'",
-        )
+    # Owners may delete a score set only if it is still private. Contributors may not delete a score set.
+    if user_is_owner and private:
+        return PermissionResponse(True)
 
-    return _deny_action_for_score_set(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
 
 
 def _handle_publish_action(
@@ -199,7 +194,7 @@ def _handle_publish_action(
     """
     Handle PUBLISH action permission check for ScoreSet entities.
 
-    Owners, contributors, and admins can publish private ScoreSets to make them
+    Owners, and admins can publish private ScoreSets to make them
     publicly accessible.
 
     Args:
@@ -221,7 +216,7 @@ def _handle_publish_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return _deny_action_for_score_set(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
 
 
 def _handle_set_scores_action(
@@ -257,40 +252,4 @@ def _handle_set_scores_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return _deny_action_for_score_set(entity, private, user_data, user_is_contributor or user_is_owner)
-
-
-def _deny_action_for_score_set(
-    entity: ScoreSet,
-    private: bool,
-    user_data: Optional[UserData],
-    user_may_view_private: bool,
-) -> PermissionResponse:
-    """
-    Generate appropriate denial response for ScoreSet permission checks.
-
-    This helper function determines the correct HTTP status code and message
-    when denying access to a ScoreSet based on its privacy and user authentication.
-
-    Args:
-        entity: The ScoreSet entity being accessed.
-        private: Whether the ScoreSet is private.
-        user_data: The user's authentication data (None for anonymous).
-        user_may_view_private: Whether the user has permission to view private ScoreSets.
-
-    Returns:
-        PermissionResponse: Denial response with appropriate HTTP status and message.
-
-    Note:
-        Returns 404 for private entities to avoid information disclosure,
-        401 for unauthenticated users, and 403 for insufficient permissions.
-    """
-    # Do not acknowledge the existence of a private score set.
-    if private and not user_may_view_private:
-        return PermissionResponse(False, 404, f"score set with URN '{entity.urn}' not found")
-    # No authenticated user is present.
-    if user_data is None or user_data.user is None:
-        return PermissionResponse(False, 401, f"insufficient permissions for URN '{entity.urn}'")
-
-    # The authenticated user lacks sufficient permissions.
-    return PermissionResponse(False, 403, f"insufficient permissions for URN '{entity.urn}'")
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)

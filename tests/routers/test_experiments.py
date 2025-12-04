@@ -531,7 +531,7 @@ def test_cannot_assign_to_missing_experiment_set(client, setup_router_db):
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
     assert response.status_code == 404
     response_data = response.json()
-    assert f"experiment set with URN '{experiment_set_urn}' not found" in response_data["detail"]
+    assert f"ExperimentSet with URN '{experiment_set_urn}' not found" in response_data["detail"]
 
 
 def test_can_update_own_private_experiment_set(session, client, setup_router_db):
@@ -553,7 +553,7 @@ def test_cannot_update_other_users_private_experiment_set(session, client, setup
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
     assert response.status_code == 404
     response_data = response.json()
-    assert f"experiment set with URN '{experiment['experimentSetUrn']}' not found" in response_data["detail"]
+    assert f"ExperimentSet with URN '{experiment['experimentSetUrn']}' not found" in response_data["detail"]
 
 
 def test_anonymous_cannot_update_other_users_private_experiment_set(
@@ -621,7 +621,10 @@ def test_cannot_update_other_users_public_experiment_set(session, data_provider,
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
     assert response.status_code == 403
     response_data = response.json()
-    assert f"insufficient permissions for URN '{published_experiment_set_urn}'" in response_data["detail"]
+    assert (
+        f"insufficient permissions on ExperimentSet with URN '{published_experiment_set_urn}'"
+        in response_data["detail"]
+    )
 
 
 def test_anonymous_cannot_update_others_user_public_experiment_set(
@@ -756,7 +759,7 @@ def test_cannot_edit_other_users_private_experiment(client, session, setup_route
     response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
     assert response.status_code == 404
     response_data = response.json()
-    assert f"experiment with URN '{experiment['urn']}' not found" in response_data["detail"]
+    assert f"Experiment with URN '{experiment['urn']}' not found" in response_data["detail"]
 
 
 @pytest.mark.parametrize(
@@ -1136,7 +1139,7 @@ def test_cannot_get_other_users_private_experiment(session, client, setup_router
     response = client.get(f"/api/v1/experiments/{experiment['urn']}")
     assert response.status_code == 404
     response_data = response.json()
-    assert f"experiment with URN '{experiment['urn']}' not found" in response_data["detail"]
+    assert f"Experiment with URN '{experiment['urn']}' not found" in response_data["detail"]
 
 
 def test_anonymous_cannot_get_users_private_experiment(session, client, anonymous_app_overrides, setup_router_db):
@@ -1146,7 +1149,7 @@ def test_anonymous_cannot_get_users_private_experiment(session, client, anonymou
 
     assert response.status_code == 404
     response_data = response.json()
-    assert f"experiment with URN '{experiment['urn']}' not found" in response_data["detail"]
+    assert f"Experiment with URN '{experiment['urn']}' not found" in response_data["detail"]
 
 
 def test_admin_can_get_other_users_private_experiment(client, admin_app_overrides, setup_router_db):
@@ -1651,10 +1654,12 @@ def test_cannot_delete_own_published_experiment(session, data_provider, client, 
 
     assert del_response.status_code == 403
     del_response_data = del_response.json()
-    assert f"insufficient permissions for URN '{experiment_urn}'" in del_response_data["detail"]
+    assert f"insufficient permissions on Experiment with URN '{experiment_urn}'" in del_response_data["detail"]
 
 
-def test_contributor_can_delete_other_users_private_experiment(session, client, setup_router_db, admin_app_overrides):
+def test_contributor_cannot_delete_other_users_private_experiment(
+    session, client, setup_router_db, admin_app_overrides
+):
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
     add_contributor(
@@ -1667,7 +1672,8 @@ def test_contributor_can_delete_other_users_private_experiment(session, client, 
     )
     response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
 
-    assert response.status_code == 200
+    assert response.status_code == 403
+    assert f"insufficient permissions on Experiment with URN '{experiment['urn']}'" in response.json()["detail"]
 
 
 def test_admin_can_delete_other_users_private_experiment(session, client, setup_router_db, admin_app_overrides):
@@ -1808,7 +1814,7 @@ def test_cannot_add_experiment_to_others_private_experiment_set(session, client,
     response = client.post("/api/v1/experiments/", json=test_experiment)
     assert response.status_code == 404
     response_data = response.json()
-    assert f"experiment set with URN '{experiment_set_urn}' not found" in response_data["detail"]
+    assert f"ExperimentSet with URN '{experiment_set_urn}' not found" in response_data["detail"]
 
 
 def test_cannot_add_experiment_to_others_public_experiment_set(
@@ -1833,4 +1839,4 @@ def test_cannot_add_experiment_to_others_public_experiment_set(
     response = client.post("/api/v1/experiments/", json=test_experiment)
     assert response.status_code == 403
     response_data = response.json()
-    assert f"insufficient permissions for URN '{experiment_set_urn}'" in response_data["detail"]
+    assert f"insufficient permissions on ExperimentSet with URN '{experiment_set_urn}'" in response_data["detail"]

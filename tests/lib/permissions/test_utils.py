@@ -1,8 +1,10 @@
 """Tests for permissions utils module."""
 
+from unittest.mock import Mock
+
 import pytest
 
-from mavedb.lib.permissions.utils import roles_permitted
+from mavedb.lib.permissions.utils import deny_action_for_entity, roles_permitted
 from mavedb.models.enums.contribution_role import ContributionRole
 from mavedb.models.enums.user_role import UserRole
 
@@ -139,3 +141,79 @@ class TestRolesPermitted:
         user_roles = [UserRole.mapper]
         permitted_roles = [UserRole.admin]
         assert roles_permitted(user_roles, permitted_roles) is False
+
+
+class TestDenyActionForEntity:
+    """Test the deny_action_for_entity utility function."""
+
+    @pytest.mark.parametrize(
+        "entity_is_private, user_data, user_can_view_private, expected_status",
+        [
+            # Private entity, anonymous user
+            (True, None, False, 404),
+            # Private entity, authenticated user without permissions
+            (True, Mock(user=Mock(id=1)), False, 404),
+            # Private entity, authenticated user with permissions
+            (True, Mock(user=Mock(id=1)), True, 403),
+            # Public entity, anonymous user
+            (False, None, False, 401),
+            # Public entity, authenticated user
+            (False, Mock(user=Mock(id=1)), False, 403),
+        ],
+        ids=[
+            "private_anonymous_not-viewer",
+            "private_authenticated_not-viewer",
+            "private_authenticated_viewer",
+            "public_anonymous",
+            "public_authenticated",
+        ],
+    )
+    def test_deny_action(self, entity_is_private, user_data, user_can_view_private, expected_status):
+        """Test denial for various user and entity privacy scenarios."""
+
+        entity = Mock(urn="entity:1234")
+        response = deny_action_for_entity(entity, entity_is_private, user_data, user_can_view_private)
+
+        assert response.permitted is False
+        assert response.http_code == expected_status
+
+    def test_deny_action_urn_available(self):
+        """Test denial message includes URN when available."""
+        entity = Mock(urn="entity:5678")
+        response = deny_action_for_entity(entity, True, None, False)
+
+        assert "URN 'entity:5678'" in response.message
+
+    def test_deny_action_id_available(self):
+        """Test denial message includes ID when URN is not available."""
+        entity = Mock(urn=None, id=42)
+        response = deny_action_for_entity(entity, True, None, False)
+
+        assert "ID '42'" in response.message
+
+    def test_deny_action_no_identifier(self):
+        """Test denial message when neither URN nor ID is available."""
+        entity = Mock(urn=None, id=None)
+        response = deny_action_for_entity(entity, True, None, False)
+
+        assert "unknown" in response.message
+
+    def test_deny_handles_undefined_attributres(self):
+        """Test denial message when identifier attributes are undefined."""
+        entity = Mock()
+        del entity.urn  # Remove urn attribute
+        del entity.id  # Remove id attribute
+        response = deny_action_for_entity(entity, True, None, False)
+
+        assert "unknown" in response.message
+
+    def test_deny_action_entity_name_in_message(self):
+        """Test denial message includes entity class name."""
+
+        class CustomEntity:
+            pass
+
+        entity = CustomEntity()
+        response = deny_action_for_entity(entity, True, None, False)
+
+        assert "CustomEntity" in response.message

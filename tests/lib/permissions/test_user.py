@@ -7,7 +7,6 @@ import pytest
 
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.user import (
-    _deny_action_for_user,
     _handle_add_role_action,
     _handle_lookup_action,
     _handle_read_action,
@@ -232,25 +231,3 @@ class TestUserAddRoleActionHandler:
         assert result.permitted == test_case.should_be_permitted
         if not test_case.should_be_permitted and test_case.expected_code:
             assert result.http_code == test_case.expected_code
-
-
-class TestUserDenyActionHandler:
-    """Test user deny action handler."""
-
-    def test_deny_action_for_user_anonymous_user(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_user helper function for anonymous user."""
-        user = entity_helper.create_user()
-
-        # Anonymous user should return 401
-        result = _deny_action_for_user(user, None)
-        assert result.permitted is False
-        assert result.http_code == 401
-
-    def test_deny_action_for_user_authenticated_user(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_user helper function for authenticated user with insufficient permissions."""
-        user = entity_helper.create_user()
-
-        # Authenticated user with insufficient permissions should return 403
-        result = _deny_action_for_user(user, entity_helper.create_user_data("other_user"))
-        assert result.permitted is False
-        assert result.http_code == 403

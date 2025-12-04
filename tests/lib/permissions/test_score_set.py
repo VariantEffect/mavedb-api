@@ -7,7 +7,6 @@ import pytest
 
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.score_set import (
-    _deny_action_for_score_set,
     _handle_delete_action,
     _handle_publish_action,
     _handle_read_action,
@@ -321,43 +320,3 @@ class TestScoreSetPublishActionHandler:
         assert result.permitted == test_case.should_be_permitted
         if not test_case.should_be_permitted and test_case.expected_code:
             assert result.http_code == test_case.expected_code
-
-
-class TestScoreSetDenyActionHandler:
-    """Test score set deny action handler."""
-
-    def test_deny_action_for_private_score_set_non_contributor(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_score_set helper function for private ScoreSet."""
-        score_set = entity_helper.create_score_set("private")
-
-        # Private entity should return 404
-        result = _deny_action_for_score_set(score_set, True, entity_helper.create_user_data("other_user"), False)
-        assert result.permitted is False
-        assert result.http_code == 404
-
-    def test_deny_action_for_private_score_set_contributor(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_score_set helper function for private ScoreSet with contributor user."""
-        score_set = entity_helper.create_score_set("private")
-
-        # Private entity, contributor user should return 404
-        result = _deny_action_for_score_set(score_set, True, entity_helper.create_user_data("contributor"), True)
-        assert result.permitted is False
-        assert result.http_code == 403
-
-    def test_deny_action_for_public_score_set_anonymous_user(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_score_set helper function for public ScoreSet with anonymous user."""
-        score_set = entity_helper.create_score_set("published")
-
-        # Public entity, anonymous user should return 401
-        result = _deny_action_for_score_set(score_set, False, None, False)
-        assert result.permitted is False
-        assert result.http_code == 401
-
-    def test_deny_action_for_public_score_set_authenticated_user(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_score_set helper function for public ScoreSet with authenticated user."""
-        score_set = entity_helper.create_score_set("published")
-
-        # Public entity, authenticated user should return 403
-        result = _deny_action_for_score_set(score_set, False, entity_helper.create_user_data("other_user"), False)
-        assert result.permitted is False
-        assert result.http_code == 403

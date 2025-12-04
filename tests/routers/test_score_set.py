@@ -679,7 +679,7 @@ def test_cannot_get_other_user_private_score_set(session, client, setup_router_d
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
     assert response.status_code == 404
     response_data = response.json()
-    assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
+    assert f"ScoreSet with URN '{score_set['urn']}' not found" in response_data["detail"]
 
 
 def test_anonymous_user_cannot_get_user_private_score_set(session, client, setup_router_db, anonymous_app_overrides):
@@ -691,7 +691,7 @@ def test_anonymous_user_cannot_get_user_private_score_set(session, client, setup
 
     assert response.status_code == 404
     response_data = response.json()
-    assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
+    assert f"ScoreSet with URN '{score_set['urn']}' not found" in response_data["detail"]
 
 
 def test_can_add_contributor_in_both_experiment_and_score_set(session, client, setup_router_db):
@@ -1048,7 +1048,7 @@ def test_cannot_add_scores_to_other_user_score_set(session, client, setup_router
         )
     assert response.status_code == 404
     response_data = response.json()
-    assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
+    assert f"ScoreSet with URN '{score_set['urn']}' not found" in response_data["detail"]
 
 
 # A user should not be able to add scores to another users' score set. Therefore, they should also not be able
@@ -1386,7 +1386,7 @@ def test_cannot_publish_other_user_private_score_set(session, data_provider, cli
         worker_queue.assert_not_called()
         response_data = response.json()
 
-    assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
+    assert f"ScoreSet with URN '{score_set['urn']}' not found" in response_data["detail"]
 
 
 def test_anonymous_cannot_publish_user_private_score_set(
@@ -1408,7 +1408,7 @@ def test_anonymous_cannot_publish_user_private_score_set(
     assert "Could not validate credentials" in response_data["detail"]
 
 
-def test_contributor_can_publish_other_users_score_set(session, data_provider, client, setup_router_db, data_files):
+def test_contributor_cannot_publish_other_users_score_set(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
@@ -1423,60 +1423,15 @@ def test_contributor_can_publish_other_users_score_set(session, data_provider, c
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, score_set["urn"])
-        worker_queue.assert_called_once()
+        response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+        assert response.status_code == 403
+        worker_queue.assert_not_called()
+        response_data = response.json()
 
-    assert published_score_set["urn"] == "urn:mavedb:00000001-a-1"
-    assert published_score_set["experiment"]["urn"] == "urn:mavedb:00000001-a"
-
-    expected_response = update_expected_response_for_created_resources(
-        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), published_score_set["experiment"], published_score_set
-    )
-    expected_response["experiment"].update({"publishedDate": date.today().isoformat(), "numScoreSets": 1})
-    expected_response.update(
-        {
-            "urn": published_score_set["urn"],
-            "publishedDate": date.today().isoformat(),
-            "numVariants": 3,
-            "private": False,
-            "datasetColumns": SAVED_MINIMAL_DATASET_COLUMNS,
-            "processingState": ProcessingState.success.name,
-        }
-    )
-    expected_response["contributors"] = [
-        {
-            "recordType": "Contributor",
-            "orcidId": TEST_USER["username"],
-            "givenName": TEST_USER["first_name"],
-            "familyName": TEST_USER["last_name"],
-        }
-    ]
-    expected_response["createdBy"] = {
-        "recordType": "User",
-        "orcidId": EXTRA_USER["username"],
-        "firstName": EXTRA_USER["first_name"],
-        "lastName": EXTRA_USER["last_name"],
-    }
-    expected_response["modifiedBy"] = {
-        "recordType": "User",
-        "orcidId": EXTRA_USER["username"],
-        "firstName": EXTRA_USER["first_name"],
-        "lastName": EXTRA_USER["last_name"],
-    }
-    assert sorted(expected_response.keys()) == sorted(published_score_set.keys())
-
-    # refresh score set to post worker state
-    score_set = (client.get(f"/api/v1/score-sets/{published_score_set['urn']}")).json()
-    for key in expected_response:
-        assert (key, expected_response[key]) == (key, score_set[key])
-
-    score_set_variants = session.execute(
-        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
-    ).scalars()
-    assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_variants])
+    assert f"insufficient permissions on ScoreSet with URN '{score_set['urn']}'" in response_data["detail"]
 
 
-def test_admin_cannot_publish_other_user_private_score_set(
+def test_admin_can_publish_other_user_private_score_set(
     session, data_provider, client, admin_app_overrides, setup_router_db, data_files
 ):
     experiment = create_experiment(client)
@@ -1488,11 +1443,8 @@ def test_admin_cannot_publish_other_user_private_score_set(
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
     ):
         response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
-        assert response.status_code == 404
-        queue.assert_not_called()
-        response_data = response.json()
-
-    assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
+        assert response.status_code == 200
+        queue.assert_called_once()
 
 
 ########################################################################################################################
@@ -2334,7 +2286,9 @@ def test_cannot_delete_own_published_scoreset(session, data_provider, client, se
 
     assert del_response.status_code == 403
     del_response_data = del_response.json()
-    assert f"insufficient permissions for URN '{published_score_set['urn']}'" in del_response_data["detail"]
+    assert (
+        f"insufficient permissions on ScoreSet with URN '{published_score_set['urn']}'" in del_response_data["detail"]
+    )
 
 
 def test_contributor_can_delete_other_users_private_scoreset(
@@ -2355,7 +2309,9 @@ def test_contributor_can_delete_other_users_private_scoreset(
 
     response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
 
-    assert response.status_code == 200
+    assert response.status_code == 403
+    response_data = response.json()
+    assert f"insufficient permissions on ScoreSet with URN '{score_set['urn']}'" in response_data["detail"]
 
 
 def test_admin_can_delete_other_users_private_scoreset(
@@ -2409,7 +2365,7 @@ def test_cannot_add_score_set_to_others_private_experiment(session, client, setu
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     assert response.status_code == 404
     response_data = response.json()
-    assert f"experiment with URN '{experiment_urn}' not found" in response_data["detail"]
+    assert f"Experiment with URN '{experiment_urn}' not found" in response_data["detail"]
 
 
 def test_can_add_score_set_to_own_public_experiment(session, data_provider, client, setup_router_db, data_files):
@@ -2966,7 +2922,7 @@ def test_cannot_fetch_clinical_controls_for_nonexistent_score_set(
 
     assert response.status_code == 404
     response_data = response.json()
-    assert f"score set with URN '{score_set['urn'] + 'xxx'}' not found" in response_data["detail"]
+    assert f"ScoreSet with URN '{score_set['urn'] + 'xxx'}' not found" in response_data["detail"]
 
 
 def test_cannot_fetch_clinical_controls_for_score_set_when_none_exist(
@@ -3031,7 +2987,7 @@ def test_cannot_get_annotated_variants_for_nonexistent_score_set(client, setup_r
     response_data = response.json()
 
     assert response.status_code == 404
-    assert f"score set with URN {score_set['urn'] + 'xxx'} not found" in response_data["detail"]
+    assert f"ScoreSet with URN {score_set['urn'] + 'xxx'} not found" in response_data["detail"]
 
 
 @pytest.mark.parametrize(
@@ -3564,7 +3520,7 @@ def test_cannot_fetch_gnomad_variants_for_nonexistent_score_set(
 
     assert response.status_code == 404
     response_data = response.json()
-    assert f"score set with URN '{score_set['urn'] + 'xxx'}' not found" in response_data["detail"]
+    assert f"ScoreSet with URN '{score_set['urn'] + 'xxx'}' not found" in response_data["detail"]
 
 
 def test_cannot_fetch_gnomad_variants_for_score_set_when_none_exist(

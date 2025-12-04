@@ -247,7 +247,7 @@ async def create_experiment(
             )
             raise HTTPException(
                 status_code=404,
-                detail=f"experiment set with URN '{item_create.experiment_set_urn}' not found.",
+                detail=f"ExperimentSet with URN '{item_create.experiment_set_urn}' not found.",
             )
 
         save_to_logging_context({"experiment_set": experiment_set.urn})

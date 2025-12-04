@@ -7,7 +7,6 @@ import pytest
 
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.experiment import (
-    _deny_action_for_experiment,
     _handle_add_score_set_action,
     _handle_delete_action,
     _handle_read_action,
@@ -245,12 +244,12 @@ class TestExperimentAddScoreSetActionHandler:
             # Contributors can add score sets to any Experiment they contribute to
             PermissionTest("Experiment", "private", "contributor", Action.ADD_SCORE_SET, True),
             PermissionTest("Experiment", "published", "contributor", Action.ADD_SCORE_SET, True),
-            # Mappers cannot add score sets to Experiments
+            # Mappers can add score sets to public Experiments
             PermissionTest("Experiment", "private", "mapper", Action.ADD_SCORE_SET, False, 404),
-            PermissionTest("Experiment", "published", "mapper", Action.ADD_SCORE_SET, False, 403),
-            # Other users cannot add score sets to Experiments
+            PermissionTest("Experiment", "published", "mapper", Action.ADD_SCORE_SET, True),
+            # Other users can add score sets to public Experiments
             PermissionTest("Experiment", "private", "other_user", Action.ADD_SCORE_SET, False, 404),
-            PermissionTest("Experiment", "published", "other_user", Action.ADD_SCORE_SET, False, 403),
+            PermissionTest("Experiment", "published", "other_user", Action.ADD_SCORE_SET, True),
             # Anonymous users cannot add score sets to Experiments
             PermissionTest("Experiment", "private", "anonymous", Action.ADD_SCORE_SET, False, 404),
             PermissionTest("Experiment", "published", "anonymous", Action.ADD_SCORE_SET, False, 401),
@@ -275,43 +274,3 @@ class TestExperimentAddScoreSetActionHandler:
         assert result.permitted == test_case.should_be_permitted
         if not test_case.should_be_permitted and test_case.expected_code:
             assert result.http_code == test_case.expected_code
-
-
-class TestExperimentDenyActionHandler:
-    """Test experiment deny action handler."""
-
-    def test_deny_action_for_private_experiment(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_experiment helper function for private Experiment."""
-        experiment = entity_helper.create_experiment("private")
-
-        # Private entity should return 404
-        result = _deny_action_for_experiment(experiment, True, entity_helper.create_user_data("other_user"), False)
-        assert result.permitted is False
-        assert result.http_code == 404
-
-    def test_deny_action_for_public_experiment_anonymous_user(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_experiment helper function for public Experiment with anonymous user."""
-        experiment = entity_helper.create_experiment("published")
-
-        # Public entity, anonymous user should return 401
-        result = _deny_action_for_experiment(experiment, False, None, False)
-        assert result.permitted is False
-        assert result.http_code == 401
-
-    def test_deny_action_for_public_experiment_authenticated_user(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_experiment helper function for public Experiment with authenticated user."""
-        experiment = entity_helper.create_experiment("published")
-
-        # Public entity, authenticated user should return 403
-        result = _deny_action_for_experiment(experiment, False, entity_helper.create_user_data("other_user"), False)
-        assert result.permitted is False
-        assert result.http_code == 403
-
-    def test_deny_action_for_private_experiment_with_view_permission(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_experiment helper function for private Experiment when user can view private."""
-        experiment = entity_helper.create_experiment("private")
-
-        # Private entity, user can view but lacks other permissions should return 403
-        result = _deny_action_for_experiment(experiment, True, entity_helper.create_user_data("other_user"), True)
-        assert result.permitted is False
-        assert result.http_code == 403

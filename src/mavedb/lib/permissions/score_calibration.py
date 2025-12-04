@@ -4,7 +4,7 @@ from mavedb.lib.authentication import UserData
 from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.models import PermissionResponse
-from mavedb.lib.permissions.utils import roles_permitted
+from mavedb.lib.permissions.utils import deny_action_for_entity, roles_permitted
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.score_calibration import ScoreCalibration
 
@@ -19,8 +19,8 @@ def has_permission(user_data: Optional[UserData], entity: ScoreCalibration, acti
 
     Args:
         user_data: The user's authentication data and roles. None for anonymous users.
-        action: The action to be performed (READ, UPDATE, DELETE, CREATE).
         entity: The ScoreCalibration entity to check permissions for.
+        action: The action to be performed (READ, UPDATE, DELETE, CREATE).
 
     Returns:
         PermissionResponse: Contains permission result, HTTP status code, and message.
@@ -119,7 +119,7 @@ def _handle_read_action(
         return PermissionResponse(True)
 
     user_may_view_private = user_is_owner or (entity.investigator_provided and user_is_contributor_to_score_set)
-    return _deny_action_for_score_calibration(entity, private, user_data, user_may_view_private)
+    return deny_action_for_entity(entity, private, user_data, user_may_view_private)
 
 
 def _handle_update_action(
@@ -162,7 +162,7 @@ def _handle_update_action(
             return PermissionResponse(True)
 
     user_may_view_private = user_is_owner or (entity.investigator_provided and user_is_contributor_to_score_set)
-    return _deny_action_for_score_calibration(entity, private, user_data, user_may_view_private)
+    return deny_action_for_entity(entity, private, user_data, user_may_view_private)
 
 
 def _handle_delete_action(
@@ -193,12 +193,12 @@ def _handle_delete_action(
     # System admins may delete any ScoreCalibration.
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
-    # Owners may delete their own ScoreCalibration if it is private.
-    if private and user_is_owner:
+    # Owners may delete their own ScoreCalibration if it is still private. Contributors may not delete ScoreCalibrations.
+    if user_is_owner and private:
         return PermissionResponse(True)
 
     user_may_view_private = user_is_owner or (entity.investigator_provided and user_is_contributor_to_score_set)
-    return _deny_action_for_score_calibration(entity, private, user_data, user_may_view_private)
+    return deny_action_for_entity(entity, private, user_data, user_may_view_private)
 
 
 def _handle_publish_action(
@@ -235,7 +235,7 @@ def _handle_publish_action(
         return PermissionResponse(True)
 
     user_may_view_private = user_is_owner or (entity.investigator_provided and user_is_contributor_to_score_set)
-    return _deny_action_for_score_calibration(entity, private, user_data, user_may_view_private)
+    return deny_action_for_entity(entity, private, user_data, user_may_view_private)
 
 
 def _handle_change_rank_action(
@@ -274,39 +274,4 @@ def _handle_change_rank_action(
         return PermissionResponse(True)
 
     user_may_view_private = user_is_owner or (entity.investigator_provided and user_is_contributor_to_score_set)
-    return _deny_action_for_score_calibration(entity, private, user_data, user_may_view_private)
-
-
-def _deny_action_for_score_calibration(
-    entity: ScoreCalibration,
-    private: bool,
-    user_data: Optional[UserData],
-    user_may_view_private: bool,
-) -> PermissionResponse:
-    """
-    Generate appropriate denial response for ScoreCalibration permission checks.
-
-    This helper function determines the correct HTTP status code and message
-    when denying access to a ScoreCalibration based on user authentication.
-
-    Args:
-        entity: The ScoreCalibration entity being accessed.
-        private: Whether the ScoreCalibration is private.
-        user_data: The user's authentication data (None for anonymous).
-        user_may_view_private: Whether the user has permission to view private ScoreCalibrations
-
-    Returns:
-        PermissionResponse: Denial response with appropriate HTTP status and message.
-
-    Note:
-        ScoreCalibrations use the ID for error messages since they don't have URNs.
-    """
-    # Do not acknowledge the existence of private ScoreCalibrations.
-    if private and not user_may_view_private:
-        return PermissionResponse(False, 404, f"score calibration '{entity.id}' not found")
-    # No authenticated user is present.
-    if user_data is None or user_data.user is None:
-        return PermissionResponse(False, 401, f"insufficient permissions for score calibration '{entity.id}'")
-
-    # The authenticated user lacks sufficient permissions.
-    return PermissionResponse(False, 403, f"insufficient permissions for score calibration '{entity.id}'")
+    return deny_action_for_entity(entity, private, user_data, user_may_view_private)

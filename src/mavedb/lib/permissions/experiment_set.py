@@ -4,7 +4,7 @@ from mavedb.lib.authentication import UserData
 from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.models import PermissionResponse
-from mavedb.lib.permissions.utils import roles_permitted
+from mavedb.lib.permissions.utils import deny_action_for_entity, roles_permitted
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment_set import ExperimentSet
 
@@ -19,8 +19,8 @@ def has_permission(user_data: Optional[UserData], entity: ExperimentSet, action:
 
     Args:
         user_data: The user's authentication data and roles. None for anonymous users.
-        action: The action to be performed (READ, UPDATE, DELETE, ADD_EXPERIMENT).
         entity: The ExperimentSet entity to check permissions for.
+        action: The action to be performed (READ, UPDATE, DELETE, ADD_EXPERIMENT).
 
     Returns:
         PermissionResponse: Contains permission result, HTTP status code, and message.
@@ -108,7 +108,7 @@ def _handle_read_action(
     if roles_permitted(active_roles, [UserRole.admin, UserRole.mapper]):
         return PermissionResponse(True)
 
-    return _deny_action_for_experiment_set(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
 
 
 def _handle_update_action(
@@ -143,7 +143,7 @@ def _handle_update_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return _deny_action_for_experiment_set(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
 
 
 def _handle_delete_action(
@@ -175,16 +175,11 @@ def _handle_delete_action(
     # Admins may delete any experiment set.
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
-    # Owners may delete an experiment set only if it has not been published. Contributors may not delete an experiment set.
-    if user_is_owner:
-        published = entity.published_date is not None
-        return PermissionResponse(
-            not published,
-            403,
-            f"insufficient permissions for URN '{entity.urn}'",
-        )
+    # Owners may delete an experiment set only if it is still private. Contributors may not delete an experiment set.
+    if user_is_owner and private:
+        return PermissionResponse(True)
 
-    return _deny_action_for_experiment_set(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
 
 
 def _handle_add_experiment_action(
@@ -220,40 +215,4 @@ def _handle_add_experiment_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return _deny_action_for_experiment_set(entity, private, user_data, user_is_contributor or user_is_owner)
-
-
-def _deny_action_for_experiment_set(
-    entity: ExperimentSet,
-    private: bool,
-    user_data: Optional[UserData],
-    user_may_view_private: bool,
-) -> PermissionResponse:
-    """
-    Generate appropriate denial response for ExperimentSet permission checks.
-
-    This helper function determines the correct HTTP status code and message
-    when denying access to an ExperimentSet based on its privacy and user authentication.
-
-    Args:
-        entity: The ExperimentSet entity being accessed.
-        private: Whether the ExperimentSet is private.
-        user_data: The user's authentication data (None for anonymous).
-        user_may_view_private: Whether the user has permission to view private experiment sets.
-
-    Returns:
-        PermissionResponse: Denial response with appropriate HTTP status and message.
-
-    Note:
-        Returns 404 for private entities to avoid information disclosure,
-        401 for unauthenticated users, and 403 for insufficient permissions.
-    """
-    # Do not acknowledge the existence of a private experiment set.
-    if private and not user_may_view_private:
-        return PermissionResponse(False, 404, f"experiment set with URN '{entity.urn}' not found")
-    # No authenticated user is present.
-    if user_data is None or user_data.user is None:
-        return PermissionResponse(False, 401, f"insufficient permissions for URN '{entity.urn}'")
-
-    # The authenticated user lacks sufficient permissions.
-    return PermissionResponse(False, 403, f"insufficient permissions for URN '{entity.urn}'")
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)

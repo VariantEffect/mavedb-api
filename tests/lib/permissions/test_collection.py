@@ -7,7 +7,6 @@ import pytest
 
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.collection import (
-    _deny_action_for_collection,
     _handle_add_badge_action,
     _handle_add_experiment_action,
     _handle_add_role_action,
@@ -727,43 +726,3 @@ class TestCollectionAddBadgeActionHandler:
         assert result.permitted == test_case.should_be_permitted
         if not test_case.should_be_permitted and test_case.expected_code:
             assert result.http_code == test_case.expected_code
-
-
-class TestCollectionDenyActionHandler:
-    """Test collection deny action handler."""
-
-    def test_deny_action_for_private_collection(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_collection helper function for private Collection."""
-        collection = entity_helper.create_collection("private")
-
-        # Private entity should return 404
-        result = _deny_action_for_collection(collection, True, entity_helper.create_user_data("other_user"), False)
-        assert result.permitted is False
-        assert result.http_code == 404
-
-    def test_deny_action_for_public_collection_anonymous_user(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_collection helper function for public Collection with anonymous user."""
-        collection = entity_helper.create_collection("published")
-
-        # Public entity, anonymous user should return 401
-        result = _deny_action_for_collection(collection, False, None, False)
-        assert result.permitted is False
-        assert result.http_code == 401
-
-    def test_deny_action_for_public_collection_authenticated_user(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_collection helper function for public Collection with authenticated user."""
-        collection = entity_helper.create_collection("published")
-
-        # Public entity, authenticated user should return 403
-        result = _deny_action_for_collection(collection, False, entity_helper.create_user_data("other_user"), False)
-        assert result.permitted is False
-        assert result.http_code == 403
-
-    def test_deny_action_for_private_collection_with_collection_role(self, entity_helper: EntityTestHelper) -> None:
-        """Test _deny_action_for_collection helper function for private Collection when user has collection role."""
-        collection = entity_helper.create_collection("private")
-
-        # Private entity, user with collection role should return 403 (still private, but user knows it exists)
-        result = _deny_action_for_collection(collection, True, entity_helper.create_user_data("other_user"), True)
-        assert result.permitted is False
-        assert result.http_code == 403
