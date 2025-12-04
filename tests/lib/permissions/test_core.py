@@ -1,8 +1,12 @@
+# ruff: noqa: E402
+
 """Tests for core permissions functionality."""
 
-from unittest.mock import Mock, patch
-
 import pytest
+
+pytest.importorskip("fastapi", reason="Skipping permissions tests; FastAPI is required but not installed.")
+
+from unittest.mock import Mock, patch
 
 from mavedb.lib.permissions import (
     assert_permission,

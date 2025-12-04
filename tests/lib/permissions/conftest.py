@@ -1,14 +1,16 @@
 """Shared fixtures and helpers for permissions tests."""
 
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 from unittest.mock import Mock
 
 import pytest
 
-from mavedb.lib.permissions.actions import Action
 from mavedb.models.enums.contribution_role import ContributionRole
 from mavedb.models.enums.user_role import UserRole
+
+if TYPE_CHECKING:
+    from mavedb.lib.permissions.actions import Action
 
 
 @dataclass
@@ -33,7 +35,7 @@ class PermissionTest:
     entity_type: str
     entity_state: Optional[str]
     user_type: str
-    action: Action
+    action: "Action"
     should_be_permitted: Union[bool, str]
     expected_code: Optional[int] = None
     description: Optional[str] = None

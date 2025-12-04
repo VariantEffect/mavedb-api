@@ -1,9 +1,13 @@
+# ruff: noqa: E402
+
 """Tests for ScoreCalibration permissions module."""
+
+import pytest
+
+pytest.importorskip("fastapi", reason="Skipping permissions tests; FastAPI is required but not installed.")
 
 from typing import Callable, List
 from unittest import mock
-
-import pytest
 
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.score_calibration import (
