@@ -9,7 +9,7 @@ import pandas as pd
 from arq import ArqRedis
 from arq.jobs import Job, JobStatus
 from cdot.hgvs.dataproviders import RESTDataProvider
-from sqlalchemy import cast, delete, null, select
+from sqlalchemy import cast, delete, func, null, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
@@ -504,6 +504,7 @@ async def map_variants_for_score_set(
                             mapping_api_version=mapping_results["dcd_mapping_version"],
                             error_message=mapped_score.get("error_message", null()),
                             current=True,
+                            hgvs_assay_level=get_hgvs_from_post_mapped(mapped_score.get("post_mapped")),
                         )
                         db.add(mapped_variant)
 
@@ -874,43 +875,50 @@ async def submit_score_set_mappings_to_car(ctx: dict, correlation_id: str, score
 
     try:
         variant_post_mapped_objects = db.execute(
-            select(MappedVariant.id, MappedVariant.post_mapped)
+            select(MappedVariant.id, MappedVariant.hgvs_assay_level)
             .join(Variant)
             .join(ScoreSet)
             .where(ScoreSet.urn == score_set.urn)
-            .where(MappedVariant.post_mapped.is_not(None))
+            .where(MappedVariant.hgvs_assay_level.is_not(None))
             .where(MappedVariant.current.is_(True))
         ).all()
+        variants_without_assay_level_hgvs = db.execute(
+            select(func.count(MappedVariant.id))
+            .join(Variant)
+            .join(ScoreSet)
+            .where(ScoreSet.urn == score_set.urn)
+            .where(MappedVariant.hgvs_assay_level.is_(None))
+        ).scalar_one()
+
+        logging_context["variants_with_assay_level_hgvs"] = len(variant_post_mapped_objects)
+        logging_context["variants_without_assay_level_hgvs"] = variants_without_assay_level_hgvs
 
         if not variant_post_mapped_objects:
             logger.warning(
-                msg="No current mapped variants with post mapped metadata were found for this score set. Skipping CAR submission.",
+                msg="No current mapped variants with assay level HGVS were found for this score set. Skipping CAR submission.",
                 extra=logging_context,
             )
             return {"success": True, "retried": False, "enqueued_job": None}
 
+        if variants_without_assay_level_hgvs > 0:
+            logger.warning(
+                msg="Some mapped variants for this score set are missing assay level HGVS strings. These variants will be skipped during CAR submission.",
+                extra=logging_context,
+            )
+
         variant_post_mapped_hgvs: dict[str, list[int]] = {}
-        for mapped_variant_id, post_mapped in variant_post_mapped_objects:
-            hgvs_for_post_mapped = get_hgvs_from_post_mapped(post_mapped)
-
-            if not hgvs_for_post_mapped:
-                logger.warning(
-                    msg=f"Could not construct a valid HGVS string for mapped variant {mapped_variant_id}. Skipping submission of this variant.",
-                    extra=logging_context,
-                )
-                continue
-
-            if hgvs_for_post_mapped in variant_post_mapped_hgvs:
-                variant_post_mapped_hgvs[hgvs_for_post_mapped].append(mapped_variant_id)
+        for mapped_variant_id, assay_level_hgvs in variant_post_mapped_objects:
+            if assay_level_hgvs in variant_post_mapped_hgvs:
+                variant_post_mapped_hgvs[assay_level_hgvs].append(mapped_variant_id)
             else:
-                variant_post_mapped_hgvs[hgvs_for_post_mapped] = [mapped_variant_id]
+                variant_post_mapped_hgvs[assay_level_hgvs] = [mapped_variant_id]
 
     except Exception as e:
         send_slack_error(e)
         send_slack_message(text=text % score_set.urn)
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logger.error(
-            msg="LDH mapped resource submission encountered an unexpected error while attempting to construct post mapped HGVS strings. This job will not be retried.",
+            msg="CAR mapped resource submission encountered an unexpected error while attempting to build a submission resource of assay level HGVS strings. This job will not be retried.",
             extra=logging_context,
         )
 
@@ -931,7 +939,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, correlation_id: str, score
         send_slack_message(text=text % score_set.urn)
         logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
         logger.error(
-            msg="LDH mapped resource submission encountered an unexpected error while attempting to authenticate to the LDH. This job will not be retried.",
+            msg="CAR mapped resource submission encountered an unexpected error while attempting to authenticate to the CAR. This job will not be retried.",
             extra=logging_context,
         )
 
