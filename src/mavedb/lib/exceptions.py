@@ -186,12 +186,6 @@ class SubmissionEnqueueError(ValueError):
     pass
 
 
-class LinkingEnqueueError(ValueError):
-    """Raised when a linking job fails to be enqueued despite appearing as if it should have been"""
-
-    pass
-
-
 class UniProtIDMappingEnqueueError(Exception):
     """Raised when a UniProt ID mapping job fails to be enqueued despite appearing as if it should have been"""
 

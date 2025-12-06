@@ -1,12 +1,11 @@
 # ruff: noqa: E402
 
 import pytest
+from sqlalchemy import select
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
-
-from unittest.mock import patch
 
 from mavedb.lib.permissions import Action
 from mavedb.models.experiment import Experiment as ExperimentDbModel
@@ -186,9 +185,10 @@ def test_get_true_permission_from_others_public_experiment_add_score_set_check(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     published_experiment_urn = published_score_set["experiment"]["urn"]
     change_ownership(session, published_experiment_urn, ExperimentDbModel)

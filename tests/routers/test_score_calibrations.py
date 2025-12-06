@@ -6,13 +6,18 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
-from unittest.mock import patch
-
-from arq import ArqRedis
 from sqlalchemy import select
 
 from mavedb.models.score_calibration import ScoreCalibration as CalibrationDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from tests.helpers.constants import (
+    EXTRA_USER,
+    TEST_BIORXIV_IDENTIFIER,
+    TEST_BRNICH_SCORE_CALIBRATION,
+    TEST_PATHOGENICITY_SCORE_CALIBRATION,
+    TEST_PUBMED_IDENTIFIER,
+    VALID_CALIBRATION_URN,
+)
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.common import deepcamelize
 from tests.helpers.util.contributor import add_contributor
@@ -23,15 +28,6 @@ from tests.helpers.util.score_calibration import (
     publish_test_score_calibration_via_client,
 )
 from tests.helpers.util.score_set import create_seq_score_set_with_mapped_variants, publish_score_set
-
-from tests.helpers.constants import (
-    EXTRA_USER,
-    TEST_BIORXIV_IDENTIFIER,
-    TEST_BRNICH_SCORE_CALIBRATION,
-    TEST_PATHOGENICITY_SCORE_CALIBRATION,
-    TEST_PUBMED_IDENTIFIER,
-    VALID_CALIBRATION_URN,
-)
 
 ###########################################################
 # GET /score-calibrations/{calibration_urn}
@@ -581,8 +577,8 @@ def test_anonymous_user_cannot_get_score_calibrations_for_score_set_when_publish
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
     )
 
-    with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    score_set = publish_score_set(client, score_set["urn"], score_set_id)
 
     with DependencyOverrider(anonymous_app_overrides):
         response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
@@ -617,8 +613,8 @@ def test_other_user_cannot_get_score_calibrations_for_score_set_when_published_b
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
     )
 
-    with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    score_set = publish_score_set(client, score_set["urn"], score_set_id)
 
     with DependencyOverrider(extra_user_app_overrides):
         response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
@@ -786,8 +782,8 @@ def test_anonymous_user_can_get_score_calibrations_for_score_set_when_public(
 
     publish_test_score_calibration_via_client(client, calibration["urn"])
 
-    with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    score_set = publish_score_set(client, score_set["urn"], score_set_id)
 
     with DependencyOverrider(anonymous_app_overrides):
         response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
@@ -831,8 +827,8 @@ def test_other_user_can_get_score_calibrations_for_score_set_when_public(
 
     publish_test_score_calibration_via_client(client, calibration["urn"])
 
-    with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    score_set = publish_score_set(client, score_set["urn"], score_set_id)
 
     with DependencyOverrider(extra_user_app_overrides):
         response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
@@ -1289,8 +1285,8 @@ def test_cannot_create_score_calibration_in_public_score_set_when_score_set_not_
         data_files / "scores.csv",
     )
 
-    with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    score_set = publish_score_set(client, score_set["urn"], score_set_id)
 
     with DependencyOverrider(extra_user_app_overrides):
         response = client.post(
@@ -1642,8 +1638,8 @@ def test_cannot_update_score_calibration_in_published_score_set_when_score_set_n
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
     )
 
-    with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    score_set = publish_score_set(client, score_set["urn"], score_set_id)
 
     with DependencyOverrider(extra_user_app_overrides):
         response = client.put(
@@ -2082,9 +2078,10 @@ def test_user_may_move_investigator_calibration_when_has_permissions_on_destinat
         EXTRA_USER["last_name"],
     )
 
-    with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set1 = publish_score_set(client, score_set1["urn"])
-        score_set2 = publish_score_set(client, score_set2["urn"])
+    score_set_id1 = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set1["urn"])).one()
+    score_set1 = publish_score_set(client, score_set1["urn"], score_set_id1)
+    score_set_id2 = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set2["urn"])).one()
+    score_set2 = publish_score_set(client, score_set2["urn"], score_set_id2)
 
     with DependencyOverrider(extra_user_app_overrides):
         response = client.put(

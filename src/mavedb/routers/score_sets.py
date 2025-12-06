@@ -2056,14 +2056,25 @@ async def publish_score_set(
     db.refresh(item)
 
     # await the insertion of this job into the worker queue, not the job itself.
-    job = await worker.enqueue_job("refresh_published_variants_view", correlation_id_for_context())
-    if job is not None:
-        save_to_logging_context({"worker_job_id": job.job_id})
-        logger.info(msg="Enqueud published variant materialized view refresh job.", extra=logging_context())
+    refresh_published_variants_job = await worker.enqueue_job(
+        "refresh_published_variants_view", correlation_id_for_context()
+    )
+    if refresh_published_variants_job is not None:
+        save_to_logging_context({"refresh_published_variants_job_id": refresh_published_variants_job.job_id})
+        logger.info(msg="Enqueued published variant materialized view refresh job.", extra=logging_context())
     else:
         logger.warning(
             msg="Failed to enqueue published variant materialized view refresh job.", extra=logging_context()
         )
+
+    submit_to_ldh_job = await worker.enqueue_job(
+        "submit_score_set_mappings_to_ldh", item.id, correlation_id_for_context()
+    )
+    if submit_to_ldh_job is not None:
+        save_to_logging_context({"submit_to_ldh_job_id": submit_to_ldh_job.job_id})
+        logger.info(msg="Enqueued submit score set mappings to LDH job.", extra=logging_context())
+    else:
+        logger.warning(msg="Failed to enqueue submit score set mappings to LDH job.", extra=logging_context())
 
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
     return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})

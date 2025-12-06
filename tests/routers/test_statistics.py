@@ -1,29 +1,31 @@
 # ruff: noqa: E402
 
+from unittest.mock import patch
+
 import pytest
 from humps import camelize
-from unittest.mock import patch
+from sqlalchemy import select
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
 from mavedb.models.published_variant import PublishedVariantsMV
-
+from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from tests.helpers.constants import (
     TEST_BIORXIV_IDENTIFIER,
-    TEST_MINIMAL_MAPPED_VARIANT,
-    TEST_NT_CDOT_TRANSCRIPT,
     TEST_KEYWORDS,
     TEST_MEDRXIV_IDENTIFIER,
     TEST_MINIMAL_ACC_SCORESET,
+    TEST_MINIMAL_MAPPED_VARIANT,
     TEST_MINIMAL_SEQ_SCORESET,
+    TEST_NT_CDOT_TRANSCRIPT,
     TEST_PUBMED_IDENTIFIER,
     VALID_GENE,
 )
-from tests.helpers.util.score_set import publish_score_set, create_acc_score_set, create_seq_score_set
 from tests.helpers.util.experiment import create_experiment
-from tests.helpers.util.variant import mock_worker_variant_insertion, create_mapped_variants_for_score_set
+from tests.helpers.util.score_set import create_acc_score_set, create_seq_score_set, publish_score_set
+from tests.helpers.util.variant import create_mapped_variants_for_score_set, mock_worker_variant_insertion
 
 TARGET_ACCESSION_FIELDS = ["accession", "assembly", "gene"]
 TARGET_SEQUENCE_FIELDS = ["sequence", "sequence-type"]
@@ -53,9 +55,8 @@ def setup_acc_scoreset(setup_router_db, session, data_provider, client, data_fil
             client, session, data_provider, score_set, data_files / "scores_acc.csv"
         )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        publish_score_set(client, score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    publish_score_set(client, score_set["urn"], score_set_id)
 
 
 @pytest.fixture
@@ -67,9 +68,10 @@ def setup_seq_scoreset(setup_router_db, session, data_provider, client, data_fil
     )
     create_mapped_variants_for_score_set(session, unpublished_score_set["urn"], TEST_MINIMAL_MAPPED_VARIANT)
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     # Note that we have not created indexes for this view when it is generated via metadata. This differs
     # from the database created via alembic, which does create indexes.
@@ -257,9 +259,10 @@ def test_target_gene_identifier_statistiscs(
             client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
         )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     response = client.get(f"/api/v1/statistics/target/gene/{field_value}")
     desired_field_value = EXTERNAL_IDENTIFIERS[field_value]["identifier"]["identifier"]
@@ -322,9 +325,10 @@ def test_record_publication_identifier_statistics(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     response = client.get(f"/api/v1/statistics/record/{model_value}/publication-identifiers")
 
@@ -355,9 +359,10 @@ def test_record_keyword_statistics(session, data_provider, client, setup_router_
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     response = client.get("/api/v1/statistics/record/experiment/keywords")
     desired_field_values = ["SaCas9", "Endogenous locus library method", "Base editor", "Other"]
@@ -380,9 +385,10 @@ def test_record_doi_identifier_statistics(session, data_provider, client, setup_
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     response = client.get(f"/api/v1/statistics/record/{model_value}/doi-identifiers")
     desired_field_value = record_update["doiIdentifiers"][0]["identifier"]
@@ -406,9 +412,10 @@ def test_record_raw_read_identifier_statistics(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     response = client.get(f"/api/v1/statistics/record/{model_value}/raw-read-identifiers")
     desired_field_value = record_update["rawReadIdentifiers"][0]["identifier"]

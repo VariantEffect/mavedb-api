@@ -11,16 +11,15 @@ from mavedb.db.session import SessionLocal
 from mavedb.lib.logging.canonical import log_job
 from mavedb.worker.jobs import (
     create_variants_for_score_set,
+    link_gnomad_variants,
     map_variants_for_score_set,
-    variant_mapper_manager,
+    poll_uniprot_mapping_jobs_for_score_set,
     refresh_materialized_views,
     refresh_published_variants_view,
-    submit_score_set_mappings_to_ldh,
-    link_clingen_variants,
-    poll_uniprot_mapping_jobs_for_score_set,
-    submit_uniprot_mapping_jobs_for_score_set,
-    link_gnomad_variants,
     submit_score_set_mappings_to_car,
+    submit_score_set_mappings_to_ldh,
+    submit_uniprot_mapping_jobs_for_score_set,
+    variant_mapper_manager,
 )
 
 # ARQ requires at least one task on startup.
@@ -30,7 +29,6 @@ BACKGROUND_FUNCTIONS: list[Callable] = [
     map_variants_for_score_set,
     refresh_published_variants_view,
     submit_score_set_mappings_to_ldh,
-    link_clingen_variants,
     poll_uniprot_mapping_jobs_for_score_set,
     submit_uniprot_mapping_jobs_for_score_set,
     link_gnomad_variants,

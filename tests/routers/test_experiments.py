@@ -9,6 +9,7 @@ import jsonschema
 import pytest
 import requests
 import requests_mock
+from sqlalchemy import select
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
@@ -591,9 +592,10 @@ def test_can_update_own_public_experiment_set(session, data_provider, client, se
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     response_data = create_experiment(
         client,
@@ -610,9 +612,10 @@ def test_cannot_update_other_users_public_experiment_set(session, data_provider,
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     published_experiment_set_urn = published_score_set["experiment"]["experimentSetUrn"]
     change_ownership(session, published_experiment_set_urn, ExperimentSetDbModel)
@@ -633,9 +636,10 @@ def test_anonymous_cannot_update_others_user_public_experiment_set(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     published_experiment_set_urn = published_score_set["experiment"]["experimentSetUrn"]
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
@@ -658,9 +662,10 @@ def test_admin_can_update_other_users_public_experiment_set(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     with DependencyOverrider(admin_app_overrides):
         response_data = create_experiment(
@@ -1179,9 +1184,10 @@ def test_users_get_one_score_set_to_own_public_experiment(session, data_provider
     unpublished_score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     response = client.get(f"/api/v1/experiments/{score_set['experiment']['urn']}")
     assert response.status_code == 200
@@ -1197,9 +1203,11 @@ def test_users_get_one_published_score_set_from_other_experiment(
     unpublished_score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
+
     change_ownership(session, score_set["experiment"]["urn"], ExperimentDbModel)
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
     response = client.get(f"/api/v1/experiments/{score_set['experiment']['urn']}")
@@ -1216,9 +1224,9 @@ def test_users_get_one_published_score_set_from_others_experiment_with_a_private
     score_set_1 = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        pub_score_set = publish_score_set(client, score_set_1["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set_1["urn"])).one()
+    pub_score_set = publish_score_set(client, score_set_1["urn"], score_set_id)
+
     score_set_2 = create_seq_score_set_with_variants(
         client, session, data_provider, pub_score_set["experiment"]["urn"], data_files / "scores.csv"
     )
@@ -1237,9 +1245,8 @@ def test_users_get_two_score_sets_from_own_experiment_with_a_private_and_a_publi
     score_set_1 = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        pub_score_set = publish_score_set(client, score_set_1["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set_1["urn"])).one()
+    pub_score_set = publish_score_set(client, score_set_1["urn"], score_set_id)
     score_set_2 = create_seq_score_set_with_variants(
         client, session, data_provider, pub_score_set["experiment"]["urn"], data_files / "scores.csv"
     )
@@ -1258,9 +1265,8 @@ def test_users_get_one_score_set_from_own_experiment_with_a_superseding_score_se
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        pub_score_set = publish_score_set(client, score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    pub_score_set = publish_score_set(client, score_set["urn"], score_set_id)
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_post_payload["experimentUrn"] = pub_score_set["experiment"]["urn"]
     score_set_post_payload["supersededScoreSetUrn"] = pub_score_set["urn"]
@@ -1299,9 +1305,10 @@ def test_search_meta_analysis_experiment(session, data_provider, client, setup_r
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     meta_score_set = create_seq_score_set(
         client,
@@ -1312,9 +1319,8 @@ def test_search_meta_analysis_experiment(session, data_provider, client, setup_r
         client, session, data_provider, meta_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_meta_score_set = publish_score_set(client, meta_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == meta_score_set["urn"])).one()
+    published_meta_score_set = publish_score_set(client, meta_score_set["urn"], score_set_id)
 
     score_set_refresh = (client.get(f"/api/v1/score-sets/{score_set['urn']}")).json()
     search_payload = {"metaAnalysis": True}
@@ -1332,9 +1338,10 @@ def test_search_exclude_meta_analysis_experiment(session, data_provider, client,
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     meta_score_set = create_seq_score_set(
         client,
@@ -1345,9 +1352,8 @@ def test_search_exclude_meta_analysis_experiment(session, data_provider, client,
         client, session, data_provider, meta_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        meta_score_set = publish_score_set(client, meta_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == meta_score_set["urn"])).one()
+    meta_score_set = publish_score_set(client, meta_score_set["urn"], score_set_id)
 
     score_set_refresh = (client.get(f"/api/v1/score-sets/{score_set['urn']}")).json()
     search_payload = {"metaAnalysis": False}
@@ -1367,9 +1373,8 @@ def test_search_score_sets_for_experiments(session, client, setup_router_db, dat
     score_set_unpub = create_seq_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
     change_ownership(session, score_set_unpub["urn"], ScoreSetDbModel)
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    published_score_set = publish_score_set(client, score_set["urn"], score_set_id)
 
     # On score set publication, the experiment will get a new urn
     experiment_urn = published_score_set["experiment"]["urn"]
@@ -1389,9 +1394,10 @@ def test_owner_searches_score_sets_with_unpublished_superseding_score_sets_for_e
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
@@ -1417,9 +1423,10 @@ def test_non_owner_searches_score_sets_with_unpublished_superseding_score_sets_f
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
     score_set_post_payload["experimentUrn"] = published_score_set["experiment"]["urn"]
@@ -1446,9 +1453,10 @@ def test_owner_searches_published_superseding_score_sets_for_experiments(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     # On score set publication, the experiment will get a new urn
     experiment_urn = published_score_set["experiment"]["urn"]
@@ -1459,9 +1467,10 @@ def test_owner_searches_published_superseding_score_sets_for_experiments(
         client, session, data_provider, superseding_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_superseding_score_set = publish_score_set(client, superseding_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == superseding_score_set["urn"])
+    ).one()
+    published_superseding_score_set = publish_score_set(client, superseding_score_set["urn"], score_set_id)
 
     response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
     assert response.status_code == 200
@@ -1478,9 +1487,10 @@ def test_non_owner_searches_published_superseding_score_sets_for_experiments(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     # On score set publication, the experiment will get a new urn
     experiment_urn = published_score_set["experiment"]["urn"]
@@ -1491,9 +1501,10 @@ def test_non_owner_searches_published_superseding_score_sets_for_experiments(
         client, session, data_provider, superseding_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_superseding_score_set = publish_score_set(client, superseding_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == superseding_score_set["urn"])
+    ).one()
+    published_superseding_score_set = publish_score_set(client, superseding_score_set["urn"], score_set_id)
 
     change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
     change_ownership(session, published_superseding_score_set["urn"], ScoreSetDbModel)
@@ -1521,9 +1532,8 @@ def test_search_score_sets_for_contributor_experiments(session, client, setup_ro
         TEST_USER["last_name"],
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    published_score_set = publish_score_set(client, score_set["urn"], score_set_id)
 
     # On score set publication, the experiment will get a new urn
     experiment_urn = published_score_set["experiment"]["urn"]
@@ -1542,9 +1552,8 @@ def test_search_score_sets_for_my_experiments(session, client, setup_router_db, 
 
     # The unpublished score set is for the current user, so it should show up in results.
     score_set_unpub = create_seq_score_set(client, experiment["urn"], update={"title": "Unpublished Score Set"})
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    published_score_set = publish_score_set(client, score_set["urn"], score_set_id)
 
     # On score set publication, the experiment will get a new urn
     experiment_urn = published_score_set["experiment"]["urn"]
@@ -1615,9 +1624,10 @@ def test_anonymous_cannot_delete_other_users_published_experiment(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     experiment_urn = score_set["experiment"]["urn"]
     with DependencyOverrider(anonymous_app_overrides):
@@ -1642,9 +1652,10 @@ def test_cannot_delete_own_published_experiment(session, data_provider, client, 
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     experiment_urn = score_set["experiment"]["urn"]
     del_response = client.delete(f"/api/v1/experiments/{experiment_urn}")
@@ -1686,9 +1697,10 @@ def test_contributor_cannot_delete_other_users_published_experiment(
     unpublished_score_set = mock_worker_variant_insertion(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     experiment_urn = score_set["experiment"]["urn"]
     change_ownership(session, experiment_urn, ExperimentDbModel)
@@ -1714,9 +1726,10 @@ def test_admin_can_delete_other_users_published_experiment(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     experiment_urn = score_set["experiment"]["urn"]
     with DependencyOverrider(admin_app_overrides):
@@ -1740,9 +1753,10 @@ def test_can_add_experiment_to_own_public_experiment_set(session, data_provider,
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     test_experiment = deepcopy(TEST_MINIMAL_EXPERIMENT)
     test_experiment.update({"experimentSetUrn": published_score_set["experiment"]["experimentSetUrn"]})
@@ -1777,9 +1791,10 @@ def test_contributor_can_add_experiment_to_others_public_experiment_set(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
     change_ownership(session, published_score_set["experiment"]["urn"], ExperimentDbModel)
@@ -1820,9 +1835,10 @@ def test_cannot_add_experiment_to_others_public_experiment_set(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    published_score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     experiment_set_urn = published_score_set["experiment"]["experimentSetUrn"]
     change_ownership(session, published_score_set["urn"], ScoreSetDbModel)

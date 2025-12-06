@@ -1,10 +1,11 @@
 from copy import deepcopy
 from datetime import date
 from typing import Any, Dict, Optional
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import cdot.hgvs.dataproviders
 import jsonschema
+from arq import ArqRedis
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -165,9 +166,9 @@ def create_seq_score_set_with_variants(
         count_columns_metadata_json_path,
     )
 
-    assert score_set["numVariants"] == 3, (
-        f"Could not create sequence based score set with variants within experiment {experiment_urn}"
-    )
+    assert (
+        score_set["numVariants"] == 3
+    ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
 
     jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
@@ -196,9 +197,9 @@ def create_acc_score_set_with_variants(
         count_columns_metadata_json_path,
     )
 
-    assert score_set["numVariants"] == 3, (
-        f"Could not create sequence based score set with variants within experiment {experiment_urn}"
-    )
+    assert (
+        score_set["numVariants"] == 3
+    ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
 
     jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
@@ -272,9 +273,19 @@ def mock_worker_vrs_mapping(client, db, score_set, alleles=True):
     return client.get(f"/api/v1/score-sets/{score_set['urn']}").json()
 
 
-def publish_score_set(client: TestClient, score_set_urn: str) -> Dict[str, Any]:
-    response = client.post(f"/api/v1/score-sets/{score_set_urn}/publish")
-    assert response.status_code == 200, f"Could not publish score set {score_set_urn}"
+def publish_score_set(client: TestClient, score_set_urn: str, score_set_id: int) -> Dict[str, Any]:
+    with (
+        patch.object(ArqRedis, "enqueue_job", return_value=None) as worker_queue,
+        patch("mavedb.routers.score_sets.correlation_id_for_context", return_value="test-correlation-id"),
+    ):
+        response = client.post(f"/api/v1/score-sets/{score_set_urn}/publish")
+        assert response.status_code == 200, f"Could not publish score set {score_set_urn}"
+        worker_queue.assert_has_calls(
+            [
+                call("refresh_published_variants_view", "test-correlation-id"),
+                call("submit_score_set_mappings_to_ldh", score_set_id, "test-correlation-id"),
+            ]
+        )
 
     response_data = response.json()
     return response_data

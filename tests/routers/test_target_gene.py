@@ -1,18 +1,18 @@
 # ruff: noqa: E402
+
 import pytest
-from unittest.mock import patch
+from sqlalchemy import select
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
-
 from tests.helpers.constants import TEST_USER
 from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.experiment import create_experiment
-from tests.helpers.util.user import change_ownership
 from tests.helpers.util.score_set import create_seq_score_set, publish_score_set
+from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import mock_worker_variant_insertion
 
 
@@ -79,9 +79,8 @@ def test_search_public_target_genes_match_on_other_user(session, data_provider, 
     experiment = create_experiment(client, {"title": "Experiment 1"})
     score_set = create_seq_score_set(client, experiment["urn"])
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    published_score_set = publish_score_set(client, score_set["urn"], score_set_id)
 
     change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
 
@@ -156,9 +155,8 @@ def test_fetch_public_target_gene_by_id(session, data_provider, client, setup_ro
     experiment = create_experiment(client, {"title": "Experiment 1"})
     score_set = create_seq_score_set(client, experiment["urn"])
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    published_score_set = publish_score_set(client, score_set["urn"], score_set_id)
 
     change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
 

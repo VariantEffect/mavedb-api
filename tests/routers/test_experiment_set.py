@@ -1,7 +1,7 @@
 # ruff: noqa: E402
 
 import pytest
-from unittest.mock import patch
+from sqlalchemy import select
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
@@ -10,7 +10,6 @@ fastapi = pytest.importorskip("fastapi")
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
-
 from tests.helpers.constants import (
     TEST_USER,
 )
@@ -154,9 +153,9 @@ def test_users_get_one_experiment_one_score_set_from_own_public_experiment_set(
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        pub_score_set = publish_score_set(client, score_set["urn"])
-        worker_queue.assert_called_once()
+
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    pub_score_set = publish_score_set(client, score_set["urn"], score_set_id)
 
     response = client.get(f"/api/v1/experiment-sets/{pub_score_set['experiment']['experimentSetUrn']}")
     assert response.status_code == 200
@@ -174,9 +173,8 @@ def test_users_get_one_experiment_one_score_set_from_other_public_experiment_set
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        pub_score_set = publish_score_set(client, score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    pub_score_set = publish_score_set(client, score_set["urn"], score_set_id)
 
     change_ownership(session, pub_score_set["urn"], ScoreSetDbModel)
     change_ownership(session, pub_score_set["experiment"]["urn"], ExperimentDbModel)

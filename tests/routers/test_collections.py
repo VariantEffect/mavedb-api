@@ -2,10 +2,10 @@
 
 import re
 from copy import deepcopy
-from unittest.mock import patch
 
 import jsonschema
 import pytest
+from sqlalchemy import select
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
@@ -13,13 +13,13 @@ fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.validation.urn_re import MAVEDB_COLLECTION_URN_RE
 from mavedb.models.enums.contribution_role import ContributionRole
+from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.view_models.collection import Collection
-
 from tests.helpers.constants import (
     EXTRA_USER,
-    TEST_USER,
     TEST_COLLECTION,
     TEST_COLLECTION_RESPONSE,
+    TEST_USER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.collection import create_collection
@@ -235,9 +235,10 @@ def test_admin_can_add_experiment_to_collection(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/admins", json={"orcid_id": EXTRA_USER["username"]})
@@ -293,9 +294,10 @@ def test_editor_can_add_experiment_to_collection(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/editors", json={"orcid_id": EXTRA_USER["username"]})
@@ -345,9 +347,10 @@ def test_viewer_cannot_add_experiment_to_collection(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/viewers", json={"orcid_id": EXTRA_USER["username"]})
@@ -372,9 +375,10 @@ def test_unauthorized_user_cannot_add_experiment_to_collection(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     collection = create_collection(client)
 
@@ -397,9 +401,10 @@ def test_anonymous_cannot_add_experiment_to_collection(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     collection = create_collection(client)
 
@@ -422,9 +427,10 @@ def test_admin_can_add_score_set_to_collection(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/admins", json={"orcid_id": EXTRA_USER["username"]})
@@ -479,9 +485,10 @@ def test_editor_can_add_score_set_to_collection(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/editors", json={"orcid_id": EXTRA_USER["username"]})
@@ -530,9 +537,10 @@ def test_viewer_cannot_add_score_set_to_collection(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/viewers", json={"orcid_id": EXTRA_USER["username"]})
@@ -556,9 +564,10 @@ def test_unauthorized_user_cannot_add_score_set_to_collection(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     collection = create_collection(client)
 
@@ -580,9 +589,10 @@ def test_anonymous_cannot_add_score_set_to_collection(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
-        worker_queue.assert_called_once()
+    score_set_id = session.scalars(
+        select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == unpublished_score_set["urn"])
+    ).one()
+    score_set = publish_score_set(client, unpublished_score_set["urn"], score_set_id)
 
     collection = create_collection(client)
 

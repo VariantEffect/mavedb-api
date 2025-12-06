@@ -22,7 +22,6 @@ from mavedb.data_providers.services import VRSMap
 from mavedb.lib.clingen.services import (
     ClinGenAlleleRegistryService,
     ClinGenLdhService,
-    clingen_allele_id_from_ldh_variation,
 )
 from mavedb.lib.mave.constants import HGVS_NT_COLUMN
 from mavedb.lib.score_sets import csv_data_to_df
@@ -40,7 +39,6 @@ from mavedb.worker.jobs import (
     MAPPING_CURRENT_ID_NAME,
     MAPPING_QUEUE_NAME,
     create_variants_for_score_set,
-    link_clingen_variants,
     link_gnomad_variants,
     map_variants_for_score_set,
     poll_uniprot_mapping_jobs_for_score_set,
@@ -1600,17 +1598,6 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping(
     async def dummy_mapping_job():
         return await setup_mapping_output(async_client, session, score_set)
 
-    async def dummy_ldh_submission_job():
-        return [TEST_CLINGEN_SUBMISSION_RESPONSE, None]
-
-    async def dummy_linking_job():
-        return [
-            (variant_urn, TEST_CLINGEN_LDH_LINKING_RESPONSE)
-            for variant_urn in session.scalars(
-                select(Variant.urn).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
-            ).all()
-        ]
-
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
@@ -1618,17 +1605,15 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping(
         patch.object(
             _UnixSelectorEventLoop,
             "run_in_executor",
-            side_effect=[dummy_mapping_job(), dummy_ldh_submission_job(), dummy_linking_job()],
+            side_effect=[dummy_mapping_job()],
         ),
         patch.object(ClinGenAlleleRegistryService, "dispatch_submissions", return_value=[TEST_CLINGEN_ALLELE_OBJECT]),
-        patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
         patch.object(UniProtIDMappingAPI, "submit_id_mapping", return_value=TEST_UNIPROT_JOB_SUBMISSION_RESPONSE),
         patch.object(UniProtIDMappingAPI, "check_id_mapping_results_ready", return_value=True),
         patch.object(
             UniProtIDMappingAPI, "get_id_mapping_results", return_value=TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE
         ),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
-        patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.UNIPROT_ID_MAPPING_ENABLED", True),
         patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", True),
         patch("mavedb.worker.jobs.CAR_SUBMISSION_ENDPOINT", "https://reg.test.genome.network/pytest"),
@@ -1640,8 +1625,8 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping(
         await arq_worker.async_run()
         num_completed_jobs = await arq_worker.run_check()
 
-    # We should have completed all jobs exactly once.
-    assert num_completed_jobs == 8
+    # We should have completed the mapping manager, mapping, CAR submission, and the two UniProt jobs.
+    assert num_completed_jobs == 5
 
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
@@ -1775,17 +1760,6 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping_
     async def dummy_mapping_job():
         return await setup_mapping_output(async_client, session, score_set)
 
-    async def dummy_submission_job():
-        return [TEST_CLINGEN_SUBMISSION_RESPONSE, None]
-
-    async def dummy_linking_job():
-        return [
-            (variant_urn, TEST_CLINGEN_LDH_LINKING_RESPONSE)
-            for variant_urn in session.scalars(
-                select(Variant.urn).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
-            ).all()
-        ]
-
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
@@ -1793,7 +1767,7 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping_
         patch.object(
             _UnixSelectorEventLoop,
             "run_in_executor",
-            side_effect=[dummy_mapping_job(), dummy_submission_job(), dummy_linking_job()],
+            side_effect=[dummy_mapping_job()],
         ),
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
@@ -1810,8 +1784,8 @@ async def test_mapping_manager_enqueues_mapping_process_with_successful_mapping_
         await arq_worker.async_run()
         num_completed_jobs = await arq_worker.run_check()
 
-    # We should have completed the manager, mapping, submission, and linking jobs, but not the uniprot jobs.
-    assert num_completed_jobs == 6
+    # We should have completed the manager, mapping, and allele registry submission, but not the uniprot jobs.
+    assert num_completed_jobs == 3
 
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
@@ -1842,17 +1816,6 @@ async def test_mapping_manager_enqueues_mapping_process_with_retried_mapping_suc
     async def dummy_mapping_job():
         return await setup_mapping_output(async_client, session, score_set)
 
-    async def dummy_ldh_submission_job():
-        return [TEST_CLINGEN_SUBMISSION_RESPONSE, None]
-
-    async def dummy_linking_job():
-        return [
-            (variant_urn, TEST_CLINGEN_LDH_LINKING_RESPONSE)
-            for variant_urn in session.scalars(
-                select(Variant.urn).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
-            ).all()
-        ]
-
     # We seem unable to mock requests via requests_mock that occur inside another event loop. Workaround
     # this limitation by instead patching the _UnixSelectorEventLoop 's executor function, with a coroutine
     # object that sets up test mappingn output.
@@ -1860,12 +1823,10 @@ async def test_mapping_manager_enqueues_mapping_process_with_retried_mapping_suc
         patch.object(
             _UnixSelectorEventLoop,
             "run_in_executor",
-            side_effect=[failed_mapping_job(), dummy_mapping_job(), dummy_ldh_submission_job(), dummy_linking_job()],
+            side_effect=[failed_mapping_job(), dummy_mapping_job()],
         ),
-        patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
         patch.object(ClinGenAlleleRegistryService, "dispatch_submissions", return_value=[TEST_CLINGEN_ALLELE_OBJECT]),
         patch("mavedb.worker.jobs.MAPPING_BACKOFF_IN_SECONDS", 0),
-        patch("mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS", 0),
         patch("mavedb.worker.jobs.UNIPROT_ID_MAPPING_ENABLED", False),
         patch("mavedb.worker.jobs.CLIN_GEN_SUBMISSION_ENABLED", True),
         patch("mavedb.worker.jobs.CAR_SUBMISSION_ENDPOINT", "https://reg.test.genome.network/pytest"),
@@ -1877,8 +1838,8 @@ async def test_mapping_manager_enqueues_mapping_process_with_retried_mapping_suc
         await arq_worker.async_run()
         num_completed_jobs = await arq_worker.run_check()
 
-    # We should have completed the mapping manager job twice, the mapping job twice, the two submission jobs, and both linking jobs.
-    assert num_completed_jobs == 8
+    # We should have completed the mapping manager job twice, the mapping job twice and the CAR submission job (UniProt disabled).
+    assert num_completed_jobs == 5
 
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)).one()
     mapped_variants_for_score_set = session.scalars(
@@ -1968,7 +1929,7 @@ async def test_submit_score_set_mappings_to_car_success(
 
     assert result["success"]
     assert not result["retried"]
-    assert result["enqueued_job"] is not None
+    assert result["enqueued_job"] is None
 
 
 @pytest.mark.asyncio
@@ -2082,39 +2043,6 @@ async def test_submit_score_set_mappings_to_car_exception_in_allele_association(
     assert not result["enqueued_job"]
 
 
-@pytest.mark.asyncio
-async def test_submit_score_set_mappings_to_car_exception_during_ldh_enqueue(
-    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
-):
-    score_set = await setup_records_files_and_variants_with_mapping(
-        session,
-        async_client,
-        data_files,
-        TEST_MINIMAL_SEQ_SCORESET,
-        standalone_worker_context,
-    )
-
-    with (
-        patch("mavedb.worker.jobs.CAR_SUBMISSION_ENDPOINT", "https://reg.test.genome.network/pytest"),
-        patch.object(ClinGenAlleleRegistryService, "dispatch_submissions", return_value=[TEST_CLINGEN_ALLELE_OBJECT]),
-        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception()),
-    ):
-        result = await submit_score_set_mappings_to_car(standalone_worker_context, uuid4().hex, score_set.id)
-
-    mapped_variants_with_caid_for_score_set = session.scalars(
-        select(MappedVariant)
-        .join(Variant)
-        .join(ScoreSetDbModel)
-        .filter(ScoreSetDbModel.urn == score_set.urn, MappedVariant.clingen_allele_id.is_not(None))
-    ).all()
-
-    assert len(mapped_variants_with_caid_for_score_set) == score_set.num_variants
-
-    assert not result["success"]
-    assert not result["retried"]
-    assert not result["enqueued_job"]
-
-
 ############################################################################################################################################
 # ClinGen LDH Submission
 ############################################################################################################################################
@@ -2149,7 +2077,7 @@ async def test_submit_score_set_mappings_to_ldh_success(
 
     assert result["success"]
     assert not result["retried"]
-    assert result["enqueued_job"] is not None
+    assert result["enqueued_job"] is None
 
 
 @pytest.mark.asyncio
@@ -2326,439 +2254,6 @@ async def test_submit_score_set_mappings_to_ldh_submission_failures_exist(
         patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
     ):
         result = await submit_score_set_mappings_to_ldh(standalone_worker_context, uuid4().hex, score_set.id)
-
-    assert not result["success"]
-    assert not result["retried"]
-    assert not result["enqueued_job"]
-
-
-@pytest.mark.asyncio
-async def test_submit_score_set_mappings_to_ldh_exception_during_linking_enqueue(
-    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
-):
-    score_set = await setup_records_files_and_variants_with_mapping(
-        session,
-        async_client,
-        data_files,
-        TEST_MINIMAL_SEQ_SCORESET,
-        standalone_worker_context,
-    )
-
-    async def dummy_submission_job():
-        return [TEST_CLINGEN_SUBMISSION_RESPONSE, None]
-
-    # We are unable to mock requests via requests_mock that occur inside another event loop. Instead, patch the return
-    # value of the EventLoop itself, which would have made the request.
-    with (
-        patch.object(
-            _UnixSelectorEventLoop,
-            "run_in_executor",
-            return_value=dummy_submission_job(),
-        ),
-        patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
-        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception()),
-    ):
-        result = await submit_score_set_mappings_to_ldh(standalone_worker_context, uuid4().hex, score_set.id)
-
-    assert not result["success"]
-    assert not result["retried"]
-    assert not result["enqueued_job"]
-
-
-@pytest.mark.asyncio
-async def test_submit_score_set_mappings_to_ldh_linking_not_queued_when_expected(
-    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
-):
-    score_set = await setup_records_files_and_variants_with_mapping(
-        session,
-        async_client,
-        data_files,
-        TEST_MINIMAL_SEQ_SCORESET,
-        standalone_worker_context,
-    )
-
-    async def dummy_submission_job():
-        return [TEST_CLINGEN_SUBMISSION_RESPONSE, None]
-
-    # We are unable to mock requests via requests_mock that occur inside another event loop. Instead, patch the return
-    # value of the EventLoop itself, which would have made the request.
-    with (
-        patch.object(
-            _UnixSelectorEventLoop,
-            "run_in_executor",
-            return_value=dummy_submission_job(),
-        ),
-        patch.object(ClinGenLdhService, "_existing_jwt", return_value="test_jwt"),
-        patch.object(arq.ArqRedis, "enqueue_job", return_value=None),
-    ):
-        result = await submit_score_set_mappings_to_ldh(standalone_worker_context, uuid4().hex, score_set.id)
-
-    assert not result["success"]
-    assert not result["retried"]
-    assert not result["enqueued_job"]
-
-
-##############################################################################################################################################
-## ClinGen Linkage
-##############################################################################################################################################
-
-
-@pytest.mark.asyncio
-async def test_link_score_set_mappings_to_ldh_objects_success(
-    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
-):
-    score_set = await setup_records_files_and_variants_with_mapping(
-        session,
-        async_client,
-        data_files,
-        TEST_MINIMAL_SEQ_SCORESET,
-        standalone_worker_context,
-    )
-
-    async def dummy_linking_job():
-        return [
-            (variant_urn, TEST_CLINGEN_LDH_LINKING_RESPONSE)
-            for variant_urn in session.scalars(
-                select(Variant.urn).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
-            ).all()
-        ]
-
-    # We are unable to mock requests via requests_mock that occur inside another event loop. Instead, patch the return
-    # value of the EventLoop itself, which would have made the request.
-    with patch.object(
-        _UnixSelectorEventLoop,
-        "run_in_executor",
-        return_value=dummy_linking_job(),
-    ):
-        result = await link_clingen_variants(standalone_worker_context, uuid4().hex, score_set.id, 1)
-
-    assert result["success"]
-    assert not result["retried"]
-    assert result["enqueued_job"]
-
-    for variant in session.scalars(
-        select(MappedVariant).join(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
-    ):
-        assert variant.clingen_allele_id == clingen_allele_id_from_ldh_variation(TEST_CLINGEN_LDH_LINKING_RESPONSE)
-
-
-@pytest.mark.asyncio
-async def test_link_score_set_mappings_to_ldh_objects_exception_in_setup(
-    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
-):
-    score_set = await setup_records_files_and_variants_with_mapping(
-        session,
-        async_client,
-        data_files,
-        TEST_MINIMAL_SEQ_SCORESET,
-        standalone_worker_context,
-    )
-
-    with patch(
-        "mavedb.worker.jobs.setup_job_state",
-        side_effect=Exception(),
-    ):
-        result = await link_clingen_variants(standalone_worker_context, uuid4().hex, score_set.id, 1)
-
-    assert not result["success"]
-    assert not result["retried"]
-    assert not result["enqueued_job"]
-
-    for variant in session.scalars(
-        select(MappedVariant).join(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
-    ):
-        assert variant.clingen_allele_id is None
-
-
-@pytest.mark.asyncio
-async def test_link_score_set_mappings_to_ldh_objects_no_variants_to_link(
-    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
-):
-    score_set = await setup_records_files_and_variants(
-        session,
-        async_client,
-        data_files,
-        TEST_MINIMAL_SEQ_SCORESET,
-        standalone_worker_context,
-    )
-
-    result = await link_clingen_variants(standalone_worker_context, uuid4().hex, score_set.id, 1)
-
-    assert result["success"]
-    assert not result["retried"]
-    assert not result["enqueued_job"]
-
-
-@pytest.mark.asyncio
-async def test_link_score_set_mappings_to_ldh_objects_exception_during_linkage(
-    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
-):
-    score_set = await setup_records_files_and_variants_with_mapping(
-        session,
-        async_client,
-        data_files,
-        TEST_MINIMAL_SEQ_SCORESET,
-        standalone_worker_context,
-    )
-
-    # We are unable to mock requests via requests_mock that occur inside another event loop. Instead, patch the return
-    # value of the EventLoop itself, which would have made the request.
-    with patch.object(
-        _UnixSelectorEventLoop,
-        "run_in_executor",
-        side_effect=Exception(),
-    ):
-        result = await link_clingen_variants(standalone_worker_context, uuid4().hex, score_set.id, 1)
-
-    assert not result["success"]
-    assert not result["retried"]
-    assert not result["enqueued_job"]
-
-
-@pytest.mark.asyncio
-async def test_link_score_set_mappings_to_ldh_objects_exception_while_parsing_linkages(
-    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
-):
-    score_set = await setup_records_files_and_variants_with_mapping(
-        session,
-        async_client,
-        data_files,
-        TEST_MINIMAL_SEQ_SCORESET,
-        standalone_worker_context,
-    )
-
-    async def dummy_linking_job():
-        return [
-            (variant_urn, TEST_CLINGEN_LDH_LINKING_RESPONSE)
-            for variant_urn in session.scalars(
-                select(Variant.urn).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
-            ).all()
-        ]
-
-    # We are unable to mock requests via requests_mock that occur inside another event loop. Instead, patch the return
-    # value of the EventLoop itself, which would have made the request.
-    with (
-        patch.object(
-            _UnixSelectorEventLoop,
-            "run_in_executor",
-            return_value=dummy_linking_job(),
-        ),
-        patch(
-            "mavedb.worker.jobs.clingen_allele_id_from_ldh_variation",
-            side_effect=Exception(),
-        ),
-    ):
-        result = await link_clingen_variants(standalone_worker_context, uuid4().hex, score_set.id, 1)
-
-    assert not result["success"]
-    assert not result["retried"]
-    assert not result["enqueued_job"]
-
-
-@pytest.mark.asyncio
-async def test_link_score_set_mappings_to_ldh_objects_failures_exist_but_do_not_eclipse_retry_threshold(
-    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
-):
-    score_set = await setup_records_files_and_variants_with_mapping(
-        session,
-        async_client,
-        data_files,
-        TEST_MINIMAL_SEQ_SCORESET,
-        standalone_worker_context,
-    )
-
-    async def dummy_linking_job():
-        return [
-            (variant_urn, None)
-            for variant_urn in session.scalars(
-                select(Variant.urn).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
-            ).all()
-        ]
-
-    # We are unable to mock requests via requests_mock that occur inside another event loop. Instead, patch the return
-    # value of the EventLoop itself, which would have made the request.
-    with (
-        patch.object(
-            _UnixSelectorEventLoop,
-            "run_in_executor",
-            return_value=dummy_linking_job(),
-        ),
-        patch(
-            "mavedb.worker.jobs.LINKED_DATA_RETRY_THRESHOLD",
-            2,
-        ),
-    ):
-        result = await link_clingen_variants(standalone_worker_context, uuid4().hex, score_set.id, 1)
-
-    assert result["success"]
-    assert not result["retried"]
-    assert result["enqueued_job"]
-
-
-@pytest.mark.asyncio
-async def test_link_score_set_mappings_to_ldh_objects_failures_exist_and_eclipse_retry_threshold(
-    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
-):
-    score_set = await setup_records_files_and_variants_with_mapping(
-        session,
-        async_client,
-        data_files,
-        TEST_MINIMAL_SEQ_SCORESET,
-        standalone_worker_context,
-    )
-
-    async def dummy_linking_job():
-        return [
-            (variant_urn, None)
-            for variant_urn in session.scalars(
-                select(Variant.urn).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
-            ).all()
-        ]
-
-    # We are unable to mock requests via requests_mock that occur inside another event loop. Instead, patch the return
-    # value of the EventLoop itself, which would have made the request.
-    with (
-        patch.object(
-            _UnixSelectorEventLoop,
-            "run_in_executor",
-            return_value=dummy_linking_job(),
-        ),
-        patch(
-            "mavedb.worker.jobs.LINKED_DATA_RETRY_THRESHOLD",
-            1,
-        ),
-        patch(
-            "mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS",
-            0,
-        ),
-    ):
-        result = await link_clingen_variants(standalone_worker_context, uuid4().hex, score_set.id, 1)
-
-    assert not result["success"]
-    assert result["retried"]
-    assert result["enqueued_job"]
-
-
-@pytest.mark.asyncio
-async def test_link_score_set_mappings_to_ldh_objects_failures_exist_and_eclipse_retry_threshold_cant_enqueue(
-    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
-):
-    score_set = await setup_records_files_and_variants_with_mapping(
-        session,
-        async_client,
-        data_files,
-        TEST_MINIMAL_SEQ_SCORESET,
-        standalone_worker_context,
-    )
-
-    async def dummy_linking_job():
-        return [
-            (variant_urn, None)
-            for variant_urn in session.scalars(
-                select(Variant.urn).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
-            ).all()
-        ]
-
-    # We are unable to mock requests via requests_mock that occur inside another event loop. Instead, patch the return
-    # value of the EventLoop itself, which would have made the request.
-    with (
-        patch.object(
-            _UnixSelectorEventLoop,
-            "run_in_executor",
-            return_value=dummy_linking_job(),
-        ),
-        patch(
-            "mavedb.worker.jobs.LINKED_DATA_RETRY_THRESHOLD",
-            1,
-        ),
-        patch.object(arq.ArqRedis, "enqueue_job", return_value=awaitable_exception()),
-    ):
-        result = await link_clingen_variants(standalone_worker_context, uuid4().hex, score_set.id, 1)
-
-    assert not result["success"]
-    assert not result["retried"]
-    assert not result["enqueued_job"]
-
-
-@pytest.mark.asyncio
-async def test_link_score_set_mappings_to_ldh_objects_failures_exist_and_eclipse_retry_threshold_retries_exceeded(
-    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
-):
-    score_set = await setup_records_files_and_variants_with_mapping(
-        session,
-        async_client,
-        data_files,
-        TEST_MINIMAL_SEQ_SCORESET,
-        standalone_worker_context,
-    )
-
-    async def dummy_linking_job():
-        return [
-            (variant_urn, None)
-            for variant_urn in session.scalars(
-                select(Variant.urn).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
-            ).all()
-        ]
-
-    # We are unable to mock requests via requests_mock that occur inside another event loop. Instead, patch the return
-    # value of the EventLoop itself, which would have made the request.
-    with (
-        patch.object(
-            _UnixSelectorEventLoop,
-            "run_in_executor",
-            return_value=dummy_linking_job(),
-        ),
-        patch(
-            "mavedb.worker.jobs.LINKED_DATA_RETRY_THRESHOLD",
-            1,
-        ),
-        patch(
-            "mavedb.worker.jobs.LINKING_BACKOFF_IN_SECONDS",
-            0,
-        ),
-        patch(
-            "mavedb.worker.jobs.BACKOFF_LIMIT",
-            1,
-        ),
-    ):
-        result = await link_clingen_variants(standalone_worker_context, uuid4().hex, score_set.id, 2)
-
-    assert not result["success"]
-    assert not result["retried"]
-    assert not result["enqueued_job"]
-
-
-@pytest.mark.asyncio
-async def test_link_score_set_mappings_to_ldh_objects_error_in_gnomad_job_enqueue(
-    setup_worker_db, standalone_worker_context, session, async_client, data_files, arq_worker, arq_redis
-):
-    score_set = await setup_records_files_and_variants_with_mapping(
-        session,
-        async_client,
-        data_files,
-        TEST_MINIMAL_SEQ_SCORESET,
-        standalone_worker_context,
-    )
-
-    async def dummy_linking_job():
-        return [
-            (variant_urn, TEST_CLINGEN_LDH_LINKING_RESPONSE)
-            for variant_urn in session.scalars(
-                select(Variant.urn).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
-            ).all()
-        ]
-
-    # We are unable to mock requests via requests_mock that occur inside another event loop. Instead, patch the return
-    # value of the EventLoop itself, which would have made the request.
-    with (
-        patch.object(
-            _UnixSelectorEventLoop,
-            "run_in_executor",
-            return_value=dummy_linking_job(),
-        ),
-        patch.object(arq.ArqRedis, "enqueue_job", return_value=awaitable_exception()),
-    ):
-        result = await link_clingen_variants(standalone_worker_context, uuid4().hex, score_set.id, 1)
 
     assert not result["success"]
     assert not result["retried"]
