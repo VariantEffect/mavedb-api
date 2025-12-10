@@ -60,6 +60,7 @@ services:
     ports:
       - "8004:8000"
     volumes:
+      - ../dcd_mapping:/usr/src/app
       - mavedb-seqrepo-dev:/usr/local/share/seqrepo
 
   cdot-rest:
