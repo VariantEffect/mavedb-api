@@ -456,18 +456,19 @@ async def map_variants_for_score_set(
                         pre_mapped_metadata = {}
                         post_mapped_metadata = {}
                         excluded_pre_mapped_keys = {"sequence"}
-                        for annotation_layer in reference_metadata[target_gene_identifier]:
-                            layer_premapped = reference_metadata[target_gene_identifier][annotation_layer].get(
-                                "computed_reference_sequence"
-                            )
+                        post_mapped_metadata["gene_info"] = reference_metadata[target_gene_identifier].get("gene_info")
+                        for annotation_layer in reference_metadata[target_gene_identifier]["layers"]:
+                            layer_premapped = reference_metadata[target_gene_identifier]["layers"][
+                                annotation_layer
+                            ].get("computed_reference_sequence")
                             if layer_premapped:
                                 pre_mapped_metadata[ANNOTATION_LAYERS[annotation_layer]] = {
                                     k: layer_premapped[k]
                                     for k in set(list(layer_premapped.keys())) - excluded_pre_mapped_keys
                                 }
-                            layer_postmapped = reference_metadata[target_gene_identifier][annotation_layer].get(
-                                "mapped_reference_sequence"
-                            )
+                            layer_postmapped = reference_metadata[target_gene_identifier]["layers"][
+                                annotation_layer
+                            ].get("mapped_reference_sequence")
                             if layer_postmapped:
                                 post_mapped_metadata[ANNOTATION_LAYERS[annotation_layer]] = layer_postmapped
                         target_gene.pre_mapped_metadata = cast(pre_mapped_metadata, JSONB)

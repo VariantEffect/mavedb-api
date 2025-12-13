@@ -1189,27 +1189,38 @@ TEST_POST_MAPPED_METADATA_WITH_EXPRESSION = {
     }
 }
 
+
+TEST_GENE_INFO = {
+    "hgnc_symbol": VALID_GENE,
+    "selection_method": "tx_selection",
+}
+
+
+TEST_GENOMIC_LAYER = {
+    "computed_reference_sequence": {
+        "sequence_type": "dna",
+        "sequence_id": "ga4gh:SQ.ref_test",
+        "sequence": "ACGTTT",
+    },
+    "mapped_reference_sequence": {
+        "sequence_type": "dna",
+        "sequence_id": "ga4gh:SQ.map_test",
+        "sequence_accessions": [VALID_CHR_ACCESSION],
+    },
+}
+
+TEST_CODING_LAYER = {
+    "mapped_reference_sequence": {
+        "sequence_accessions": [VALID_NT_ACCESSION],
+    },
+}
+
 TEST_SEQ_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
     "metadata": {},
     "reference_sequences": {
         "TEST1": {
-            "g": {
-                "computed_reference_sequence": {
-                    "sequence_type": "dna",
-                    "sequence_id": "ga4gh:SQ.ref_test",
-                    "sequence": "ACGTTT",
-                },
-                "mapped_reference_sequence": {
-                    "sequence_type": "dna",
-                    "sequence_id": "ga4gh:SQ.map_test",
-                    "sequence_accessions": [VALID_CHR_ACCESSION],
-                },
-            },
-            "c": {
-                "mapped_reference_sequence": {
-                    "sequence_accessions": [VALID_NT_ACCESSION],
-                },
-            },
+            "gene_info": TEST_GENE_INFO,
+            "layers": {"g": TEST_GENOMIC_LAYER, "c": TEST_CODING_LAYER},
         }
     },
     "mapped_scores": [],
@@ -1222,23 +1233,8 @@ TEST_ACC_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
     "metadata": {},
     "reference_sequences": {
         "TEST2": {
-            "g": {
-                "computed_reference_sequence": {
-                    "sequence_type": "dna",
-                    "sequence_id": "ga4gh:SQ.ref_test",
-                    "sequence": "ACGTTT",
-                },
-                "mapped_reference_sequence": {
-                    "sequence_type": "dna",
-                    "sequence_id": "ga4gh:SQ.map_test",
-                    "sequence_accessions": [VALID_CHR_ACCESSION],
-                },
-            },
-            "c": {
-                "mapped_reference_sequence": {
-                    "sequence_accessions": [VALID_NT_ACCESSION],
-                },
-            },
+            "gene_info": TEST_GENE_INFO,
+            "layers": {"g": TEST_GENOMIC_LAYER, "c": TEST_CODING_LAYER},
         }
     },
     "mapped_scores": [],
@@ -1251,42 +1247,12 @@ TEST_MULTI_TARGET_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
     "metadata": {},
     "reference_sequences": {
         "TEST3": {
-            "g": {
-                "computed_reference_sequence": {
-                    "sequence_type": "dna",
-                    "sequence_id": "ga4gh:SQ.ref_test3",
-                    "sequence": "ACGTTT",
-                },
-                "mapped_reference_sequence": {
-                    "sequence_type": "dna",
-                    "sequence_id": "ga4gh:SQ.map_test",
-                    "sequence_accessions": [VALID_CHR_ACCESSION],
-                },
-            },
-            "c": {
-                "mapped_reference_sequence": {
-                    "sequence_accessions": [VALID_NT_ACCESSION],
-                },
-            },
+            "gene_info": TEST_GENE_INFO,
+            "layers": {"g": TEST_GENOMIC_LAYER, "c": TEST_CODING_LAYER},
         },
         "TEST4": {
-            "g": {
-                "computed_reference_sequence": {
-                    "sequence_type": "dna",
-                    "sequence_id": "ga4gh:SQ.ref_test4",
-                    "sequence": "TAATGCC",
-                },
-                "mapped_reference_sequence": {
-                    "sequence_type": "dna",
-                    "sequence_id": "ga4gh:SQ.map_test",
-                    "sequence_accessions": [VALID_CHR_ACCESSION],
-                },
-            },
-            "c": {
-                "mapped_reference_sequence": {
-                    "sequence_accessions": [VALID_NT_ACCESSION],
-                },
-            },
+            "gene_info": TEST_GENE_INFO,
+            "layers": {"g": TEST_GENOMIC_LAYER, "c": TEST_CODING_LAYER},
         },
     },
     "mapped_scores": [],
