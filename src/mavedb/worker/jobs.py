@@ -453,10 +453,15 @@ async def map_variants_for_score_set(
                                 f"Target gene {target_gene_identifier} not found in database for score set {score_set.urn}."
                             )
                         # allow for multiple annotation layers
-                        pre_mapped_metadata = {}
-                        post_mapped_metadata = {}
+                        pre_mapped_metadata: dict[str, Any] = {}
+                        post_mapped_metadata: dict[str, Any] = {}
                         excluded_pre_mapped_keys = {"sequence"}
-                        post_mapped_metadata["gene_info"] = reference_metadata[target_gene_identifier].get("gene_info")
+
+                        gene_info = reference_metadata[target_gene_identifier].get("gene_info")
+                        if gene_info:
+                            target_gene.mapped_hgnc_name = gene_info.get("hgnc_symbol")
+                            post_mapped_metadata["hgnc_name_selection_method"] = gene_info.get("selection_method")
+
                         for annotation_layer in reference_metadata[target_gene_identifier]["layers"]:
                             layer_premapped = reference_metadata[target_gene_identifier]["layers"][
                                 annotation_layer

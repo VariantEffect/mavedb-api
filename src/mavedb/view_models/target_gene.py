@@ -60,6 +60,7 @@ class SavedTargetGene(TargetGeneBase):
     target_sequence: Optional[SavedTargetSequence] = None
     target_accession: Optional[SavedTargetAccession] = None
     external_identifiers: Sequence[external_gene_identifier_offset.SavedExternalGeneIdentifierOffset]
+    mapped_hgnc_name: Optional[str] = None
     uniprot_id_from_mapped_metadata: Optional[str] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
