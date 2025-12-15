@@ -21,14 +21,14 @@ def test_cannot_list_users_as_anonymous_user(client, setup_router_db, anonymous_
 
     assert response.status_code == 401
     response_value = response.json()
-    assert response_value["detail"] in "Could not validate credentials"
+    assert "Could not validate credentials" in response_value["detail"]
 
 
 def test_cannot_list_users_as_normal_user(client, setup_router_db):
     response = client.get("/api/v1/users/")
     assert response.status_code == 403
     response_value = response.json()
-    assert response_value["detail"] in "You are not authorized to use this feature"
+    assert "You are not authorized to use this feature" in response_value["detail"]
 
 
 def test_can_list_users_as_admin_user(admin_app_overrides, setup_router_db, client):
@@ -50,7 +50,7 @@ def test_cannot_get_anonymous_user(client, setup_router_db, session, anonymous_a
 
     assert response.status_code == 401
     response_value = response.json()
-    assert response_value["detail"] in "Could not validate credentials"
+    assert "Could not validate credentials" in response_value["detail"]
 
     # Some lingering db transaction holds this test open unless it is explicitly closed.
     session.commit()
@@ -223,7 +223,7 @@ def test_anonymous_user_cannot_update_other_users(
 
     assert response.status_code == 401
     response_value = response.json()
-    assert response_value["detail"] in "Could not validate credentials"
+    assert "Could not validate credentials" in response_value["detail"]
 
 
 @pytest.mark.parametrize(
@@ -241,7 +241,7 @@ def test_user_cannot_update_other_users(client, setup_router_db, field_name, fie
     response = client.put("/api/v1/users//2", json=user_update)
     assert response.status_code == 403
     response_value = response.json()
-    assert response_value["detail"] in "insufficient permissions on user profile with ID '2'"
+    assert "insufficient permissions on user profile with ID '2'" in response_value["detail"]
 
 
 @pytest.mark.parametrize(
