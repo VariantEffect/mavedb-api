@@ -59,7 +59,7 @@ def has_permission(user_data: Optional[UserData], entity: ScoreSet, action: Acti
     if action not in handlers:
         supported_actions = ", ".join(a.value for a in handlers.keys())
         raise NotImplementedError(
-            f"Action '{action.value}' is not supported for ScoreSet entities. "
+            f"Action '{action.value}' is not supported for score set entities. "
             f"Supported actions: {supported_actions}"
         )
 
@@ -109,7 +109,7 @@ def _handle_read_action(
     if roles_permitted(active_roles, [UserRole.admin, UserRole.mapper]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner, "score set")
 
 
 def _handle_update_action(
@@ -144,7 +144,7 @@ def _handle_update_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner, "score set")
 
 
 def _handle_delete_action(
@@ -180,7 +180,7 @@ def _handle_delete_action(
     if user_is_owner and private:
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner, "score set")
 
 
 def _handle_publish_action(
@@ -216,7 +216,7 @@ def _handle_publish_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner, "score set")
 
 
 def _handle_set_scores_action(
@@ -252,4 +252,4 @@ def _handle_set_scores_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner, "score set")

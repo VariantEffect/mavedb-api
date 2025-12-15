@@ -142,7 +142,7 @@ def test_fetching_nonexistent_user_as_admin_raises_exception(client, setup_route
 
     assert response.status_code == 404
     response_value = response.json()
-    assert "User with ID 0 not found" in response_value["detail"]
+    assert "user profile with ID 0 not found" in response_value["detail"]
 
     # Some lingering db transaction holds this test open unless it is explicitly closed.
     session.commit()
@@ -209,7 +209,7 @@ def test_admin_can_set_logged_in_property_on_self(client, setup_router_db, admin
     [
         ("email", "updated@test.com"),
         ("first_name", "Updated"),
-        ("last_name", "User"),
+        ("last_name", "user profile"),
         ("roles", ["admin"]),
     ],
 )
@@ -231,7 +231,7 @@ def test_anonymous_user_cannot_update_other_users(
     [
         ("email", "updated@test.com"),
         ("first_name", "Updated"),
-        ("last_name", "User"),
+        ("last_name", "user profile"),
         ("roles", ["admin"]),
     ],
 )
@@ -241,7 +241,7 @@ def test_user_cannot_update_other_users(client, setup_router_db, field_name, fie
     response = client.put("/api/v1/users//2", json=user_update)
     assert response.status_code == 403
     response_value = response.json()
-    assert response_value["detail"] in "insufficient permissions on User with ID '2'"
+    assert response_value["detail"] in "insufficient permissions on user profile with ID '2'"
 
 
 @pytest.mark.parametrize(
@@ -249,7 +249,7 @@ def test_user_cannot_update_other_users(client, setup_router_db, field_name, fie
     [
         ("email", "updated@test.com"),
         ("first_name", "Updated"),
-        ("last_name", "User"),
+        ("last_name", "user profile"),
         ("roles", ["admin"]),
     ],
 )

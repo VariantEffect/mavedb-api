@@ -218,6 +218,6 @@ class TestDenyActionForEntity:
             pass
 
         entity = CustomEntity()
-        response = deny_action_for_entity(entity, True, None, False)
+        response = deny_action_for_entity(entity, True, None, False, "custom entity")
 
-        assert "CustomEntity" in response.message
+        assert "custom entity" in response.message

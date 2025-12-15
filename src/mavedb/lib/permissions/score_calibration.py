@@ -64,7 +64,7 @@ def has_permission(user_data: Optional[UserData], entity: ScoreCalibration, acti
     if action not in handlers:
         supported_actions = ", ".join(a.value for a in handlers.keys())
         raise NotImplementedError(
-            f"Action '{action.value}' is not supported for ScoreCalibration entities. "
+            f"Action '{action.value}' is not supported for score calibration entities. "
             f"Supported actions: {supported_actions}"
         )
 
@@ -119,7 +119,7 @@ def _handle_read_action(
         return PermissionResponse(True)
 
     user_may_view_private = user_is_owner or (entity.investigator_provided and user_is_contributor_to_score_set)
-    return deny_action_for_entity(entity, private, user_data, user_may_view_private)
+    return deny_action_for_entity(entity, private, user_data, user_may_view_private, "score calibration")
 
 
 def _handle_update_action(
@@ -162,7 +162,7 @@ def _handle_update_action(
             return PermissionResponse(True)
 
     user_may_view_private = user_is_owner or (entity.investigator_provided and user_is_contributor_to_score_set)
-    return deny_action_for_entity(entity, private, user_data, user_may_view_private)
+    return deny_action_for_entity(entity, private, user_data, user_may_view_private, "score calibration")
 
 
 def _handle_delete_action(
@@ -198,7 +198,7 @@ def _handle_delete_action(
         return PermissionResponse(True)
 
     user_may_view_private = user_is_owner or (entity.investigator_provided and user_is_contributor_to_score_set)
-    return deny_action_for_entity(entity, private, user_data, user_may_view_private)
+    return deny_action_for_entity(entity, private, user_data, user_may_view_private, "score calibration")
 
 
 def _handle_publish_action(
@@ -235,7 +235,7 @@ def _handle_publish_action(
         return PermissionResponse(True)
 
     user_may_view_private = user_is_owner or (entity.investigator_provided and user_is_contributor_to_score_set)
-    return deny_action_for_entity(entity, private, user_data, user_may_view_private)
+    return deny_action_for_entity(entity, private, user_data, user_may_view_private, "score calibration")
 
 
 def _handle_change_rank_action(
@@ -274,4 +274,4 @@ def _handle_change_rank_action(
         return PermissionResponse(True)
 
     user_may_view_private = user_is_owner or (entity.investigator_provided and user_is_contributor_to_score_set)
-    return deny_action_for_entity(entity, private, user_data, user_may_view_private)
+    return deny_action_for_entity(entity, private, user_data, user_may_view_private, "score calibration")

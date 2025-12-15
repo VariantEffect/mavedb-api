@@ -679,7 +679,7 @@ def test_cannot_get_other_user_private_score_set(session, client, setup_router_d
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
     assert response.status_code == 404
     response_data = response.json()
-    assert f"ScoreSet with URN '{score_set['urn']}' not found" in response_data["detail"]
+    assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
 
 
 def test_anonymous_user_cannot_get_user_private_score_set(session, client, setup_router_db, anonymous_app_overrides):
@@ -691,7 +691,7 @@ def test_anonymous_user_cannot_get_user_private_score_set(session, client, setup
 
     assert response.status_code == 404
     response_data = response.json()
-    assert f"ScoreSet with URN '{score_set['urn']}' not found" in response_data["detail"]
+    assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
 
 
 def test_can_add_contributor_in_both_experiment_and_score_set(session, client, setup_router_db):
@@ -1048,7 +1048,7 @@ def test_cannot_add_scores_to_other_user_score_set(session, client, setup_router
         )
     assert response.status_code == 404
     response_data = response.json()
-    assert f"ScoreSet with URN '{score_set['urn']}' not found" in response_data["detail"]
+    assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
 
 
 # A user should not be able to add scores to another users' score set. Therefore, they should also not be able
@@ -1386,7 +1386,7 @@ def test_cannot_publish_other_user_private_score_set(session, data_provider, cli
         worker_queue.assert_not_called()
         response_data = response.json()
 
-    assert f"ScoreSet with URN '{score_set['urn']}' not found" in response_data["detail"]
+    assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
 
 
 def test_anonymous_cannot_publish_user_private_score_set(
@@ -1428,7 +1428,7 @@ def test_contributor_cannot_publish_other_users_score_set(session, data_provider
         worker_queue.assert_not_called()
         response_data = response.json()
 
-    assert f"insufficient permissions on ScoreSet with URN '{score_set['urn']}'" in response_data["detail"]
+    assert f"insufficient permissions on score set with URN '{score_set['urn']}'" in response_data["detail"]
 
 
 def test_admin_can_publish_other_user_private_score_set(
@@ -2287,7 +2287,7 @@ def test_cannot_delete_own_published_scoreset(session, data_provider, client, se
     assert del_response.status_code == 403
     del_response_data = del_response.json()
     assert (
-        f"insufficient permissions on ScoreSet with URN '{published_score_set['urn']}'" in del_response_data["detail"]
+        f"insufficient permissions on score set with URN '{published_score_set['urn']}'" in del_response_data["detail"]
     )
 
 
@@ -2311,7 +2311,7 @@ def test_contributor_can_delete_other_users_private_scoreset(
 
     assert response.status_code == 403
     response_data = response.json()
-    assert f"insufficient permissions on ScoreSet with URN '{score_set['urn']}'" in response_data["detail"]
+    assert f"insufficient permissions on score set with URN '{score_set['urn']}'" in response_data["detail"]
 
 
 def test_admin_can_delete_other_users_private_scoreset(
@@ -2365,7 +2365,7 @@ def test_cannot_add_score_set_to_others_private_experiment(session, client, setu
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     assert response.status_code == 404
     response_data = response.json()
-    assert f"Experiment with URN '{experiment_urn}' not found" in response_data["detail"]
+    assert f"experiment with URN '{experiment_urn}' not found" in response_data["detail"]
 
 
 def test_can_add_score_set_to_own_public_experiment(session, data_provider, client, setup_router_db, data_files):
@@ -2922,7 +2922,7 @@ def test_cannot_fetch_clinical_controls_for_nonexistent_score_set(
 
     assert response.status_code == 404
     response_data = response.json()
-    assert f"ScoreSet with URN '{score_set['urn'] + 'xxx'}' not found" in response_data["detail"]
+    assert f"score set with URN '{score_set['urn'] + 'xxx'}' not found" in response_data["detail"]
 
 
 def test_cannot_fetch_clinical_controls_for_score_set_when_none_exist(
@@ -2987,7 +2987,7 @@ def test_cannot_get_annotated_variants_for_nonexistent_score_set(client, setup_r
     response_data = response.json()
 
     assert response.status_code == 404
-    assert f"ScoreSet with URN {score_set['urn'] + 'xxx'} not found" in response_data["detail"]
+    assert f"score set with URN {score_set['urn'] + 'xxx'} not found" in response_data["detail"]
 
 
 @pytest.mark.parametrize(
@@ -3520,7 +3520,7 @@ def test_cannot_fetch_gnomad_variants_for_nonexistent_score_set(
 
     assert response.status_code == 404
     response_data = response.json()
-    assert f"ScoreSet with URN '{score_set['urn'] + 'xxx'}' not found" in response_data["detail"]
+    assert f"score set with URN '{score_set['urn'] + 'xxx'}' not found" in response_data["detail"]
 
 
 def test_cannot_fetch_gnomad_variants_for_score_set_when_none_exist(

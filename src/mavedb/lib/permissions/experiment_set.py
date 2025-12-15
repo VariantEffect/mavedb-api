@@ -58,7 +58,7 @@ def has_permission(user_data: Optional[UserData], entity: ExperimentSet, action:
     if action not in handlers:
         supported_actions = ", ".join(a.value for a in handlers.keys())
         raise NotImplementedError(
-            f"Action '{action.value}' is not supported for ExperimentSet entities. "
+            f"Action '{action.value}' is not supported for experiment set entities. "
             f"Supported actions: {supported_actions}"
         )
 
@@ -108,7 +108,7 @@ def _handle_read_action(
     if roles_permitted(active_roles, [UserRole.admin, UserRole.mapper]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner, "experiment set")
 
 
 def _handle_update_action(
@@ -143,7 +143,7 @@ def _handle_update_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner, "experiment set")
 
 
 def _handle_delete_action(
@@ -179,7 +179,7 @@ def _handle_delete_action(
     if user_is_owner and private:
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner, "experiment set")
 
 
 def _handle_add_experiment_action(
@@ -215,4 +215,4 @@ def _handle_add_experiment_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner, "experiment set")

@@ -86,6 +86,7 @@ def deny_action_for_entity(
     private: bool,
     user_data: Optional[UserData],
     user_may_view_private: bool,
+    user_facing_model_name: str = "entity",
 ) -> PermissionResponse:
     """
     Generate appropriate denial response for entity permission checks.
@@ -118,14 +119,14 @@ def deny_action_for_entity(
     field, identifier = _identifier_for_entity(entity)
     # Do not acknowledge the existence of a private score set.
     if private and not user_may_view_private:
-        return PermissionResponse(False, 404, f"{entity.__class__.__name__} with {field} '{identifier}' not found")
+        return PermissionResponse(False, 404, f"{user_facing_model_name} with {field} '{identifier}' not found")
     # No authenticated user is present.
     if user_data is None or user_data.user is None:
         return PermissionResponse(
-            False, 401, f"authentication required to access {entity.__class__.__name__} with {field} '{identifier}'"
+            False, 401, f"authentication required to access {user_facing_model_name} with {field} '{identifier}'"
         )
 
     # The authenticated user lacks sufficient permissions.
     return PermissionResponse(
-        False, 403, f"insufficient permissions on {entity.__class__.__name__} with {field} '{identifier}'"
+        False, 403, f"insufficient permissions on {user_facing_model_name} with {field} '{identifier}'"
     )

@@ -56,7 +56,8 @@ def has_permission(user_data: Optional[UserData], entity: User, action: Action) 
     if action not in handlers:
         supported_actions = ", ".join(a.value for a in handlers.keys())
         raise NotImplementedError(
-            f"Action '{action.value}' is not supported for User entities. " f"Supported actions: {supported_actions}"
+            f"Action '{action.value}' is not supported for user profile entities. "
+            f"Supported actions: {supported_actions}"
         )
 
     return handlers[action](
@@ -101,7 +102,7 @@ def _handle_read_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, False, user_data, False)
+    return deny_action_for_entity(entity, False, user_data, False, "user profile")
 
 
 def _handle_lookup_action(
@@ -129,7 +130,7 @@ def _handle_lookup_action(
     if user_data is not None and user_data.user is not None:
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, False, user_data, False)
+    return deny_action_for_entity(entity, False, user_data, False, "user profile")
 
 
 def _handle_update_action(
@@ -160,7 +161,7 @@ def _handle_update_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, False, user_data, False)
+    return deny_action_for_entity(entity, False, user_data, False, "user profile")
 
 
 def _handle_add_role_action(
@@ -188,4 +189,4 @@ def _handle_add_role_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, False, user_data, False)
+    return deny_action_for_entity(entity, False, user_data, False, "user profile")

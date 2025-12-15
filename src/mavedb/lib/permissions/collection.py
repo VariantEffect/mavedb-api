@@ -73,7 +73,7 @@ def has_permission(user_data: Optional[UserData], entity: Collection, action: Ac
     if action not in handlers:
         supported_actions = ", ".join(a.value for a in handlers.keys())
         raise NotImplementedError(
-            f"Action '{action.value}' is not supported for Collection entities. "
+            f"Action '{action.value}' is not supported for collection entities. "
             f"Supported actions: {supported_actions}"
         )
 
@@ -129,7 +129,7 @@ def _handle_read_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner, "collection")
 
 
 def _handle_update_action(
@@ -169,7 +169,7 @@ def _handle_update_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner, "collection")
 
 
 def _handle_delete_action(
@@ -210,7 +210,7 @@ def _handle_delete_action(
         if user_is_owner and private:
             return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner, "collection")
 
 
 def _handle_publish_action(
@@ -249,7 +249,7 @@ def _handle_publish_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner, "collection")
 
 
 def _handle_add_experiment_action(
@@ -290,7 +290,7 @@ def _handle_add_experiment_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner, "collection")
 
 
 def _handle_add_score_set_action(
@@ -330,7 +330,7 @@ def _handle_add_score_set_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner, "collection")
 
 
 def _handle_add_role_action(
@@ -369,7 +369,7 @@ def _handle_add_role_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner, "collection")
 
 
 def _handle_add_badge_action(
@@ -402,4 +402,4 @@ def _handle_add_badge_action(
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 
-    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner)
+    return deny_action_for_entity(entity, private, user_data, bool(collection_roles) or user_is_owner, "collection")

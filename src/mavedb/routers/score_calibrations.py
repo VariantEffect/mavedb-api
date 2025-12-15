@@ -84,7 +84,7 @@ async def get_score_calibrations_for_score_set(
 
     if not score_set:
         logger.debug("ScoreSet not found", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN '{score_set_urn}' not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{score_set_urn}' not found")
 
     assert_permission(user_data, score_set, Action.READ)
 
@@ -124,7 +124,7 @@ async def get_primary_score_calibrations_for_score_set(
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == score_set_urn).one_or_none()
     if not score_set:
         logger.debug("ScoreSet not found", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN '{score_set_urn}' not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{score_set_urn}' not found")
 
     assert_permission(user_data, score_set, Action.READ)
 
@@ -184,7 +184,7 @@ async def create_score_calibration_route(
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == calibration.score_set_urn).one_or_none()
     if not score_set:
         logger.debug("ScoreSet not found", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN '{calibration.score_set_urn}' not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{calibration.score_set_urn}' not found")
 
     # TODO#539: Allow any authenticated user to upload a score calibration for a score set, not just those with
     #           permission to update the score set itself.
@@ -222,7 +222,7 @@ async def modify_score_calibration_route(
         if not score_set:
             logger.debug("ScoreSet not found", extra=logging_context())
             raise HTTPException(
-                status_code=404, detail=f"ScoreSet with URN '{calibration_update.score_set_urn}' not found"
+                status_code=404, detail=f"score set with URN '{calibration_update.score_set_urn}' not found"
             )
 
         # TODO#539: Allow any authenticated user to upload a score calibration for a score set, not just those with

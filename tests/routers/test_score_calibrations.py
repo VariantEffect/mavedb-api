@@ -75,7 +75,7 @@ def test_anonymous_user_cannot_get_score_calibration_when_private(
 
     assert response.status_code == 404
     error = response.json()
-    assert f"ScoreCalibration with URN '{calibration['urn']}' not found" in error["detail"]
+    assert f"score calibration with URN '{calibration['urn']}' not found" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -108,7 +108,7 @@ def test_other_user_cannot_get_score_calibration_when_private(
 
     assert response.status_code == 404
     error = response.json()
-    assert f"ScoreCalibration with URN '{calibration['urn']}' not found" in error["detail"]
+    assert f"score calibration with URN '{calibration['urn']}' not found" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -235,7 +235,7 @@ def test_contributing_user_cannot_get_score_calibration_when_private_and_not_inv
 
     assert response.status_code == 404
     error = response.json()
-    assert f"ScoreCalibration with URN '{calibration['urn']}' not found" in error["detail"]
+    assert f"score calibration with URN '{calibration['urn']}' not found" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -519,7 +519,7 @@ def test_anonymous_user_cannot_get_score_calibrations_for_score_set_when_private
 
     assert response.status_code == 404
     error = response.json()
-    assert f"ScoreSet with URN '{score_set['urn']}' not found" in error["detail"]
+    assert f"score set with URN '{score_set['urn']}' not found" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -552,7 +552,7 @@ def test_other_user_cannot_get_score_calibrations_for_score_set_when_private(
 
     assert response.status_code == 404
     error = response.json()
-    assert f"ScoreSet with URN '{score_set['urn']}' not found" in error["detail"]
+    assert f"score set with URN '{score_set['urn']}' not found" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -880,7 +880,7 @@ def test_anonymous_user_cannot_get_score_calibrations_for_score_set_when_calibra
 
     assert response.status_code == 404
     error = response.json()
-    assert f"ScoreSet with URN '{score_set['urn']}' not found" in error["detail"]
+    assert f"score set with URN '{score_set['urn']}' not found" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -920,7 +920,7 @@ def test_other_user_cannot_get_score_calibrations_for_score_set_when_calibration
 
     assert response.status_code == 404
     error = response.json()
-    assert f"ScoreSet with URN '{score_set['urn']}' not found" in error["detail"]
+    assert f"score set with URN '{score_set['urn']}' not found" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -1227,7 +1227,7 @@ def test_cannot_create_score_calibration_when_score_set_does_not_exist(client, s
 
     assert response.status_code == 404
     error = response.json()
-    assert "ScoreSet with URN 'urn:ngs:score-set:nonexistent' not found" in error["detail"]
+    assert "score set with URN 'urn:ngs:score-set:nonexistent' not found" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -1263,7 +1263,7 @@ def test_cannot_create_score_calibration_when_score_set_not_owned_by_user(
 
     assert response.status_code == 404
     error = response.json()
-    assert f"ScoreSet with URN '{score_set['urn']}' not found" in error["detail"]
+    assert f"score set with URN '{score_set['urn']}' not found" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -1302,7 +1302,7 @@ def test_cannot_create_score_calibration_in_public_score_set_when_score_set_not_
 
     assert response.status_code == 403
     error = response.json()
-    assert f"insufficient permissions on ScoreSet with URN '{score_set['urn']}'" in error["detail"]
+    assert f"insufficient permissions on score set with URN '{score_set['urn']}'" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -1500,7 +1500,7 @@ def test_cannot_update_score_calibration_when_score_set_not_exists(
 
     assert response.status_code == 404
     error = response.json()
-    assert "ScoreSet with URN 'urn:ngs:score-set:nonexistent' not found" in error["detail"]
+    assert "score set with URN 'urn:ngs:score-set:nonexistent' not found" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -1613,7 +1613,7 @@ def test_cannot_update_score_calibration_when_score_set_not_owned_by_user(
 
     assert response.status_code == 404
     error = response.json()
-    assert f"ScoreSet with URN '{score_set['urn']}' not found" in error["detail"]
+    assert f"score set with URN '{score_set['urn']}' not found" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -1655,7 +1655,7 @@ def test_cannot_update_score_calibration_in_published_score_set_when_score_set_n
 
     assert response.status_code == 403
     error = response.json()
-    assert f"insufficient permissions on ScoreSet with URN '{score_set['urn']}'" in error["detail"]
+    assert f"insufficient permissions on score set with URN '{score_set['urn']}'" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -1735,7 +1735,7 @@ def test_cannot_update_published_score_calibration_as_score_set_owner(
 
     assert response.status_code == 403
     error = response.json()
-    assert f"insufficient permissions on ScoreCalibration with URN '{calibration['urn']}'" in error["detail"]
+    assert f"insufficient permissions on score calibration with URN '{calibration['urn']}'" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -1842,7 +1842,7 @@ def test_cannot_update_non_investigator_score_calibration_as_score_set_contribut
 
     assert response.status_code == 404
     calibration_response = response.json()
-    assert f"ScoreCalibration with URN '{calibration['urn']}' not found" in calibration_response["detail"]
+    assert f"score calibration with URN '{calibration['urn']}' not found" in calibration_response["detail"]
 
 
 @pytest.mark.parametrize(
@@ -2028,7 +2028,7 @@ def test_user_may_not_move_investigator_calibration_when_lacking_permissions_on_
 
     assert response.status_code == 404
     error = response.json()
-    assert f"ScoreSet with URN '{score_set2['urn']}' not found" in error["detail"]
+    assert f"score set with URN '{score_set2['urn']}' not found" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -2223,7 +2223,7 @@ def test_cannot_delete_score_calibration_when_score_set_not_owned_by_user(
 
     assert response.status_code == 404
     error = response.json()
-    assert f"ScoreCalibration with URN '{calibration['urn']}' not found" in error["detail"]
+    assert f"score calibration with URN '{calibration['urn']}' not found" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -2290,7 +2290,7 @@ def test_cannot_delete_published_score_calibration_as_owner(
 
     assert response.status_code == 403
     error = response.json()
-    assert f"insufficient permissions on ScoreCalibration with URN '{calibration['urn']}'" in error["detail"]
+    assert f"insufficient permissions on score calibration with URN '{calibration['urn']}'" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -2332,7 +2332,7 @@ def test_cannot_delete_investigator_score_calibration_as_score_set_contributor(
 
     error = response.json()
     assert response.status_code == 403
-    assert f"insufficient permissions on ScoreCalibration with URN '{calibration['urn']}'" in error["detail"]
+    assert f"insufficient permissions on score calibration with URN '{calibration['urn']}'" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -2484,7 +2484,7 @@ def test_cannot_delete_primary_score_calibration(
 
     assert response.status_code == 403
     error = response.json()
-    assert f"insufficient permissions on ScoreCalibration with URN '{calibration['urn']}'" in error["detail"]
+    assert f"insufficient permissions on score calibration with URN '{calibration['urn']}'" in error["detail"]
 
 
 ###########################################################
@@ -2570,7 +2570,7 @@ def test_cannot_promote_score_calibration_when_score_calibration_not_owned_by_us
 
     assert response.status_code == 403
     error = response.json()
-    assert f"insufficient permissions on ScoreCalibration with URN '{calibration['urn']}'" in error["detail"]
+    assert f"insufficient permissions on score calibration with URN '{calibration['urn']}'" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -2907,7 +2907,7 @@ def test_cannot_promote_to_primary_with_demote_existing_flag_if_user_does_not_ha
 
     assert response.status_code == 403
     promotion_response = response.json()
-    assert "insufficient permissions on ScoreCalibration with URN" in promotion_response["detail"]
+    assert "insufficient permissions on score calibration with URN" in promotion_response["detail"]
 
     # verify the previous primary is still primary
 
@@ -2999,7 +2999,7 @@ def test_cannot_demote_score_calibration_when_score_calibration_not_owned_by_use
 
     assert response.status_code == 403
     error = response.json()
-    assert f"insufficient permissions on ScoreCalibration with URN '{calibration['urn']}'" in error["detail"]
+    assert f"insufficient permissions on score calibration with URN '{calibration['urn']}'" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -3252,7 +3252,7 @@ def test_cannot_publish_score_calibration_when_score_calibration_not_owned_by_us
 
     assert response.status_code == 404
     error = response.json()
-    assert f"ScoreCalibration with URN '{calibration['urn']}' not found" in error["detail"]
+    assert f"score calibration with URN '{calibration['urn']}' not found" in error["detail"]
 
 
 @pytest.mark.parametrize(

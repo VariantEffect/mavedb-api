@@ -179,7 +179,7 @@ async def score_set_update(
     item = existing_item or db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item or item.id is None:
         logger.info(msg="Failed to update score set; The requested score set does not exist.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN '{urn}' not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user_data, item, Action.UPDATE)
 
@@ -507,7 +507,7 @@ async def fetch_score_set_by_urn(
 
     if not item:
         logger.info(msg="Could not fetch the requested score set; No such score sets exist.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN '{urn}' not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user, item, Action.READ)
 
@@ -767,7 +767,7 @@ def get_score_set_variants_csv(
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
         logger.info(msg="Could not fetch the requested scores; No such score set exists.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN '{urn}' not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user_data, score_set, Action.READ)
 
@@ -835,7 +835,7 @@ def get_score_set_scores_csv(
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
         logger.info(msg="Could not fetch the requested scores; No such score set exists.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN '{urn}' not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user_data, score_set, Action.READ)
 
@@ -893,7 +893,7 @@ async def get_score_set_counts_csv(
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
         logger.info(msg="Could not fetch the requested counts; No such score set exist.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
 
     assert_permission(user_data, score_set, Action.READ)
 
@@ -924,7 +924,7 @@ def get_score_set_mapped_variants(
         logger.info(
             msg="Could not fetch the requested mapped variants; No such score set exist.", extra=logging_context()
         )
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
 
     assert_permission(user_data, score_set, Action.READ)
 
@@ -1090,7 +1090,7 @@ def get_score_set_annotated_variants(
             msg="Could not fetch the requested pathogenicity evidence lines; No such score set exists.",
             extra=logging_context(),
         )
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
 
     assert_permission(user_data, score_set, Action.READ)
 
@@ -1206,7 +1206,7 @@ def get_score_set_annotated_variants_functional_statement(
             msg="Could not fetch the requested functional impact statements; No such score set exists.",
             extra=logging_context(),
         )
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
 
     assert_permission(user_data, score_set, Action.READ)
 
@@ -1326,7 +1326,7 @@ def get_score_set_annotated_variants_functional_study_result(
             msg="Could not fetch the requested functional study results; No such score set exists.",
             extra=logging_context(),
         )
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
 
     assert_permission(user_data, score_set, Action.READ)
 
@@ -1823,7 +1823,7 @@ async def update_score_set_with_variants(
             raise RequestValidationError(errors=e.errors())
     else:
         logger.info(msg="Failed to update score set; The requested score set does not exist.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN '{urn}' not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     itemUpdateResult = await score_set_update(
         db=db,
@@ -1958,7 +1958,7 @@ async def delete_score_set(
     item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
         logger.info(msg="Failed to delete score set; The requested score set does not exist.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN '{urn}' not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user_data, item, Action.DELETE)
 
@@ -1988,7 +1988,7 @@ async def publish_score_set(
     item: Optional[ScoreSet] = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
         logger.info(msg="Failed to publish score set; The requested score set does not exist.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN '{urn}' not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user_data, item, Action.PUBLISH)
 
@@ -2101,7 +2101,7 @@ async def get_clinical_controls_for_score_set(
             msg="Failed to fetch clinical controls for score set; The requested score set does not exist.",
             extra=logging_context(),
         )
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN '{urn}' not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user_data, item, Action.READ)
 
@@ -2165,7 +2165,7 @@ async def get_clinical_controls_options_for_score_set(
             msg="Failed to fetch clinical control options for score set; The requested score set does not exist.",
             extra=logging_context(),
         )
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN '{urn}' not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user_data, item, Action.READ)
 
@@ -2229,7 +2229,7 @@ async def get_gnomad_variants_for_score_set(
             msg="Failed to fetch gnomad variants for score set; The requested score set does not exist.",
             extra=logging_context(),
         )
-        raise HTTPException(status_code=404, detail=f"ScoreSet with URN '{urn}' not found")
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
     assert_permission(user_data, item, Action.READ)
 
