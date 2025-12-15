@@ -52,18 +52,12 @@ def test_cannot_get_anonymous_user(client, setup_router_db, session, anonymous_a
     response_value = response.json()
     assert "Could not validate credentials" in response_value["detail"]
 
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
-
 
 def test_get_current_user(client, setup_router_db, session):
     response = client.get("/api/v1/users/me")
     assert response.status_code == 200
     response_value = response.json()
     assert response_value["orcidId"] == TEST_USER["username"]
-
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
 
 
 def test_get_current_admin_user(client, admin_app_overrides, setup_router_db, session):
@@ -74,9 +68,6 @@ def test_get_current_admin_user(client, admin_app_overrides, setup_router_db, se
     response_value = response.json()
     assert response_value["orcidId"] == ADMIN_USER["username"]
     assert response_value["roles"] == ["admin"]
-
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
 
 
 def test_cannot_impersonate_admin_user_as_default_user(client, setup_router_db, session):
@@ -100,9 +91,6 @@ def test_cannot_impersonate_admin_user_as_default_user(client, setup_router_db, 
     assert response.status_code == 403
     assert response.json()["detail"] in "This user is not a member of the requested acting role."
 
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
-
 
 def test_cannot_fetch_single_user_as_anonymous_user(client, setup_router_db, session, anonymous_app_overrides):
     with DependencyOverrider(anonymous_app_overrides):
@@ -111,17 +99,11 @@ def test_cannot_fetch_single_user_as_anonymous_user(client, setup_router_db, ses
     assert response.status_code == 401
     assert response.json()["detail"] in "Could not validate credentials"
 
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
-
 
 def test_cannot_fetch_single_user_as_normal_user(client, setup_router_db, session):
     response = client.get("/api/v1/users/2")
     assert response.status_code == 403
     assert response.json()["detail"] in "You are not authorized to use this feature"
-
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
 
 
 def test_can_fetch_single_user_as_admin_user(client, setup_router_db, session, admin_app_overrides):
@@ -132,9 +114,6 @@ def test_can_fetch_single_user_as_admin_user(client, setup_router_db, session, a
     response_value = response.json()
     assert response_value["orcidId"] == EXTRA_USER["username"]
 
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
-
 
 def test_fetching_nonexistent_user_as_admin_raises_exception(client, setup_router_db, session, admin_app_overrides):
     with DependencyOverrider(admin_app_overrides):
@@ -143,9 +122,6 @@ def test_fetching_nonexistent_user_as_admin_raises_exception(client, setup_route
     assert response.status_code == 404
     response_value = response.json()
     assert "user profile with ID 0 not found" in response_value["detail"]
-
-    # Some lingering db transaction holds this test open unless it is explicitly closed.
-    session.commit()
 
 
 def test_anonymous_user_cannot_update_self(client, setup_router_db, anonymous_app_overrides):
