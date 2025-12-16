@@ -13,6 +13,8 @@ from mavedb.lib.validation.transform import (
 from mavedb.lib.validation.utilities import is_null
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
+from mavedb.view_models.collection import OfficialCollection
+from mavedb.view_models.components.external_link import ExternalLink
 from mavedb.view_models.contributor import Contributor, ContributorCreate
 from mavedb.view_models.doi_identifier import (
     DoiIdentifier,
@@ -35,20 +37,6 @@ from mavedb.view_models.raw_read_identifier import (
     SavedRawReadIdentifier,
 )
 from mavedb.view_models.user import SavedUser, User
-
-
-class ExternalLink(BaseModel):
-    url: Optional[str] = None
-
-
-class OfficialCollection(BaseModel):
-    badge_name: str
-    name: str
-    urn: str
-
-    class Config:
-        arbitrary_types_allowed = True
-        from_attributes = True
 
 
 class ExperimentBase(BaseModel):
