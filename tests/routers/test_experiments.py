@@ -621,7 +621,10 @@ def test_cannot_update_other_users_public_experiment_set(session, data_provider,
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
     assert response.status_code == 403
     response_data = response.json()
-    assert f"insufficient permissions for URN '{published_experiment_set_urn}'" in response_data["detail"]
+    assert (
+        f"insufficient permissions on experiment set with URN '{published_experiment_set_urn}'"
+        in response_data["detail"]
+    )
 
 
 def test_anonymous_cannot_update_others_user_public_experiment_set(
@@ -1651,10 +1654,12 @@ def test_cannot_delete_own_published_experiment(session, data_provider, client, 
 
     assert del_response.status_code == 403
     del_response_data = del_response.json()
-    assert f"insufficient permissions for URN '{experiment_urn}'" in del_response_data["detail"]
+    assert f"insufficient permissions on experiment with URN '{experiment_urn}'" in del_response_data["detail"]
 
 
-def test_contributor_can_delete_other_users_private_experiment(session, client, setup_router_db, admin_app_overrides):
+def test_contributor_cannot_delete_other_users_private_experiment(
+    session, client, setup_router_db, admin_app_overrides
+):
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
     add_contributor(
@@ -1667,7 +1672,8 @@ def test_contributor_can_delete_other_users_private_experiment(session, client, 
     )
     response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
 
-    assert response.status_code == 200
+    assert response.status_code == 403
+    assert f"insufficient permissions on experiment with URN '{experiment['urn']}'" in response.json()["detail"]
 
 
 def test_admin_can_delete_other_users_private_experiment(session, client, setup_router_db, admin_app_overrides):
@@ -1833,4 +1839,4 @@ def test_cannot_add_experiment_to_others_public_experiment_set(
     response = client.post("/api/v1/experiments/", json=test_experiment)
     assert response.status_code == 403
     response_data = response.json()
-    assert f"insufficient permissions for URN '{experiment_set_urn}'" in response_data["detail"]
+    assert f"insufficient permissions on experiment set with URN '{experiment_set_urn}'" in response_data["detail"]

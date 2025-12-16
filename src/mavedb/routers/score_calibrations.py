@@ -1,30 +1,29 @@
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from mavedb import deps
+from mavedb.lib.authentication import UserData, get_current_user
+from mavedb.lib.authorization import require_current_user
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
     logging_context,
     save_to_logging_context,
 )
-from mavedb.lib.authentication import get_current_user, UserData
-from mavedb.lib.authorization import require_current_user
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_calibrations import (
     create_score_calibration_in_score_set,
-    modify_score_calibration,
     delete_score_calibration,
     demote_score_calibration_from_primary,
+    modify_score_calibration,
     promote_score_calibration_to_primary,
     publish_score_calibration,
 )
 from mavedb.models.score_calibration import ScoreCalibration
-from mavedb.routers.score_sets import fetch_score_set_by_urn
+from mavedb.models.score_set import ScoreSet
 from mavedb.view_models import score_calibration
-
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +51,12 @@ def get_score_calibration(
     """
     save_to_logging_context({"requested_resource": urn})
 
-    item = db.query(ScoreCalibration).where(ScoreCalibration.urn == urn).one_or_none()
+    item = (
+        db.query(ScoreCalibration)
+        .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
+        .where(ScoreCalibration.urn == urn)
+        .one_or_none()
+    )
     if not item:
         logger.debug("The requested score calibration does not exist", extra=logging_context())
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
@@ -76,12 +80,23 @@ async def get_score_calibrations_for_score_set(
     Retrieve all score calibrations for a given score set URN.
     """
     save_to_logging_context({"requested_resource": score_set_urn, "resource_property": "calibrations"})
-    score_set = await fetch_score_set_by_urn(db, score_set_urn, user_data, None, False)
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == score_set_urn).one_or_none()
+
+    if not score_set:
+        logger.debug("ScoreSet not found", extra=logging_context())
+        raise HTTPException(status_code=404, detail=f"score set with URN '{score_set_urn}' not found")
+
+    assert_permission(user_data, score_set, Action.READ)
+
+    calibrations = (
+        db.query(ScoreCalibration)
+        .filter(ScoreCalibration.score_set_id == score_set.id)
+        .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
+        .all()
+    )
 
     permitted_calibrations = [
-        calibration
-        for calibration in score_set.score_calibrations
-        if has_permission(user_data, calibration, Action.READ).permitted
+        calibration for calibration in calibrations if has_permission(user_data, calibration, Action.READ).permitted
     ]
     if not permitted_calibrations:
         logger.debug("No score calibrations found for the requested score set", extra=logging_context())
@@ -105,12 +120,23 @@ async def get_primary_score_calibrations_for_score_set(
     Retrieve the primary score calibration for a given score set URN.
     """
     save_to_logging_context({"requested_resource": score_set_urn, "resource_property": "calibrations"})
-    score_set = await fetch_score_set_by_urn(db, score_set_urn, user_data, None, False)
+
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == score_set_urn).one_or_none()
+    if not score_set:
+        logger.debug("ScoreSet not found", extra=logging_context())
+        raise HTTPException(status_code=404, detail=f"score set with URN '{score_set_urn}' not found")
+
+    assert_permission(user_data, score_set, Action.READ)
+
+    calibrations = (
+        db.query(ScoreCalibration)
+        .filter(ScoreCalibration.score_set_id == score_set.id)
+        .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
+        .all()
+    )
 
     permitted_calibrations = [
-        calibration
-        for calibration in score_set.score_calibrations
-        if has_permission(user_data, calibration, Action.READ)
+        calibration for calibration in calibrations if has_permission(user_data, calibration, Action.READ).permitted
     ]
     if not permitted_calibrations:
         logger.debug("No score calibrations found for the requested score set", extra=logging_context())
@@ -155,7 +181,11 @@ async def create_score_calibration_route(
 
     save_to_logging_context({"requested_resource": calibration.score_set_urn, "resource_property": "calibrations"})
 
-    score_set = await fetch_score_set_by_urn(db, calibration.score_set_urn, user_data, None, False)
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == calibration.score_set_urn).one_or_none()
+    if not score_set:
+        logger.debug("ScoreSet not found", extra=logging_context())
+        raise HTTPException(status_code=404, detail=f"score set with URN '{calibration.score_set_urn}' not found")
+
     # TODO#539: Allow any authenticated user to upload a score calibration for a score set, not just those with
     #           permission to update the score set itself.
     assert_permission(user_data, score_set, Action.UPDATE)
@@ -187,13 +217,24 @@ async def modify_score_calibration_route(
 
     # If the user supplies a new score_set_urn, validate it exists and the user has permission to use it.
     if calibration_update.score_set_urn is not None:
-        score_set = await fetch_score_set_by_urn(db, calibration_update.score_set_urn, user_data, None, False)
+        score_set = db.query(ScoreSet).filter(ScoreSet.urn == calibration_update.score_set_urn).one_or_none()
+
+        if not score_set:
+            logger.debug("ScoreSet not found", extra=logging_context())
+            raise HTTPException(
+                status_code=404, detail=f"score set with URN '{calibration_update.score_set_urn}' not found"
+            )
 
         # TODO#539: Allow any authenticated user to upload a score calibration for a score set, not just those with
         #           permission to update the score set itself.
         assert_permission(user_data, score_set, Action.UPDATE)
 
-    item = db.query(ScoreCalibration).where(ScoreCalibration.urn == urn).one_or_none()
+    item = (
+        db.query(ScoreCalibration)
+        .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
+        .where(ScoreCalibration.urn == urn)
+        .one_or_none()
+    )
     if not item:
         logger.debug("The requested score calibration does not exist", extra=logging_context())
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
@@ -225,7 +266,12 @@ async def delete_score_calibration_route(
     """
     save_to_logging_context({"requested_resource": urn})
 
-    item = db.query(ScoreCalibration).where(ScoreCalibration.urn == urn).one_or_none()
+    item = (
+        db.query(ScoreCalibration)
+        .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
+        .where(ScoreCalibration.urn == urn)
+        .one_or_none()
+    )
     if not item:
         logger.debug("The requested score calibration does not exist", extra=logging_context())
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
@@ -259,7 +305,12 @@ async def promote_score_calibration_to_primary_route(
         {"requested_resource": urn, "resource_property": "primary", "demote_existing_primary": demote_existing_primary}
     )
 
-    item = db.query(ScoreCalibration).where(ScoreCalibration.urn == urn).one_or_none()
+    item = (
+        db.query(ScoreCalibration)
+        .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
+        .where(ScoreCalibration.urn == urn)
+        .one_or_none()
+    )
     if not item:
         logger.debug("The requested score calibration does not exist", extra=logging_context())
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
@@ -318,7 +369,12 @@ def demote_score_calibration_from_primary_route(
     """
     save_to_logging_context({"requested_resource": urn, "resource_property": "primary"})
 
-    item = db.query(ScoreCalibration).where(ScoreCalibration.urn == urn).one_or_none()
+    item = (
+        db.query(ScoreCalibration)
+        .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
+        .where(ScoreCalibration.urn == urn)
+        .one_or_none()
+    )
     if not item:
         logger.debug("The requested score calibration does not exist", extra=logging_context())
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
@@ -352,7 +408,12 @@ def publish_score_calibration_route(
     """
     save_to_logging_context({"requested_resource": urn, "resource_property": "private"})
 
-    item = db.query(ScoreCalibration).where(ScoreCalibration.urn == urn).one_or_none()
+    item = (
+        db.query(ScoreCalibration)
+        .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
+        .where(ScoreCalibration.urn == urn)
+        .one_or_none()
+    )
     if not item:
         logger.debug("The requested score calibration does not exist", extra=logging_context())
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")

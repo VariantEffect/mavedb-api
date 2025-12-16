@@ -155,7 +155,7 @@ def fetch_experiment(
 
     if not item:
         logger.debug(msg="The requested experiment does not exist.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"Experiment with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"experiment with URN {urn} not found")
 
     assert_permission(user_data, item, Action.READ)
     return enrich_experiment_with_num_score_sets(item, user_data)

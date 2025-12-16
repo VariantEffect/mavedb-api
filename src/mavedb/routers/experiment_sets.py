@@ -57,7 +57,7 @@ def fetch_experiment_set(
         # the exception is raised, not returned - you will get a validation
         # error otherwise.
         logger.debug(msg="The requested resources does not exist.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"Experiment set with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"experiment set with URN {urn} not found")
     else:
         item.experiments.sort(key=attrgetter("urn"))
 

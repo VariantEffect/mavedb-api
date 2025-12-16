@@ -104,7 +104,7 @@ async def show_user_admin(
             msg="Could not show user; Requested user does not exist.",
             extra=logging_context(),
         )
-        raise HTTPException(status_code=404, detail=f"User with ID {id} not found")
+        raise HTTPException(status_code=404, detail=f"user profile with ID {id} not found")
 
     # moving toward always accessing permissions module, even though this function does already require admin role to access
     assert_permission(user_data, item, Action.READ)
@@ -135,7 +135,7 @@ async def show_user(
             msg="Could not show user; Requested user does not exist.",
             extra=logging_context(),
         )
-        raise HTTPException(status_code=404, detail=f"User with ID {orcid_id} not found")
+        raise HTTPException(status_code=404, detail=f"user profile with ID {orcid_id} not found")
 
     # moving toward always accessing permissions module, even though this function does already require existing user in order to access
     assert_permission(user_data, item, Action.LOOKUP)
@@ -217,7 +217,7 @@ async def update_user(
             msg="Could not update user; Requested user does not exist.",
             extra=logging_context(),
         )
-        raise HTTPException(status_code=404, detail=f"User with id {id} not found.")
+        raise HTTPException(status_code=404, detail=f"user profile with id {id} not found.")
 
     assert_permission(user_data, item, Action.UPDATE)
     assert_permission(user_data, item, Action.ADD_ROLE)

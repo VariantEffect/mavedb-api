@@ -13,6 +13,14 @@ from sqlalchemy import select
 
 from mavedb.models.score_calibration import ScoreCalibration as CalibrationDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from tests.helpers.constants import (
+    EXTRA_USER,
+    TEST_BIORXIV_IDENTIFIER,
+    TEST_BRNICH_SCORE_CALIBRATION,
+    TEST_PATHOGENICITY_SCORE_CALIBRATION,
+    TEST_PUBMED_IDENTIFIER,
+    VALID_CALIBRATION_URN,
+)
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.common import deepcamelize
 from tests.helpers.util.contributor import add_contributor
@@ -23,15 +31,6 @@ from tests.helpers.util.score_calibration import (
     publish_test_score_calibration_via_client,
 )
 from tests.helpers.util.score_set import create_seq_score_set_with_mapped_variants, publish_score_set
-
-from tests.helpers.constants import (
-    EXTRA_USER,
-    TEST_BIORXIV_IDENTIFIER,
-    TEST_BRNICH_SCORE_CALIBRATION,
-    TEST_PATHOGENICITY_SCORE_CALIBRATION,
-    TEST_PUBMED_IDENTIFIER,
-    VALID_CALIBRATION_URN,
-)
 
 ###########################################################
 # GET /score-calibrations/{calibration_urn}
@@ -1303,7 +1302,7 @@ def test_cannot_create_score_calibration_in_public_score_set_when_score_set_not_
 
     assert response.status_code == 403
     error = response.json()
-    assert f"insufficient permissions for URN '{score_set['urn']}'" in error["detail"]
+    assert f"insufficient permissions on score set with URN '{score_set['urn']}'" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -1656,7 +1655,7 @@ def test_cannot_update_score_calibration_in_published_score_set_when_score_set_n
 
     assert response.status_code == 403
     error = response.json()
-    assert f"insufficient permissions for URN '{score_set['urn']}'" in error["detail"]
+    assert f"insufficient permissions on score set with URN '{score_set['urn']}'" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -1736,7 +1735,7 @@ def test_cannot_update_published_score_calibration_as_score_set_owner(
 
     assert response.status_code == 403
     error = response.json()
-    assert f"insufficient permissions for URN '{calibration['urn']}'" in error["detail"]
+    assert f"insufficient permissions on score calibration with URN '{calibration['urn']}'" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -2291,7 +2290,7 @@ def test_cannot_delete_published_score_calibration_as_owner(
 
     assert response.status_code == 403
     error = response.json()
-    assert f"insufficient permissions for URN '{calibration['urn']}'" in error["detail"]
+    assert f"insufficient permissions on score calibration with URN '{calibration['urn']}'" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -2304,7 +2303,7 @@ def test_cannot_delete_published_score_calibration_as_owner(
     ],
     indirect=["mock_publication_fetch"],
 )
-def test_can_delete_investigator_score_calibration_as_score_set_contributor(
+def test_cannot_delete_investigator_score_calibration_as_score_set_contributor(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
@@ -2331,11 +2330,9 @@ def test_can_delete_investigator_score_calibration_as_score_set_contributor(
     with DependencyOverrider(extra_user_app_overrides):
         response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
 
-    assert response.status_code == 204
-
-    # verify it's deleted
-    get_response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
-    assert get_response.status_code == 404
+    error = response.json()
+    assert response.status_code == 403
+    assert f"insufficient permissions on score calibration with URN '{calibration['urn']}'" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -2487,7 +2484,7 @@ def test_cannot_delete_primary_score_calibration(
 
     assert response.status_code == 403
     error = response.json()
-    assert f"insufficient permissions for URN '{calibration['urn']}'" in error["detail"]
+    assert f"insufficient permissions on score calibration with URN '{calibration['urn']}'" in error["detail"]
 
 
 ###########################################################
@@ -2573,7 +2570,7 @@ def test_cannot_promote_score_calibration_when_score_calibration_not_owned_by_us
 
     assert response.status_code == 403
     error = response.json()
-    assert f"insufficient permissions for URN '{calibration['urn']}'" in error["detail"]
+    assert f"insufficient permissions on score calibration with URN '{calibration['urn']}'" in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -2910,7 +2907,7 @@ def test_cannot_promote_to_primary_with_demote_existing_flag_if_user_does_not_ha
 
     assert response.status_code == 403
     promotion_response = response.json()
-    assert "insufficient permissions for URN" in promotion_response["detail"]
+    assert "insufficient permissions on score calibration with URN" in promotion_response["detail"]
 
     # verify the previous primary is still primary
 
@@ -3002,7 +2999,7 @@ def test_cannot_demote_score_calibration_when_score_calibration_not_owned_by_use
 
     assert response.status_code == 403
     error = response.json()
-    assert f"insufficient permissions for URN '{calibration['urn']}'" in error["detail"]
+    assert f"insufficient permissions on score calibration with URN '{calibration['urn']}'" in error["detail"]
 
 
 @pytest.mark.parametrize(

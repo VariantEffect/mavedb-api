@@ -31,11 +31,12 @@ from mavedb.lib.logging.context import (
     logging_context,
     save_to_logging_context,
 )
-from mavedb.lib.permissions import PermissionException
+from mavedb.lib.permissions.exceptions import PermissionException
 from mavedb.lib.slack import send_slack_error
 from mavedb.models import *  # noqa: F403
 from mavedb.routers import (
     access_keys,
+    alphafold,
     api_information,
     collections,
     controlled_keywords,
@@ -59,7 +60,6 @@ from mavedb.routers import (
     taxonomies,
     users,
     variants,
-    alphafold,
 )
 
 logger = logging.getLogger(__name__)

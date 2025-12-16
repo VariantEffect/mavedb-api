@@ -33,7 +33,7 @@ class ScoreCalibration(Base):
     title = Column(String, nullable=False)
     research_use_only = Column(Boolean, nullable=False, default=False)
     primary = Column(Boolean, nullable=False, default=False)
-    investigator_provided = Column(Boolean, nullable=False, default=False)
+    investigator_provided: Mapped[bool] = Column(Boolean, nullable=False, default=False)
     private = Column(Boolean, nullable=False, default=True)
     notes = Column(String, nullable=True)
 
