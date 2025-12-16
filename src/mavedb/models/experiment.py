@@ -73,6 +73,7 @@ class Experiment(Base):
     abstract_text = Column(String, nullable=False)
     method_text = Column(String, nullable=False)
     extra_metadata = Column(JSONB, nullable=False)
+    external_links = Column(JSONB, nullable=False, default={})
 
     private = Column(Boolean, nullable=False, default=True)
     approved = Column(Boolean, nullable=False, default=False)
