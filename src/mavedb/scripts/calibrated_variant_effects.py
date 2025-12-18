@@ -64,31 +64,11 @@ import click
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_set import ScoreSet
 from mavedb.scripts.environment import with_database_session
-from mavedb.view_models.score_calibration import FunctionalRange
 
 logger = logging.getLogger(__name__)
-
-
-def score_falls_within_range(score: float, functional_range: dict) -> bool:
-    """Check if a score falls within a functional range using the view model."""
-    try:
-        range_obj = FunctionalRange.model_validate(functional_range)
-        return range_obj.is_contained_by_range(score)
-    except Exception as e:
-        logger.warning(f"Error validating functional range: {e}")
-        return False
-
-
-def has_acmg_classification(functional_range: dict) -> bool:
-    """Check if a functional range has an ACMG classification."""
-    acmg_data = functional_range.get("acmg_classification")
-    return acmg_data is not None and (
-        acmg_data.get("criterion") is not None
-        or acmg_data.get("evidence_strength") is not None
-        or acmg_data.get("points") is not None
-    )
 
 
 @click.command()
@@ -106,28 +86,26 @@ def main(db: Session) -> None:
 
     score_sets = db.scalars(query).unique().all()
 
-    total_variants = 0
-    classified_variants = 0
-    score_sets_with_acmg = 0
-    processed_variants: Set[int] = set()
+    total_variants_count = 0
+    classified_variants_count = 0
+    score_sets_with_acmg_count = 0
     gene_list: Set[str] = set()
 
     click.echo(f"Found {len(score_sets)} non-superseded score sets with calibrations")
 
     for score_set in score_sets:
         # Collect all ACMG-classified ranges from this score set's calibrations
-        acmg_ranges = []
+        acmg_ranges: list[ScoreCalibrationFunctionalClassification] = []
         for calibration in score_set.score_calibrations:
-            if calibration.functional_ranges:
-                for func_range in calibration.functional_ranges:
-                    if has_acmg_classification(func_range):
-                        acmg_ranges.append(func_range)
+            if calibration.functional_classifications:
+                for func_classification in calibration.functional_classifications:
+                    if func_classification.acmg_classification_id is not None:
+                        acmg_ranges.append(func_classification)
 
         if not acmg_ranges:
             continue
 
-        score_sets_with_acmg += 1
-        score_set_classified_variants = 0
+        score_sets_with_acmg_count += 1
 
         # Retain a list of unique target genes for reporting
         for target in score_set.target_genes:
@@ -137,47 +115,32 @@ def main(db: Session) -> None:
 
             gene_list.add(target_name.strip().upper())
 
-        for variant in score_set.variants:
-            if variant.id in processed_variants:
-                continue
+        score_set_classified_variants: set[int] = set()
+        for classified_range in acmg_ranges:
+            variants_classified_by_range: list[int] = [
+                variant.id for variant in classified_range.variants if variant.id is not None
+            ]
+            score_set_classified_variants.update(variants_classified_by_range)
 
-            variant_data = variant.data
-            if not variant_data:
-                continue
-
-            score_data = variant_data.get("score_data", {})
-            score = score_data.get("score")
-
-            total_variants += 1
-            processed_variants.add(variant.id)  # type: ignore
-
-            if score is None:
-                continue
-
-            # Check if score falls within any ACMG-classified range in this score set
-            for func_range in acmg_ranges:
-                if score_falls_within_range(float(score), func_range):
-                    classified_variants += 1
-                    score_set_classified_variants += 1
-                    break  # Count variant only once per score set
-
-        if score_set_classified_variants > 0:
+        total_variants_count += score_set.num_variants or 0
+        classified_variants_count += len(score_set_classified_variants)
+        if score_set_classified_variants:
             click.echo(
-                f"Score set {score_set.urn}: {score_set_classified_variants} classified variants ({score_set.num_variants} total variants)"
+                f"Score set {score_set.urn}: {len(score_set_classified_variants)} classified variants ({score_set.num_variants} total variants)"
             )
 
     click.echo("\n" + "=" * 60)
     click.echo("SUMMARY")
     click.echo("=" * 60)
-    click.echo(f"Score sets with ACMG classifications: {score_sets_with_acmg}")
-    click.echo(f"Total unique variants processed: {total_variants}")
-    click.echo(f"Variants within ACMG-classified ranges: {classified_variants}")
+    click.echo(f"Score sets with ACMG classifications: {score_sets_with_acmg_count}")
+    click.echo(f"Total unique variants processed: {total_variants_count}")
+    click.echo(f"Variants within ACMG-classified ranges: {classified_variants_count}")
     click.echo(f"Unique target genes covered ({len(gene_list)}):")
     for gene in sorted(gene_list):
         click.echo(f" - {gene}")
 
-    if total_variants > 0:
-        percentage = (classified_variants / total_variants) * 100
+    if total_variants_count > 0:
+        percentage = (classified_variants_count / total_variants_count) * 100
         click.echo(f"Classification rate: {percentage:.1f}%")
 
 
