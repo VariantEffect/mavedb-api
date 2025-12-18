@@ -284,8 +284,12 @@ def _write_tabular(
     rows = []
     for v in variants:
         v_urn = v.variant.urn
+        ss_urn = v.variant.score_set.urn
         if not v_urn:
             logger.warning(f"Mapped variant ID {v.id} is missing URN; skipping")
+            continue
+        if not ss_urn:
+            logger.warning(f"Mapped variant URN {v_urn} is missing score set URN; skipping")
             continue
 
         fully_qualified_assay_hgvs = v.hgvs_assay_level
@@ -300,7 +304,9 @@ def _write_tabular(
             )
             continue
 
-        variant_url = f"{MAVEDB_FRONTEND_URL}/score-sets/{quote_plus(v.variant.score_set.urn, safe='')}?variant={quote_plus(v.variant.urn, safe='')}"
+        variant_url = (
+            f"{MAVEDB_FRONTEND_URL}/score-sets/{quote_plus(ss_urn, safe='')}?variant={quote_plus(v_urn, safe='')}"
+        )
 
         condition_id = "MedGen"  # the database used for condition IDs.
         condition_value = "C0012634"  # example condition ID for generic disease, which is what is exported via VA-Spec. Should we be more specific?
