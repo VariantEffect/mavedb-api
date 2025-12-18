@@ -502,7 +502,7 @@ def find_publish_or_private_superseded_score_set_tail(
 def get_score_set_variants_as_csv(
     db: Session,
     score_set: ScoreSet,
-    namespaces: List[Literal["scores", "counts", "vep", "gnomad"]],
+    namespaces: List[Literal["scores", "counts", "vep", "gnomad", "clingen"]],
     namespaced: Optional[bool] = None,
     start: Optional[int] = None,
     limit: Optional[int] = None,
@@ -519,8 +519,8 @@ def get_score_set_variants_as_csv(
         The database session to use.
     score_set : ScoreSet
         The score set to get the variants from.
-    namespaces : List[Literal["scores", "counts", "vep", "gnomad"]]
-        The namespaces for data. Now there are only scores, counts, VEP, and gnomAD. ClinVar will be added in the future.
+    namespaces : List[Literal["scores", "counts", "vep", "gnomad", "clingen"]]
+        The namespaces for data. Now there are only scores, counts, VEP, gnomAD, and ClinGen. ClinVar will be added in the future.
     namespaced: Optional[bool] = None
         Whether namespace the columns or not.
     start : int, optional
@@ -569,6 +569,8 @@ def get_score_set_variants_as_csv(
         namespaced_score_set_columns["vep"].append("vep_functional_consequence")
     if "gnomad" in namespaced_score_set_columns:
         namespaced_score_set_columns["gnomad"].append("gnomad_af")
+    if "clingen" in namespaced_score_set_columns:
+        namespaced_score_set_columns["clingen"].append("clingen_allele_id")
     variants: Sequence[Variant] = []
     mappings: Optional[list[Optional[MappedVariant]]] = None
     gnomad_data: Optional[list[Optional[GnomADVariant]]] = None
@@ -840,6 +842,15 @@ def variant_to_csv_row(
             else:
                 value = na_rep
         key = f"gnomad.{column_key}" if namespaced else column_key
+        row[key] = value
+    for column_key in columns.get("clingen", []):
+        if column_key == "clingen_allele_id":
+            clingen_allele_id = mapping.clingen_allele_id if mapping else None
+            if clingen_allele_id is not None:
+                value = str(clingen_allele_id)
+            else:
+                value = na_rep
+        key = f"clingen.{column_key}" if namespaced else column_key
         row[key] = value
     return row
 

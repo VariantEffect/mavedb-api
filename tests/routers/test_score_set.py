@@ -53,6 +53,7 @@ from tests.helpers.constants import (
     TEST_SAVED_GENERIC_CLINICAL_CONTROL,
     TEST_SAVED_GNOMAD_VARIANT,
     TEST_USER,
+    VALID_CLINGEN_CA_ID,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.common import (
@@ -2851,6 +2852,83 @@ def test_download_scores_counts_and_post_mapped_variants_file(
             "counts.c_1",
         ]
     )
+
+
+# Additional namespace export tests: VEP, ClinGen, gnomAD
+def test_download_vep_file_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    # Create mapped variants with VEP consequence populated
+    create_mapped_variants_for_score_set(session, score_set["urn"], TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=vep&include_post_mapped_hgvs=true&drop_na_columns=true"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    assert "vep.vep_functional_consequence" in reader.fieldnames
+    # At least one row should contain the test consequence value
+    rows = list(reader)
+    assert any(row.get("vep.vep_functional_consequence") == "missense_variant" for row in rows)
+
+
+def test_download_clingen_file_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    # Create mapped variants then set ClinGen allele id for first mapped variant
+    create_mapped_variants_for_score_set(session, score_set["urn"], TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION)
+    db_score_set = session.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set["urn"]).one()
+    first_mapped_variant = db_score_set.variants[0].mapped_variants[0]
+    first_mapped_variant.clingen_allele_id = VALID_CLINGEN_CA_ID
+    session.add(first_mapped_variant)
+    session.commit()
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=clingen&include_post_mapped_hgvs=true&drop_na_columns=true"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    assert "clingen.clingen_allele_id" in reader.fieldnames
+    rows = list(reader)
+    assert rows[0].get("clingen.clingen_allele_id") == VALID_CLINGEN_CA_ID
+
+
+def test_download_gnomad_file_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    # Link a gnomAD variant to the first mapped variant (version may not match export filter)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_gnomad_variants_to_mapped_variants(session, score_set)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=gnomad&drop_na_columns=true"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    assert "gnomad.gnomad_af" in reader.fieldnames
 
 
 ########################################################################################################################
