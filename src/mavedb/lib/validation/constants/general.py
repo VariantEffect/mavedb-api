@@ -44,6 +44,7 @@ variant_score_data = "score_data"
 variant_count_data = "count_data"
 required_score_column = "score"
 
+multi_value_keys = ["molecular mechanism assessed"]
 valid_dataset_columns = [score_columns, count_columns]
 valid_variant_columns = [variant_score_data, variant_count_data]
 

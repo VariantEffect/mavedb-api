@@ -1,5 +1,6 @@
 from typing import Optional
 
+from mavedb.lib.validation.constants.general import multi_value_keys
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import is_null
 
@@ -7,7 +8,7 @@ from mavedb.lib.validation.utilities import is_null
 def validate_code(key: str, label: str, code: Optional[str]):
     # TODO(#511) Re-enable the Gene Ontology code requirement.
     pass
-    # if key.lower() == "phenotypic assay mechanism" and label.lower() != "other":
+    # if key.lower() == "molecular mechanism assessed" and label.lower() != "other":
     #     # The Gene Ontology accession is a unique seven digit identifier prefixed by GO:.
     #     # e.g. GO:0005739, GO:1904659, or GO:0016597.
     #     if code is None or not re.match(r"^GO:\d{7}$", code):
@@ -26,9 +27,12 @@ def validate_duplicates(keywords: list):
     keys = []
     labels = []
     for k in keywords:
-        keys.append(k.keyword.key.lower())  # k: ExperimentControlledKeywordCreate object
-        if k.keyword.label.lower() != "other":
-            labels.append(k.keyword.label.lower())
+        key = k.keyword.key.lower()
+        label = k.keyword.label.lower()
+        if key not in multi_value_keys:
+            keys.append(key)
+        if label != "other":
+            labels.append(label)
 
     keys_set = set(keys)
     labels_set = set(labels)
