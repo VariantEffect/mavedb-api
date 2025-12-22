@@ -459,6 +459,7 @@ async def update_experiment(
     item.raw_read_identifiers = raw_read_identifiers
 
     if item_update.keywords:
+        keywords: list[ExperimentControlledKeywordAssociation] = []
         all_labels_none = all(k.keyword.label is None for k in item_update.keywords)
         if all_labels_none is False:
             # Users may choose part of keywords from dropdown menu. Remove not chosen keywords from the list.
@@ -467,10 +468,18 @@ async def update_experiment(
                 validate_keyword_list(filtered_keywords)
             except ValidationError as e:
                 raise HTTPException(status_code=422, detail=str(e))
-            try:
-                await item.set_keywords(db, filtered_keywords)
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Invalid keywords: {str(e)}")
+            for upload_keyword in filtered_keywords:
+                try:
+                    description = upload_keyword.description
+                    controlled_keyword = search_keyword(db, upload_keyword.keyword.key, upload_keyword.keyword.label)
+                    experiment_controlled_keyword = ExperimentControlledKeywordAssociation(
+                        controlled_keyword=controlled_keyword,
+                        description=description,
+                    )
+                    keywords.append(experiment_controlled_keyword)
+                except ValueError as e:
+                    raise HTTPException(status_code=422, detail=str(e))
+        item.keyword_objs = keywords
 
     item.modified_by = user_data.user
 

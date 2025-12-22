@@ -427,18 +427,32 @@ TEST_DB_KEYWORDS = [
         "special": False,
         "description": "Description",
     },
-    {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
+    {"key": "Delivery Method", "label": "Other", "special": False, "description": "Description"},
     {
-        "key": "Phenotypic Assay Mechanism",
+        "key": "Molecular Mechanism Assessed",
         "label": "Other",
         "code": None,
         "special": False,
         "description": "Description",
     },
     {
-        "key": "Phenotypic Assay Mechanism",
-        "label": "Label",
+        "key": "Molecular Mechanism Assessed",
+        "label": "Sodium channel activity",
         "code": "GO:1234567",
+        "special": False,
+        "description": "Description",
+    },
+    {
+        "key": "Molecular Mechanism Assessed",
+        "label": "Calcium-mediated signaling",
+        "code": "GO:1134567",
+        "special": False,
+        "description": "Description",
+    },
+    {
+        "key": "Phenotypic Assay Profiling Strategy",
+        "label": "Shotgun sequencing",
+        "code": None,
         "special": False,
         "description": "Description",
     },
@@ -470,7 +484,7 @@ TEST_KEYWORDS = [
         },
     },
     {
-        "keyword": {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
+        "keyword": {"key": "Delivery Method", "label": "Other", "special": False, "description": "Description"},
         "description": "Details of delivery method",
     },
 ]
@@ -492,7 +506,7 @@ TEST_EXPERIMENT_WITH_KEYWORD = {
     "methodText": "Methods",
     "keywords": [
         {
-            "keyword": {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
+            "keyword": {"key": "Delivery Method", "label": "Other", "special": False, "description": "Description"},
             "description": "Details of delivery method",
         },
     ],
@@ -572,8 +586,53 @@ TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
     "keywords": [
         {
             "recordType": "ExperimentControlledKeyword",
-            "keyword": {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
+            "keyword": {"key": "Delivery Method", "label": "Other", "special": False, "description": "Description"},
             "description": "Details of delivery method",
+        },
+    ],
+    "doiIdentifiers": [],
+    "primaryPublicationIdentifiers": [],
+    "secondaryPublicationIdentifiers": [],
+    "rawReadIdentifiers": [],
+    # keys to be set after receiving response
+    "urn": None,
+    "experimentSetUrn": None,
+    "officialCollections": [],
+    "numScoreSets": 0,  # NOTE: This is context-dependent and may need overriding per test
+}
+
+TEST_EXPERIMENT_WITH_UPDATE_KEYWORD_RESPONSE = {
+    "recordType": "Experiment",
+    "title": "Test Experiment Title",
+    "shortDescription": "Test experiment",
+    "abstractText": "Abstract",
+    "methodText": "Methods",
+    "createdBy": {
+        "recordType": "User",
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "modifiedBy": {
+        "recordType": "User",
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
+    "scoreSetUrns": [],
+    "contributors": [],
+    "keywords": [
+        {
+            "recordType": "ExperimentControlledKeyword",
+            "keyword": {
+                "key": "Phenotypic Assay Profiling Strategy",
+                "label": "Shotgun sequencing",
+                "special": False,
+                "description": "Description"
+            },
+            "description": "Details of phenotypic assay profiling strategy",
         },
     ],
     "doiIdentifiers": [],
@@ -622,7 +681,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
         },
         {
             "recordType": "ExperimentControlledKeyword",
-            "keyword": {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
+            "keyword": {"key": "Delivery Method", "label": "Other", "special": False, "description": "Description"},
             "description": "Description",
         },
     ],
