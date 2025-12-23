@@ -1691,6 +1691,40 @@ async def create_score_set(
     response_model_exclude_none=True,
     responses={**BASE_400_RESPONSE, **ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Upload score and variant count files for a score set",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "multipart/form-data": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "scores_file": {
+                                "type": "string",
+                                "format": "binary",
+                                "description": "CSV file containing variant scores. This file is required, and should have at least one score column.",
+                            },
+                            "counts_file": {
+                                "type": "string | null",
+                                "format": "binary",
+                                "description": "CSV file containing variant counts. If provided, this file should have the same index and variant columns as the scores file.",
+                            },
+                            "score_columns_metadata": {
+                                "type": "string | null",
+                                "format": "binary",
+                                "description": "JSON file containing metadata for score columns. If provided, this file should have metadata for one or more score columns in the scores file. This JSON file should provide a dictionary mapping column names to metadata objects. Metadata objects should follow the DatasetColumnMetadata schema: `{'description': string, 'details': string}`.",
+                            },
+                            "count_columns_metadata": {
+                                "type": "string | null",
+                                "format": "binary",
+                                "description": "JSON file containing metadata for count columns. If provided, this file should have metadata for one or more count columns in the counts file. This JSON file should provide a dictionary mapping column names to metadata objects. Metadata objects should follow the DatasetColumnMetadata schema: `{'description': string, 'details': string}`.",
+                            },
+                        },
+                    }
+                },
+            },
+            "description": "Score files, to be uploaded as multipart form data. The `scores_file` is required, while the `counts_file`, `score_columns_metadata`, and `count_columns_metadata` are optional.",
+        }
+    },
 )
 async def upload_score_set_variant_data(
     *,
@@ -1763,6 +1797,41 @@ async def upload_score_set_variant_data(
     response_model_exclude_none=True,
     responses={**BASE_400_RESPONSE, **ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Update score ranges / calibrations for a score set",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "multipart/form-data": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            **score_set.ScoreSetUpdateAllOptional.model_json_schema(by_alias=False)["properties"],
+                            "scores_file": {
+                                "type": "string | null",
+                                "format": "binary",
+                                "description": "CSV file containing variant scores. If provided, this file should have at least one score column.",
+                            },
+                            "counts_file": {
+                                "type": "string | null",
+                                "format": "binary",
+                                "description": "CSV file containing variant counts. If provided, this file should have the same index and variant columns as the scores file.",
+                            },
+                            "score_columns_metadata": {
+                                "type": "string | null",
+                                "format": "binary",
+                                "description": "JSON file containing metadata for score columns. If provided, this file should have metadata for one or more score columns in the scores file. This JSON file should provide a dictionary mapping column names to metadata objects. Metadata objects should follow the DatasetColumnMetadata schema: `{'description': string, 'details': string}`.",
+                            },
+                            "count_columns_metadata": {
+                                "type": "string | null",
+                                "format": "binary",
+                                "description": "JSON file containing metadata for count columns. If provided, this file should have metadata for one or more count columns in the counts file. This JSON file should provide a dictionary mapping column names to metadata objects. Metadata objects should follow the DatasetColumnMetadata schema: `{'description': string, 'details': string}`.",
+                            },
+                        },
+                    }
+                },
+            },
+            "description": "Score set properties and score files, to be uploaded as multipart form data. All fields here are optional, and only those provided will be updated.",
+        }
+    },
 )
 async def update_score_set_with_variants(
     *,
@@ -1780,6 +1849,13 @@ async def update_score_set_with_variants(
     """
     logger.info(msg="Began score set with variants update.", extra=logging_context())
 
+    # TODO#629: Use `flexible_model_loader` utility here to support both form data and JSON body.
+    #           See: https://github.com/VariantEffect/mavedb-api/pull/589/changes/d1641de7e4bee43e8a0c9f9283e022c5b56830ff
+    #           Currently, only form data is supported but this would allow us to also support JSON bodies
+    #           in cases where no files are being uploaded. My view is accepting score set calibration
+    #           information via a single form field is also more straightforward than handling all the score
+    #           set update fields as separate form fields and parsing them into an object. Doing so will also
+    #           simplify the OpenAPI schema for this endpoint.
     try:
         # Get all form data from the request
         form_data = await request.form()
