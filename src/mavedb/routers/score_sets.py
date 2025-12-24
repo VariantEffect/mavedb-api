@@ -598,8 +598,9 @@ def search_score_sets(
 def get_filter_options_for_search(
     search: ScoreSetsSearch,
     db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
-    return fetch_score_set_search_filter_options(db, None, search)
+    return fetch_score_set_search_filter_options(db, user_data, None, search)
 
 
 @router.get(

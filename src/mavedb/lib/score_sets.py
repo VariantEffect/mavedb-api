@@ -23,7 +23,7 @@ from mavedb.lib.mave.constants import (
     VARIANT_SCORE_DATA,
 )
 from mavedb.lib.mave.utils import is_csv_null
-from mavedb.lib.permissions import has_permission
+from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.utilities import is_null as validate_is_null
@@ -299,7 +299,9 @@ def score_set_search_filter_options_from_counter(counter: Counter):
     return [{"value": value, "count": count} for value, count in counter.items()]
 
 
-def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch):
+def fetch_score_set_search_filter_options(
+    db: Session, requester: Optional[UserData], owner_or_contributor: Optional[User], search: ScoreSetsSearch
+):
     save_to_logging_context({"score_set_search_criteria": search.model_dump()})
 
     query = db.query(ScoreSet)
@@ -308,6 +310,8 @@ def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Opt
     score_sets: list[ScoreSet] = query.all()
     if not score_sets:
         score_sets = []
+
+    score_sets = [score_set for score_set in score_sets if has_permission(requester, score_set, Action.READ).permitted]
 
     target_category_counter: Counter[str] = Counter()
     target_name_counter: Counter[str] = Counter()
