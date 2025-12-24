@@ -23,6 +23,8 @@ from mavedb.lib.mave.constants import (
     VARIANT_SCORE_DATA,
 )
 from mavedb.lib.mave.utils import is_csv_null
+from mavedb.lib.permissions import has_permission
+from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.utilities import is_null as validate_is_null
 from mavedb.lib.variants import get_digest_from_post_mapped, get_hgvs_from_post_mapped, is_hgvs_g, is_hgvs_p
@@ -55,7 +57,6 @@ from mavedb.models.variant import Variant
 from mavedb.view_models.search import ScoreSetsSearch
 
 if TYPE_CHECKING:
-    from mavedb.lib.authentication import UserData
     from mavedb.lib.permissions import Action
 
 VariantData = dict[str, Optional[dict[str, dict]]]
@@ -443,8 +444,6 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
 def find_superseded_score_set_tail(
     score_set: ScoreSet, action: Optional["Action"] = None, user_data: Optional["UserData"] = None
 ) -> Optional[ScoreSet]:
-    from mavedb.lib.permissions import has_permission
-
     while score_set.superseding_score_set is not None:
         next_score_set_in_chain = score_set.superseding_score_set
 

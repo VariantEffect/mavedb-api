@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session, selectinload
 
 from mavedb import deps
-from mavedb.lib.authentication import UserData, get_current_user
+from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import require_current_user
 from mavedb.lib.flexible_model_loader import json_or_form_loader
 from mavedb.lib.logging import LoggedRoute
@@ -24,6 +24,7 @@ from mavedb.lib.score_calibrations import (
     variant_classification_df_to_dict,
 )
 from mavedb.lib.score_sets import csv_data_to_df
+from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import calibration_class_column_name, calibration_variant_column_name
 from mavedb.lib.validation.dataframe.calibration import validate_and_standardize_calibration_classes_dataframe
 from mavedb.lib.validation.exceptions import ValidationError

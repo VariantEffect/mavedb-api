@@ -26,7 +26,6 @@ from mavedb.lib.annotation.annotate import (
     variant_study_result,
 )
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
-from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import (
     get_current_user,
     require_current_user,
@@ -61,6 +60,7 @@ from mavedb.lib.score_sets import (
 )
 from mavedb.lib.target_genes import find_or_create_target_gene_by_accession, find_or_create_target_gene_by_sequence
 from mavedb.lib.taxonomies import find_or_create_taxonomy
+from mavedb.lib.types.authentication import UserData
 from mavedb.lib.urns import (
     generate_experiment_set_urn,
     generate_experiment_urn,

@@ -1,10 +1,10 @@
 from typing import Any, Callable, Optional
 
-from mavedb.lib.authentication import UserData
 from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.exceptions import PermissionException
 from mavedb.lib.permissions.models import PermissionResponse
+from mavedb.lib.types.authentication import UserData
 from mavedb.lib.types.permissions import EntityType
 from mavedb.models.collection import Collection
 from mavedb.models.experiment import Experiment

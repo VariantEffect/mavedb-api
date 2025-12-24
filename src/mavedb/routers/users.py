@@ -5,11 +5,11 @@ from sqlalchemy.orm import Session
 from starlette.convertors import Convertor, register_url_convertor
 
 from mavedb import deps
-from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import RoleRequirer, require_current_user
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, assert_permission
+from mavedb.lib.types.authentication import UserData
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.user import User
 from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX

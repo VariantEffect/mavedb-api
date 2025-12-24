@@ -1,9 +1,9 @@
 import logging
 from typing import Optional, Union, overload
 
-from mavedb.lib.authentication import UserData
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions.models import PermissionResponse
+from mavedb.lib.types.authentication import UserData
 from mavedb.lib.types.permissions import EntityType
 from mavedb.models.enums.contribution_role import ContributionRole
 from mavedb.models.enums.user_role import UserRole
