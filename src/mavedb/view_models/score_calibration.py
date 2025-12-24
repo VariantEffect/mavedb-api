@@ -279,9 +279,9 @@ class ScoreCalibrationBase(BaseModel):
     notes: Optional[str] = None
 
     functional_classifications: Optional[Sequence[FunctionalClassificationBase]] = None
-    threshold_sources: Optional[Sequence[PublicationIdentifierBase]] = None
-    classification_sources: Optional[Sequence[PublicationIdentifierBase]] = None
-    method_sources: Optional[Sequence[PublicationIdentifierBase]] = None
+    threshold_sources: Sequence[PublicationIdentifierBase]
+    classification_sources: Sequence[PublicationIdentifierBase]
+    method_sources: Sequence[PublicationIdentifierBase]
     calibration_metadata: Optional[dict] = None
 
     @field_validator("functional_classifications")
@@ -428,18 +428,18 @@ class ScoreCalibrationModify(ScoreCalibrationBase):
     score_set_urn: Optional[str] = None
 
     functional_classifications: Optional[Sequence[FunctionalClassificationModify]] = None
-    threshold_sources: Optional[Sequence[PublicationIdentifierCreate]] = None
-    classification_sources: Optional[Sequence[PublicationIdentifierCreate]] = None
-    method_sources: Optional[Sequence[PublicationIdentifierCreate]] = None
+    threshold_sources: Sequence[PublicationIdentifierCreate]
+    classification_sources: Sequence[PublicationIdentifierCreate]
+    method_sources: Sequence[PublicationIdentifierCreate]
 
 
 class ScoreCalibrationCreate(ScoreCalibrationModify):
     """Model used to create a new score calibration."""
 
     functional_classifications: Optional[Sequence[FunctionalClassificationCreate]] = None
-    threshold_sources: Optional[Sequence[PublicationIdentifierCreate]] = None
-    classification_sources: Optional[Sequence[PublicationIdentifierCreate]] = None
-    method_sources: Optional[Sequence[PublicationIdentifierCreate]] = None
+    threshold_sources: Sequence[PublicationIdentifierCreate]
+    classification_sources: Sequence[PublicationIdentifierCreate]
+    method_sources: Sequence[PublicationIdentifierCreate]
 
 
 class SavedScoreCalibration(ScoreCalibrationBase):
@@ -457,9 +457,9 @@ class SavedScoreCalibration(ScoreCalibrationBase):
     private: bool = True
 
     functional_classifications: Optional[Sequence[SavedFunctionalClassification]] = None
-    threshold_sources: Optional[Sequence[SavedPublicationIdentifier]] = None
-    classification_sources: Optional[Sequence[SavedPublicationIdentifier]] = None
-    method_sources: Optional[Sequence[SavedPublicationIdentifier]] = None
+    threshold_sources: Sequence[SavedPublicationIdentifier]
+    classification_sources: Sequence[SavedPublicationIdentifier]
+    method_sources: Sequence[SavedPublicationIdentifier]
 
     created_by: Optional[SavedUser] = None
     modified_by: Optional[SavedUser] = None
@@ -477,9 +477,6 @@ class SavedScoreCalibration(ScoreCalibrationBase):
     @field_validator("threshold_sources", "classification_sources", "method_sources", mode="before")
     def publication_identifiers_validator(cls, value: Any) -> Optional[list[PublicationIdentifier]]:
         """Coerce association proxy collections to plain lists."""
-        if value is None:
-            return None
-
         assert isinstance(value, Collection), "Publication identifier lists must be a collection"
         return list(value)
 
@@ -504,19 +501,13 @@ class SavedScoreCalibration(ScoreCalibrationBase):
 
         return self
 
+    # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
+    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created. Only perform these
+    # transformations if the relevant attributes are present on the input data (i.e., when creating from an ORM object).
     @model_validator(mode="before")
     def generate_threshold_classification_and_method_sources(cls, data: Any):  # type: ignore[override]
         """Populate threshold/classification/method source fields from association objects if missing."""
-        association_keys = {
-            "threshold_sources",
-            "thresholdSources",
-            "classification_sources",
-            "classificationSources",
-            "method_sources",
-            "methodSources",
-        }
-
-        if not any(hasattr(data, key) for key in association_keys):
+        if hasattr(data, "publication_identifier_associations"):
             try:
                 publication_identifiers = transform_score_calibration_publication_identifiers(
                     data.publication_identifier_associations
@@ -524,9 +515,9 @@ class SavedScoreCalibration(ScoreCalibrationBase):
                 data.__setattr__("threshold_sources", publication_identifiers["threshold_sources"])
                 data.__setattr__("classification_sources", publication_identifiers["classification_sources"])
                 data.__setattr__("method_sources", publication_identifiers["method_sources"])
-            except AttributeError as exc:
+            except (AttributeError, KeyError) as exc:
                 raise ValidationError(
-                    f"Unable to create {cls.__name__} without attribute: {exc}."  # type: ignore
+                    f"Unable to coerce publication associations for {cls.__name__}: {exc}."  # type: ignore
                 )
         return data
 
@@ -535,9 +526,9 @@ class ScoreCalibration(SavedScoreCalibration):
     """Complete score calibration model returned by the API."""
 
     functional_classifications: Optional[Sequence[FunctionalClassification]] = None
-    threshold_sources: Optional[Sequence[PublicationIdentifier]] = None
-    classification_sources: Optional[Sequence[PublicationIdentifier]] = None
-    method_sources: Optional[Sequence[PublicationIdentifier]] = None
+    threshold_sources: Sequence[PublicationIdentifier]
+    classification_sources: Sequence[PublicationIdentifier]
+    method_sources: Sequence[PublicationIdentifier]
     created_by: Optional[User] = None
     modified_by: Optional[User] = None
 
@@ -549,11 +540,11 @@ class ScoreCalibrationWithScoreSetUrn(SavedScoreCalibration):
 
     @model_validator(mode="before")
     def generate_score_set_urn(cls, data: Any):
-        if not hasattr(data, "score_set_urn"):
+        if hasattr(data, "score_set"):
             try:
                 data.__setattr__("score_set_urn", transform_score_set_to_urn(data.score_set))
-            except AttributeError as exc:
+            except (AttributeError, KeyError) as exc:
                 raise ValidationError(
-                    f"Unable to create {cls.__name__} without attribute: {exc}."  # type: ignore
+                    f"Unable to coerce score set urn for {cls.__name__}: {exc}."  # type: ignore
                 )
         return data

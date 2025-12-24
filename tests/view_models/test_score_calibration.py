@@ -513,12 +513,19 @@ def test_can_create_valid_score_calibration_from_attributed_object(valid_calibra
 
 def test_cannot_create_score_calibration_when_publication_information_is_missing():
     invalid_data = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+
     # Add publication identifiers with missing information
     invalid_data.pop("thresholdSources", None)
     invalid_data.pop("classificationSources", None)
     invalid_data.pop("methodSources", None)
-    with pytest.raises(ValidationError, match="Unable to create ScoreCalibration without attribute"):
+
+    with pytest.raises(ValidationError) as exc_info:
         ScoreCalibration.model_validate(dummy_attributed_object_from_dict(invalid_data))
+
+    assert "Field required" in str(exc_info.value)
+    assert "thresholdSources" in str(exc_info.value)
+    assert "classificationSources" in str(exc_info.value)
+    assert "methodSources" in str(exc_info.value)
 
 
 def test_can_create_score_calibration_from_association_style_publication_identifiers_against_attributed_object():
@@ -601,6 +608,24 @@ def test_primary_score_calibration_cannot_be_private():
         ScoreCalibration.model_validate(dummy_attributed_object_from_dict(invalid_data))
 
 
+def test_can_create_score_calibration_from_non_orm_context():
+    data = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION)
+
+    sc = ScoreCalibration.model_validate(data)
+
+    assert sc.title == data["title"]
+    assert sc.research_use_only == data.get("researchUseOnly", False)
+    assert sc.primary == data.get("primary", False)
+    assert sc.investigator_provided == data.get("investigatorProvided", False)
+    assert sc.baseline_score == data.get("baselineScore")
+    assert sc.baseline_score_description == data.get("baselineScoreDescription")
+    assert len(sc.functional_ranges) == len(data["functionalRanges"])
+    assert len(sc.threshold_sources) == len(data["thresholdSources"])
+    assert len(sc.classification_sources) == len(data["classificationSources"])
+    assert len(sc.method_sources) == len(data["methodSources"])
+    assert sc.calibration_metadata == data.get("calibrationMetadata")
+
+
 def test_score_calibration_with_score_set_urn_can_be_created_from_attributed_object():
     data = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     data["score_set"] = dummy_attributed_object_from_dict({"urn": "urn:mavedb:00000000-0000-0000-0000-000000000001"})
@@ -614,7 +639,7 @@ def test_score_calibration_with_score_set_urn_can_be_created_from_attributed_obj
 def test_score_calibration_with_score_set_urn_cannot_be_created_without_score_set_urn():
     invalid_data = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     invalid_data["score_set"] = dummy_attributed_object_from_dict({})
-    with pytest.raises(ValidationError, match="Unable to create ScoreCalibrationWithScoreSetUrn without attribute"):
+    with pytest.raises(ValidationError, match="Unable to coerce score set urn for ScoreCalibrationWithScoreSetUrn"):
         ScoreCalibrationWithScoreSetUrn.model_validate(dummy_attributed_object_from_dict(invalid_data))
 
 
@@ -660,3 +685,13 @@ def test_score_calibration_properties_when_no_functional_classifications():
     sc = ScoreCalibrationCreate.model_validate(valid_data)
     assert sc.range_based is False
     assert sc.class_based is False
+
+
+def test_score_calibration_with_score_set_urn_can_be_created_from_non_orm_context():
+    data = deepcopy(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    data["score_set_urn"] = "urn:mavedb:00000000-0000-0000-0000-000000000001"
+
+    sc = ScoreCalibrationWithScoreSetUrn.model_validate(data)
+
+    assert sc.title == data["title"]
+    assert sc.score_set_urn == data["score_set_urn"]
