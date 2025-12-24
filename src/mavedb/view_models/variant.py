@@ -54,18 +54,19 @@ class SavedVariantEffectMeasurementWithMappedVariant(SavedVariantEffectMeasureme
 
     mapped_variant: Optional[SavedMappedVariant] = None
 
+    # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
+    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created. Only perform these
+    # transformations if the relevant attributes are present on the input data (i.e., when creating from an ORM object).
     @model_validator(mode="before")
-    def generate_score_set_urn_list(cls, data: Any):
-        if not hasattr(data, "mapped_variant"):
+    def generate_associated_mapped_variant(cls, data: Any):
+        if hasattr(data, "mapped_variants"):
             try:
-                mapped_variant = None
-                if data.mapped_variants:
-                    mapped_variant = next(
-                        mapped_variant for mapped_variant in data.mapped_variants if mapped_variant.current
-                    )
+                mapped_variant = next(
+                    (mapped_variant for mapped_variant in data.mapped_variants if mapped_variant.current), None
+                )
                 data.__setattr__("mapped_variant", mapped_variant)
-            except AttributeError as exc:
-                raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
+            except (AttributeError, KeyError) as exc:
+                raise ValidationError(f"Unable to coerce mapped variant for {cls.__name__}: {exc}.")  # type: ignore
         return data
 
 
