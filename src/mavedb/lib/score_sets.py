@@ -306,18 +306,33 @@ def fetch_score_set_search_filter_options(
 
     query = db.query(ScoreSet)
     query = build_search_score_sets_query_filter(db, query, owner_or_contributor, search)
-
     score_sets: list[ScoreSet] = query.all()
     if not score_sets:
         score_sets = []
 
-    score_sets = [score_set for score_set in score_sets if has_permission(requester, score_set, Action.READ).permitted]
-
+    # Target related counters
     target_category_counter: Counter[str] = Counter()
     target_name_counter: Counter[str] = Counter()
     target_organism_name_counter: Counter[str] = Counter()
     target_accession_counter: Counter[str] = Counter()
+    # Publication related counters
+    publication_author_name_counter: Counter[str] = Counter()
+    publication_db_name_counter: Counter[str] = Counter()
+    publication_journal_counter: Counter[str] = Counter()
+
+    # --- PERFORMANCE NOTE ---
+    # The following counter construction loop is a bottleneck for large score set queries.
+    # Practical future optimizations might include:
+    #   - Batch permission checks and attribute access outside the loop if possible
+    #   - Use parallelization (e.g., multiprocessing or concurrent.futures) for large datasets
+    #   - Pre-fetch or denormalize target/publication data in the DB query
+    #   - Profile and refactor nested attribute lookups to minimize Python overhead
     for score_set in score_sets:
+        # Check read permission for each score set, skip if no permission
+        if not has_permission(requester, score_set, Action.READ).permitted:
+            continue
+
+        # Target related options
         for target in getattr(score_set, "target_genes", []):
             category = getattr(target, "category", None)
             if category:
@@ -340,10 +355,7 @@ def fetch_score_set_search_filter_options(
             if accession:
                 target_accession_counter[accession] += 1
 
-    publication_author_name_counter: Counter[str] = Counter()
-    publication_db_name_counter: Counter[str] = Counter()
-    publication_journal_counter: Counter[str] = Counter()
-    for score_set in score_sets:
+        # Publication related options
         for publication_association in getattr(score_set, "publication_identifier_associations", []):
             publication = getattr(publication_association, "publication", None)
 
