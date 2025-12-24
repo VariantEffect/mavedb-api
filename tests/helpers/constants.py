@@ -1561,8 +1561,8 @@ TEST_PATHOGENICITY_SCORE_CALIBRATION = {
         TEST_FUNCTIONAL_RANGE_ABNORMAL,
     ],
     "threshold_sources": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
-    "classification_sources": None,
-    "method_sources": None,
+    "classification_sources": [],
+    "method_sources": [],
     "calibration_metadata": {},
 }
 
@@ -1578,8 +1578,8 @@ TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION = {
         TEST_SAVED_FUNCTIONAL_RANGE_ABNORMAL,
     ],
     "thresholdSources": [SAVED_PUBMED_PUBLICATION],
-    "classificationSources": None,
-    "methodSources": None,
+    "classificationSources": [],
+    "methodSources": [],
     "id": 2,
     "investigatorProvided": True,
     "primary": False,

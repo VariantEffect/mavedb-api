@@ -231,6 +231,8 @@ def main(db: Session, archive_path: str, dataset_map: str, overwrite: bool) -> N
                 score_set_urn=score_set.urn,
                 calibration_metadata={"prior_probability_pathogenicity": calibration_data.get("prior", None)},
                 method_sources=[ZEIBERG_CALIBRATION_CITATION],
+                threshold_sources=[],
+                classification_sources=[],
             )
 
             new_calibration_object = asyncio.run(
