@@ -84,6 +84,7 @@ import click
 from sqlalchemy.orm import Session
 
 from mavedb.lib.score_calibrations import create_score_calibration_in_score_set
+from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassifcationOptions
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
@@ -214,7 +215,9 @@ def main(db: Session, archive_path: str, dataset_map: str, overwrite: bool) -> N
 
                 functional_range = score_calibration.FunctionalClassificationCreate(
                     label=f"{ps_or_bs} {strength_label} ({points})",
-                    classification="abnormal" if points > 0 else "normal",
+                    classification=FunctionalClassifcationOptions.abnormal
+                    if points > 0
+                    else FunctionalClassifcationOptions.normal,
                     range=range_data,
                     acmg_classification=acmg_classification.ACMGClassificationCreate(
                         points=int(points),

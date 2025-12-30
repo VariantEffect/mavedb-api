@@ -92,7 +92,7 @@ import asyncio
 import csv
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import click
 from sqlalchemy.orm import Session
@@ -101,6 +101,7 @@ from mavedb.lib.acmg import ACMGCriterion, StrengthOfEvidenceProvided
 from mavedb.lib.oddspaths import oddspaths_evidence_strength_equivalent
 from mavedb.lib.score_calibrations import create_score_calibration_in_score_set
 from mavedb.models import score_calibration
+from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassifcationOptions
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.scripts.environment import with_database_session
@@ -152,23 +153,21 @@ def parse_interval(text: str) -> Tuple[Optional[float], Optional[float], bool, b
     return lower, upper, inclusive_lower, inclusive_upper
 
 
-def normalize_classification(
-    raw: Optional[str], strength: Optional[str]
-) -> Literal["normal", "abnormal", "not_specified"]:
+def normalize_classification(raw: Optional[str], strength: Optional[str]) -> FunctionalClassifcationOptions:
     if raw:
         r = raw.strip().lower()
         if r in {"normal", "abnormal", "not_specified"}:
-            return r  # type: ignore[return-value]
+            return FunctionalClassifcationOptions[r]
         if r in {"indeterminate", "uncertain", "unknown"}:
-            return "not_specified"
+            return FunctionalClassifcationOptions.not_specified
 
     if strength:
         if strength.upper().startswith("PS"):
-            return "abnormal"
+            return FunctionalClassifcationOptions.abnormal
         if strength.upper().startswith("BS"):
-            return "normal"
+            return FunctionalClassifcationOptions.normal
 
-    return "not_specified"
+    return FunctionalClassifcationOptions.not_specified
 
 
 def build_publications(

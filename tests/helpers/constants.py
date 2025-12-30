@@ -2,6 +2,7 @@ from datetime import date, datetime
 
 from humps import camelize
 
+from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassificationOptions
 from mavedb.models.enums.processing_state import ProcessingState
 
 VALID_EXPERIMENT_SET_URN = "urn:mavedb:01234567"
@@ -1411,7 +1412,7 @@ TEST_PS3_STRONG_ODDS_PATH_RATIO = 18.7
 TEST_FUNCTIONAL_RANGE_NORMAL = {
     "label": "test normal functional range",
     "description": "A normal functional range",
-    "functional_classification": "normal",
+    "functional_classification": FunctionalClassificationOptions.normal.value,
     "range": [1.0, 5.0],
     "acmg_classification": TEST_ACMG_BS3_STRONG_CLASSIFICATION,
     "oddspaths_ratio": TEST_BS3_STRONG_ODDS_PATH_RATIO,
@@ -1431,7 +1432,7 @@ TEST_SAVED_FUNCTIONAL_RANGE_NORMAL = {
 TEST_FUNCTIONAL_RANGE_ABNORMAL = {
     "label": "test abnormal functional range",
     "description": "An abnormal functional range",
-    "functional_classification": "abnormal",
+    "functional_classification": FunctionalClassificationOptions.abnormal.value,
     "range": [-5.0, -1.0],
     "acmg_classification": TEST_ACMG_PS3_STRONG_CLASSIFICATION,
     "oddspaths_ratio": TEST_PS3_STRONG_ODDS_PATH_RATIO,
@@ -1450,7 +1451,7 @@ TEST_SAVED_FUNCTIONAL_RANGE_ABNORMAL = {
 
 TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED = {
     "label": "test not specified functional range",
-    "functional_classification": "not_specified",
+    "functional_classification": FunctionalClassificationOptions.not_specified.value,
     "range": [-1.0, 1.0],
     "inclusive_lower_bound": True,
     "inclusive_upper_bound": False,
@@ -1467,7 +1468,7 @@ TEST_SAVED_FUNCTIONAL_RANGE_NOT_SPECIFIED = {
 TEST_FUNCTIONAL_CLASSIFICATION_NORMAL = {
     "label": "test normal functional class",
     "description": "A normal functional class",
-    "functional_classification": "normal",
+    "functional_classification": FunctionalClassificationOptions.normal.value,
     "class": "normal_class",
     "acmg_classification": TEST_ACMG_BS3_STRONG_CLASSIFICATION,
     "oddspaths_ratio": TEST_BS3_STRONG_ODDS_PATH_RATIO,
@@ -1485,7 +1486,7 @@ TEST_SAVED_FUNCTIONAL_CLASSIFICATION_NORMAL = {
 TEST_FUNCTIONAL_CLASSIFICATION_ABNORMAL = {
     "label": "test abnormal functional class",
     "description": "An abnormal functional class",
-    "functional_classification": "abnormal",
+    "functional_classification": FunctionalClassificationOptions.abnormal.value,
     "class": "abnormal_class",
     "acmg_classification": TEST_ACMG_PS3_STRONG_CLASSIFICATION,
     "oddspaths_ratio": TEST_PS3_STRONG_ODDS_PATH_RATIO,
@@ -1502,7 +1503,7 @@ TEST_SAVED_FUNCTIONAL_CLASSIFICATION_ABNORMAL = {
 
 TEST_FUNCTIONAL_CLASSIFICATION_NOT_SPECIFIED = {
     "label": "test not specified functional class",
-    "functional_classification": "not_specified",
+    "functional_classification": FunctionalClassificationOptions.not_specified.value,
     "class": "not_specified_class",
 }
 
@@ -1517,7 +1518,7 @@ TEST_SAVED_FUNCTIONAL_CLASSIFICATION_NOT_SPECIFIED = {
 TEST_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY = {
     "label": "test functional range including negative infinity",
     "description": "A functional range including negative infinity",
-    "functional_classification": "not_specified",
+    "functional_classification": FunctionalClassificationOptions.not_specified.value,
     "range": [None, 0.0],
     "inclusive_lower_bound": False,
     "inclusive_upper_bound": False,
@@ -1533,7 +1534,7 @@ TEST_SAVED_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY = {
 TEST_FUNCTIONAL_RANGE_INCLUDING_POSITIVE_INFINITY = {
     "label": "test functional range including positive infinity",
     "description": "A functional range including positive infinity",
-    "functional_classification": "not_specified",
+    "functional_classification": FunctionalClassificationOptions.not_specified.value,
     "range": [0.0, None],
     "inclusive_lower_bound": False,
     "inclusive_upper_bound": False,

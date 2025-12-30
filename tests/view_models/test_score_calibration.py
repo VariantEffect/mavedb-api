@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from mavedb.lib.acmg import ACMGCriterion
+from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassificationOptions
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
 from mavedb.view_models.score_calibration import (
     FunctionalClassificationCreate,
@@ -182,7 +183,7 @@ def test_is_contained_by_range():
     fr = FunctionalClassificationCreate.model_validate(
         {
             "label": "test range",
-            "functional_classification": "abnormal",
+            "functional_classification": FunctionalClassificationOptions.abnormal,
             "range": (0.0, 1.0),
             "inclusive_lower_bound": True,
             "inclusive_upper_bound": True,
@@ -205,7 +206,7 @@ def test_inclusive_bounds_get_default_when_unset_and_range_exists():
     fr = FunctionalClassificationCreate.model_validate(
         {
             "label": "test range",
-            "functional_classification": "abnormal",
+            "functional_classification": FunctionalClassificationOptions.abnormal,
             "range": (0.0, 1.0),
         }
     )
@@ -218,7 +219,7 @@ def test_inclusive_bounds_remain_none_when_range_is_none():
     fr = FunctionalClassificationCreate.model_validate(
         {
             "label": "test range",
-            "functional_classification": "abnormal",
+            "functional_classification": FunctionalClassificationOptions.abnormal,
             "class": "some_class",
         }
     )
@@ -245,7 +246,7 @@ def test_inclusive_bounds_remain_none_when_range_is_none():
 def test_cant_set_inclusive_bounds_when_range_is_none(bound_property, bound_value, match_text):
     invalid_data = {
         "label": "test range",
-        "functional_classification": "abnormal",
+        "functional_classification": FunctionalClassificationOptions.abnormal,
         "class": "some_class",
         bound_property: bound_value,
     }
@@ -373,7 +374,9 @@ def test_can_create_score_calibration_when_unclassified_ranges_overlap_with_clas
     # Make the first two ranges overlap, one being 'not_specified'
     valid_data["functional_classifications"][0]["range"] = [1.5, 3.0]
     valid_data["functional_classifications"][1]["range"] = [2.0, 4.0]
-    valid_data["functional_classifications"][0]["functional_classification"] = "not_specified"
+    valid_data["functional_classifications"][0]["functional_classification"] = (
+        FunctionalClassificationOptions.not_specified
+    )
     sc = ScoreCalibrationCreate.model_validate(valid_data)
     assert len(sc.functional_classifications) == len(valid_data["functional_classifications"])
 
@@ -383,8 +386,12 @@ def test_can_create_score_calibration_when_unclassified_ranges_overlap_with_each
     # Make the first two ranges overlap, both being 'not_specified'
     valid_data["functional_classifications"][0]["range"] = [1.5, 3.0]
     valid_data["functional_classifications"][1]["range"] = [2.0, 4.0]
-    valid_data["functional_classifications"][0]["functional_classification"] = "not_specified"
-    valid_data["functional_classifications"][1]["functional_classification"] = "not_specified"
+    valid_data["functional_classifications"][0]["functional_classification"] = (
+        FunctionalClassificationOptions.not_specified
+    )
+    valid_data["functional_classifications"][1]["functional_classification"] = (
+        FunctionalClassificationOptions.not_specified
+    )
     sc = ScoreCalibrationCreate.model_validate(valid_data)
     assert len(sc.functional_classifications) == len(valid_data["functional_classifications"])
 
@@ -616,7 +623,11 @@ def test_cannot_create_score_calibration_with_mixed_range_and_class_based_functi
     invalid_data = deepcopy(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     # Add a class-based functional classification to a range-based calibration
     invalid_data["functional_classifications"].append(
-        {"label": "class based classification", "functional_classification": "abnormal", "class": "some_class"}
+        {
+            "label": "class based classification",
+            "functional_classification": FunctionalClassificationOptions.abnormal,
+            "class": "some_class",
+        }
     )
 
     with pytest.raises(
