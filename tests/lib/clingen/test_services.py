@@ -332,7 +332,7 @@ class TestClinGenAlleleRegistryService:
 
 
 def test_get_allele_registry_associations_success():
-    content_submissions = ["NM_0001:c.1A>G", "NM_0002:c.2T>C"]
+    content_submissions = ["NM_0001:c.1A>G", "NM_0002:c.2T>C", "NM_0003:c.3G>A"]
     submission_response = [
         {
             "@id": "http://reg.test.genome.network/allele/CA123",
@@ -344,9 +344,15 @@ def test_get_allele_registry_associations_success():
             "genomicAlleles": [],
             "transcriptAlleles": [{"hgvs": "NM_0002:c.2T>C"}],
         },
+        {
+            "@id": "http://reg.test.genome.network/allele/CA789",
+            "genomicAlleles": [],
+            "transcriptAlleles": [],
+            "aminoAcidAlleles": [{"hgvs": "NM_0003:c.3G>A"}],
+        },
     ]
     result = get_allele_registry_associations(content_submissions, submission_response)
-    assert result == {"NM_0001:c.1A>G": "CA123", "NM_0002:c.2T>C": "CA456"}
+    assert result == {"NM_0001:c.1A>G": "CA123", "NM_0002:c.2T>C": "CA456", "NM_0003:c.3G>A": "CA789"}
 
 
 def test_get_allele_registry_associations_empty():

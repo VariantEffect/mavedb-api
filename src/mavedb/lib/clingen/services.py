@@ -369,7 +369,11 @@ def get_allele_registry_associations(
 
         # Extract the CAID from the URL (e.g., "http://reg.test.genome.network/allele/CA2513066" -> "CA2513066")
         caid = registration["@id"].split("/")[-1]
-        alleles = registration.get("genomicAlleles", []) + registration.get("transcriptAlleles", [])
+        alleles = (
+            registration.get("genomicAlleles", [])
+            + registration.get("transcriptAlleles", [])
+            + registration.get("aminoAcidAlleles", [])
+        )
 
         for allele in alleles:
             for hgvs_string in content_submissions:
