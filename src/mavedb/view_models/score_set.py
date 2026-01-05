@@ -109,7 +109,7 @@ class ScoreSetModify(ScoreSetModifyBase):
                         "Target sequence labels cannot be empty when multiple targets are defined.",
                         custom_loc=[
                             "body",
-                            "targetGene",
+                            "targetGenes",
                             idx,
                             "targetSequence",
                             "label",
@@ -134,7 +134,7 @@ class ScoreSetModify(ScoreSetModifyBase):
                     "Target sequence labels cannot be duplicated.",
                     custom_loc=[
                         "body",
-                        "targetGene",
+                        "targetGenes",
                         dup_indices[-1],
                         "targetSequence",
                         "label",
@@ -161,7 +161,7 @@ class ScoreSetModify(ScoreSetModifyBase):
                     "All target accessions must be of the same base editor type.",
                     custom_loc=[
                         "body",
-                        "targetGene",
+                        "targetGenes",
                         0,
                         "targetAccession",
                         "isBaseEditor",
