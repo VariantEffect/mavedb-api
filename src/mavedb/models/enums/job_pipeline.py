@@ -8,10 +8,11 @@ from enum import Enum
 class JobStatus(str, Enum):
     """Status of a job execution."""
 
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
+    SUCCEEDED = "succeeded"
     FAILED = "failed"
+    PENDING = "pending"
+    QUEUED = "queued"
+    RUNNING = "running"
     CANCELLED = "cancelled"
     SKIPPED = "skipped"
 
@@ -19,11 +20,13 @@ class JobStatus(str, Enum):
 class PipelineStatus(str, Enum):
     """Status of a pipeline execution."""
 
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
     CREATED = "created"
     RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    PAUSED = "paused"
     CANCELLED = "cancelled"
+    PARTIAL = "partial"  # Pipeline completed with mixed results (some succeeded, some skipped/cancelled)
 
 
 class DependencyType(str, Enum):
@@ -42,6 +45,11 @@ class FailureCategory(str, Enum):
     RESOURCE_EXHAUSTION = "resource_exhaustion"
     CONFIGURATION_ERROR = "configuration_error"
     DEPENDENCY_FAILURE = "dependency_failure"
+
+    # Queue and scheduling failures
+    ENQUEUE_ERROR = "enqueue_error"
+    SCHEDULING_ERROR = "scheduling_error"
+    CANCELLED = "cancelled"
 
     # Data and validation failures
     VALIDATION_ERROR = "validation_error"

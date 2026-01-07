@@ -55,15 +55,7 @@ def save_to_logging_context(ctx: dict) -> dict:
         return {}
 
     for k, v in ctx.items():
-        # Don't overwrite existing context mappings but create a list if a duplicated key is added.
-        if k in context:
-            existing_ctx = context[k]
-            if isinstance(existing_ctx, list):
-                context[k].append(v)
-            else:
-                context[k] = [existing_ctx, v]
-        else:
-            context[k] = v
+        context[k] = v
 
     return context.data
 
