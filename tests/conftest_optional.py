@@ -1,9 +1,10 @@
 import os
+import shutil
+import tempfile
 from concurrent import futures
 from inspect import getsourcefile
 from posixpath import abspath
-import shutil
-import tempfile
+from unittest.mock import patch
 
 import cdot.hgvs.dataproviders
 import pytest
@@ -12,15 +13,13 @@ from arq.worker import Worker
 from biocommons.seqrepo import SeqRepo
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
-from unittest.mock import patch
 
+from mavedb.deps import get_db, get_seqrepo, get_worker, hgvs_data_provider
 from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.authorization import require_current_user
 from mavedb.models.user import User
 from mavedb.server_main import app
-from mavedb.deps import get_db, get_worker, hgvs_data_provider, get_seqrepo
-from mavedb.worker.settings import BACKGROUND_FUNCTIONS, BACKGROUND_CRONJOBS
-
+from mavedb.worker.jobs import BACKGROUND_CRONJOBS, BACKGROUND_FUNCTIONS
 from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_SEQREPO_INITIAL_STATE, TEST_USER
 
 ####################################################################################################
