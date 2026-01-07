@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mavedb.db.base import Base
@@ -22,6 +23,10 @@ class VariantAnnotationStatus(Base):
     Tracks annotation status for individual variants.
 
     Allows us to see which variants failed annotation and why.
+
+    NOTE: JSONB fields are automatically tracked as mutable objects in this class via MutableDict.
+          This tracker only works for top-level mutations. If you mutate nested objects, you must call
+          `flag_modified(instance, "metadata_")` to ensure changes are persisted.
     """
 
     __tablename__ = "variant_annotation_status"
@@ -49,7 +54,7 @@ class VariantAnnotationStatus(Base):
 
     # Success data (flexible JSONB for annotation results)
     success_data: Mapped[Optional[Dict[str, Any]]] = mapped_column(
-        JSONB, nullable=True, comment="Annotation results when successful"
+        MutableDict.as_mutable(JSONB), nullable=True, comment="Annotation results when successful"
     )
 
     # Current flag
@@ -60,8 +65,8 @@ class VariantAnnotationStatus(Base):
     )
 
     # Job tracking
-    job_run_id: Mapped[Optional[str]] = mapped_column(
-        String(255), ForeignKey("job_runs.id", ondelete="SET NULL"), nullable=True
+    job_run_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("job_runs.id", ondelete="SET NULL"), nullable=True
     )
 
     # Timestamps
@@ -82,6 +87,7 @@ class VariantAnnotationStatus(Base):
         Index("ix_variant_annotation_status_job_run_id", "job_run_id"),
         Index("ix_variant_annotation_status_created_at", "created_at"),
         # Composite index for common queries
+        Index("ix_variant_annotation_variant_type_status", "variant_id", "annotation_type", "status"),
         Index("ix_variant_annotation_type_status", "annotation_type", "status"),
         Index("ix_variant_annotation_status_current", "current"),
         Index("ix_variant_annotation_status_version", "version"),
