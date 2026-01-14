@@ -19,6 +19,7 @@ from mavedb.models.job_dependency import JobDependency
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
 from mavedb.worker.lib.managers.job_manager import JobManager
+from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
 
 
 @pytest.fixture
@@ -87,6 +88,20 @@ def sample_pipeline():
 
 
 @pytest.fixture
+def sample_empty_pipeline():
+    """Create a sample Pipeline instance with no jobs for testing."""
+    return Pipeline(
+        id=999,
+        urn="test:pipeline:999",
+        name="Empty Pipeline",
+        description="A pipeline with no jobs",
+        status=PipelineStatus.CREATED,
+        correlation_id="empty_correlation_456",
+        created_at=datetime.now(),
+    )
+
+
+@pytest.fixture
 def sample_job_dependency():
     """Create a sample JobDependency instance for testing."""
     return JobDependency(
@@ -102,12 +117,14 @@ def setup_worker_db(
     session,
     sample_job_run,
     sample_pipeline,
+    sample_empty_pipeline,
     sample_job_dependency,
     sample_dependent_job_run,
     sample_independent_job_run,
 ):
     """Set up the database with sample data for worker tests."""
     session.add(sample_pipeline)
+    session.add(sample_empty_pipeline)
     session.add(sample_job_run)
     session.add(sample_dependent_job_run)
     session.add(sample_independent_job_run)
@@ -140,7 +157,30 @@ def async_context():
 
 
 @pytest.fixture
-def mock_job_run():
+def mock_pipeline():
+    """Create a mock Pipeline instance. By default,
+    properties are identical to a default new Pipeline entered into the db
+    with sensible defaults for non-nullable but unset fields.
+    """
+    return Mock(
+        spec=Pipeline,
+        id=1,
+        urn="test:pipeline:1",
+        name="Test Pipeline",
+        description="A test pipeline",
+        status=PipelineStatus.CREATED,
+        correlation_id="test_correlation_123",
+        metadata_={},
+        created_at=datetime.now(),
+        started_at=None,
+        finished_at=None,
+        created_by_user_id=None,
+        mavedb_version=None,
+    )
+
+
+@pytest.fixture
+def mock_job_run(mock_pipeline):
     """Create a mock JobRun instance. By default,
     properties are identical to a default new JobRun entered into the db
     with sensible defaults for non-nullable but unset fields.
@@ -152,7 +192,7 @@ def mock_job_run():
         job_type="test_job",
         job_function="test_function",
         status=JobStatus.PENDING,
-        pipeline_id=None,
+        pipeline_id=mock_pipeline.id,
         priority=0,
         max_retries=3,
         retry_count=0,
@@ -188,4 +228,26 @@ def mock_job_manager(mock_job_run):
     manager.job_id = mock_job_run.id
 
     with patch.object(manager, "get_job", return_value=mock_job_run):
+        manager.job_id = 123
+
+    return manager
+
+
+@pytest.fixture
+def mock_pipeline_manager(mock_job_manager, mock_pipeline):
+    """Create a PipelineManager with mocked database, Redis dependencies, and job manager."""
+    mock_db = Mock(spec=Session)
+    mock_redis = Mock(spec=ArqRedis)
+
+    # Don't call the real constructor since it tries to validate the pipeline
+    manager = object.__new__(PipelineManager)
+    manager.db = mock_db
+    manager.redis = mock_redis
+    manager.pipeline_id = 123
+
+    with (
+        patch("mavedb.worker.lib.managers.pipeline_manager.JobManager") as mock_job_manager_class,
+        patch.object(manager, "get_pipeline", return_value=mock_pipeline),
+    ):
+        mock_job_manager_class.return_value = mock_job_manager
         yield manager

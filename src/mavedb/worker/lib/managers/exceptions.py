@@ -9,6 +9,33 @@ class ManagerError(Exception):
     pass
 
 
+## Pipeline Manager Exceptions
+
+
+class PipelineManagerError(ManagerError):
+    """Pipeline Manager specific errors."""
+
+    pass
+
+
+class PipelineCoordinationError(PipelineManagerError):
+    """Pipeline coordination failed - may be recoverable."""
+
+    pass
+
+
+class PipelineTransitionError(PipelineManagerError):
+    """Pipeline is in wrong state for requested operation."""
+
+    pass
+
+
+class PipelineStateError(PipelineManagerError):
+    """Critical pipeline state operations failed - database issues preventing state persistence."""
+
+    pass
+
+
 ## Job Manager Exceptions
 
 
