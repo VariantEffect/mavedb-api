@@ -1100,7 +1100,7 @@ def bulk_create_urns(n, score_set, reset_counter=False) -> list[str]:
     return child_urns
 
 
-def csv_data_to_df(file_data: BinaryIO) -> pd.DataFrame:
+def csv_data_to_df(file_data: BinaryIO, induce_hgvs_cols: bool = True) -> pd.DataFrame:
     extra_na_values = list(
         set(
             list(null_values_list)
@@ -1121,9 +1121,10 @@ def csv_data_to_df(file_data: BinaryIO) -> pd.DataFrame:
         dtype={**{col: str for col in HGVSColumns.options()}, "scores": float},
     )
 
-    for c in HGVSColumns.options():
-        if c not in ingested_df.columns:
-            ingested_df[c] = np.NaN
+    if induce_hgvs_cols:
+        for c in HGVSColumns.options():
+            if c not in ingested_df.columns:
+                ingested_df[c] = np.NaN
 
     return ingested_df
 

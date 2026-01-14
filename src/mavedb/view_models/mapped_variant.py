@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 from pydantic import model_validator
 
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
+
+if TYPE_CHECKING:
+    from mavedb.view_models.clinical_control import ClinicalControl, ClinicalControlBase, SavedClinicalControl
+    from mavedb.view_models.gnomad_variant import GnomADVariant, GnomADVariantBase, SavedGnomADVariant
 
 
 class MappedVariantBase(BaseModel):
@@ -94,12 +98,3 @@ class MappedVariantForClinicalControl(BaseModel):
             except AttributeError as exc:
                 raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
         return data
-
-
-# ruff: noqa: E402
-from mavedb.view_models.clinical_control import ClinicalControlBase, ClinicalControl, SavedClinicalControl
-from mavedb.view_models.gnomad_variant import GnomADVariantBase, GnomADVariant, SavedGnomADVariant
-
-MappedVariantUpdate.model_rebuild()
-SavedMappedVariantWithControls.model_rebuild()
-MappedVariantWithControls.model_rebuild()

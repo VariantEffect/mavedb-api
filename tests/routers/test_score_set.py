@@ -35,7 +35,8 @@ from tests.helpers.constants import (
     SAVED_PUBMED_PUBLICATION,
     SAVED_SHORT_EXTRA_LICENSE,
     TEST_BIORXIV_IDENTIFIER,
-    TEST_BRNICH_SCORE_CALIBRATION,
+    TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED,
+    TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_CROSSREF_IDENTIFIER,
     TEST_GNOMAD_DATA_VERSION,
     TEST_INACTIVE_LICENSE,
@@ -48,7 +49,7 @@ from tests.helpers.constants import (
     TEST_ORCID_ID,
     TEST_PATHOGENICITY_SCORE_CALIBRATION,
     TEST_PUBMED_IDENTIFIER,
-    TEST_SAVED_BRNICH_SCORE_CALIBRATION,
+    TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_SAVED_CLINVAR_CONTROL,
     TEST_SAVED_GENERIC_CLINICAL_CONTROL,
     TEST_SAVED_GNOMAD_VARIANT,
@@ -204,7 +205,7 @@ def test_create_score_set_with_score_calibration(client, mock_publication_fetch,
     score_set["experimentUrn"] = experiment["urn"]
     score_set.update(
         {
-            "scoreCalibrations": [deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)],
+            "scoreCalibrations": [deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)],
         }
     )
 
@@ -219,7 +220,7 @@ def test_create_score_set_with_score_calibration(client, mock_publication_fetch,
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
     expected_response["experiment"].update({"numScoreSets": 1})
-    expected_calibration = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION)
+    expected_calibration = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     expected_calibration["urn"] = response_data["scoreCalibrations"][0]["urn"]
     expected_calibration["private"] = True
     expected_calibration["primary"] = False
@@ -232,6 +233,34 @@ def test_create_score_set_with_score_calibration(client, mock_publication_fetch,
 
     response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
     assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        (
+            [
+                {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+                {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+            ]
+        )
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_score_set_with_class_based_calibration(client, mock_publication_fetch, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    score_set.update(
+        {
+            "scoreCalibrations": [deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED)],
+        }
+    )
+
+    response = client.post("/api/v1/score-sets/", json=score_set)
+    assert response.status_code == 409
+    response_data = response.json()
+    assert "Class-based calibrations are not supported on score set creation" in response_data["detail"]
 
 
 @pytest.mark.parametrize(
@@ -815,12 +844,12 @@ def test_extra_user_can_only_view_published_score_calibrations_in_score_set(
         worker_queue.assert_called_once()
 
     create_test_score_calibration_in_score_set_via_client(
-        client, published_score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, published_score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     public_calibration = create_publish_and_promote_score_calibration(
         client,
         published_score_set["urn"],
-        deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+        deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
     )
 
     with DependencyOverrider(extra_user_app_overrides):
@@ -848,12 +877,12 @@ def test_creating_user_can_view_all_score_calibrations_in_score_set(client, setu
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     private_calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     public_calibration = create_publish_and_promote_score_calibration(
         client,
         score_set["urn"],
-        deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+        deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
@@ -1346,7 +1375,7 @@ def test_score_calibrations_remain_private_when_score_set_is_published(
     )
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
@@ -3054,7 +3083,9 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     # The contents of the annotated variants objects should be tested in more detail elsewhere.
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
@@ -3141,7 +3172,9 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_vari
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
@@ -3181,7 +3214,9 @@ def test_get_annotated_functional_impact_statement_for_score_set(
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
     response_data = parse_ndjson_response(response)
@@ -3211,7 +3246,7 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_calib
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 
@@ -3270,7 +3305,9 @@ def test_get_annotated_functional_impact_statement_for_score_set_when_some_varia
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
@@ -3334,7 +3371,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 
@@ -3366,7 +3403,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_ranges_not_
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 
@@ -3421,7 +3458,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_some_varian
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 

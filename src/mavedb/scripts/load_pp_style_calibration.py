@@ -84,6 +84,7 @@ import click
 from sqlalchemy.orm import Session
 
 from mavedb.lib.score_calibrations import create_score_calibration_in_score_set
+from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassifcationOptions
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
@@ -183,7 +184,7 @@ def main(db: Session, archive_path: str, dataset_map: str, overwrite: bool) -> N
                     click.echo(f"      Overwriting existing '{calibration_name}' in Score Set {score_set.urn}")
 
             benign_has_lower_functional_scores = calibration_data.get("scoreset_flipped", False)
-            functional_ranges: List[score_calibration.FunctionalRangeCreate] = []
+            functional_classifications: List[score_calibration.FunctionalClassificationCreate] = []
             for points, range_data in calibration_data.get("point_ranges", {}).items():
                 if not range_data:
                     continue
@@ -212,9 +213,11 @@ def main(db: Session, archive_path: str, dataset_map: str, overwrite: bool) -> N
                     inclusive_lower = False
                     inclusive_upper = True if upper_bound is not None else False
 
-                functional_range = score_calibration.FunctionalRangeCreate(
+                functional_range = score_calibration.FunctionalClassificationCreate(
                     label=f"{ps_or_bs} {strength_label} ({points})",
-                    classification="abnormal" if points > 0 else "normal",
+                    classification=FunctionalClassifcationOptions.abnormal
+                    if points > 0
+                    else FunctionalClassifcationOptions.normal,
                     range=range_data,
                     acmg_classification=acmg_classification.ACMGClassificationCreate(
                         points=int(points),
@@ -222,11 +225,11 @@ def main(db: Session, archive_path: str, dataset_map: str, overwrite: bool) -> N
                     inclusive_lower_bound=inclusive_lower,
                     inclusive_upper_bound=inclusive_upper,
                 )
-                functional_ranges.append(functional_range)
+                functional_classifications.append(functional_range)
 
             score_calibration_create = score_calibration.ScoreCalibrationCreate(
                 title=calibration_name,
-                functional_ranges=functional_ranges,
+                functional_classifications=functional_classifications,
                 research_use_only=True,
                 score_set_urn=score_set.urn,
                 calibration_metadata={"prior_probability_pathogenicity": calibration_data.get("prior", None)},

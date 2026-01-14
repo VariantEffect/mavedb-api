@@ -5,8 +5,9 @@ from typing import Optional
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
 
+from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassificationOptions
 from mavedb.models.mapped_variant import MappedVariant
-from mavedb.view_models.score_calibration import FunctionalRange
+from mavedb.view_models.score_calibration import FunctionalClassification
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ def functional_classification_of_variant(
             " Unable to classify functional impact."
         )
 
-    if not primary_calibration.functional_ranges:
+    if not primary_calibration.functional_classifications:
         raise ValueError(
             f"Variant {mapped_variant.variant.urn} does not have ranges defined in its primary score calibration."
             " Unable to classify functional impact."
@@ -57,14 +58,14 @@ def functional_classification_of_variant(
             " Unable to classify functional impact."
         )
 
-    for functional_range in primary_calibration.functional_ranges:
+    for functional_range in primary_calibration.functional_classifications:
         # It's easier to reason with the view model objects for functional ranges than the JSONB fields in the raw database object.
-        functional_range_view = FunctionalRange.model_validate(functional_range)
+        functional_range_view = FunctionalClassification.model_validate(functional_range)
 
         if functional_range_view.is_contained_by_range(functional_score):
-            if functional_range_view.classification == "normal":
+            if functional_range_view.functional_classification is FunctionalClassificationOptions.normal:
                 return ExperimentalVariantFunctionalImpactClassification.NORMAL
-            elif functional_range_view.classification == "abnormal":
+            elif functional_range_view.functional_classification is FunctionalClassificationOptions.abnormal:
                 return ExperimentalVariantFunctionalImpactClassification.ABNORMAL
             else:
                 return ExperimentalVariantFunctionalImpactClassification.INDETERMINATE
@@ -96,7 +97,7 @@ def pathogenicity_classification_of_variant(
             " Unable to classify clinical impact."
         )
 
-    if not primary_calibration.functional_ranges:
+    if not primary_calibration.functional_classifications:
         raise ValueError(
             f"Variant {mapped_variant.variant.urn} does not have ranges defined in its primary score calibration."
             " Unable to classify clinical impact."
@@ -110,9 +111,9 @@ def pathogenicity_classification_of_variant(
             " Unable to classify clinical impact."
         )
 
-    for pathogenicity_range in primary_calibration.functional_ranges:
+    for pathogenicity_range in primary_calibration.functional_classifications:
         # It's easier to reason with the view model objects for functional ranges than the JSONB fields in the raw database object.
-        pathogenicity_range_view = FunctionalRange.model_validate(pathogenicity_range)
+        pathogenicity_range_view = FunctionalClassification.model_validate(pathogenicity_range)
 
         if pathogenicity_range_view.is_contained_by_range(functional_score):
             if pathogenicity_range_view.acmg_classification is None:
@@ -123,7 +124,7 @@ def pathogenicity_classification_of_variant(
             if (
                 pathogenicity_range_view.acmg_classification.evidence_strength is None
                 or pathogenicity_range_view.acmg_classification.criterion is None
-            ):  # pragma: no cover - enforced by model validators in FunctionalRange view model
+            ):  # pragma: no cover - enforced by model validators in FunctionalClassification view model
                 return (VariantPathogenicityEvidenceLine.Criterion.PS3, None)
 
             # TODO#540: Handle moderate+
@@ -139,7 +140,7 @@ def pathogenicity_classification_of_variant(
             if (
                 pathogenicity_range_view.acmg_classification.criterion.name
                 not in VariantPathogenicityEvidenceLine.Criterion._member_names_
-            ):  # pragma: no cover - enforced by model validators in FunctionalRange view model
+            ):  # pragma: no cover - enforced by model validators in FunctionalClassification view model
                 raise ValueError(
                     f"Variant {mapped_variant.variant.urn} is contained in a clinical calibration range with an invalid criterion."
                     " Unable to classify clinical impact."

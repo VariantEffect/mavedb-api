@@ -1551,7 +1551,20 @@ async def create_score_set(
     score_calibrations: list[ScoreCalibration] = []
     if item_create.score_calibrations:
         for calibration_create in item_create.score_calibrations:
-            created_calibration_item = await create_score_calibration(db, calibration_create, user_data.user)
+            # TODO#592: Support for class-based calibrations on score set creation
+            if calibration_create.class_based:
+                logger.info(
+                    msg="Failed to create score set; Class-based calibrations are not supported on score set creation.",
+                    extra=logging_context(),
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail="Class-based calibrations are not supported on score set creation. Please create class-based calibrations after creating the score set.",
+                )
+
+            created_calibration_item = await create_score_calibration(
+                db, calibration_create, user_data.user, variant_classes=None
+            )
             created_calibration_item.investigator_provided = True  # necessarily true on score set creation
             score_calibrations.append(created_calibration_item)
 

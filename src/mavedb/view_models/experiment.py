@@ -1,15 +1,15 @@
 from datetime import date
-from typing import Any, Collection, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Collection, Optional, Sequence
 
-from pydantic import field_validator, model_validator, ValidationInfo
+from pydantic import ValidationInfo, field_validator, model_validator
 
+from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.transform import (
     transform_experiment_set_to_urn,
-    transform_score_set_list_to_urn_list,
     transform_record_publication_identifiers,
+    transform_score_set_list_to_urn_list,
 )
-from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.utilities import is_null
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
@@ -35,6 +35,9 @@ from mavedb.view_models.raw_read_identifier import (
     SavedRawReadIdentifier,
 )
 from mavedb.view_models.user import SavedUser, User
+
+if TYPE_CHECKING:
+    from mavedb.view_models.score_set import ScoreSetPublicDump
 
 
 class OfficialCollection(BaseModel):
@@ -198,9 +201,3 @@ class AdminExperiment(Experiment):
 # Properties to include in a dump of all published data.
 class ExperimentPublicDump(SavedExperiment):
     score_sets: "Sequence[ScoreSetPublicDump]"
-
-
-# ruff: noqa: E402
-from mavedb.view_models.score_set import ScoreSetPublicDump
-
-ExperimentPublicDump.model_rebuild()

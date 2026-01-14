@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
-from typing import Any, Collection, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Collection, Optional, Sequence, Union
 
 from pydantic import field_validator, model_validator
 from typing_extensions import Self
@@ -45,6 +45,10 @@ from mavedb.view_models.target_gene import (
 )
 from mavedb.view_models.user import SavedUser, User
 from mavedb.view_models.utils import all_fields_optional_model
+
+if TYPE_CHECKING:
+    from mavedb.view_models.experiment import Experiment
+    from mavedb.view_models.variant import SavedVariantEffectMeasurement
 
 UnboundedRange = tuple[Union[float, None], Union[float, None]]
 
@@ -456,7 +460,7 @@ class ScoreSetWithVariants(ScoreSet):
     are requested.
     """
 
-    variants: list[SavedVariantEffectMeasurement]
+    variants: list["SavedVariantEffectMeasurement"]
 
 
 class AdminScoreSet(ScoreSet):
@@ -482,13 +486,3 @@ class ScoreSetPublicDump(SavedScoreSet):
     mapping_state: Optional[MappingState] = None
     mapping_errors: Optional[dict] = None
     score_calibrations: Optional[Sequence[ScoreCalibration]] = None  # type: ignore[assignment]
-
-
-# ruff: noqa: E402
-from mavedb.view_models.experiment import Experiment
-from mavedb.view_models.variant import SavedVariantEffectMeasurement
-
-ScoreSetWithVariants.model_rebuild()
-ShortScoreSet.model_rebuild()
-ScoreSet.model_rebuild()
-ScoreSetWithVariants.model_rebuild()

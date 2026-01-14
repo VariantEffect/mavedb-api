@@ -1,12 +1,15 @@
 from datetime import date
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import model_validator
 
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.view_models.mapped_variant import MappedVariant, SavedMappedVariant
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
+from mavedb.view_models.mapped_variant import MappedVariant, SavedMappedVariant
+
+if TYPE_CHECKING:
+    from mavedb.view_models.score_set import ScoreSet, ShortScoreSet
 
 
 class VariantEffectMeasurementBase(BaseModel):
@@ -106,10 +109,3 @@ class ClingenAlleleIdVariantLookupResponse(BaseModel):
     exact_match: Optional[Variant] = None
     equivalent_nt: list[Variant] = []
     equivalent_aa: list[Variant] = []
-
-
-# ruff: noqa: E402
-from mavedb.view_models.score_set import ScoreSet, ShortScoreSet
-
-VariantEffectMeasurementWithScoreSet.update_forward_refs()
-VariantEffectMeasurementWithShortScoreSet.update_forward_refs()
