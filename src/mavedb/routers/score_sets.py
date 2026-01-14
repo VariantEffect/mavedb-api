@@ -1704,21 +1704,22 @@ async def create_score_set(
                                 "description": "CSV file containing variant scores. This file is required, and should have at least one score column.",
                             },
                             "counts_file": {
-                                "type": "string | null",
+                                "type": "string",
                                 "format": "binary",
                                 "description": "CSV file containing variant counts. If provided, this file should have the same index and variant columns as the scores file.",
                             },
                             "score_columns_metadata": {
-                                "type": "string | null",
+                                "type": "string",
                                 "format": "binary",
                                 "description": "JSON file containing metadata for score columns. If provided, this file should have metadata for one or more score columns in the scores file. This JSON file should provide a dictionary mapping column names to metadata objects. Metadata objects should follow the DatasetColumnMetadata schema: `{'description': string, 'details': string}`.",
                             },
                             "count_columns_metadata": {
-                                "type": "string | null",
+                                "type": "string",
                                 "format": "binary",
                                 "description": "JSON file containing metadata for count columns. If provided, this file should have metadata for one or more count columns in the counts file. This JSON file should provide a dictionary mapping column names to metadata objects. Metadata objects should follow the DatasetColumnMetadata schema: `{'description': string, 'details': string}`.",
                             },
                         },
+                        "required": ["scores_file"],
                     }
                 },
             },
@@ -1806,22 +1807,22 @@ async def upload_score_set_variant_data(
                         "properties": {
                             **score_set.ScoreSetUpdateAllOptional.model_json_schema(by_alias=False)["properties"],
                             "scores_file": {
-                                "type": "string | null",
+                                "type": "string",
                                 "format": "binary",
                                 "description": "CSV file containing variant scores. If provided, this file should have at least one score column.",
                             },
                             "counts_file": {
-                                "type": "string | null",
+                                "type": "string",
                                 "format": "binary",
                                 "description": "CSV file containing variant counts. If provided, this file should have the same index and variant columns as the scores file.",
                             },
                             "score_columns_metadata": {
-                                "type": "string | null",
+                                "type": "string",
                                 "format": "binary",
                                 "description": "JSON file containing metadata for score columns. If provided, this file should have metadata for one or more score columns in the scores file. This JSON file should provide a dictionary mapping column names to metadata objects. Metadata objects should follow the DatasetColumnMetadata schema: `{'description': string, 'details': string}`.",
                             },
                             "count_columns_metadata": {
-                                "type": "string | null",
+                                "type": "string",
                                 "format": "binary",
                                 "description": "JSON file containing metadata for count columns. If provided, this file should have metadata for one or more count columns in the counts file. This JSON file should provide a dictionary mapping column names to metadata objects. Metadata objects should follow the DatasetColumnMetadata schema: `{'description': string, 'details': string}`.",
                             },
