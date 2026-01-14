@@ -1,7 +1,7 @@
 """
-Worker library modules for job management and coordination.
+Worker library modules for job management and pipeline coordination.
 """
 
-from .managers import JobManager
+from .managers import JobManager, PipelineManager
 
-__all__ = ["JobManager"]
+__all__ = ["JobManager", "PipelineManager"]
