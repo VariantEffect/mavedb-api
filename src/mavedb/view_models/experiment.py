@@ -13,6 +13,8 @@ from mavedb.lib.validation.transform import (
 from mavedb.lib.validation.utilities import is_null
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
+from mavedb.view_models.collection import OfficialCollection
+from mavedb.view_models.components.external_link import ExternalLink
 from mavedb.view_models.contributor import Contributor, ContributorCreate
 from mavedb.view_models.doi_identifier import (
     DoiIdentifier,
@@ -38,16 +40,6 @@ from mavedb.view_models.user import SavedUser, User
 
 if TYPE_CHECKING:
     from mavedb.view_models.score_set import ScoreSetPublicDump
-
-
-class OfficialCollection(BaseModel):
-    badge_name: str
-    name: str
-    urn: str
-
-    class Config:
-        arbitrary_types_allowed = True
-        from_attributes = True
 
 
 class ExperimentBase(BaseModel):
@@ -118,6 +110,7 @@ class SavedExperiment(ExperimentBase):
     contributors: list[Contributor]
     keywords: Sequence[SavedExperimentControlledKeyword]
     score_set_urns: list[str]
+    external_links: dict[str, ExternalLink]
 
     _record_type_factory = record_type_validator()(set_record_type)
 

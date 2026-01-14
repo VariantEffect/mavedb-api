@@ -19,6 +19,8 @@ from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
+from mavedb.view_models.collection import OfficialCollection
+from mavedb.view_models.components.external_link import ExternalLink
 from mavedb.view_models.contributor import Contributor, ContributorCreate
 from mavedb.view_models.doi_identifier import (
     DoiIdentifier,
@@ -51,20 +53,6 @@ if TYPE_CHECKING:
     from mavedb.view_models.variant import SavedVariantEffectMeasurement
 
 UnboundedRange = tuple[Union[float, None], Union[float, None]]
-
-
-class ExternalLink(BaseModel):
-    url: Optional[str] = None
-
-
-class OfficialCollection(BaseModel):
-    badge_name: str
-    name: str
-    urn: str
-
-    class Config:
-        arbitrary_types_allowed = True
-        from_attributes = True
 
 
 class ScoreSetBase(BaseModel):
@@ -113,7 +101,7 @@ class ScoreSetModify(ScoreSetModifyBase):
                         "Target sequence labels cannot be empty when multiple targets are defined.",
                         custom_loc=[
                             "body",
-                            "targetGene",
+                            "targetGenes",
                             idx,
                             "targetSequence",
                             "label",
@@ -138,7 +126,7 @@ class ScoreSetModify(ScoreSetModifyBase):
                     "Target sequence labels cannot be duplicated.",
                     custom_loc=[
                         "body",
-                        "targetGene",
+                        "targetGenes",
                         dup_indices[-1],
                         "targetSequence",
                         "label",
@@ -165,7 +153,7 @@ class ScoreSetModify(ScoreSetModifyBase):
                     "All target accessions must be of the same base editor type.",
                     custom_loc=[
                         "body",
-                        "targetGene",
+                        "targetGenes",
                         0,
                         "targetAccession",
                         "isBaseEditor",
