@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Any, Sequence, Optional
+from typing import Any, Optional, Sequence
 
 from pydantic import Field, model_validator
 
@@ -132,3 +132,14 @@ class Collection(SavedCollection):
 # NOTE: Coupled to ContributionRole enum
 class AdminCollection(Collection):
     pass
+
+
+# Properties to return for official collections
+class OfficialCollection(BaseModel):
+    badge_name: str
+    name: str
+    urn: str
+
+    class Config:
+        arbitrary_types_allowed = True
+        from_attributes = True

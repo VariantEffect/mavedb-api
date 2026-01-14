@@ -547,6 +547,7 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
     "rawReadIdentifiers": [],
+    "externalLinks": {},
     # keys to be set after receiving response
     "urn": None,
     "experimentSetUrn": None,
@@ -587,6 +588,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
     "rawReadIdentifiers": [],
+    "externalLinks": {},
     # keys to be set after receiving response
     "urn": None,
     "experimentSetUrn": None,
@@ -682,6 +684,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
     "rawReadIdentifiers": [],
+    "externalLinks": {},
     # keys to be set after receiving response
     "urn": None,
     "experimentSetUrn": None,
