@@ -1,10 +1,11 @@
-"""Manager classes and shared utilities for job coordination.
+"""Manager classes and shared utilities for job and pipeline coordination.
 
-This package provides managers for job lifecycle,along with shared constants, exceptions,
-and types used across the worker system.
+This package provides managers for job lifecycle and pipeline coordination,
+along with shared constants, exceptions, and types used across the worker system.
 
 Main Classes:
     JobManager: Individual job lifecycle management
+    PipelineManager: Pipeline coordination and dependency management
 
 Shared Utilities:
     Constants: Job statuses, timeouts, retry limits
@@ -12,7 +13,7 @@ Shared Utilities:
     Types: TypedDict definitions and common type hints
 
 Example Usage:
-    >>> from mavedb.worker.lib.managers import JobManager
+    >>> from mavedb.worker.lib.managers import JobManager, PipelineManager
     >>> from mavedb.worker.lib.managers import JobStateError, TERMINAL_JOB_STATUSES
     >>>
     >>> job_manager = JobManager(db, redis, job_id)
@@ -22,6 +23,8 @@ Example Usage:
     >>> job_manager.start_job()
     >>> job_manager.succeed_job({"output": "success"})
     >>>
+    >>> # Pipeline coordination
+    >>> await pipeline_manager.coordinate_after_completion(True)
 """
 
 # Main manager classes
@@ -40,6 +43,7 @@ from .exceptions import (
     JobTransitionError,
 )
 from .job_manager import JobManager
+from .pipeline_manager import PipelineManager
 
 # Type definitions
 from .types import JobResultData, RetryHistoryEntry
@@ -48,6 +52,7 @@ __all__ = [
     # Main classes
     "BaseManager",
     "JobManager",
+    "PipelineManager",
     # Constants
     "ACTIVE_JOB_STATUSES",
     "TERMINAL_JOB_STATUSES",
@@ -55,6 +60,7 @@ __all__ = [
     "DatabaseConnectionError",
     "JobStateError",
     "JobTransitionError",
+    "PipelineCoordinationError",
     # Types
     "JobResultData",
     "RetryHistoryEntry",
