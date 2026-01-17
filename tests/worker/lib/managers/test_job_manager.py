@@ -7,12 +7,13 @@ error handling, and database interactions.
 """
 
 import pytest
-from arq import ArqRedis
 
 pytest.importorskip("arq")
+
 import re
 from unittest.mock import Mock, PropertyMock, patch
 
+from arq import ArqRedis
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
