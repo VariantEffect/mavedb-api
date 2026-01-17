@@ -4,22 +4,24 @@
 Test configuration and fixtures for worker lib tests.
 """
 
-import pytest
-
-pytest.importorskip("arq")  # Skip tests if arq is not installed
-
 from datetime import datetime
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
-from arq import ArqRedis
-from sqlalchemy.orm import Session
+import pytest
 
 from mavedb.models.enums.job_pipeline import DependencyType, JobStatus, PipelineStatus
 from mavedb.models.job_dependency import JobDependency
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
+
+# Attempt to import optional top level fixtures. If the modules they depend on are not installed,
+# we won't have access to our full fixture suite and only a limited subset of tests can be run.
+try:
+    from .conftest_optional import *  # noqa: F401, F403
+
+except ModuleNotFoundError:
+    pass
 
 
 @pytest.fixture
@@ -213,39 +215,3 @@ def mock_job_run(mock_pipeline):
         metadata_={},
         mavedb_version=None,
     )
-
-
-@pytest.fixture
-def mock_job_manager(mock_job_run):
-    """Create a JobManager with mocked database and Redis dependencies."""
-    mock_db = Mock(spec=Session)
-    mock_redis = Mock(spec=ArqRedis)
-
-    # Don't call the real constructor since it tries to load the job from DB
-    manager = object.__new__(JobManager)
-    manager.db = mock_db
-    manager.redis = mock_redis
-    manager.job_id = mock_job_run.id
-
-    with patch.object(manager, "get_job", return_value=mock_job_run):
-        yield manager
-
-
-@pytest.fixture
-def mock_pipeline_manager(mock_job_manager, mock_pipeline):
-    """Create a PipelineManager with mocked database, Redis dependencies, and job manager."""
-    mock_db = Mock(spec=Session)
-    mock_redis = Mock(spec=ArqRedis)
-
-    # Don't call the real constructor since it tries to validate the pipeline
-    manager = object.__new__(PipelineManager)
-    manager.db = mock_db
-    manager.redis = mock_redis
-    manager.pipeline_id = 123
-
-    with (
-        patch("mavedb.worker.lib.managers.pipeline_manager.JobManager") as mock_job_manager_class,
-        patch.object(manager, "get_pipeline", return_value=mock_pipeline),
-    ):
-        mock_job_manager_class.return_value = mock_job_manager
-        yield manager
