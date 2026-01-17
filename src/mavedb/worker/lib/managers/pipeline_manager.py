@@ -174,7 +174,7 @@ class PipelineManager(BaseManager):
         status = self.get_pipeline_status()
 
         if status != PipelineStatus.CREATED:
-            logger.info(
+            logger.error(
                 f"Pipeline {self.pipeline_id} is in a non-created state (current status: {status}) and may not be started"
             )
             raise PipelineTransitionError(f"Pipeline {self.pipeline_id} is in state {status} and may not be started")
@@ -364,7 +364,7 @@ class PipelineManager(BaseManager):
         """
         current_status = self.get_pipeline_status()
         if current_status not in RUNNING_PIPELINE_STATUSES:
-            logger.debug(f"Pipeline {self.pipeline_id} is not running - skipping job enqueue")
+            logger.error(f"Pipeline {self.pipeline_id} is not running - skipping job enqueue")
             raise PipelineStateError(
                 f"Pipeline {self.pipeline_id} is in status {current_status} and cannot enqueue jobs"
             )
@@ -388,7 +388,7 @@ class PipelineManager(BaseManager):
                         "metadata": {"result": reason, "timestamp": datetime.now().isoformat()},
                     }
                 )
-                logger.info(f"Skipped job {job.urn} due to unmet dependencies: {reason}")
+                logger.info(f"Skipped job {job.urn} due to unreachable dependencies: {reason}")
                 continue
 
         # Ensure enqueued jobs can view the status change and pipelines
@@ -462,7 +462,7 @@ class PipelineManager(BaseManager):
         current_status = self.get_pipeline_status()
 
         if current_status in TERMINAL_PIPELINE_STATUSES:
-            logger.info(f"Pipeline {self.pipeline_id} is already in terminal status {current_status}")
+            logger.error(f"Pipeline {self.pipeline_id} is already in terminal status {current_status}")
             raise PipelineTransitionError(
                 f"Pipeline {self.pipeline_id} is in terminal state {current_status} and may not be cancelled"
             )
@@ -497,13 +497,13 @@ class PipelineManager(BaseManager):
         current_status = self.get_pipeline_status()
 
         if current_status in TERMINAL_PIPELINE_STATUSES:
-            logger.info(f"Pipeline {self.pipeline_id} cannot be paused (current status: {current_status})")
+            logger.error(f"Pipeline {self.pipeline_id} cannot be paused (current status: {current_status})")
             raise PipelineTransitionError(
                 f"Pipeline {self.pipeline_id} is in terminal state {current_status} and may not be paused"
             )
 
         if current_status == PipelineStatus.PAUSED:
-            logger.info(f"Pipeline {self.pipeline_id} is already paused")
+            logger.error(f"Pipeline {self.pipeline_id} is already paused")
             raise PipelineTransitionError(f"Pipeline {self.pipeline_id} is already paused")
 
         self.set_pipeline_status(PipelineStatus.PAUSED)
@@ -536,7 +536,7 @@ class PipelineManager(BaseManager):
         current_status = self.get_pipeline_status()
 
         if current_status != PipelineStatus.PAUSED:
-            logger.info(
+            logger.error(
                 f"Pipeline {self.pipeline_id} is not paused (current status: {current_status}) and may not be unpaused"
             )
             raise PipelineTransitionError(
