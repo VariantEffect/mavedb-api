@@ -185,6 +185,7 @@ class JobManager(BaseManager):
         """
         job_run = self.get_job()
         if job_run.status not in STARTABLE_JOB_STATUSES:
+            logger.error(f"Invalid job start attempt for job {self.job_id} in status {job_run.status}")
             raise JobTransitionError(f"Cannot start job {self.job_id} from status {job_run.status}")
 
         try:
@@ -247,6 +248,7 @@ class JobManager(BaseManager):
         """
         # Validate terminal status
         if status not in TERMINAL_JOB_STATUSES:
+            logger.error(f"Invalid job completion status {status} for job {self.job_id}")
             raise JobTransitionError(
                 f"Cannot commplete job to status: {status}. Must complete to a terminal status: {TERMINAL_JOB_STATUSES}"
             )
@@ -463,6 +465,7 @@ class JobManager(BaseManager):
         """
         job_run = self.get_job()
         if job_run.status not in RETRYABLE_JOB_STATUSES:
+            logger.error(f"Invalid job retry attempt for job {self.job_id} in status {job_run.status}")
             raise JobTransitionError(f"Cannot retry job {self.job_id} due to invalid state ({job_run.status})")
 
         try:
@@ -508,6 +511,7 @@ class JobManager(BaseManager):
         """
         job_run = self.get_job()
         if job_run.status != JobStatus.PENDING:
+            logger.error(f"Invalid job queue attempt for job {self.job_id} in status {job_run.status}")
             raise JobTransitionError(f"Cannot queue job {self.job_id} from status {job_run.status}")
 
         try:
