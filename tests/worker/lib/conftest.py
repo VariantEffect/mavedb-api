@@ -228,9 +228,7 @@ def mock_job_manager(mock_job_run):
     manager.job_id = mock_job_run.id
 
     with patch.object(manager, "get_job", return_value=mock_job_run):
-        manager.job_id = 123
-
-    return manager
+        yield manager
 
 
 @pytest.fixture
