@@ -34,7 +34,7 @@ Error Handling:
 import logging
 import traceback
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from arq import ArqRedis
 from sqlalchemy import select
@@ -42,6 +42,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
+from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.managers.base_manager import BaseManager
@@ -131,6 +132,8 @@ class JobManager(BaseManager):
         worker thread and should not be shared across concurrent operations.
     """
 
+    context: dict[str, Any] = {}
+
     def __init__(self, db: Session, redis: ArqRedis, job_id: int):
         """Initialize JobManager for a specific job.
 
@@ -159,6 +162,19 @@ class JobManager(BaseManager):
         job = self.get_job()
         self.pipeline_id = job.pipeline_id if job else None
 
+        self.save_to_context(
+            {"job_id": str(self.job_id), "pipeline_id": str(self.pipeline_id) if self.pipeline_id else None}
+        )
+
+    def save_to_context(self, ctx: dict) -> dict[str, Any]:
+        for k, v in ctx.items():
+            self.context[k] = v
+
+        return self.context
+
+    def logging_context(self) -> dict[str, Any]:
+        return self.context
+
     def start_job(self) -> None:
         """Mark job as started and initialize execution tracking. This method does
         not flush or commit the database session; the caller is responsible for persisting changes.
@@ -185,7 +201,10 @@ class JobManager(BaseManager):
         """
         job_run = self.get_job()
         if job_run.status not in STARTABLE_JOB_STATUSES:
-            logger.error(f"Invalid job start attempt for job {self.job_id} in status {job_run.status}")
+            self.save_to_context({"job_status": str(job_run.status)})
+            logger.error(
+                "Invalid job start attempt: status not in STARTABLE_JOB_STATUSES", extra=self.logging_context()
+            )
             raise JobTransitionError(f"Cannot start job {self.job_id} from status {job_run.status}")
 
         try:
@@ -193,10 +212,12 @@ class JobManager(BaseManager):
             job_run.started_at = datetime.now()
             job_run.progress_message = "Job began execution"
         except (AttributeError, TypeError, KeyError, ValueError) as e:
-            logger.debug(f"Failed to update job start state for job {self.job_id}: {e}")
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug("Encountered an unexpected error while updating job start state", extra=self.logging_context())
             raise JobStateError(f"Failed to update job start state: {e}")
 
-        logger.info(f"Job {self.job_id} marked as started")
+        self.save_to_context({"job_status": str(job_run.status)})
+        logger.info("Job marked as started", extra=self.logging_context())
 
     def complete_job(self, status: JobStatus, result: JobResultData, error: Optional[Exception] = None) -> None:
         """Mark job as completed with the specified final status. This method does
@@ -248,7 +269,8 @@ class JobManager(BaseManager):
         """
         # Validate terminal status
         if status not in TERMINAL_JOB_STATUSES:
-            logger.error(f"Invalid job completion status {status} for job {self.job_id}")
+            self.save_to_context({"job_status": str(status)})
+            logger.error("Invalid job completion status: not in TERMINAL_JOB_STATUSES", extra=self.logging_context())
             raise JobTransitionError(
                 f"Cannot commplete job to status: {status}. Must complete to a terminal status: {TERMINAL_JOB_STATUSES}"
             )
@@ -275,11 +297,17 @@ class JobManager(BaseManager):
                 # TODO: Classify failure category based on error type
                 job_run.failure_category = FailureCategory.UNKNOWN
 
+                self.save_to_context({"failure_category": str(job_run.failure_category)})
+
         except (AttributeError, TypeError, KeyError, ValueError) as e:
-            logger.debug(f"Failed to update job completion state for job {self.job_id}: {e}")
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug(
+                "Encountered an unexpected error while updating job completion state", extra=self.logging_context()
+            )
             raise JobStateError(f"Failed to update job completion state: {e}")
 
-        logger.info(f"Job {self.job_id} marked as {status.value}")
+        self.save_to_context({"job_status": str(job_run.status)})
+        logger.info("Job marked as completed", extra=self.logging_context())
 
     def fail_job(self, error: Exception, result: JobResultData) -> None:
         """Mark job as failed and record error details. This method does
@@ -305,7 +333,7 @@ class JobManager(BaseManager):
             >>> try:
             ...     validate_data(input_data)
             ... except ValidationError as e:
-            ...     manager.fail_job(error=e)
+            ...     manager.fail_job(error=e, result={})
 
             Failure with partial results:
             >>> try:
@@ -465,7 +493,8 @@ class JobManager(BaseManager):
         """
         job_run = self.get_job()
         if job_run.status not in RETRYABLE_JOB_STATUSES:
-            logger.error(f"Invalid job retry attempt for job {self.job_id} in status {job_run.status}")
+            self.save_to_context({"job_status": str(job_run.status)})
+            logger.error("Invalid job retry status: status not in RETRYABLE_JOB_STATUSES", extra=self.logging_context())
             raise JobTransitionError(f"Cannot retry job {self.job_id} due to invalid state ({job_run.status})")
 
         try:
@@ -493,10 +522,12 @@ class JobManager(BaseManager):
             flag_modified(job_run, "metadata_")
 
         except (AttributeError, TypeError, KeyError, ValueError) as e:
-            logger.debug(f"Failed to update job retry state for job {self.job_id}: {e}")
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug("Encountered an unexpected error while updating job retry state", extra=self.logging_context())
             raise JobStateError(f"Failed to update job retry state: {e}")
 
-        logger.info(f"Job {self.job_id} successfully prepared for retry (attempt {job_run.retry_count})")
+        self.save_to_context({"job_status": str(job_run.status), "retry_attempt": job_run.retry_count})
+        logger.info("Job successfully prepared for retry", extra=self.logging_context())
 
     def prepare_queue(self) -> None:
         """Prepare job for enqueueing by setting QUEUED status. This method does
@@ -511,17 +542,20 @@ class JobManager(BaseManager):
         """
         job_run = self.get_job()
         if job_run.status != JobStatus.PENDING:
-            logger.error(f"Invalid job queue attempt for job {self.job_id} in status {job_run.status}")
+            self.save_to_context({"job_status": str(job_run.status)})
+            logger.error("Invalid job queue attempt: status not PENDING", extra=self.logging_context())
             raise JobTransitionError(f"Cannot queue job {self.job_id} from status {job_run.status}")
 
         try:
             job_run.status = JobStatus.QUEUED
             job_run.progress_message = "Job queued for execution"
         except (AttributeError, TypeError, KeyError, ValueError) as e:
-            logger.debug(f"Failed to prepare job {self.job_id} for queueing: {e}")
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug("Encountered an unexpected error while updating job queue state", extra=self.logging_context())
             raise JobStateError(f"Failed to update job queue state: {e}")
 
-        logger.debug(f"Job {self.job_id} prepared for queueing")
+        self.save_to_context({"job_status": str(job_run.status)})
+        logger.debug("Job successfully prepared for queueing", extra=self.logging_context())
 
     def reset_job(self) -> None:
         """Reset job to initial state for re-execution. This method does
@@ -562,10 +596,12 @@ class JobManager(BaseManager):
             job_run.metadata_ = {}
 
         except (AttributeError, TypeError, KeyError, ValueError) as e:
-            logger.debug(f"Failed to update job reset state for job {self.job_id}: {e}")
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug("Encountered an unexpected error while resetting job state", extra=self.logging_context())
             raise JobStateError(f"Failed to reset job state: {e}")
 
-        logger.info(f"Job {self.job_id} successfully reset to initial state")
+        self.save_to_context({"job_status": str(job_run.status), "retry_attempt": job_run.retry_count})
+        logger.info("Job successfully reset to initial state", extra=self.logging_context())
 
     def update_progress(self, current: int, total: int = 100, message: Optional[str] = None) -> None:
         """Update job progress information during execution. This method does
@@ -617,10 +653,14 @@ class JobManager(BaseManager):
                 job_run.progress_message = message
 
         except (AttributeError, TypeError, KeyError, ValueError) as e:
-            logger.debug(f"Failed to update job progress for job {self.job_id}: {e}")
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug("Encountered an unexpected error while updating job progress", extra=self.logging_context())
             raise JobStateError(f"Failed to update job progress state: {e}")
 
-        logger.debug(f"Updated progress for job {self.job_id}: {current}/{total}")
+        self.save_to_context(
+            {"job_progress_current": current, "job_progress_total": total, "job_progress_message": message}
+        )
+        logger.debug("Updated progress successfully for job", extra=self.logging_context())
 
     def update_status_message(self, message: str) -> None:
         """Update job status message without changing progress. This method does
@@ -646,10 +686,14 @@ class JobManager(BaseManager):
         try:
             job_run.progress_message = message
         except (AttributeError, TypeError, KeyError, ValueError) as e:
-            logger.debug(f"Failed to update job status message for job {self.job_id}: {e}")
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug(
+                "Encountered an unexpected error while updating job status message", extra=self.logging_context()
+            )
             raise JobStateError(f"Failed to update job status message state: {e}")
 
-        logger.debug(f"Updated status message for job {self.job_id}: {message}")
+        self.save_to_context({"job_progress_message": message})
+        logger.debug("Updated status message successfully for job", extra=self.logging_context())
 
     def increment_progress(self, amount: int = 1, message: Optional[str] = None) -> None:
         """Increment job progress by a specified amount. This method does
@@ -685,10 +729,20 @@ class JobManager(BaseManager):
             if message:
                 job_run.progress_message = message
         except (AttributeError, TypeError, KeyError, ValueError) as e:
-            logger.debug(f"Failed to increment job progress for job {self.job_id}: {e}")
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug(
+                "Encountered an unexpected error while incrementing job progress", extra=self.logging_context()
+            )
             raise JobStateError(f"Failed to increment job progress state: {e}")
 
-        logger.debug(f"Incremented progress for job {self.job_id} by {amount} to {job_run.progress_current}")
+        self.save_to_context(
+            {
+                "job_progress_current": current,
+                "job_progress_total": job_run.progress_total,
+                "job_progress_message": message or "",
+            }
+        )
+        logger.debug("Incremented progress successfully for job", extra=self.logging_context())
 
     def set_progress_total(self, total: int, message: Optional[str] = None) -> None:
         """Update the total progress value, useful when total becomes known during execution. This method does
@@ -717,10 +771,14 @@ class JobManager(BaseManager):
             if message:
                 job_run.progress_message = message
         except (AttributeError, TypeError, KeyError, ValueError) as e:
-            logger.debug(f"Failed to update job progress total for job {self.job_id}: {e}")
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug(
+                "Encountered an unexpected error while updating job progress total", extra=self.logging_context()
+            )
             raise JobStateError(f"Failed to update job progress total state: {e}")
 
-        logger.debug(f"Updated progress total for job {self.job_id} to {total}")
+        self.save_to_context({"job_progress_total": total, "job_progress_message": message})
+        logger.debug("Updated progress total successfully for job", extra=self.logging_context())
 
     def is_cancelled(self) -> bool:
         """Check if job has been cancelled or should stop execution. This method does
@@ -770,29 +828,37 @@ class JobManager(BaseManager):
         """
         job_run = self.get_job()
         try:
+            self.save_to_context(
+                {
+                    "job_retry_count": job_run.retry_count,
+                    "job_max_retries": job_run.max_retries,
+                    "job_failure_category": str(job_run.failure_category) if job_run.failure_category else None,
+                    "job_status": str(job_run.status),
+                }
+            )
+
             # Check if job is in FAILED state
             if job_run.status != JobStatus.FAILED:
-                logger.debug(f"Job {self.job_id} not in FAILED state ({job_run.status}), cannot retry")
+                logger.debug("Job cannot be retried: not in FAILED state", extra=self.logging_context())
                 return False
 
             # Check retry count
             current_retries = job_run.retry_count or 0
             if current_retries >= job_run.max_retries:
-                logger.debug(f"Job {self.job_id} has reached max retries ({current_retries}/{job_run.max_retries})")
+                logger.debug("Job cannot be retried: max retries reached", extra=self.logging_context())
                 return False
 
             # Check if failure category is retryable
-            if job_run.failure_category in RETRYABLE_FAILURE_CATEGORIES:
-                logger.debug(
-                    f"Job {self.job_id} error {job_run.failure_category} is retryable ({current_retries}/{job_run.max_retries})"
-                )
-                return True
+            if job_run.failure_category not in RETRYABLE_FAILURE_CATEGORIES:
+                logger.debug("Job cannot be retried: failure category not retryable", extra=self.logging_context())
+                return False
 
-            logger.debug(f"Job {self.job_id} error {job_run.failure_category} is not retryable")
-            return False
+            logger.debug("Job is retryable", extra=self.logging_context())
+            return True
 
         except (AttributeError, TypeError, KeyError, ValueError) as e:
-            logger.debug(f"Failed to check retry eligibility for job {self.job_id}: {e}")
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug("Unexpected error checking retry eligibility", extra=self.logging_context())
             raise JobStateError(f"Failed to check retry eligibility state: {e}")
 
     def get_job_status(self) -> JobStatus:  # pragma: no cover
@@ -840,5 +906,6 @@ class JobManager(BaseManager):
         try:
             return self.db.execute(select(JobRun).where(JobRun.id == self.job_id)).scalar_one()
         except SQLAlchemyError as e:
-            logger.debug(f"SQL query failed getting job info for {self.job_id}: {e}")
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug("Unexpected error fetching job info", extra=self.logging_context())
             raise DatabaseConnectionError(f"Failed to fetch job {self.job_id}: {e}")
