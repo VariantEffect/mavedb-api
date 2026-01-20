@@ -1,10 +1,16 @@
-from typing import TypedDict
+from typing import Optional, TypedDict
+
+
+class ExceptionDetails(TypedDict):
+    type: str
+    message: str
+    traceback: Optional[str]
 
 
 class JobResultData(TypedDict):
-    output: dict
-    logs: str
-    metadata: dict
+    status: str
+    data: dict
+    exception_details: Optional[ExceptionDetails]
 
 
 class RetryHistoryEntry(TypedDict):
