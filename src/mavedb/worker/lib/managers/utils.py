@@ -26,12 +26,12 @@ def construct_bulk_cancellation_result(reason: str) -> JobResultData:
         JobResultData: Standardized result data with cancellation metadata
     """
     return {
-        "output": {},
-        "logs": "",
-        "metadata": {
+        "status": "cancelled",
+        "data": {
             "reason": reason,
             "timestamp": datetime.now().isoformat(),
         },
+        "exception_details": None,
     }
 
 

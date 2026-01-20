@@ -42,3 +42,16 @@ def mock_pipeline_manager(mock_job_manager, mock_pipeline):
     ):
         mock_job_manager_class.return_value = mock_job_manager
         yield manager
+
+
+@pytest.fixture
+def mock_worker_ctx():
+    """Create a mock worker context dictionary for testing."""
+    mock_db = Mock(spec=Session)
+    mock_redis = Mock(spec=ArqRedis)
+
+    return {
+        "db": mock_db,
+        "redis": mock_redis,
+        "hdp": Mock(),  # Mock HDP data provider
+    }
