@@ -13,7 +13,6 @@ from mavedb.models.enums.job_pipeline import DependencyType, JobStatus, Pipeline
 from mavedb.models.job_dependency import JobDependency
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
-from mavedb.worker.lib.managers.job_manager import JobManager
 
 # Attempt to import optional top level fixtures. If the modules they depend on are not installed,
 # we won't have access to our full fixture suite and only a limited subset of tests can be run.
@@ -132,30 +131,6 @@ def setup_worker_db(
     session.add(sample_independent_job_run)
     session.add(sample_job_dependency)
     session.commit()
-
-
-@pytest.fixture
-def job_manager_with_mocks(session, sample_job_run, sample_pipeline):
-    """Create a JobManager instance with mocked dependencies."""
-    # Add test data to session
-    session.add(sample_job_run)
-    session.add(sample_pipeline)
-    session.commit()
-
-    # Create JobManager instance
-    manager = JobManager(session, sample_job_run.id)
-    return manager
-
-
-@pytest.fixture
-def async_context():
-    """Create a mock async context similar to ARQ worker context."""
-    return {
-        "db": None,  # Will be set by specific tests
-        "redis": None,  # Will be set by specific tests
-        "job_id": 1,
-        "state": {},
-    }
 
 
 @pytest.fixture
