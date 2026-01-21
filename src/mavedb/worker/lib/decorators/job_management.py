@@ -167,18 +167,20 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobResultData]], ar
                 return result
 
         except Exception as inner_e:
-            logger.error(f"Failed to mark job {job_id} as failed: {inner_e}")
+            logger.critical(f"Failed to mark job {job_id} as failed: {inner_e}")
 
             # TODO: Notification hooks
 
             # Re-raise the outer exception immediately to prevent duplicate notifications
-            raise e
+        finally:
+            logger.error(f"Job {job_id} failed: {e}")
 
-        logger.error(f"Job {job_id} failed: {e}")
+            # TODO: Notification hooks
 
-        # TODO: Notification hooks
-
-        raise  # Re-raise the exception
+            # Swallow the exception after alerting so ARQ can finish the job cleanly and log results.
+            # We don't mind that we lose ARQs built in job marking, since we perform our own job
+            # lifecycle management via with_job_management.
+            return result
 
 
 # Export decorator at module level for easy import

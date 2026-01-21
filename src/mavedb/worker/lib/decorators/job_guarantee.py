@@ -6,6 +6,12 @@ function in the database before execution begins. It is designed to be stacked b
 decorators (such as with_job_management) to provide a consistent audit trail and robust error handling
 for all job entrypoints, including cron-triggered jobs.
 
+NOTE
+- This decorator must be applied before any job management decorators.
+- This decorator is not supported as part of pipeline management; stacking it
+  with pipeline management decorators is not allowed and it should only be used with
+  standalone jobs.
+
 Features:
 - Persists JobRun with job_type, function name, and parameters
 - Integrates cleanly with managed job and pipeline decorators
