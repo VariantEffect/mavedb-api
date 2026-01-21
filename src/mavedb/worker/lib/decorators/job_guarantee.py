@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from mavedb import __version__
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.models.job_run import JobRun
+from mavedb.worker.lib.decorators.utils import is_test_mode
 from mavedb.worker.lib.managers.types import JobResultData
 
 F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
