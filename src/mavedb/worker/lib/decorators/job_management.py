@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable, TypeVar, cast
 from arq import ArqRedis
 from sqlalchemy.orm import Session
 
+from mavedb.worker.lib.decorators.utils import is_test_mode
 from mavedb.worker.lib.managers import JobManager
 from mavedb.worker.lib.managers.types import JobResultData
 
@@ -62,6 +63,10 @@ def with_job_management(func: F) -> F:
 
     @functools.wraps(func)
     async def async_wrapper(*args, **kwargs):
+        # No-op in test mode
+        if is_test_mode():
+            return await func(*args, **kwargs)
+
         return await _execute_managed_job(func, args, kwargs)
 
     return cast(F, async_wrapper)
