@@ -4,9 +4,13 @@ Unit and integration tests for the with_guaranteed_job_run_record async decorato
 Covers JobRun creation, status transitions, error handling, and DB persistence.
 """
 
+import pytest
+
+pytest.importorskip("arq")  # Skip tests if arq is not installed
+
+import os
 from unittest.mock import MagicMock, patch
 
-import pytest
 from sqlalchemy import select
 
 from mavedb import __version__
@@ -16,14 +20,31 @@ from mavedb.worker.lib.decorators.job_guarantee import with_guaranteed_job_run_r
 from tests.helpers.transaction_spy import TransactionSpy
 
 
+# Unset test mode flag before each test to ensure decorator logic is executed
+# during unit testing of the decorator itself.
+@pytest.fixture(autouse=True)
+def unset_test_mode_flag():
+    os.environ.pop("MAVEDB_TEST_MODE", None)
+
+
+@with_guaranteed_job_run_record("test_job")
+async def sample_job(ctx: dict, job_id: int):
+    """Sample job function to test the decorator.
+
+    NOTE: The job_id parameter is injected by the decorator
+          and is not passed explicitly when calling the function.
+
+    Args:
+        ctx (dict): Worker context dictionary.
+        job_id (int): ID of the JobRun record created by the decorator.
+    """
+    return {"status": "ok"}
+
+
 @pytest.mark.asyncio
 @pytest.mark.unit
 class TestJobGuaranteeDecoratorUnit:
     async def test_decorator_must_receive_ctx_as_first_argument(self, mock_worker_ctx):
-        @with_guaranteed_job_run_record("test_job")
-        async def sample_job(not_ctx: dict):
-            return {"status": "ok"}
-
         with pytest.raises(ValueError) as exc_info:
             await sample_job()
 
@@ -32,38 +53,24 @@ class TestJobGuaranteeDecoratorUnit:
     async def test_decorator_must_receive_db_in_ctx(self, mock_worker_ctx):
         del mock_worker_ctx["db"]
 
-        @with_guaranteed_job_run_record("test_job")
-        async def sample_job(not_ctx: dict):
-            return {"status": "ok"}
-
         with pytest.raises(ValueError) as exc_info:
             await sample_job(mock_worker_ctx)
 
         assert "DB session not found in job context" in str(exc_info.value)
 
     async def test_decorator_calls_wrapped_function(self, mock_worker_ctx):
-        @with_guaranteed_job_run_record("test_job")
-        async def sample_job(ctx: dict):
-            return {"status": "ok"}
-
         with patch("mavedb.worker.lib.decorators.job_guarantee.JobRun") as MockJobRunClass:
             MockJobRunClass.return_value = MagicMock(spec=JobRun)
-
             result = await sample_job(mock_worker_ctx)
 
         assert result == {"status": "ok"}
 
     async def test_decorator_creates_job_run(self, mock_worker_ctx, mock_job_run):
-        @with_guaranteed_job_run_record("test_job")
-        async def sample_job(ctx: dict):
-            return {"status": "ok"}
-
         with (
             TransactionSpy.spy(mock_worker_ctx["db"], expect_commit=True),
             patch("mavedb.worker.lib.decorators.job_guarantee.JobRun") as mock_job_run_class,
         ):
             mock_job_run_class.return_value = MagicMock(spec=JobRun)
-
             await sample_job(mock_worker_ctx)
 
         mock_job_run_class.assert_called_with(
@@ -79,10 +86,6 @@ class TestJobGuaranteeDecoratorUnit:
 @pytest.mark.integration
 class TestJobGuaranteeDecoratorIntegration:
     async def test_decorator_persists_job_run_record(self, session, standalone_worker_context):
-        @with_guaranteed_job_run_record("integration_job")
-        async def sample_job(ctx: dict):
-            return {"status": "ok"}
-
         # Flush called implicitly by commit
         with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
             job_task = await sample_job(standalone_worker_context)
@@ -91,6 +94,6 @@ class TestJobGuaranteeDecoratorIntegration:
 
         job_run = session.execute(select(JobRun).order_by(JobRun.id.desc())).scalars().first()
         assert job_run.status == JobStatus.PENDING
-        assert job_run.job_type == "integration_job"
+        assert job_run.job_type == "test_job"
         assert job_run.job_function == "sample_job"
         assert job_run.mavedb_version is not None
