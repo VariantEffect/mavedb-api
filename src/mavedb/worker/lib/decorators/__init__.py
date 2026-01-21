@@ -21,7 +21,8 @@ Example usage::
         ...
 """
 
+from .job_guarantee import with_guaranteed_job_run_record
 from .job_management import with_job_management
 from .pipeline_management import with_pipeline_management
 
-__all__ = ["with_job_management", "with_pipeline_management"]
+__all__ = ["with_job_management", "with_pipeline_management", "with_guaranteed_job_run_record"]
