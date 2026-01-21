@@ -159,34 +159,32 @@ async def _execute_managed_pipeline(func: Callable[..., Awaitable[JobResultData]
                 db_session.commit()
 
         except Exception as inner_e:
-            logger.error(
+            logger.critical(
                 f"Unable to perform cleanup coordination on pipeline {pipeline_id} associated with job {job_id} after error: {inner_e}"
             )
 
             # No further work here. We can rely on the notification hooks below to alert on the original failure
             # and should allow result generation to proceed as normal so the job can be logged.
+        finally:
+            logger.error(f"Pipeline {pipeline_id} associated with job {job_id} failed to coordinate: {e}")
 
-        logger.error(f"Pipeline {pipeline_id} associated with job {job_id} failed to coordinate: {e}")
+            # Build job result data for failure
+            result = {
+                "status": "failed",
+                "data": {},
+                "exception_details": {
+                    "type": type(e).__name__,
+                    "message": str(e),
+                    "traceback": None,  # Could be populated with actual traceback if needed
+                },
+            }
 
-        # Build job result data for failure
-        result = {
-            "status": "failed",
-            "data": {},
-            "exception_details": {
-                "type": type(e).__name__,
-                "message": str(e),
-                "traceback": None,  # Could be populated with actual traceback if needed
-            },
-        }
+            # TODO: Notification hooks
 
-        # TODO: Notification hooks
-
-        # Pipeline coordination represents the outermost operation. Swallow the exception after alerting
-        # so ARQ can finish the job cleanly and log results. We don't mind that we lose ARQs built in
-        # job marking, since we perform our own job lifecycle management via with_job_management.
-        return result
-
-    # Note: No finally block needed - PipelineManager handles cleanup automatically
+            # Swallow the exception after alerting so ARQ can finish the job cleanly and log results.
+            # We don't mind that we lose ARQs built in job marking, since we perform our own job
+            # lifecycle management via with_job_management.
+            return result
 
 
 # Export decorator at module level for easy import
