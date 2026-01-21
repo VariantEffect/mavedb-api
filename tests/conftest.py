@@ -1,4 +1,5 @@
 import logging  # noqa: F401
+import os
 import sys
 from datetime import datetime
 from unittest import mock
@@ -336,3 +337,13 @@ def mock_publication_fetch(request, requests_mock):
         mocked_publications.append(publication_to_mock)
     # Return a single dict (original behavior) if only one was provided; otherwise the list.
     return mocked_publications[0] if len(mocked_publications) == 1 else mocked_publications
+
+
+# Automatically set MAVEDB_TEST_MODE=1 for unit tests, unset for integration tests.
+@pytest.fixture(autouse=True)
+def set_mavedb_test_mode_flag(request):
+    # If 'unit' marker is present, set the flag; otherwise, unset it.
+    if request.node.get_closest_marker("unit"):
+        os.environ["MAVEDB_TEST_MODE"] = "1"
+    else:
+        os.environ.pop("MAVEDB_TEST_MODE", None)
