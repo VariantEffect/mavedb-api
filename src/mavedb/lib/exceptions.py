@@ -168,6 +168,12 @@ class NonexistentMappingResultsError(ValueError):
     pass
 
 
+class NonexistentMappingScoresError(ValueError):
+    """Raised when score set mapping results do not contain mapping scores"""
+
+    pass
+
+
 class NonexistentMappingReferenceError(ValueError):
     """Raised when score set mapping results do not contain a valid reference sequence"""
 
