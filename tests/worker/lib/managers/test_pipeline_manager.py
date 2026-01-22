@@ -52,7 +52,7 @@ HANDLED_EXCEPTIONS_DURING_OBJECT_MANIPULATION = (
 class TestPipelineManagerInitialization:
     """Test PipelineManager initialization and setup."""
 
-    def test_init_with_valid_pipeline(self, session, arq_redis, setup_worker_db, sample_pipeline):
+    def test_init_with_valid_pipeline(self, session, arq_redis, with_populated_job_data, sample_pipeline):
         """Test successful initialization with valid pipeline ID."""
         manager = PipelineManager(session, arq_redis, sample_pipeline.id)
 
@@ -66,7 +66,7 @@ class TestPipelineManagerInitialization:
         with pytest.raises(DatabaseConnectionError, match=f"Failed to get pipeline {pipeline_id}"):
             PipelineManager(session, arq_redis, pipeline_id)
 
-    def test_init_with_database_error(self, session, arq_redis, setup_worker_db, sample_pipeline):
+    def test_init_with_database_error(self, session, arq_redis, with_populated_job_data, sample_pipeline):
         """Test initialization failure with database connection error."""
         pipeline_id = sample_pipeline.id
 
@@ -132,7 +132,7 @@ class TestStartPipelineIntegration:
 
     @pytest.mark.asyncio
     async def test_start_pipeline_successful(
-        self, session, arq_redis, setup_worker_db, sample_pipeline, sample_job_run
+        self, session, arq_redis, with_populated_job_data, sample_pipeline, sample_job_run
     ):
         """Test successful pipeline start from CREATED state."""
         manager = PipelineManager(session, arq_redis, sample_pipeline.id)
@@ -156,7 +156,7 @@ class TestStartPipelineIntegration:
         assert jobs[0].function == sample_job_run.job_function
 
     @pytest.mark.asyncio
-    async def test_start_pipeline_no_jobs(self, session, arq_redis, setup_worker_db, sample_empty_pipeline):
+    async def test_start_pipeline_no_jobs(self, session, arq_redis, with_populated_job_data, sample_empty_pipeline):
         """Test pipeline start when there are no jobs in the pipeline."""
         manager = PipelineManager(session, arq_redis, sample_empty_pipeline.id)
 
@@ -259,7 +259,7 @@ class TestCoordinatePipelineIntegration:
 
     @pytest.mark.asyncio
     async def test_coordinate_pipeline_transitions_pipeline_to_failed_after_job_failure(
-        self, session, arq_redis, setup_worker_db, sample_pipeline, sample_job_run, sample_dependent_job_run
+        self, session, arq_redis, with_populated_job_data, sample_pipeline, sample_job_run, sample_dependent_job_run
     ):
         """Test successful pipeline coordination and job enqueuing after job completion."""
         manager = PipelineManager(session, arq_redis, sample_pipeline.id)
@@ -292,7 +292,7 @@ class TestCoordinatePipelineIntegration:
 
     @pytest.mark.asyncio
     async def test_coordinate_pipeline_transitions_pipeline_to_cancelled_after_pipeline_is_cancelled(
-        self, session, arq_redis, setup_worker_db, sample_pipeline, sample_job_run, sample_dependent_job_run
+        self, session, arq_redis, with_populated_job_data, sample_pipeline, sample_job_run, sample_dependent_job_run
     ):
         """Test successful pipeline coordination and job enqueuing after pipeline cancellation  ."""
         manager = PipelineManager(session, arq_redis, sample_pipeline.id)
@@ -329,7 +329,7 @@ class TestCoordinatePipelineIntegration:
 
     @pytest.mark.asyncio
     async def test_coordinate_running_pipeline_enqueues_ready_jobs(
-        self, session, arq_redis, setup_worker_db, sample_pipeline, sample_job_run, sample_dependent_job_run
+        self, session, arq_redis, with_populated_job_data, sample_pipeline, sample_job_run, sample_dependent_job_run
     ):
         """Test successful pipeline coordination and job enqueuing when jobs are still pending."""
         manager = PipelineManager(session, arq_redis, sample_pipeline.id)
@@ -366,7 +366,7 @@ class TestCoordinatePipelineIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -594,7 +594,7 @@ class TestTransitionPipelineStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         initial_status,
     ):
@@ -619,7 +619,7 @@ class TestTransitionPipelineStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
     ):
         """Test that pipeline status remains unchanged when in PAUSED state."""
@@ -653,7 +653,7 @@ class TestTransitionPipelineStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         initial_status,
         expected_status,
         sample_empty_pipeline,
@@ -705,7 +705,7 @@ class TestTransitionPipelineStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         initial_status,
         job_updates,
@@ -842,7 +842,7 @@ class TestEnqueueReadyJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -878,7 +878,7 @@ class TestEnqueueReadyJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -911,7 +911,7 @@ class TestEnqueueReadyJobsIntegration:
 
     @pytest.mark.asyncio
     async def test_enqueue_ready_jobs_with_empty_pipeline(
-        self, session, arq_redis, setup_worker_db, sample_empty_pipeline
+        self, session, arq_redis, with_populated_job_data, sample_empty_pipeline
     ):
         """Test enqueuing of ready jobs in an empty pipeline."""
         manager = PipelineManager(session, arq_redis, sample_empty_pipeline.id)
@@ -935,7 +935,7 @@ class TestEnqueueReadyJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
     ):
@@ -1044,7 +1044,7 @@ class TestCancelRemainingJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -1077,7 +1077,7 @@ class TestCancelRemainingJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_empty_pipeline,
     ):
         """Test cancellation of remaining jobs when there are no active jobs."""
@@ -1152,7 +1152,7 @@ class TestCancelPipelineIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -1193,7 +1193,7 @@ class TestCancelPipelineIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
     ):
@@ -1308,7 +1308,7 @@ class TestPausePipelineIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
     ):
         """Test successful pausing of a pipeline."""
@@ -1379,7 +1379,7 @@ class TestUnpausePipelineIntegration:
 
     @pytest.mark.asyncio
     async def test_unpause_pipeline_integration(
-        self, session, arq_redis, setup_worker_db, sample_pipeline, sample_job_run, sample_dependent_job_run
+        self, session, arq_redis, with_populated_job_data, sample_pipeline, sample_job_run, sample_dependent_job_run
     ):
         """Test successful unpausing of a pipeline."""
         manager = PipelineManager(session, arq_redis, sample_pipeline.id)
@@ -1460,7 +1460,7 @@ class TestRestartPipelineIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -1497,7 +1497,7 @@ class TestRestartPipelineIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_empty_pipeline,
     ):
         """Test that restarting a pipeline with no jobs skips without error."""
@@ -1615,7 +1615,7 @@ class TestCanEnqueueJobIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
     ):
@@ -1633,7 +1633,7 @@ class TestCanEnqueueJobIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_dependent_job_run,
     ):
@@ -1651,7 +1651,7 @@ class TestCanEnqueueJobIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -1781,7 +1781,7 @@ class TestShouldSkipJobDueToDependenciesIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
     ):
@@ -1800,7 +1800,7 @@ class TestShouldSkipJobDueToDependenciesIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -1824,7 +1824,7 @@ class TestShouldSkipJobDueToDependenciesIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -1906,7 +1906,7 @@ class TestRetryFailedJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -1947,7 +1947,7 @@ class TestRetryFailedJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_empty_pipeline,
     ):
         """Test that retrying failed jobs skips if there are no failed jobs."""
@@ -2030,7 +2030,7 @@ class TestRetryUnsuccessfulJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2071,7 +2071,7 @@ class TestRetryUnsuccessfulJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_empty_pipeline,
     ):
         """Test that retrying unsuccessful jobs skips if there are no unsuccessful jobs."""
@@ -2122,7 +2122,7 @@ class TestRetryPipelineIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2185,7 +2185,7 @@ class TestGetJobsByStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2211,7 +2211,7 @@ class TestGetJobsByStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
     ):
         """Test retrieval of jobs by status when no jobs match."""
@@ -2228,7 +2228,7 @@ class TestGetJobsByStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2255,7 +2255,7 @@ class TestGetJobsByStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_empty_pipeline,
     ):
         """Test retrieval of jobs by status when there are no jobs in the pipeline."""
@@ -2272,7 +2272,7 @@ class TestGetJobsByStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2326,7 +2326,7 @@ class TestGetPendingJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2351,7 +2351,7 @@ class TestGetPendingJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2410,7 +2410,7 @@ class TestGetActiveJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2437,7 +2437,7 @@ class TestGetActiveJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2466,7 +2466,7 @@ class TestGetRunningJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2491,7 +2491,7 @@ class TestGetRunningJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2536,7 +2536,7 @@ class TestGetFailedJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2561,7 +2561,7 @@ class TestGetFailedJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2605,7 +2605,7 @@ class TestGetUnsuccessfulJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2632,7 +2632,7 @@ class TestGetUnsuccessfulJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2676,7 +2676,7 @@ class TestGetAllJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2698,7 +2698,7 @@ class TestGetAllJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_empty_pipeline,
     ):
         """Test retrieval of all jobs when there are no jobs in the pipeline."""
@@ -2715,7 +2715,7 @@ class TestGetAllJobsIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2774,7 +2774,7 @@ class TestGetDependenciesForJobIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2797,7 +2797,7 @@ class TestGetDependenciesForJobIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
     ):
@@ -2815,7 +2815,7 @@ class TestGetDependenciesForJobIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2886,7 +2886,7 @@ class TestGetPipelineIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
     ):
         """Test retrieval of pipeline."""
@@ -2904,7 +2904,7 @@ class TestGetPipelineIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
     ):
         """Test retrieval of a nonexistent pipeline raises PipelineNotFoundError."""
         with (
@@ -2938,7 +2938,7 @@ class TestGetJobCountsByStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -2964,7 +2964,7 @@ class TestGetJobCountsByStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_empty_pipeline,
     ):
         """Test retrieval of job counts by status when there are no jobs in the pipeline."""
@@ -3018,7 +3018,7 @@ class TestGetPipelineStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
     ):
         """Test retrieval of pipeline status."""
@@ -3139,7 +3139,7 @@ class TestSetPipelineStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         pipeline_status,
     ):
@@ -3166,7 +3166,7 @@ class TestSetPipelineStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         pipeline_status,
     ):
@@ -3193,7 +3193,7 @@ class TestSetPipelineStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
     ):
         """Test that setting status to CREATED clears the started_at property."""
@@ -3218,7 +3218,7 @@ class TestSetPipelineStatusIntegration:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         initial_started_at,
     ):
@@ -3296,7 +3296,7 @@ class TestEnqueueInArqIntegration:
         self,
         session,
         arq_redis: ArqRedis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
     ):
@@ -3322,7 +3322,7 @@ class TestPipelineManagerLifecycle:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
     ):
@@ -3430,7 +3430,7 @@ class TestPipelineManagerLifecycle:
 
     @pytest.mark.asyncio
     async def test_paused_pipeline_lifecycle(
-        self, session, arq_redis, setup_worker_db, sample_pipeline, sample_job_run, sample_dependent_job_run
+        self, session, arq_redis, with_populated_job_data, sample_pipeline, sample_job_run, sample_dependent_job_run
     ):
         """Test lifecycle of a paused pipeline."""
         manager = PipelineManager(session, arq_redis, sample_pipeline.id)
@@ -3530,7 +3530,7 @@ class TestPipelineManagerLifecycle:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
         sample_dependent_job_run,
@@ -3586,7 +3586,7 @@ class TestPipelineManagerLifecycle:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
     ):
@@ -3653,7 +3653,7 @@ class TestPipelineManagerLifecycle:
         self,
         session,
         arq_redis,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         sample_job_run,
     ):
