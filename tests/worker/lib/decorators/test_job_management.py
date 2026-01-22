@@ -207,7 +207,7 @@ class TestManagedJobDecoratorIntegration:
     """Integration tests for with_job_management decorator."""
 
     async def test_decorator_integrated_job_lifecycle_success(
-        self, session, arq_redis, sample_job_run, standalone_worker_context, setup_worker_db
+        self, session, arq_redis, sample_job_run, standalone_worker_context, with_populated_job_data
     ):
         # Use an event to control when the job completes
         event = asyncio.Event()
@@ -234,7 +234,7 @@ class TestManagedJobDecoratorIntegration:
         assert job.status == JobStatus.SUCCEEDED
 
     async def test_decorator_integrated_job_lifecycle_failure(
-        self, session, arq_redis, sample_job_run, standalone_worker_context, setup_worker_db
+        self, session, arq_redis, sample_job_run, standalone_worker_context, with_populated_job_data
     ):
         # Use an event to control when the job completes
         event = asyncio.Event()
@@ -263,7 +263,7 @@ class TestManagedJobDecoratorIntegration:
         assert job.error_message == "Simulated job failure"
 
     async def test_decorator_integrated_job_lifecycle_retry(
-        self, session, arq_redis, sample_job_run, standalone_worker_context, setup_worker_db
+        self, session, arq_redis, sample_job_run, standalone_worker_context, with_populated_job_data
     ):
         # Use an event to control when the job completes
         event = asyncio.Event()
