@@ -1,3 +1,4 @@
+import io
 import json
 import logging
 import time
@@ -20,6 +21,7 @@ from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import Session, contains_eager
 
 from mavedb import deps
+from mavedb.data_providers.services import CSV_UPLOAD_S3_BUCKET_NAME, s3_client
 from mavedb.lib.annotation.annotate import (
     variant_functional_impact_statement,
     variant_pathogenicity_evidence,
@@ -136,6 +138,37 @@ async def enqueue_variant_creation(
             variants_to_csv_rows(item.variants, columns=count_columns, namespaced=False)
         ).replace("NA", np.NaN)
 
+    scores_file_to_upload = existing_scores_df if new_scores_df is None else new_scores_df
+    counts_file_to_upload = existing_counts_df if new_counts_df is None else new_counts_df
+
+    scores_file_key = None
+    counts_file_key = None
+    if scores_file_to_upload is not None or counts_file_to_upload is not None:
+        timestamp = date.today().isoformat()
+        unique_id = str(int(time.time() * 1000))
+        user_id = user_data.user.id
+        score_set_id = item.id
+
+        s3 = s3_client()
+
+        if scores_file_to_upload is not None:
+            save_to_logging_context({"num_scores": len(scores_file_to_upload)})
+            scores_file_key = f"{score_set_id}/{user_id}/{timestamp}-{unique_id}-scores.csv"
+            s3.upload_fileobj(
+                Fileobj=io.BytesIO(scores_file_to_upload.to_csv(index=False).encode("utf-8")),
+                Bucket=CSV_UPLOAD_S3_BUCKET_NAME,
+                Key=scores_file_key,
+            )
+
+        if counts_file_to_upload is not None:
+            save_to_logging_context({"num_counts": len(counts_file_to_upload)})
+            counts_file_key = f"{score_set_id}/{user_id}/{timestamp}-{unique_id}-counts.csv"
+            s3.upload_fileobj(
+                Fileobj=io.BytesIO(counts_file_to_upload.to_csv(index=False).encode("utf-8")),
+                Bucket=CSV_UPLOAD_S3_BUCKET_NAME,
+                Key=counts_file_key,
+            )
+
     # Await the insertion of this job into the worker queue, not the job itself.
     # Uses provided score and counts dataframes and metadata files, or falls back to existing data on the score set if not provided.
     job = await worker.enqueue_job(
@@ -143,8 +176,8 @@ async def enqueue_variant_creation(
         correlation_id_for_context(),
         item.id,
         user_data.user.id,
-        existing_scores_df if new_scores_df is None else new_scores_df,
-        existing_counts_df if new_counts_df is None else new_counts_df,
+        scores_file_to_upload,
+        counts_file_to_upload,
         item.dataset_columns.get("score_columns_metadata")
         if new_score_columns_metadata is None
         else new_score_columns_metadata,

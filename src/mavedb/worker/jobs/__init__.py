@@ -32,14 +32,12 @@ from mavedb.worker.jobs.registry import (
 from mavedb.worker.jobs.variant_processing.creation import create_variants_for_score_set
 from mavedb.worker.jobs.variant_processing.mapping import (
     map_variants_for_score_set,
-    variant_mapper_manager,
 )
 
 __all__ = [
     # Variant processing jobs
     "create_variants_for_score_set",
     "map_variants_for_score_set",
-    "variant_mapper_manager",
     # External service integration jobs
     "link_clingen_variants",
     "submit_score_set_mappings_to_car",

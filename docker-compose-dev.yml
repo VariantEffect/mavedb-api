@@ -95,6 +95,18 @@ services:
     volumes:
       - mavedb-redis-dev:/data
 
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    env_file:
+      - settings/.env.dev
+    environment:
+      - SERVICES=s3:4566 # We only need S3 for MaveDB
+    volumes:
+      - mavedb-localstack-dev:/var/lib/localstack
+      - "./bin/localstack-init.sh:/etc/localstack/init/ready.d/localstack-init.sh"
+
   seqrepo:
     image: biocommons/seqrepo:2024-12-20
     volumes:
@@ -104,3 +116,4 @@ volumes:
   mavedb-data-dev:
   mavedb-redis-dev:
   mavedb-seqrepo-dev:
+  mavedb-localstack-dev:
