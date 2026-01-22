@@ -24,7 +24,6 @@ from mavedb.worker.jobs.external_services import (
 from mavedb.worker.jobs.variant_processing import (
     create_variants_for_score_set,
     map_variants_for_score_set,
-    variant_mapper_manager,
 )
 
 # All job functions for ARQ worker
@@ -32,7 +31,6 @@ BACKGROUND_FUNCTIONS: List[Callable] = [
     # Variant processing jobs
     create_variants_for_score_set,
     map_variants_for_score_set,
-    variant_mapper_manager,
     # External service jobs
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,

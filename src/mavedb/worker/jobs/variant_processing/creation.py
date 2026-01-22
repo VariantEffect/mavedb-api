@@ -6,73 +6,113 @@ pipeline including data validation, standardization, and database persistence.
 """
 
 import logging
-from typing import Optional
 
-import pandas as pd
-from arq import ArqRedis
 from sqlalchemy import delete, null, select
-from sqlalchemy.orm import Session
 
 from mavedb.data_providers.services import RESTDataProvider
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.score_sets import columns_for_dataset, create_variants, create_variants_data
-from mavedb.lib.slack import send_slack_error
 from mavedb.lib.validation.dataframe.dataframe import validate_and_standardize_dataframe_pair
-from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
-from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
-from mavedb.worker.jobs.utils.constants import MAPPING_QUEUE_NAME
-from mavedb.worker.jobs.utils.job_state import setup_job_state
+from mavedb.worker.jobs.utils.setup import validate_job_params
+from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
+from mavedb.worker.lib.managers.job_manager import JobManager
+from mavedb.worker.lib.managers.types import JobResultData
 
 logger = logging.getLogger(__name__)
 
 
-async def create_variants_for_score_set(
-    ctx,
-    correlation_id: str,
-    score_set_id: int,
-    updater_id: int,
-    scores: pd.DataFrame,
-    counts: pd.DataFrame,
-    score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
-    count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
-):
+@with_pipeline_management
+async def create_variants_for_score_set(ctx, job_manager: JobManager) -> JobResultData:
     """
-    Create variants for a score set. Intended to be run within a worker.
-    On any raised exception, ensure ProcessingState of score set is set to `failed` prior
-    to exiting.
+    Create variants for a given ScoreSet based on uploaded score and count data.
+
+    Args:
+        ctx: The job context dictionary.
+        job_manager: Manager for job lifecycle and DB operations.
+
+    Job Parameters:
+        - score_set_id (int): The ID of the ScoreSet to create variants for.
+        - correlation_id (str): Correlation ID for tracing requests across services.
+        - updater_id (int): The ID of the user performing the update.
+        - scores (pd.DataFrame): DataFrame containing score data.
+        - counts (pd.DataFrame): DataFrame containing count data.
+        - score_columns_metadata (dict): Metadata for score columns.
+        - count_columns_metadata (dict): Metadata for count columns.
+
+    Side Effects:
+        - Creates Variant and MappedVariant records in the database.
+
+    Returns:
+        dict: Result indicating success and any exception details
     """
-    logging_context = {}
+    hdp: RESTDataProvider = ctx["hdp"]
+
+    # Get the job definition we are working on
+    job = job_manager.get_job()
+
+    _job_required_params = [
+        "score_set_id",
+        "correlation_id",
+        "updater_id",
+        "scores",
+        "counts",
+        "score_columns_metadata",
+        "count_columns_metadata",
+    ]
+    validate_job_params(job_manager, _job_required_params, job)
+
+    # Fetch required resources based on param inputs. Safely ignore mypy warnings here, as they were checked above.
+    score_set = job_manager.db.scalars(select(ScoreSet).where(ScoreSet.id == job.job_params["score_set_id"])).one()  # type: ignore
+    correlation_id = job.job_params["correlation_id"]  # type: ignore
+    updater_id = job.job_params["updater_id"]  # type: ignore
+    scores = job.job_params["scores"]  # type: ignore
+    counts = job.job_params["counts"]  # type: ignore
+    score_columns_metadata = job.job_params["score_columns_metadata"]  # type: ignore
+    count_columns_metadata = job.job_params["count_columns_metadata"]  # type: ignore
+
+    # Setup initial context and progress
+    job_manager.save_to_context(
+        {
+            "application": "mavedb-worker",
+            "function": "create_variants_for_score_set",
+            "resource": score_set.urn,
+            "correlation_id": correlation_id,
+        }
+    )
+    job_manager.update_progress(0, 100, "Starting variant creation job.")
+    logger.info(msg="Started variant creation job", extra=job_manager.logging_context())
+
+    updated_by = job_manager.db.scalars(select(User).where(User.id == updater_id)).one()
+
+    # Main processing block. Handled in a try/except to ensure we can set score set state appropriately,
+    # which is handled independently of the job state.
+    # TODO:XXX In a future iteration, we may want to move this logic into the job manager itself for better cohesion.
     try:
-        db: Session = ctx["db"]
-        hdp: RESTDataProvider = ctx["hdp"]
-        redis: ArqRedis = ctx["redis"]
-        score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one()
-
-        logging_context = setup_job_state(ctx, updater_id, score_set.urn, correlation_id)
-        logger.info(msg="Began processing of score set variants.", extra=logging_context)
-
-        updated_by = db.scalars(select(User).where(User.id == updater_id)).one()
-
         score_set.modified_by = updated_by
         score_set.processing_state = ProcessingState.processing
         score_set.mapping_state = MappingState.pending_variant_processing
-        logging_context["processing_state"] = score_set.processing_state.name
-        logging_context["mapping_state"] = score_set.mapping_state.name
 
-        db.add(score_set)
-        db.commit()
-        db.refresh(score_set)
+        job_manager.save_to_context(
+            {"processing_state": score_set.processing_state.name, "mapping_state": score_set.mapping_state.name}
+        )
+
+        job_manager.db.add(score_set)
+        job_manager.db.commit()
+        job_manager.db.refresh(score_set)
+
+        job_manager.update_progress(10, 100, "Validated score set metadata and beginning data validation.")
 
         if not score_set.target_genes:
+            job_manager.update_progress(100, 100, "Score set has no targets; cannot create variants.")
             logger.warning(
                 msg="No targets are associated with this score set; could not create variants.",
-                extra=logging_context,
+                extra=job_manager.logging_context(),
             )
             raise ValueError("Can't create variants when score set has no targets.")
 
@@ -87,6 +127,8 @@ async def create_variants_for_score_set(
             )
         )
 
+        job_manager.update_progress(80, 100, "Data validation complete; creating variants in database.")
+
         score_set.dataset_columns = {
             "score_columns": columns_for_dataset(validated_scores),
             "count_columns": columns_for_dataset(validated_counts),
@@ -98,47 +140,31 @@ async def create_variants_for_score_set(
             else {},
         }
 
+        job_manager.update_progress(90, 100, "Creating variants in database.")
+
         # Delete variants after validation occurs so we don't overwrite them in the case of a bad update.
         if score_set.variants:
-            existing_variants = db.scalars(select(Variant.id).where(Variant.score_set_id == score_set.id)).all()
-            db.execute(delete(MappedVariant).where(MappedVariant.variant_id.in_(existing_variants)))
-            db.execute(delete(Variant).where(Variant.id.in_(existing_variants)))
-            logging_context["deleted_variants"] = score_set.num_variants
+            existing_variants = job_manager.db.scalars(
+                select(Variant.id).where(Variant.score_set_id == score_set.id)
+            ).all()
+            job_manager.db.execute(delete(MappedVariant).where(MappedVariant.variant_id.in_(existing_variants)))
+            job_manager.db.execute(delete(Variant).where(Variant.id.in_(existing_variants)))
+
+            job_manager.save_to_context({"deleted_variants": len(existing_variants)})
             score_set.num_variants = 0
 
-            logger.info(msg="Deleted existing variants from score set.", extra=logging_context)
+            logger.info(msg="Deleted existing variants from score set.", extra=job_manager.logging_context())
 
-            db.flush()
-            db.refresh(score_set)
+            job_manager.db.flush()
+            job_manager.db.refresh(score_set)
 
         variants_data = create_variants_data(validated_scores, validated_counts, None)
-        create_variants(db, score_set, variants_data)
-
-    # Validation errors arise from problematic user data. These should be inserted into the database so failures can
-    # be persisted to them.
-    except ValidationError as e:
-        db.rollback()
-        score_set.processing_state = ProcessingState.failed
-        score_set.processing_errors = {"exception": str(e), "detail": e.triggering_exceptions}
-        score_set.mapping_state = MappingState.not_attempted
-
-        if score_set.num_variants:
-            score_set.processing_errors["exception"] = (
-                f"Update failed, variants were not updated. {score_set.processing_errors.get('exception', '')}"
-            )
-
-        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
-        logging_context["processing_state"] = score_set.processing_state.name
-        logging_context["mapping_state"] = score_set.mapping_state.name
-        logging_context["created_variants"] = 0
-        logger.warning(msg="Encountered a validation error while processing variants.", extra=logging_context)
-
-        return {"success": False}
+        create_variants(job_manager.db, score_set, variants_data)
 
     # NOTE: Since these are likely to be internal errors, it makes less sense to add them to the DB and surface them to the end user.
-    # Catch all non-system exiting exceptions.
+    # Catch all exceptions so we can log them and set score set state appropriately.
     except Exception as e:
-        db.rollback()
+        job_manager.db.rollback()
         score_set.processing_state = ProcessingState.failed
         score_set.processing_errors = {"exception": str(e), "detail": []}
         score_set.mapping_state = MappingState.not_attempted
@@ -148,49 +174,40 @@ async def create_variants_for_score_set(
                 f"Update failed, variants were not updated. {score_set.processing_errors.get('exception', '')}"
             )
 
-        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
-        logging_context["processing_state"] = score_set.processing_state.name
-        logging_context["mapping_state"] = score_set.mapping_state.name
-        logging_context["created_variants"] = 0
-        logger.warning(msg="Encountered an internal exception while processing variants.", extra=logging_context)
-
-        send_slack_error(err=e)
-        return {"success": False}
-
-    # Catch all other exceptions. The exceptions caught here were intented to be system exiting.
-    except BaseException as e:
-        db.rollback()
-        score_set.processing_state = ProcessingState.failed
-        score_set.mapping_state = MappingState.not_attempted
-        db.commit()
-
-        logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
-        logging_context["processing_state"] = score_set.processing_state.name
-        logging_context["mapping_state"] = score_set.mapping_state.name
-        logging_context["created_variants"] = 0
+        job_manager.save_to_context(
+            {
+                "processing_state": score_set.processing_state.name,
+                "mapping_state": score_set.mapping_state.name,
+                **format_raised_exception_info_as_dict(e),
+                "created_variants": 0,
+            }
+        )
+        job_manager.update_progress(100, 100, "Variant creation job failed due to an internal error.")
         logger.error(
-            msg="Encountered an unhandled exception while creating variants for score set.", extra=logging_context
+            msg="Encountered an internal exception while processing variants.", extra=job_manager.logging_context()
         )
 
-        # Don't raise BaseExceptions so we may emit canonical logs (TODO: Perhaps they are so problematic we want to raise them anyway).
-        return {"success": False}
+        raise e
 
     else:
         score_set.processing_state = ProcessingState.success
+        score_set.mapping_state = MappingState.queued
         score_set.processing_errors = null()
 
-        logging_context["created_variants"] = score_set.num_variants
-        logging_context["processing_state"] = score_set.processing_state.name
-        logger.info(msg="Finished creating variants in score set.", extra=logging_context)
+        job_manager.save_to_context(
+            {
+                "processing_state": score_set.processing_state.name,
+                "mapping_state": score_set.mapping_state.name,
+                "created_variants": score_set.num_variants,
+            }
+        )
 
-        await redis.lpush(MAPPING_QUEUE_NAME, score_set.id)  # type: ignore
-        await redis.enqueue_job("variant_mapper_manager", correlation_id, updater_id)
-        score_set.mapping_state = MappingState.queued
     finally:
-        db.add(score_set)
-        db.commit()
-        db.refresh(score_set)
-        logger.info(msg="Committed new variants to score set.", extra=logging_context)
+        job_manager.db.add(score_set)
+        job_manager.db.commit()
+        job_manager.db.refresh(score_set)
 
-    ctx["state"][ctx["job_id"]] = logging_context.copy()
-    return {"success": True}
+        job_manager.update_progress(100, 100, "Completed variant creation job.")
+        logger.info(msg="Committed new variants to score set.", extra=job_manager.logging_context())
+
+    return {"status": "ok", "data": {}, "exception_details": None}
