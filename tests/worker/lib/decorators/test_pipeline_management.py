@@ -352,7 +352,7 @@ class TestPipelineManagementDecoratorIntegration:
         sample_job_run,
         sample_dependent_job_run,
         standalone_worker_context,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
         initial_status,
     ):
@@ -443,7 +443,7 @@ class TestPipelineManagementDecoratorIntegration:
         sample_job_run,
         sample_dependent_job_run,
         standalone_worker_context,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
     ):
         # Use an event to control when the job completes
@@ -553,7 +553,7 @@ class TestPipelineManagementDecoratorIntegration:
         sample_job_run,
         sample_dependent_job_run,
         standalone_worker_context,
-        setup_worker_db,
+        with_populated_job_data,
         sample_pipeline,
     ):
         # Use an event to control when the job completes

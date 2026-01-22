@@ -46,7 +46,7 @@ HANDLED_EXCEPTIONS_DURING_OBJECT_MANIPULATION = (
 class TestJobManagerInitialization:
     """Test JobManager initialization and setup."""
 
-    def test_init_with_valid_job(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_init_with_valid_job(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test successful initialization with valid job ID."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -54,7 +54,7 @@ class TestJobManagerInitialization:
         assert manager.job_id == sample_job_run.id
         assert manager.pipeline_id == sample_job_run.pipeline_id
 
-    def test_init_with_no_pipeline(self, session, arq_redis, setup_worker_db, sample_independent_job_run):
+    def test_init_with_no_pipeline(self, session, arq_redis, with_populated_job_data, sample_independent_job_run):
         """Test initialization with job that has no pipeline."""
         manager = JobManager(session, arq_redis, sample_independent_job_run.id)
 
@@ -164,7 +164,7 @@ class TestJobStartIntegration:
         [status for status in JobStatus._member_map_.values() if status not in STARTABLE_JOB_STATUSES],
     )
     def test_job_exception_is_raised_when_job_has_invalid_status(
-        self, session, arq_redis, setup_worker_db, sample_job_run, invalid_status
+        self, session, arq_redis, with_populated_job_data, sample_job_run, invalid_status
     ):
         """Test job start failure due to invalid job status."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
@@ -191,7 +191,7 @@ class TestJobStartIntegration:
         "valid_status",
         [status for status in JobStatus._member_map_.values() if status in STARTABLE_JOB_STATUSES],
     )
-    def test_job_updated_successfully(self, session, arq_redis, setup_worker_db, sample_job_run, valid_status):
+    def test_job_updated_successfully(self, session, arq_redis, with_populated_job_data, sample_job_run, valid_status):
         """Test successful job start."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -351,7 +351,7 @@ class TestJobCompletionIntegration:
         [status for status in JobStatus._member_map_.values() if status not in TERMINAL_JOB_STATUSES],
     )
     def test_job_exception_is_raised_when_job_has_invalid_status(
-        self, session, arq_redis, setup_worker_db, sample_job_run, invalid_status
+        self, session, arq_redis, with_populated_job_data, sample_job_run, invalid_status
     ):
         """Test job completion failure due to invalid job status."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
@@ -376,7 +376,7 @@ class TestJobCompletionIntegration:
         [status for status in JobStatus._member_map_.values() if status in TERMINAL_JOB_STATUSES],
     )
     def test_job_updated_successfully_without_error(
-        self, session, arq_redis, setup_worker_db, sample_job_run, valid_status
+        self, session, arq_redis, with_populated_job_data, sample_job_run, valid_status
     ):
         """Test successful job completion."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
@@ -409,7 +409,7 @@ class TestJobCompletionIntegration:
         [status for status in JobStatus._member_map_.values() if status in TERMINAL_JOB_STATUSES],
     )
     def test_job_updated_successfully_with_error(
-        self, session, arq_redis, setup_worker_db, sample_job_run, valid_status
+        self, session, arq_redis, with_populated_job_data, sample_job_run, valid_status
     ):
         """Test successful job completion."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
@@ -466,7 +466,7 @@ class TestJobFailureUnit:
 class TestJobFailureIntegration:
     """Test job failure lifecycle management."""
 
-    def test_job_updated_successfully(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_job_updated_successfully(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test successful job failure."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -519,7 +519,7 @@ class TestJobSuccessUnit:
 class TestJobSuccessIntegration:
     """Test job success lifecycle management."""
 
-    def test_job_updated_successfully(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_job_updated_successfully(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test successful job succeeding."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -572,7 +572,7 @@ class TestJobCancellationUnit:
 class TestJobCancellationIntegration:
     """Test job cancellation lifecycle management."""
 
-    def test_job_updated_successfully(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_job_updated_successfully(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test successful job cancellation."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -626,7 +626,7 @@ class TestJobSkipUnit:
 class TestJobSkipIntegration:
     """Test job skip lifecycle management."""
 
-    def test_job_updated_successfully(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_job_updated_successfully(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test successful job skipping."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -768,7 +768,7 @@ class TestPrepareRetryIntegration:
         [status for status in JobStatus._member_map_.values() if status not in RETRYABLE_JOB_STATUSES],
     )
     def test_prepare_retry_failed_due_to_invalid_status(
-        self, session, arq_redis, setup_worker_db, sample_job_run, job_status
+        self, session, arq_redis, with_populated_job_data, sample_job_run, job_status
     ):
         """Test job retry failure due to invalid job status."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
@@ -786,7 +786,7 @@ class TestPrepareRetryIntegration:
         ):
             manager.prepare_retry()
 
-    def test_prepare_retry_success(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_prepare_retry_success(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test successful job retry."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -908,7 +908,7 @@ class TestPrepareQueue:
         [status for status in JobStatus._member_map_.values() if status != JobStatus.PENDING],
     )
     def test_prepare_queue_failed_due_to_invalid_status(
-        self, session, arq_redis, setup_worker_db, sample_job_run, job_status
+        self, session, arq_redis, with_populated_job_data, sample_job_run, job_status
     ):
         """Test job prepare for queue failure due to invalid job status."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
@@ -929,7 +929,7 @@ class TestPrepareQueue:
         ):
             manager.prepare_queue()
 
-    def test_prepare_queue_success(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_prepare_queue_success(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test successful job prepare for queue."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -1028,7 +1028,7 @@ class TestResetJobUnit:
 class TestResetJobIntegration:
     """Test job reset lifecycle management."""
 
-    def test_reset_job_success(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_reset_job_success(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test successful job reset."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -1141,7 +1141,7 @@ class TestJobProgressUpdateUnit:
 class TestJobProgressUpdateIntegration:
     """Test job progress update lifecycle management."""
 
-    def test_update_progress_success(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_update_progress_success(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test successful progress update."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -1166,7 +1166,7 @@ class TestJobProgressUpdateIntegration:
         assert job.progress_message == "Halfway done"
 
     def test_update_progress_success_does_not_overwrite_old_message_when_no_new_message_is_provided(
-        self, session, arq_redis, setup_worker_db, sample_job_run
+        self, session, arq_redis, with_populated_job_data, sample_job_run
     ):
         """Test successful progress update without message."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
@@ -1243,7 +1243,7 @@ class TestJobProgressStatusUpdateUnit:
 class TestJobProgressStatusUpdate:
     """Test job progress status update lifecycle management."""
 
-    def test_update_status_message_success(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_update_status_message_success(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test successful status message update."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -1338,7 +1338,7 @@ class TestJobProgressIncrementationIntegration:
         "msg",
         [None, "Incremented progress successfully"],
     )
-    def test_increment_progress_success(self, session, arq_redis, setup_worker_db, sample_job_run, msg):
+    def test_increment_progress_success(self, session, arq_redis, with_populated_job_data, sample_job_run, msg):
         """Test successful progress incrementation."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -1364,7 +1364,9 @@ class TestJobProgressIncrementationIntegration:
             msg if msg else "Test incrementation message"
         )  # Message should remain unchanged if None
 
-    def test_increment_progress_success_multiple_times(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_increment_progress_success_multiple_times(
+        self, session, arq_redis, with_populated_job_data, sample_job_run
+    ):
         """Test successful progress incrementation multiple times."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -1387,7 +1389,9 @@ class TestJobProgressIncrementationIntegration:
         assert job.progress_current == 50
         assert job.progress_total == 100
 
-    def test_increment_progress_success_exceeding_total(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_increment_progress_success_exceeding_total(
+        self, session, arq_redis, with_populated_job_data, sample_job_run
+    ):
         """Test successful progress incrementation exceeding total."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -1477,7 +1481,7 @@ class TestJobProgressTotalUpdateUnit:
 class TestJobProgressTotalUpdateIntegration:
     """Test job progress total update lifecycle management."""
 
-    def test_set_progress_total_success(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_set_progress_total_success(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test successful progress total update."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -1528,7 +1532,9 @@ class TestJobIsCancelledIntegration:
         "job_status",
         [status for status in JobStatus._member_map_.values() if status in CANCELLED_JOB_STATUSES],
     )
-    def test_is_cancelled_success_cancelled(self, session, arq_redis, setup_worker_db, sample_job_run, job_status):
+    def test_is_cancelled_success_cancelled(
+        self, session, arq_redis, with_populated_job_data, sample_job_run, job_status
+    ):
         """Test successful is_cancelled check when cancelled."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -1548,7 +1554,9 @@ class TestJobIsCancelledIntegration:
         "job_status",
         [status for status in JobStatus._member_map_.values() if status not in CANCELLED_JOB_STATUSES],
     )
-    def test_is_cancelled_success_not_cancelled(self, session, arq_redis, setup_worker_db, sample_job_run, job_status):
+    def test_is_cancelled_success_not_cancelled(
+        self, session, arq_redis, with_populated_job_data, sample_job_run, job_status
+    ):
         """Test successful is_cancelled check when not cancelled."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -1687,7 +1695,7 @@ class TestJobShouldRetryIntegration:
         [status for status in JobStatus._member_map_.values() if status != JobStatus.FAILED],
     )
     def test_should_retry_success_non_failed_jobs_should_not_retry(
-        self, session, arq_redis, setup_worker_db, sample_job_run, job_status
+        self, session, arq_redis, with_populated_job_data, sample_job_run, job_status
     ):
         """Test successful should_retry check (only jobs in failed states may retry)."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
@@ -1705,7 +1713,7 @@ class TestJobShouldRetryIntegration:
         assert result is False
 
     def test_should_retry_success_exceeded_retry_attempts_should_not_retry(
-        self, session, arq_redis, setup_worker_db, sample_job_run
+        self, session, arq_redis, with_populated_job_data, sample_job_run
     ):
         """Test successful should_retry check with no retry attempts left."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
@@ -1725,7 +1733,7 @@ class TestJobShouldRetryIntegration:
         assert result is False
 
     def test_should_retry_success_failure_category_is_not_retryable(
-        self, session, arq_redis, setup_worker_db, sample_job_run
+        self, session, arq_redis, with_populated_job_data, sample_job_run
     ):
         """Test successful should_retry check with non-retryable failure category."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
@@ -1745,7 +1753,7 @@ class TestJobShouldRetryIntegration:
         # Verify the job should not retry. This method requires no persistance.
         assert result is False
 
-    def test_should_retry_success(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_should_retry_success(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test successful should_retry check with retryable failure category."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -1792,7 +1800,7 @@ class TestGetJobUnit:
 class TestGetJobIntegration:
     """Test job retrieval."""
 
-    def test_get_job_success(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_get_job_success(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test successful job retrieval."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -1804,7 +1812,9 @@ class TestGetJobIntegration:
         assert job.id == sample_job_run.id
         assert job.status == JobStatus.PENDING
 
-    def test_get_job_raises_job_not_found_error_when_job_does_not_exist(self, session, arq_redis, setup_worker_db):
+    def test_get_job_raises_job_not_found_error_when_job_does_not_exist(
+        self, session, arq_redis, with_populated_job_data
+    ):
         """Test job retrieval failure when job does not exist."""
         with pytest.raises(DatabaseConnectionError, match="Failed to fetch job 9999"), TransactionSpy.spy(session):
             JobManager(session, arq_redis, job_id=9999)  # Non-existent job ID
@@ -1814,7 +1824,7 @@ class TestGetJobIntegration:
 class TestJobManagerJob:
     """Test overall job lifecycle management."""
 
-    def test_full_successful_job_lifecycle(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_full_successful_job_lifecycle(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test full job lifecycle from start to completion."""
         # Pre-manager: Job is created in DB in Pending state. Verify initial state.
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -1904,7 +1914,7 @@ class TestJobManagerJob:
         assert final_job.progress_total == 200
         assert final_job.progress_message == "Job completed successfully"
 
-    def test_full_cancelled_job_lifecycle(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_full_cancelled_job_lifecycle(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test full job lifecycle for a cancelled job."""
         # Pre-manager: Job is created in DB in Pending state. Verify initial state.
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -1941,7 +1951,7 @@ class TestJobManagerJob:
         assert job.finished_at is not None
         assert job.progress_message == "Job cancelled"
 
-    def test_full_skipped_job_lifecycle(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_full_skipped_job_lifecycle(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test full job lifecycle for a skipped job."""
         # Pre-manager: Job is created in DB in Pending state. Verify initial state.
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -1959,7 +1969,7 @@ class TestJobManagerJob:
         assert job.finished_at is not None
         assert job.progress_message == "Job skipped"
 
-    def test_full_failed_job_lifecycle(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_full_failed_job_lifecycle(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test full job lifecycle for a failed job."""
         # Pre-manager: Job is created in DB in Pending state. Verify initial state.
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -1997,7 +2007,7 @@ class TestJobManagerJob:
         assert job.error_message == "An error occurred"
         assert job.error_traceback is not None
 
-    def test_full_retried_job_lifecycle(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_full_retried_job_lifecycle(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test full job lifecycle for a retried job."""
         # Pre-manager: Job is created in DB in Pending state. Verify initial state.
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -2049,7 +2059,7 @@ class TestJobManagerJob:
         assert job.status == JobStatus.PENDING
         assert job.retry_count == 1
 
-    def test_full_reset_job_lifecycle(self, session, arq_redis, setup_worker_db, sample_job_run):
+    def test_full_reset_job_lifecycle(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test full job lifecycle for a reset job."""
         # Pre-manager: Job is created in DB in Pending state. Verify initial state.
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
