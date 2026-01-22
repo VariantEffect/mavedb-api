@@ -609,7 +609,7 @@ def test_primary_score_calibration_cannot_be_private():
 
 
 def test_can_create_score_calibration_from_non_orm_context():
-    data = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION)
+    data = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
 
     sc = ScoreCalibration.model_validate(data)
 
