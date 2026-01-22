@@ -7,7 +7,8 @@ from unittest import mock
 import email_validator
 import pytest
 import pytest_postgresql
-from sqlalchemy import create_engine
+import pytest_socket
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -58,6 +59,21 @@ assert pytest_postgresql.factories
 email_validator.TEST_ENVIRONMENT = True
 
 
+def pytest_runtest_setup(item):
+    # Only block sockets for tests not marked with 'network'
+    if "network" not in item.keywords:
+        try:
+            pytest_socket.socket_allow_hosts(["localhost", "127.0.0.1", "::1"], allow_unix_socket=True)
+        except ImportError:
+            pass
+
+    else:
+        try:
+            pytest_socket.enable_socket()
+        except ImportError:
+            pass
+
+
 @pytest.fixture()
 def session(postgresql):
     # Un-comment this line to log all database queries:
@@ -72,6 +88,15 @@ def session(postgresql):
     session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
 
     Base.metadata.create_all(bind=engine)
+
+    # Create a unique index for the published_variants_materialized_view to
+    # enforce uniqueness on (variant_id, mapped_variant_id, score_set_id). This
+    # allows us to test mat view refreshes that require this constraint.
+    session.execute(
+        text("""CREATE UNIQUE INDEX IF NOT EXISTS published_variants_mv_unique_idx
+        ON published_variants_materialized_view (variant_id, mapped_variant_id, score_set_id)"""),
+    )
+    session.commit()
 
     try:
         yield session
