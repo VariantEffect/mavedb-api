@@ -98,6 +98,7 @@ class TestPipelineManagementDecoratorUnit:
                 mock_worker_ctx["db"], "execute", return_value=MagicMock(scalar_one=MagicMock(return_value=123))
             ) as mock_execute,
             patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None),
+            patch.object(mock_pipeline_manager, "start_pipeline", return_value=None),
             TransactionSpy.spy(mock_worker_ctx["db"], expect_commit=True),
         ):
             mock_pipeline_manager_class.return_value = mock_pipeline_manager
@@ -112,7 +113,9 @@ class TestPipelineManagementDecoratorUnit:
         mock_execute.assert_called_once()
         assert result == {"status": "ok"}
 
-    async def test_decorator_skips_coordination_when_no_pipeline_exists(self, mock_pipeline_manager, mock_worker_ctx):
+    async def test_decorator_skips_coordination_and_start_when_no_pipeline_exists(
+        self, mock_pipeline_manager, mock_worker_ctx
+    ):
         with (
             # patch the with_job_management decorator to be a no-op
             patch("mavedb.worker.lib.decorators.pipeline_management.with_job_management", wraps=lambda f: f),
@@ -121,6 +124,7 @@ class TestPipelineManagementDecoratorUnit:
                 mock_worker_ctx["db"], "execute", return_value=MagicMock(scalar_one=MagicMock(return_value=None))
             ) as mock_execute,
             patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None) as mock_coordinate_pipeline,
+            patch.object(mock_pipeline_manager, "start_pipeline", return_value=None) as mock_start_pipeline,
             # We shouldn't expect any commits since no pipeline coordination occurs
             TransactionSpy.spy(mock_worker_ctx["db"]),
         ):
@@ -134,6 +138,65 @@ class TestPipelineManagementDecoratorUnit:
 
         mock_execute.assert_called_once()
         mock_coordinate_pipeline.assert_not_called()
+        mock_start_pipeline.assert_not_called()
+        assert result == {"status": "ok"}
+
+    async def test_decorator_starts_pipeline_when_in_created_state(
+        self, mock_pipeline_manager, mock_worker_ctx, mock_pipeline
+    ):
+        with (
+            # patch the with_job_management decorator to be a no-op
+            patch("mavedb.worker.lib.decorators.pipeline_management.with_job_management", wraps=lambda f: f),
+            patch("mavedb.worker.lib.decorators.pipeline_management.PipelineManager") as mock_pipeline_manager_class,
+            patch.object(
+                mock_worker_ctx["db"], "execute", return_value=MagicMock(scalar_one=MagicMock(return_value=123))
+            ) as mock_execute,
+            patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=PipelineStatus.CREATED),
+            patch.object(mock_pipeline_manager, "start_pipeline", return_value=None) as mock_start_pipeline,
+            patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None),
+            TransactionSpy.spy(mock_worker_ctx["db"], expect_commit=True),
+        ):
+            mock_pipeline_manager_class.return_value = mock_pipeline_manager
+
+            @with_pipeline_management
+            async def sample_job(ctx: dict, job_id: int, pipeline_manager: PipelineManager):
+                return {"status": "ok"}
+
+            result = await sample_job(mock_worker_ctx, 999, pipeline_manager=mock_pipeline_manager)
+
+        mock_execute.assert_called_once()
+        mock_start_pipeline.assert_called_once()
+        assert result == {"status": "ok"}
+
+    @pytest.mark.parametrize(
+        "pipeline_state",
+        [status for status in PipelineStatus._member_map_.values() if status != PipelineStatus.CREATED],
+    )
+    async def test_decorator_does_not_start_pipeline_when_in_not_in_created_state(
+        self, mock_pipeline_manager, mock_worker_ctx, mock_pipeline, pipeline_state
+    ):
+        with (
+            # patch the with_job_management decorator to be a no-op
+            patch("mavedb.worker.lib.decorators.pipeline_management.with_job_management", wraps=lambda f: f),
+            patch("mavedb.worker.lib.decorators.pipeline_management.PipelineManager") as mock_pipeline_manager_class,
+            patch.object(
+                mock_worker_ctx["db"], "execute", return_value=MagicMock(scalar_one=MagicMock(return_value=123))
+            ) as mock_execute,
+            patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=pipeline_state),
+            patch.object(mock_pipeline_manager, "start_pipeline", return_value=None) as mock_start_pipeline,
+            patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None),
+            TransactionSpy.spy(mock_worker_ctx["db"], expect_commit=True),
+        ):
+            mock_pipeline_manager_class.return_value = mock_pipeline_manager
+
+            @with_pipeline_management
+            async def sample_job(ctx: dict, job_id: int, pipeline_manager: PipelineManager):
+                return {"status": "ok"}
+
+            result = await sample_job(mock_worker_ctx, 999, pipeline_manager=mock_pipeline_manager)
+
+        mock_execute.assert_called_once()
+        mock_start_pipeline.assert_not_called()
         assert result == {"status": "ok"}
 
     async def test_decorator_calls_wrapped_function_and_returns_result(
@@ -148,7 +211,8 @@ class TestPipelineManagementDecoratorUnit:
             patch.object(
                 mock_worker_ctx["db"], "execute", return_value=MagicMock(scalar_one=MagicMock(return_value=123))
             ),
-            patch.object(mock_pipeline_manager, "get_pipeline", return_value=mock_pipeline),
+            patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=PipelineStatus.CREATED),
+            patch.object(mock_pipeline_manager, "start_pipeline", return_value=None),
             patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None),
             TransactionSpy.spy(mock_worker_ctx["db"], expect_commit=True),
         ):
@@ -176,8 +240,9 @@ class TestPipelineManagementDecoratorUnit:
             patch.object(
                 mock_worker_ctx["db"], "execute", return_value=MagicMock(scalar_one=MagicMock(return_value=123))
             ),
-            patch.object(mock_pipeline_manager, "get_pipeline", return_value=mock_pipeline),
+            patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=PipelineStatus.CREATED),
             patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None) as mock_coordinate_pipeline,
+            patch.object(mock_pipeline_manager, "start_pipeline", return_value=None),
             TransactionSpy.spy(mock_worker_ctx["db"], expect_commit=True),
         ):
             mock_pipeline_manager_class.return_value = mock_pipeline_manager
@@ -199,6 +264,8 @@ class TestPipelineManagementDecoratorUnit:
             ),
             patch("mavedb.worker.lib.decorators.pipeline_management.PipelineManager") as mock_pipeline_manager_class,
             patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None),
+            patch.object(mock_pipeline_manager, "start_pipeline", return_value=None),
+            patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=PipelineStatus.CREATED),
             TransactionSpy.spy(mock_worker_ctx["db"], expect_commit=True, expect_rollback=True),
         ):
             mock_pipeline_manager_class.return_value = mock_pipeline_manager
@@ -226,8 +293,11 @@ class TestPipelineManagementDecoratorUnit:
                 "coordinate_pipeline",
                 side_effect=RuntimeError("error in coordinate_pipeline"),
             ),
-            # Exception raised from coordinate_pipeline should trigger rollback but prevent commit
-            TransactionSpy.spy(mock_worker_ctx["db"], expect_commit=False, expect_rollback=True),
+            patch.object(mock_pipeline_manager, "start_pipeline", return_value=None),
+            patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=PipelineStatus.CREATED),
+            # Exception raised from coordinate_pipeline should trigger rollback,
+            # and commit will be called when pipeline status is set to running
+            TransactionSpy.spy(mock_worker_ctx["db"], expect_commit=True, expect_rollback=True),
         ):
             mock_pipeline_manager_class.return_value = mock_pipeline_manager
 
@@ -252,8 +322,10 @@ class TestPipelineManagementDecoratorUnit:
                 wraps=passthrough_decorator,
                 side_effect=ValueError("error in job management decorator"),
             ) as mock_with_job_mgmt,
+            patch.object(mock_pipeline_manager, "start_pipeline", return_value=None),
+            patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=PipelineStatus.CREATED),
             patch("mavedb.worker.lib.decorators.pipeline_management.PipelineManager") as mock_pipeline_manager_class,
-            TransactionSpy.spy(mock_worker_ctx["db"], expect_commit=False, expect_rollback=True),
+            TransactionSpy.spy(mock_worker_ctx["db"], expect_commit=True, expect_rollback=True),
         ):
             mock_pipeline_manager_class.return_value = mock_pipeline_manager
 
@@ -272,6 +344,7 @@ class TestPipelineManagementDecoratorUnit:
 class TestPipelineManagementDecoratorIntegration:
     """Integration tests for the with_pipeline_management decorator."""
 
+    @pytest.mark.parametrize("initial_status", [PipelineStatus.CREATED, PipelineStatus.RUNNING])
     async def test_decorator_integrated_pipeline_lifecycle_success(
         self,
         session,
@@ -281,14 +354,15 @@ class TestPipelineManagementDecoratorIntegration:
         standalone_worker_context,
         setup_worker_db,
         sample_pipeline,
+        initial_status,
     ):
         # Use an event to control when the job completes
         event = asyncio.Event()
         dep_event = asyncio.Event()
 
-        # Transition pipeline to RUNNING to allow job execution. This step of pipeline management
-        # is intentionally not handled by the decorator.
-        sample_pipeline.status = PipelineStatus.RUNNING
+        # Set initial pipeline status to the parameterized value.
+        # This allows testing both CREATED and RUNNING start states.
+        sample_pipeline.status = initial_status
         session.commit()
 
         @with_pipeline_management
@@ -376,11 +450,6 @@ class TestPipelineManagementDecoratorIntegration:
         event = asyncio.Event()
         retry_event = asyncio.Event()
         dep_event = asyncio.Event()
-
-        # Transition pipeline to RUNNING to allow job execution. This step of pipeline management
-        # is intentionally not handled by the decorator.
-        sample_pipeline.status = PipelineStatus.RUNNING
-        session.commit()
 
         @with_pipeline_management
         async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
@@ -490,11 +559,6 @@ class TestPipelineManagementDecoratorIntegration:
         # Use an event to control when the job completes
         event = asyncio.Event()
 
-        # Transition pipeline to RUNNING to allow job execution. This step of pipeline management
-        # is intentionally not handled by the decorator.
-        sample_pipeline.status = PipelineStatus.RUNNING
-        session.commit()
-
         @with_pipeline_management
         async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
             await event.wait()  # Simulate async work, block until test signals
@@ -511,8 +575,9 @@ class TestPipelineManagementDecoratorIntegration:
         pipeline = session.execute(select(Pipeline).where(Pipeline.id == sample_pipeline.id)).scalar_one()
         assert pipeline.status == PipelineStatus.RUNNING
 
-        # Now allow the job to complete with failure. This failure
+        # Now allow the job to complete with failure and flush the Redis queue. This failure
         # should be swallowed by the pipeline manager
+        await arq_redis.flushdb()
         event.set()
         await job_task
 

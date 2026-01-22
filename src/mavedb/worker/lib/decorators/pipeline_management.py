@@ -14,6 +14,7 @@ from arq import ArqRedis
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from mavedb.models.enums.job_pipeline import PipelineStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.decorators import with_job_management
 from mavedb.worker.lib.decorators.utils import is_test_mode
@@ -125,7 +126,14 @@ async def _execute_managed_pipeline(func: Callable[..., Awaitable[JobResultData]
         if pipeline_id:
             pipeline_manager = PipelineManager(db=db_session, redis=redis_pool, pipeline_id=pipeline_id)
 
-        logger.info(f"Pipeline ID for job {job_id} is {pipeline_id}. Coordinating pipeline after job execution.")
+        logger.info(f"Pipeline ID for job {job_id} is {pipeline_id}. Coordinating pipeline.")
+
+        # If the pipeline is still in the created state, start it now
+        if pipeline_manager and pipeline_manager.get_pipeline_status() == PipelineStatus.CREATED:
+            await pipeline_manager.start_pipeline()
+            db_session.commit()
+
+            logger.info(f"Pipeline {pipeline_id} associated with job {job_id} started successfully")
 
         # Wrap the function with job management, then execute. This ensures both:
         # - Job lifecycle management is nested within pipeline management
