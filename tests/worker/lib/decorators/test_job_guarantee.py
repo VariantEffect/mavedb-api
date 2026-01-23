@@ -9,7 +9,6 @@ import pytest
 pytest.importorskip("arq")  # Skip tests if arq is not installed
 
 import os
-from unittest.mock import MagicMock, patch
 
 from sqlalchemy import select
 
@@ -59,27 +58,21 @@ class TestJobGuaranteeDecoratorUnit:
         assert "DB session not found in job context" in str(exc_info.value)
 
     async def test_decorator_calls_wrapped_function(self, mock_worker_ctx):
-        with patch("mavedb.worker.lib.decorators.job_guarantee.JobRun") as MockJobRunClass:
-            MockJobRunClass.return_value = MagicMock(spec=JobRun)
-            result = await sample_job(mock_worker_ctx)
-
+        result = await sample_job(mock_worker_ctx)
         assert result == {"status": "ok"}
 
-    async def test_decorator_creates_job_run(self, mock_worker_ctx, mock_job_run):
+    async def test_decorator_creates_job_run(self, mock_worker_ctx):
         with (
-            TransactionSpy.spy(mock_worker_ctx["db"], expect_commit=True),
-            patch("mavedb.worker.lib.decorators.job_guarantee.JobRun") as mock_job_run_class,
+            TransactionSpy.spy(mock_worker_ctx["db"], expect_flush=True, expect_commit=True),
         ):
-            mock_job_run_class.return_value = MagicMock(spec=JobRun)
             await sample_job(mock_worker_ctx)
 
-        mock_job_run_class.assert_called_with(
-            job_type="test_job",
-            job_function="sample_job",
-            status=JobStatus.PENDING,
-            mavedb_version=__version__,
-        )
-        mock_worker_ctx["db"].add.assert_called()
+        job_run = mock_worker_ctx["db"].execute(select(JobRun)).scalars().first()
+        assert job_run is not None
+        assert job_run.status == JobStatus.PENDING
+        assert job_run.job_type == "test_job"
+        assert job_run.job_function == "sample_job"
+        assert job_run.mavedb_version == __version__
 
 
 @pytest.mark.asyncio
