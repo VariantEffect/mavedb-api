@@ -7,6 +7,10 @@ import pandas as pd
 import pytest
 from sqlalchemy import select
 
+from mavedb.models.enums.target_category import TargetCategory
+from mavedb.models.user import User
+from mavedb.view_models.search import ScoreSetsSearch
+
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
@@ -17,7 +21,9 @@ from mavedb.lib.score_sets import (
     create_variants,
     create_variants_data,
     csv_data_to_df,
+    fetch_score_set_search_filter_options,
 )
+from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
     hgvs_pro_column,
@@ -33,7 +39,7 @@ from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.variant import Variant
-from tests.helpers.constants import TEST_EXPERIMENT, TEST_ACC_SCORESET, TEST_SEQ_SCORESET
+from tests.helpers.constants import TEST_ACC_SCORESET, TEST_EXPERIMENT, TEST_SEQ_SCORESET, TEST_USER
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import create_seq_score_set
 
@@ -377,3 +383,170 @@ def test_create_null_score_range(setup_lib_db, client, session):
 
     assert not score_set.score_calibrations
     assert score_set is not None
+
+
+def test_fetch_score_set_search_filter_options_no_score_sets(setup_lib_db, session):
+    score_set_search = ScoreSetsSearch()
+    filter_options = fetch_score_set_search_filter_options(session, None, None, score_set_search)
+
+    assert filter_options == {
+        "target_gene_categories": [],
+        "target_gene_names": [],
+        "target_organism_names": [],
+        "target_accessions": [],
+        "publication_author_names": [],
+        "publication_db_names": [],
+        "publication_journals": [],
+    }
+
+
+def test_fetch_score_set_search_filter_options_with_score_set(setup_lib_db, session):
+    requesting_user = session.query(User).filter(User.username == TEST_USER["username"]).first()
+    user_data = UserData(user=requesting_user, active_roles=[])
+
+    experiment = Experiment(**TEST_EXPERIMENT)
+    session.add(experiment)
+    session.commit()
+    session.refresh(experiment)
+
+    target_accessions = [TargetAccession(**seq["target_accession"]) for seq in TEST_ACC_SCORESET["target_genes"]]
+    target_genes = [
+        TargetGene(**{**gene, **{"target_accession": target_accessions[idx]}})
+        for idx, gene in enumerate(TEST_ACC_SCORESET["target_genes"])
+    ]
+
+    score_set = ScoreSet(
+        **{
+            **TEST_ACC_SCORESET,
+            **{
+                "experiment_id": experiment.id,
+                "target_genes": target_genes,
+                "extra_metadata": {},
+                "license": session.scalars(select(License)).first(),
+            },
+            "created_by_id": requesting_user.id,
+            "modified_by_id": requesting_user.id,
+        }
+    )
+    session.add(score_set)
+    session.commit()
+    session.refresh(score_set)
+
+    score_set_search = ScoreSetsSearch()
+    filter_options = fetch_score_set_search_filter_options(session, user_data, None, score_set_search)
+
+    assert filter_options == {
+        "target_gene_categories": [{"value": TargetCategory.protein_coding, "count": 1}],
+        "target_gene_names": [{"value": "TEST2", "count": 1}],
+        "target_organism_names": [],
+        "target_accessions": [{"value": "NM_001637.3", "count": 1}],
+        "publication_author_names": [],
+        "publication_db_names": [],
+        "publication_journals": [],
+    }
+
+
+def test_fetch_score_set_search_filter_options_with_partial_filtered_score_sets(setup_lib_db, session):
+    requesting_user = session.query(User).filter(User.username == TEST_USER["username"]).first()
+    user_data = UserData(user=requesting_user, active_roles=[])
+
+    experiment = Experiment(**TEST_EXPERIMENT)
+    session.add(experiment)
+    session.commit()
+    session.refresh(experiment)
+
+    target_sequences = [
+        TargetSequence(**{**seq["target_sequence"], **{"taxonomy": session.scalars(select(Taxonomy)).first()}})
+        for seq in TEST_SEQ_SCORESET["target_genes"]
+    ]
+    target_genes = [
+        TargetGene(**{**gene, **{"target_sequence": target_sequences[idx]}})
+        for idx, gene in enumerate(TEST_SEQ_SCORESET["target_genes"])
+    ]
+
+    score_set = ScoreSet(
+        **{
+            **TEST_SEQ_SCORESET,
+            **{
+                "experiment_id": experiment.id,
+                "target_genes": target_genes,
+                "extra_metadata": {},
+                "license": session.scalars(select(License)).first(),
+            },
+            "created_by_id": requesting_user.id,
+            "modified_by_id": requesting_user.id,
+        }
+    )
+    session.add(score_set)
+    session.commit()
+    session.refresh(score_set)
+
+    target_accessions = [TargetAccession(**seq["target_accession"]) for seq in TEST_ACC_SCORESET["target_genes"]]
+    target_genes = [
+        TargetGene(**{**gene, **{"target_accession": target_accessions[idx]}})
+        for idx, gene in enumerate(TEST_ACC_SCORESET["target_genes"])
+    ]
+
+    score_set = ScoreSet(
+        **{
+            **TEST_ACC_SCORESET,
+            **{
+                "experiment_id": experiment.id,
+                "target_genes": target_genes,
+                "extra_metadata": {},
+                "license": session.scalars(select(License)).first(),
+            },
+            "created_by_id": requesting_user.id,
+            "modified_by_id": requesting_user.id,
+        }
+    )
+    session.add(score_set)
+    session.commit()
+
+    session.refresh(score_set)
+
+    score_set_search = ScoreSetsSearch(targets=["TEST1"])
+    requesting_user = session.query(User).filter(User.username == TEST_USER["username"]).first()
+    user_data = UserData(user=requesting_user, active_roles=[])
+    filter_options = fetch_score_set_search_filter_options(session, user_data, None, score_set_search)
+    assert filter_options == {
+        "target_gene_categories": [{"value": TargetCategory.protein_coding, "count": 1}],
+        "target_gene_names": [{"value": "TEST1", "count": 1}],
+        "target_organism_names": [{"count": 1, "value": "Organism name"}],
+        "target_accessions": [],
+        "publication_author_names": [],
+        "publication_db_names": [],
+        "publication_journals": [],
+    }
+
+
+def test_fetch_score_set_search_filter_options_with_no_matching_score_sets(setup_lib_db, session):
+    score_set_search = ScoreSetsSearch(publication_journals=["Non Existent Journal"])
+    requesting_user = session.query(User).filter(User.username == TEST_USER["username"]).first()
+    user_data = UserData(user=requesting_user, active_roles=[])
+    filter_options = fetch_score_set_search_filter_options(session, user_data, None, score_set_search)
+
+    assert filter_options == {
+        "target_gene_categories": [],
+        "target_gene_names": [],
+        "target_organism_names": [],
+        "target_accessions": [],
+        "publication_author_names": [],
+        "publication_db_names": [],
+        "publication_journals": [],
+    }
+
+
+def test_fetch_score_set_search_filter_options_with_no_permitted_score_sets(setup_lib_db, session):
+    score_set_search = ScoreSetsSearch()
+    filter_options = fetch_score_set_search_filter_options(session, None, None, score_set_search)
+
+    assert filter_options == {
+        "target_gene_categories": [],
+        "target_gene_names": [],
+        "target_organism_names": [],
+        "target_accessions": [],
+        "publication_author_names": [],
+        "publication_db_names": [],
+        "publication_journals": [],
+    }

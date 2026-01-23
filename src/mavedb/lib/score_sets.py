@@ -23,6 +23,8 @@ from mavedb.lib.mave.constants import (
     VARIANT_SCORE_DATA,
 )
 from mavedb.lib.mave.utils import is_csv_null
+from mavedb.lib.permissions import Action, has_permission
+from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.utilities import is_null as validate_is_null
 from mavedb.lib.variants import get_digest_from_post_mapped, get_hgvs_from_post_mapped, is_hgvs_g, is_hgvs_p
@@ -55,7 +57,6 @@ from mavedb.models.variant import Variant
 from mavedb.view_models.search import ScoreSetsSearch
 
 if TYPE_CHECKING:
-    from mavedb.lib.authentication import UserData
     from mavedb.lib.permissions import Action
 
 VariantData = dict[str, Optional[dict[str, dict]]]
@@ -298,21 +299,40 @@ def score_set_search_filter_options_from_counter(counter: Counter):
     return [{"value": value, "count": count} for value, count in counter.items()]
 
 
-def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch):
+def fetch_score_set_search_filter_options(
+    db: Session, requester: Optional[UserData], owner_or_contributor: Optional[User], search: ScoreSetsSearch
+):
     save_to_logging_context({"score_set_search_criteria": search.model_dump()})
 
     query = db.query(ScoreSet)
     query = build_search_score_sets_query_filter(db, query, owner_or_contributor, search)
-
     score_sets: list[ScoreSet] = query.all()
     if not score_sets:
         score_sets = []
 
+    # Target related counters
     target_category_counter: Counter[str] = Counter()
     target_name_counter: Counter[str] = Counter()
     target_organism_name_counter: Counter[str] = Counter()
     target_accession_counter: Counter[str] = Counter()
+    # Publication related counters
+    publication_author_name_counter: Counter[str] = Counter()
+    publication_db_name_counter: Counter[str] = Counter()
+    publication_journal_counter: Counter[str] = Counter()
+
+    # --- PERFORMANCE NOTE ---
+    # The following counter construction loop is a bottleneck for large score set queries.
+    # Practical future optimizations might include:
+    #   - Batch permission checks and attribute access outside the loop if possible
+    #   - Use parallelization (e.g., multiprocessing or concurrent.futures) for large datasets
+    #   - Pre-fetch or denormalize target/publication data in the DB query
+    #   - Profile and refactor nested attribute lookups to minimize Python overhead
     for score_set in score_sets:
+        # Check read permission for each score set, skip if no permission
+        if not has_permission(requester, score_set, Action.READ).permitted:
+            continue
+
+        # Target related options
         for target in getattr(score_set, "target_genes", []):
             category = getattr(target, "category", None)
             if category:
@@ -335,10 +355,7 @@ def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Opt
             if accession:
                 target_accession_counter[accession] += 1
 
-    publication_author_name_counter: Counter[str] = Counter()
-    publication_db_name_counter: Counter[str] = Counter()
-    publication_journal_counter: Counter[str] = Counter()
-    for score_set in score_sets:
+        # Publication related options
         for publication_association in getattr(score_set, "publication_identifier_associations", []):
             publication = getattr(publication_association, "publication", None)
 
@@ -443,8 +460,6 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
 def find_superseded_score_set_tail(
     score_set: ScoreSet, action: Optional["Action"] = None, user_data: Optional["UserData"] = None
 ) -> Optional[ScoreSet]:
-    from mavedb.lib.permissions import has_permission
-
     while score_set.superseding_score_set is not None:
         next_score_set_in_chain = score_set.superseding_score_set
 
