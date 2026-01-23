@@ -12,7 +12,6 @@ from mavedb.worker.lib.managers.job_manager import JobManager
 pytest.importorskip("arq")  # Skip tests if arq is not installed
 
 import asyncio
-import os
 from unittest.mock import patch
 
 from sqlalchemy import select
@@ -23,13 +22,6 @@ from mavedb.models.pipeline import Pipeline
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
 from tests.helpers.transaction_spy import TransactionSpy
-
-
-# Unset test mode flag before each test to ensure decorator logic is executed
-# during unit testing of the decorator itself.
-@pytest.fixture(autouse=True)
-def unset_test_mode_flag():
-    os.environ.pop("MAVEDB_TEST_MODE", None)
 
 
 async def sample_job(ctx=None, job_id=None):
@@ -303,12 +295,12 @@ class TestPipelineManagementDecoratorIntegration:
         session.commit()
 
         @with_pipeline_management
-        async def sample_job(ctx: dict, job_id: int):
+        async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
             await event.wait()  # Simulate async work, block until test signals
             return {"status": "ok"}
 
         @with_pipeline_management
-        async def sample_dependent_job(ctx: dict, job_id: int):
+        async def sample_dependent_job(ctx: dict, job_id: int, job_manager: JobManager):
             await dep_event.wait()  # Simulate async work, block until test signals
             return {"status": "ok"}
 
@@ -389,17 +381,17 @@ class TestPipelineManagementDecoratorIntegration:
         dep_event = asyncio.Event()
 
         @with_pipeline_management
-        async def sample_job(ctx: dict, job_id: int):
+        async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
             await event.wait()  # Simulate async work, block until test signals
             raise RuntimeError("Simulated job failure for retry")
 
         @with_pipeline_management
-        async def sample_retried_job(ctx: dict, job_id: int):
+        async def sample_retried_job(ctx: dict, job_id: int, job_manager: JobManager):
             await retry_event.wait()  # Simulate async work, block until test signals
             return {"status": "ok"}
 
         @with_pipeline_management
-        async def sample_dependent_job(ctx: dict, job_id: int):
+        async def sample_dependent_job(ctx: dict, job_id: int, job_manager: JobManager):
             await dep_event.wait()  # Simulate async work, block until test signals
             return {"status": "ok"}
 
@@ -495,7 +487,7 @@ class TestPipelineManagementDecoratorIntegration:
         event = asyncio.Event()
 
         @with_pipeline_management
-        async def sample_job(ctx: dict, job_id: int):
+        async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
             await event.wait()  # Simulate async work, block until test signals
             raise RuntimeError("Simulated job failure")
 
