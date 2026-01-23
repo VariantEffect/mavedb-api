@@ -3,7 +3,13 @@ from copy import deepcopy
 import pytest
 
 from mavedb.view_models.publication_identifier import PublicationIdentifier, PublicationIdentifierCreate
-from mavedb.view_models.score_set import SavedScoreSet, ScoreSetCreate, ScoreSetModify, ScoreSetUpdateAllOptional
+from mavedb.view_models.score_set import (
+    SavedScoreSet,
+    ScoreSet,
+    ScoreSetCreate,
+    ScoreSetModify,
+    ScoreSetUpdateAllOptional,
+)
 from mavedb.view_models.target_gene import SavedTargetGene, TargetGeneCreate
 from tests.helpers.constants import (
     EXTRA_LICENSE,
@@ -17,6 +23,7 @@ from tests.helpers.constants import (
     TEST_MINIMAL_SEQ_SCORESET_RESPONSE,
     TEST_PATHOGENICITY_SCORE_CALIBRATION,
     TEST_PUBMED_IDENTIFIER,
+    VALID_EXPERIMENT_SET_URN,
     VALID_EXPERIMENT_URN,
     VALID_SCORE_SET_URN,
     VALID_TMP_URN,
@@ -372,10 +379,14 @@ def test_score_set_update_all_optional(attribute, updated_data):
 
 
 @pytest.mark.parametrize(
-    "exclude",
-    ["publication_identifier_associations", "meta_analyzes_score_sets", "meta_analyzed_by_score_sets"],
+    "exclude,expected_missing_fields",
+    [
+        ("publication_identifier_associations", ["primaryPublicationIdentifiers", "secondaryPublicationIdentifiers"]),
+        ("meta_analyzes_score_sets", ["metaAnalyzesScoreSetUrns"]),
+        ("meta_analyzed_by_score_sets", ["metaAnalyzedByScoreSetUrns"]),
+    ],
 )
-def test_cannot_create_saved_score_set_without_all_attributed_properties(exclude):
+def test_cannot_create_saved_score_set_without_all_attributed_properties(exclude, expected_missing_fields):
     score_set = TEST_MINIMAL_SEQ_SCORESET_RESPONSE.copy()
     score_set["urn"] = "urn:score-set-xxx"
 
@@ -429,8 +440,9 @@ def test_cannot_create_saved_score_set_without_all_attributed_properties(exclude
     with pytest.raises(ValueError) as exc_info:
         SavedScoreSet.model_validate(score_set_attributed_object)
 
-    assert "Unable to create SavedScoreSet without attribute" in str(exc_info.value)
-    assert exclude in str(exc_info.value)
+    assert "Field required" in str(exc_info.value)
+    for exclude_field in expected_missing_fields:
+        assert exclude_field in str(exc_info.value)
 
 
 def test_can_create_score_set_with_none_type_superseded_score_set_urn():
@@ -543,3 +555,14 @@ def test_cant_create_score_set_without_experiment_urn_if_not_meta_analysis():
         ScoreSetCreate(**score_set_test)
 
     assert "experiment URN is required unless your score set is a meta-analysis" in str(exc_info.value)
+
+
+def test_can_create_score_set_from_non_orm_context():
+    score_set_test = TEST_MINIMAL_SEQ_SCORESET_RESPONSE.copy()
+    score_set_test["urn"] = "urn:score-set-xxx"
+    score_set_test["experiment"]["urn"] = VALID_EXPERIMENT_URN
+    score_set_test["experiment"]["experimentSetUrn"] = VALID_EXPERIMENT_SET_URN
+
+    saved_score_set = ScoreSet.model_validate(score_set_test)
+
+    assert saved_score_set.urn == "urn:score-set-xxx"

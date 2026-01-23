@@ -1,17 +1,18 @@
 import pytest
+from pydantic import ValidationError
 
-from mavedb.view_models.experiment import ExperimentCreate, SavedExperiment
+from mavedb.view_models.experiment import Experiment, ExperimentCreate, SavedExperiment
 from mavedb.view_models.publication_identifier import PublicationIdentifier
-
 from tests.helpers.constants import (
-    VALID_EXPERIMENT_URN,
-    VALID_SCORE_SET_URN,
-    VALID_EXPERIMENT_SET_URN,
+    SAVED_BIORXIV_PUBLICATION,
+    SAVED_PUBMED_PUBLICATION,
+    TEST_BIORXIV_IDENTIFIER,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_EXPERIMENT_RESPONSE,
-    SAVED_PUBMED_PUBLICATION,
     TEST_PUBMED_IDENTIFIER,
-    TEST_BIORXIV_IDENTIFIER,
+    VALID_EXPERIMENT_SET_URN,
+    VALID_EXPERIMENT_URN,
+    VALID_SCORE_SET_URN,
 )
 from tests.helpers.util.common import dummy_attributed_object_from_dict
 
@@ -237,8 +238,15 @@ def test_saved_experiment_synthetic_properties():
     )
 
 
-@pytest.mark.parametrize("exclude", ["publication_identifier_associations", "score_sets", "experiment_set"])
-def test_cannot_create_saved_experiment_without_all_attributed_properties(exclude):
+@pytest.mark.parametrize(
+    "exclude,expected_missing_fields",
+    [
+        ("publication_identifier_associations", ["primaryPublicationIdentifiers", "secondaryPublicationIdentifiers"]),
+        ("score_sets", ["scoreSetUrns"]),
+        ("experiment_set", ["experimentSetUrn"]),
+    ],
+)
+def test_cannot_create_saved_experiment_without_all_attributed_properties(exclude, expected_missing_fields):
     experiment = TEST_MINIMAL_EXPERIMENT_RESPONSE.copy()
     experiment["urn"] = VALID_EXPERIMENT_URN
 
@@ -280,11 +288,14 @@ def test_cannot_create_saved_experiment_without_all_attributed_properties(exclud
 
     experiment.pop(exclude)
     experiment_attributed_object = dummy_attributed_object_from_dict(experiment)
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValidationError) as exc_info:
         SavedExperiment.model_validate(experiment_attributed_object)
 
-    assert "Unable to create SavedExperiment without attribute" in str(exc_info.value)
-    assert exclude in str(exc_info.value)
+    # Should fail with missing fields coerced from missing attributed properties
+    msg = str(exc_info.value)
+    assert "Field required" in msg
+    for field in expected_missing_fields:
+        assert field in msg
 
 
 def test_can_create_experiment_with_nonetype_experiment_set_urn():
@@ -303,3 +314,20 @@ def test_cant_create_experiment_with_invalid_experiment_set_urn():
         ExperimentCreate(**experiment_test)
 
     assert f"'{experiment_test['experiment_set_urn']}' is not a valid experiment set URN" in str(exc_info.value)
+
+
+def test_can_create_experiment_from_non_orm_context():
+    experiment = TEST_MINIMAL_EXPERIMENT_RESPONSE.copy()
+    experiment["urn"] = VALID_EXPERIMENT_URN
+    experiment["experimentSetUrn"] = VALID_EXPERIMENT_SET_URN
+    experiment["scoreSetUrns"] = [VALID_SCORE_SET_URN]
+    experiment["primaryPublicationIdentifiers"] = [SAVED_PUBMED_PUBLICATION]
+    experiment["secondaryPublicationIdentifiers"] = [SAVED_PUBMED_PUBLICATION, SAVED_BIORXIV_PUBLICATION]
+
+    # Should not require any ORM attributes
+    saved_experiment = Experiment.model_validate(experiment)
+    assert saved_experiment.urn == VALID_EXPERIMENT_URN
+    assert saved_experiment.experiment_set_urn == VALID_EXPERIMENT_SET_URN
+    assert saved_experiment.score_set_urns == [VALID_SCORE_SET_URN]
+    assert len(saved_experiment.primary_publication_identifiers) == 1
+    assert len(saved_experiment.secondary_publication_identifiers) == 2

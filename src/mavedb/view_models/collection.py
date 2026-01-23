@@ -84,36 +84,36 @@ class SavedCollection(CollectionBase):
         from_attributes = True
 
     # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
-    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.
+    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created. Only perform these
+    # transformations if the relevant attributes are present on the input data (i.e., when creating from an ORM object).
     @model_validator(mode="before")
     def generate_contribution_role_user_relationships(cls, data: Any):
-        try:
-            user_associations = transform_contribution_role_associations_to_roles(data.user_associations)
-            for k, v in user_associations.items():
-                data.__setattr__(k, v)
+        if hasattr(data, "user_associations"):
+            try:
+                user_associations = transform_contribution_role_associations_to_roles(data.user_associations)
+                for k, v in user_associations.items():
+                    data.__setattr__(k, v)
 
-        except AttributeError as exc:
-            raise ValidationError(
-                f"Unable to create {cls.__name__} without attribute: {exc}."  # type: ignore
-            )
+            except (AttributeError, KeyError) as exc:
+                raise ValidationError(f"Unable to coerce user associations for {cls.__name__}: {exc}.")
         return data
 
     @model_validator(mode="before")
     def generate_score_set_urn_list(cls, data: Any):
-        if not hasattr(data, "score_set_urns"):
+        if hasattr(data, "score_sets"):
             try:
                 data.__setattr__("score_set_urns", transform_score_set_list_to_urn_list(data.score_sets))
-            except AttributeError as exc:
-                raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
+            except (AttributeError, KeyError) as exc:
+                raise ValidationError(f"Unable to coerce score set urns for {cls.__name__}: {exc}.")
         return data
 
     @model_validator(mode="before")
     def generate_experiment_urn_list(cls, data: Any):
-        if not hasattr(data, "experiment_urns"):
+        if hasattr(data, "experiments"):
             try:
                 data.__setattr__("experiment_urns", transform_experiment_list_to_urn_list(data.experiments))
-            except AttributeError as exc:
-                raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
+            except (AttributeError, KeyError) as exc:
+                raise ValidationError(f"Unable to coerce experiment urns for {cls.__name__}: {exc}.")
         return data
 
 
