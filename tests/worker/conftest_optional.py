@@ -2,6 +2,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from arq import ArqRedis
+from cdot.hgvs.dataproviders import RESTDataProvider
 from sqlalchemy.orm import Session
 
 from mavedb.worker.lib.managers.job_manager import JobManager
@@ -45,13 +46,16 @@ def mock_pipeline_manager(mock_job_manager, mock_pipeline):
 
 
 @pytest.fixture
-def mock_worker_ctx():
+def mock_worker_ctx(session):
     """Create a mock worker context dictionary for testing."""
-    mock_db = Mock(spec=Session)
     mock_redis = Mock(spec=ArqRedis)
+    mock_hdp = Mock(spec=RESTDataProvider)
 
+    # Don't mock the session itself to allow real DB interactions in tests
+    # It's generally more pain than it's worth to mock out SQLAlchemy sessions,
+    # although it can sometimes be useful when raising specific exceptions.
     return {
-        "db": mock_db,
+        "db": session,
         "redis": mock_redis,
-        "hdp": Mock(),  # Mock HDP data provider
+        "hdp": mock_hdp,
     }

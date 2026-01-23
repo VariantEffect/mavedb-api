@@ -11,7 +11,7 @@ pytest.importorskip("arq")  # Skip tests if arq is not installed
 
 import asyncio
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from sqlalchemy import select
 
@@ -88,15 +88,12 @@ class TestPipelineManagementDecoratorUnit:
             await sample_job(mock_worker_ctx, 999)
 
     async def test_decorator_fetches_pipeline_from_db_and_constructs_pipeline_manager(
-        self, mock_pipeline_manager, mock_worker_ctx, mock_pipeline
+        self, mock_pipeline_manager, mock_worker_ctx, sample_job_run, with_populated_job_data
     ):
         with (
             # patch the with_job_management decorator to be a no-op
             patch("mavedb.worker.lib.decorators.pipeline_management.with_job_management", wraps=lambda f: f),
             patch("mavedb.worker.lib.decorators.pipeline_management.PipelineManager") as mock_pipeline_manager_class,
-            patch.object(
-                mock_worker_ctx["db"], "execute", return_value=MagicMock(scalar_one=MagicMock(return_value=123))
-            ) as mock_execute,
             patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None),
             patch.object(mock_pipeline_manager, "start_pipeline", return_value=None),
             TransactionSpy.spy(mock_worker_ctx["db"], expect_commit=True),
@@ -108,21 +105,17 @@ class TestPipelineManagementDecoratorUnit:
             async def sample_job(ctx: dict, job_id: int, pipeline_manager: PipelineManager):
                 return {"status": "ok"}
 
-            result = await sample_job(mock_worker_ctx, 999, pipeline_manager=mock_pipeline_manager)
+            result = await sample_job(mock_worker_ctx, sample_job_run.id, pipeline_manager=mock_pipeline_manager)
 
-        mock_execute.assert_called_once()
         assert result == {"status": "ok"}
 
     async def test_decorator_skips_coordination_and_start_when_no_pipeline_exists(
-        self, mock_pipeline_manager, mock_worker_ctx
+        self, mock_pipeline_manager, mock_worker_ctx, sample_independent_job_run, with_populated_job_data
     ):
         with (
             # patch the with_job_management decorator to be a no-op
             patch("mavedb.worker.lib.decorators.pipeline_management.with_job_management", wraps=lambda f: f),
             patch("mavedb.worker.lib.decorators.pipeline_management.PipelineManager") as mock_pipeline_manager_class,
-            patch.object(
-                mock_worker_ctx["db"], "execute", return_value=MagicMock(scalar_one=MagicMock(return_value=None))
-            ) as mock_execute,
             patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None) as mock_coordinate_pipeline,
             patch.object(mock_pipeline_manager, "start_pipeline", return_value=None) as mock_start_pipeline,
             # We shouldn't expect any commits since no pipeline coordination occurs
@@ -134,23 +127,21 @@ class TestPipelineManagementDecoratorUnit:
             async def sample_job(ctx: dict, job_id: int, pipeline_manager: PipelineManager):
                 return {"status": "ok"}
 
-            result = await sample_job(mock_worker_ctx, 999, pipeline_manager=mock_pipeline_manager)
+            result = await sample_job(
+                mock_worker_ctx, sample_independent_job_run.id, pipeline_manager=mock_pipeline_manager
+            )
 
-        mock_execute.assert_called_once()
         mock_coordinate_pipeline.assert_not_called()
         mock_start_pipeline.assert_not_called()
         assert result == {"status": "ok"}
 
     async def test_decorator_starts_pipeline_when_in_created_state(
-        self, mock_pipeline_manager, mock_worker_ctx, mock_pipeline
+        self, mock_pipeline_manager, mock_worker_ctx, sample_job_run, with_populated_job_data
     ):
         with (
             # patch the with_job_management decorator to be a no-op
             patch("mavedb.worker.lib.decorators.pipeline_management.with_job_management", wraps=lambda f: f),
             patch("mavedb.worker.lib.decorators.pipeline_management.PipelineManager") as mock_pipeline_manager_class,
-            patch.object(
-                mock_worker_ctx["db"], "execute", return_value=MagicMock(scalar_one=MagicMock(return_value=123))
-            ) as mock_execute,
             patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=PipelineStatus.CREATED),
             patch.object(mock_pipeline_manager, "start_pipeline", return_value=None) as mock_start_pipeline,
             patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None),
@@ -162,9 +153,8 @@ class TestPipelineManagementDecoratorUnit:
             async def sample_job(ctx: dict, job_id: int, pipeline_manager: PipelineManager):
                 return {"status": "ok"}
 
-            result = await sample_job(mock_worker_ctx, 999, pipeline_manager=mock_pipeline_manager)
+            result = await sample_job(mock_worker_ctx, sample_job_run.id, pipeline_manager=mock_pipeline_manager)
 
-        mock_execute.assert_called_once()
         mock_start_pipeline.assert_called_once()
         assert result == {"status": "ok"}
 
@@ -173,15 +163,12 @@ class TestPipelineManagementDecoratorUnit:
         [status for status in PipelineStatus._member_map_.values() if status != PipelineStatus.CREATED],
     )
     async def test_decorator_does_not_start_pipeline_when_in_not_in_created_state(
-        self, mock_pipeline_manager, mock_worker_ctx, mock_pipeline, pipeline_state
+        self, mock_pipeline_manager, mock_worker_ctx, sample_job_run, with_populated_job_data, pipeline_state
     ):
         with (
             # patch the with_job_management decorator to be a no-op
             patch("mavedb.worker.lib.decorators.pipeline_management.with_job_management", wraps=lambda f: f),
             patch("mavedb.worker.lib.decorators.pipeline_management.PipelineManager") as mock_pipeline_manager_class,
-            patch.object(
-                mock_worker_ctx["db"], "execute", return_value=MagicMock(scalar_one=MagicMock(return_value=123))
-            ) as mock_execute,
             patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=pipeline_state),
             patch.object(mock_pipeline_manager, "start_pipeline", return_value=None) as mock_start_pipeline,
             patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None),
@@ -193,14 +180,13 @@ class TestPipelineManagementDecoratorUnit:
             async def sample_job(ctx: dict, job_id: int, pipeline_manager: PipelineManager):
                 return {"status": "ok"}
 
-            result = await sample_job(mock_worker_ctx, 999, pipeline_manager=mock_pipeline_manager)
+            result = await sample_job(mock_worker_ctx, sample_job_run.id, pipeline_manager=mock_pipeline_manager)
 
-        mock_execute.assert_called_once()
         mock_start_pipeline.assert_not_called()
         assert result == {"status": "ok"}
 
     async def test_decorator_calls_wrapped_function_and_returns_result(
-        self, mock_pipeline_manager, mock_worker_ctx, mock_pipeline
+        self, mock_pipeline_manager, mock_worker_ctx, sample_job_run, with_populated_job_data
     ):
         with (
             # patch the with_job_management decorator to be a no-op
@@ -208,9 +194,6 @@ class TestPipelineManagementDecoratorUnit:
                 "mavedb.worker.lib.decorators.pipeline_management.with_job_management", wraps=lambda f: f
             ) as mock_with_job_mgmt,
             patch("mavedb.worker.lib.decorators.pipeline_management.PipelineManager") as mock_pipeline_manager_class,
-            patch.object(
-                mock_worker_ctx["db"], "execute", return_value=MagicMock(scalar_one=MagicMock(return_value=123))
-            ),
             patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=PipelineStatus.CREATED),
             patch.object(mock_pipeline_manager, "start_pipeline", return_value=None),
             patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None),
@@ -222,13 +205,13 @@ class TestPipelineManagementDecoratorUnit:
             async def sample_job(ctx: dict, job_id: int, pipeline_manager: PipelineManager):
                 return {"status": "ok"}
 
-            result = await sample_job(mock_worker_ctx, 999, pipeline_manager=mock_pipeline_manager)
+            result = await sample_job(mock_worker_ctx, sample_job_run.id, pipeline_manager=mock_pipeline_manager)
 
         mock_with_job_mgmt.assert_called_once()
         assert result == {"status": "ok"}
 
     async def test_decorator_calls_pipeline_manager_coordinate_pipeline_after_wrapped_function(
-        self, mock_pipeline_manager, mock_worker_ctx, mock_pipeline
+        self, mock_pipeline_manager, mock_worker_ctx, sample_job_run, with_populated_job_data
     ):
         with (
             # patch the with_job_management decorator to be a no-op
@@ -237,9 +220,6 @@ class TestPipelineManagementDecoratorUnit:
                 wraps=lambda f: f,
             ),
             patch("mavedb.worker.lib.decorators.pipeline_management.PipelineManager") as mock_pipeline_manager_class,
-            patch.object(
-                mock_worker_ctx["db"], "execute", return_value=MagicMock(scalar_one=MagicMock(return_value=123))
-            ),
             patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=PipelineStatus.CREATED),
             patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None) as mock_coordinate_pipeline,
             patch.object(mock_pipeline_manager, "start_pipeline", return_value=None),
@@ -251,11 +231,13 @@ class TestPipelineManagementDecoratorUnit:
             async def sample_job(ctx: dict, job_id: int, pipeline_manager: PipelineManager):
                 return {"status": "ok"}
 
-            await sample_job(mock_worker_ctx, 999, pipeline_manager=mock_pipeline_manager)
+            await sample_job(mock_worker_ctx, sample_job_run.id, pipeline_manager=mock_pipeline_manager)
 
         mock_coordinate_pipeline.assert_called_once()
 
-    async def test_decorator_swallows_exception_from_wrapped_function(self, mock_pipeline_manager, mock_worker_ctx):
+    async def test_decorator_swallows_exception_from_wrapped_function(
+        self, mock_pipeline_manager, mock_worker_ctx, sample_job_run, with_populated_job_data
+    ):
         with (
             # patch the with_job_management decorator to be a no-op
             patch(
@@ -274,12 +256,12 @@ class TestPipelineManagementDecoratorUnit:
             async def sample_job(ctx: dict, job_id: int, pipeline_manager: PipelineManager):
                 raise RuntimeError("error in wrapped function")
 
-            await sample_job(mock_worker_ctx, 999, pipeline_manager=mock_pipeline_manager)
+            await sample_job(mock_worker_ctx, sample_job_run.id, pipeline_manager=mock_pipeline_manager)
 
         # TODO: Assert calls for notification hooks and job result data
 
     async def test_decorator_swallows_exception_from_pipeline_manager_coordinate_pipeline(
-        self, mock_pipeline_manager, mock_worker_ctx
+        self, mock_pipeline_manager, mock_worker_ctx, sample_job_run, with_populated_job_data
     ):
         with (
             # patch the with_job_management decorator to be a no-op
@@ -305,12 +287,12 @@ class TestPipelineManagementDecoratorUnit:
             async def sample_job(ctx: dict, job_id: int, pipeline_manager: PipelineManager):
                 return {"status": "ok"}
 
-            await sample_job(mock_worker_ctx, 999, pipeline_manager=mock_pipeline_manager)
+            await sample_job(mock_worker_ctx, sample_job_run.id, pipeline_manager=mock_pipeline_manager)
 
         # TODO: Assert calls for notification hooks and job result data
 
     async def test_decorator_swallows_exception_from_job_management_decorator(
-        self, mock_pipeline_manager, mock_worker_ctx
+        self, mock_pipeline_manager, mock_worker_ctx, sample_job_run, with_populated_job_data
     ):
         def passthrough_decorator(f):
             return f
@@ -333,7 +315,7 @@ class TestPipelineManagementDecoratorUnit:
             async def sample_job(ctx: dict, job_id: int, pipeline_manager: PipelineManager):
                 return {"status": "ok"}
 
-            await sample_job(mock_worker_ctx, 999, pipeline_manager=mock_pipeline_manager)
+            await sample_job(mock_worker_ctx, sample_job_run.id, pipeline_manager=mock_pipeline_manager)
 
         mock_with_job_mgmt.assert_called_once()
         # TODO: Assert calls for notification hooks and job result data
