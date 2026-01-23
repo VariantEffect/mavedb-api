@@ -626,7 +626,7 @@ TEST_EXPERIMENT_WITH_UPDATE_KEYWORD_RESPONSE = {
                 "key": "Phenotypic Assay Profiling Strategy",
                 "label": "Shotgun sequencing",
                 "special": False,
-                "description": "Description"
+                "description": "Description",
             },
             "description": "Details of phenotypic assay profiling strategy",
         },
@@ -635,6 +635,7 @@ TEST_EXPERIMENT_WITH_UPDATE_KEYWORD_RESPONSE = {
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
     "rawReadIdentifiers": [],
+    "externalLinks": {},
     # keys to be set after receiving response
     "urn": None,
     "experimentSetUrn": None,
