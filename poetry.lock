@@ -4852,4 +4852,4 @@ server = ["alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "4be857a91855622d543b3eb008624fc9bb57b605d17e5aec00a0e1c8bef5ed3c"
+content-hash = "452148c0c5ee1b9cbb12087a27c8d6d3e650ad1eb4fed99b4470b4db16f041c6"
