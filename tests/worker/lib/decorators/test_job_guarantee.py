@@ -8,8 +8,6 @@ import pytest
 
 pytest.importorskip("arq")  # Skip tests if arq is not installed
 
-import os
-
 from sqlalchemy import select
 
 from mavedb import __version__
@@ -17,13 +15,6 @@ from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.decorators.job_guarantee import with_guaranteed_job_run_record
 from tests.helpers.transaction_spy import TransactionSpy
-
-
-# Unset test mode flag before each test to ensure decorator logic is executed
-# during unit testing of the decorator itself.
-@pytest.fixture(autouse=True)
-def unset_test_mode_flag():
-    os.environ.pop("MAVEDB_TEST_MODE", None)
 
 
 @with_guaranteed_job_run_record("test_job")

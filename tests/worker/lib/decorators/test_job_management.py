@@ -10,7 +10,6 @@ import pytest
 pytest.importorskip("arq")  # Skip tests if arq is not installed
 
 import asyncio
-import os
 from unittest.mock import patch
 
 from sqlalchemy import select
@@ -22,13 +21,6 @@ from mavedb.worker.lib.managers.constants import RETRYABLE_FAILURE_CATEGORIES
 from mavedb.worker.lib.managers.exceptions import JobStateError
 from mavedb.worker.lib.managers.job_manager import JobManager
 from tests.helpers.transaction_spy import TransactionSpy
-
-
-# Unset test mode flag before each test to ensure decorator logic is executed
-# during unit testing of the decorator itself.
-@pytest.fixture(autouse=True)
-def unset_test_mode_flag():
-    os.environ.pop("MAVEDB_TEST_MODE", None)
 
 
 @with_job_management
