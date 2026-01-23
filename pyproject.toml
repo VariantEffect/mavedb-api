@@ -89,7 +89,7 @@ SQLAlchemy = { extras = ["mypy"], version = "~2.0.0" }
 
 
 [tool.poetry.extras]
-server = ["alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "ga4gh-va-spec", "orcid", "psycopg2", "python-jose", "python-multipart", "pyathena", "requests", "starlette", "starlette-context", "slack-sdk", "uvicorn", "watchtower"]
+server = ["alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "psycopg2", "python-jose", "python-multipart", "pyathena", "requests", "starlette", "starlette-context", "slack-sdk", "uvicorn", "watchtower"]
 
 
 [tool.mypy]

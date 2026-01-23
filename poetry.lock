@@ -180,7 +180,6 @@ files = [
     {file = "attrs-25.3.0-py3-none-any.whl", hash = "sha256:427318ce031701fea540783410126f03899a97ffc6f61596ad581ac2e40e3bc3"},
     {file = "attrs-25.3.0.tar.gz", hash = "sha256:75d7cefc7fb576747b2c81b4442d4d4a1ce0900973527c011d1030fd3bf4af1b"},
 ]
-markers = {main = "extra == \"server\""}
 
 [package.extras]
 benchmark = ["cloudpickle ; platform_python_implementation == \"CPython\"", "hypothesis", "mypy (>=1.11.1) ; platform_python_implementation == \"CPython\" and python_version >= \"3.10\"", "pympler", "pytest (>=4.3.0)", "pytest-codspeed", "pytest-mypy-plugins ; platform_python_implementation == \"CPython\" and python_version >= \"3.10\"", "pytest-xdist[psutil]"]
@@ -278,7 +277,6 @@ description = "miscellaneous simple bioinformatics utilities and lookup tables"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "extra == \"server\""
 files = [
     {file = "bioutils-0.6.1-py3-none-any.whl", hash = "sha256:9928297331b9fc0a4fd4235afdef9a80a0916d8b5c2811ab781bded0dad4b9b6"},
     {file = "bioutils-0.6.1.tar.gz", hash = "sha256:6ad7a9b6da73beea798a935499339d8b60a434edc37dfc803474d2e93e0e64aa"},
@@ -814,7 +812,6 @@ description = "Canonical JSON"
 optional = false
 python-versions = ">=3.7"
 groups = ["main"]
-markers = "extra == \"server\""
 files = [
     {file = "canonicaljson-2.0.0-py3-none-any.whl", hash = "sha256:c38a315de3b5a0532f1ec1f9153cd3d716abfc565a558d00a4835428a34fca5b"},
     {file = "canonicaljson-2.0.0.tar.gz", hash = "sha256:e2fdaef1d7fadc5d9cb59bd3d0d41b064ddda697809ac4325dced721d12f113f"},
@@ -1546,7 +1543,6 @@ description = "GA4GH Categorical Variation Representation (Cat-VRS) reference im
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "extra == \"server\""
 files = [
     {file = "ga4gh_cat_vrs-0.7.1-py3-none-any.whl", hash = "sha256:549e726182d9fdc28d049b9adc6a8c65189bbade06b2ceed8cb20a35cbdefc45"},
     {file = "ga4gh_cat_vrs-0.7.1.tar.gz", hash = "sha256:ac8d11ea5f474e8a9745107673d4e8b6949819ccdc9debe2ab8ad8e5f853f87c"},
@@ -1568,7 +1564,6 @@ description = "GA4GH Variant Annotation (VA) reference implementation"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "extra == \"server\""
 files = [
     {file = "ga4gh_va_spec-0.4.2-py3-none-any.whl", hash = "sha256:c165a96dfa225845b5d63740d3ad40c9f2dcb26808cf759b73bc122a68a9a60e"},
     {file = "ga4gh_va_spec-0.4.2.tar.gz", hash = "sha256:13eda6a8cfc7a2baa395e33d17e3296c2ec1c63ec85fe38085751c112cf1c902"},
@@ -1591,7 +1586,6 @@ description = "GA4GH Variation Representation Specification (VRS) reference impl
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "extra == \"server\""
 files = [
     {file = "ga4gh_vrs-2.1.3-py3-none-any.whl", hash = "sha256:15b20363d9d4a4604be0930b41b14c9b4e6dc15a6e8be813544f0775b873bc5b"},
     {file = "ga4gh_vrs-2.1.3.tar.gz", hash = "sha256:48af6de1eb40e00aa68ed5a935061917b4017468ef366e8e68bbbc17ffaa60f3"},
@@ -3875,7 +3869,6 @@ files = [
     {file = "setuptools-80.9.0-py3-none-any.whl", hash = "sha256:062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922"},
     {file = "setuptools-80.9.0.tar.gz", hash = "sha256:f36b47402ecde768dbfafc46e8e4207b4360c654f1f3bb84475f0a28628fb19c"},
 ]
-markers = {main = "extra == \"server\""}
 
 [package.extras]
 check = ["pytest-checkdocs (>=2.4)", "pytest-ruff (>=0.2.1) ; sys_platform != \"cygwin\"", "ruff (>=0.8.0) ; sys_platform != \"cygwin\""]
@@ -4854,9 +4847,9 @@ test = ["big-O", "jaraco.functools", "jaraco.itertools", "jaraco.test", "more_it
 type = ["pytest-mypy"]
 
 [extras]
-server = ["alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "ga4gh-va-spec", "hgvs", "orcid", "psycopg2", "pyathena", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "starlette-context", "uvicorn", "watchtower"]
+server = ["alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "psycopg2", "pyathena", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "starlette-context", "uvicorn", "watchtower"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "4be857a91855622d543b3eb008624fc9bb57b605d17e5aec00a0e1c8bef5ed3c"
+content-hash = "452148c0c5ee1b9cbb12087a27c8d6d3e650ad1eb4fed99b4470b4db16f041c6"
