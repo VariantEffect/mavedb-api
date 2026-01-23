@@ -619,7 +619,7 @@ def test_can_create_score_calibration_from_non_orm_context():
     assert sc.investigator_provided == data.get("investigatorProvided", False)
     assert sc.baseline_score == data.get("baselineScore")
     assert sc.baseline_score_description == data.get("baselineScoreDescription")
-    assert len(sc.functional_ranges) == len(data["functionalRanges"])
+    assert len(sc.functional_classifications) == len(data["functionalClassifications"])
     assert len(sc.threshold_sources) == len(data["thresholdSources"])
     assert len(sc.classification_sources) == len(data["classificationSources"])
     assert len(sc.method_sources) == len(data["methodSources"])
@@ -688,7 +688,7 @@ def test_score_calibration_properties_when_no_functional_classifications():
 
 
 def test_score_calibration_with_score_set_urn_can_be_created_from_non_orm_context():
-    data = deepcopy(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    data = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     data["score_set_urn"] = "urn:mavedb:00000000-0000-0000-0000-000000000001"
 
     sc = ScoreCalibrationWithScoreSetUrn.model_validate(data)
