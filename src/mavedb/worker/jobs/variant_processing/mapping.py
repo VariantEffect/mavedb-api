@@ -21,7 +21,7 @@ from mavedb.lib.exceptions import (
     NonexistentMappingScoresError,
 )
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
-from mavedb.lib.mapping import ANNOTATION_LAYERS
+from mavedb.lib.mapping import ANNOTATION_LAYERS, EXCLUDED_PREMAPPED_ANNOTATION_KEYS
 from mavedb.lib.slack import send_slack_error
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.mapped_variant import MappedVariant
@@ -37,9 +37,12 @@ logger = logging.getLogger(__name__)
 
 
 @with_pipeline_management
-async def map_variants_for_score_set(ctx: dict, job_manager: JobManager) -> JobResultData:
+async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobManager) -> JobResultData:
     """Map variants for a given score set using VRS."""
-    # Get the job definition we are working on
+    # Handle everything prior to score set fetch in an outer layer. Any issues prior to
+    # fetching the score set should fail the job outright and we will be unable to set
+    # a processing state on the score set itself.
+
     job = job_manager.get_job()
 
     _job_required_params = [
@@ -47,32 +50,33 @@ async def map_variants_for_score_set(ctx: dict, job_manager: JobManager) -> JobR
         "correlation_id",
         "updater_id",
     ]
-    validate_job_params(job_manager, _job_required_params, job)
+    validate_job_params(_job_required_params, job)
 
     # Fetch required resources based on param inputs. Safely ignore mypy warnings here, as they were checked above.
     score_set = job_manager.db.scalars(select(ScoreSet).where(ScoreSet.id == job.job_params["score_set_id"])).one()  # type: ignore
-    correlation_id = job.job_params["correlation_id"]  # type: ignore
-    updater_id = job.job_params["updater_id"]  # type: ignore
-    updated_by = job_manager.db.scalars(select(User).where(User.id == updater_id)).one()
-
-    # Setup initial context and progress
-    job_manager.save_to_context(
-        {
-            "application": "mavedb-worker",
-            "function": "map_variants_for_score_set",
-            "resource": score_set.urn,
-            "correlation_id": correlation_id,
-        }
-    )
-    job_manager.update_progress(0, 100, "Starting variant mapping job.")
-    logger.info(msg="Started variant mapping job", extra=job_manager.logging_context())
-
-    # TODO#372: non-nullable URNs
-    if not score_set.urn:
-        raise ValueError("Score set URN is required for variant mapping.")
 
     # Handle everything within try/except to persist appropriate mapping state
     try:
+        correlation_id = job.job_params["correlation_id"]  # type: ignore
+        updater_id = job.job_params["updater_id"]  # type: ignore
+        updated_by = job_manager.db.scalars(select(User).where(User.id == updater_id)).one()
+
+        # Setup initial context and progress
+        job_manager.save_to_context(
+            {
+                "application": "mavedb-worker",
+                "function": "map_variants_for_score_set",
+                "resource": score_set.urn,
+                "correlation_id": correlation_id,
+            }
+        )
+        job_manager.update_progress(0, 100, "Starting variant mapping job.")
+        logger.info(msg="Started variant mapping job", extra=job_manager.logging_context())
+
+        # TODO#372: non-nullable URNs
+        if not score_set.urn:  # pragma: no cover
+            raise ValueError("Score set URN is required for variant mapping.")
+
         # Setup score set state for mapping
         score_set.mapping_state = MappingState.processing
         score_set.mapping_errors = null()
@@ -98,74 +102,37 @@ async def map_variants_for_score_set(ctx: dict, job_manager: JobManager) -> JobR
         mapping_results = await loop.run_in_executor(ctx["pool"], blocking)
 
         logger.debug(msg="Done mapping variants.", extra=job_manager.logging_context())
-        job_manager.update_progress(80, 100, "Processing mapped variants and updating database.")
+        job_manager.update_progress(80, 100, "Processing mapped variants.")
 
-        ## Check our assumptions about mapping results and handle errors appropriately. Don't raise exceptions directly,
-        ## the try/except handling is intended for unexpected errors only.
+        ## Check our assumptions about mapping results and handle errors appropriately.
 
         # Ensure we have mapping results
         if not mapping_results:
-            score_set.mapping_state = MappingState.failed
+            job_manager.db.rollback()
             score_set.mapping_errors = {"error_message": "Mapping results were not returned from VRS mapping service."}
-            job_manager.db.add(score_set)
-            job_manager.db.commit()
-
             job_manager.update_progress(100, 100, "Variant mapping failed due to missing results.")
-            job_manager.save_to_context({"mapping_state": score_set.mapping_state.name})
             logger.error(
                 msg="Mapping results were not returned from VRS mapping service.", extra=job_manager.logging_context()
             )
-            return {
-                "status": "error",
-                "data": {},
-                "exception_details": {
-                    "message": "Mapping results were not returned from VRS mapping service.",
-                    "type": NonexistentMappingResultsError.__name__,
-                    "traceback": None,
-                },
-            }
+            raise NonexistentMappingResultsError("Mapping results were not returned from VRS mapping service.")
 
         # Ensure we have mapped scores
         mapped_scores = mapping_results.get("mapped_scores")
         if not mapped_scores:
-            score_set.mapping_state = MappingState.failed
+            job_manager.db.rollback()
             score_set.mapping_errors = {"error_message": mapping_results.get("error_message")}
-            job_manager.db.add(score_set)
-            job_manager.db.commit()
-
             job_manager.update_progress(100, 100, "Variant mapping failed; no variants were mapped.")
-            job_manager.save_to_context({"mapping_state": score_set.mapping_state.name})
             logger.error(msg="No variants were mapped for this score set.", extra=job_manager.logging_context())
-            return {
-                "status": "error",
-                "data": {},
-                "exception_details": {
-                    "message": "No variants were mapped for this score set.",
-                    "type": NonexistentMappingScoresError.__name__,
-                    "traceback": None,
-                },
-            }
+            raise NonexistentMappingScoresError("No variants were mapped for this score set.")
 
         # Ensure we have reference metadata
         reference_metadata = mapping_results.get("reference_sequences")
         if not reference_metadata:
-            score_set.mapping_state = MappingState.failed
+            job_manager.db.rollback()
             score_set.mapping_errors = {"error_message": "Reference metadata missing from mapping results."}
-            job_manager.db.add(score_set)
-            job_manager.db.commit()
-
             job_manager.update_progress(100, 100, "Variant mapping failed due to missing reference metadata.")
-            job_manager.save_to_context({"mapping_state": score_set.mapping_state.name})
             logger.error(msg="Reference metadata missing from mapping results.", extra=job_manager.logging_context())
-            return {
-                "status": "error",
-                "data": {},
-                "exception_details": {
-                    "message": "Reference metadata missing from mapping results.",
-                    "type": NonexistentMappingReferenceError.__name__,
-                    "traceback": None,
-                },
-            }
+            raise NonexistentMappingReferenceError("Reference metadata missing from mapping results.")
 
         # Process and store mapped variants
         for target_gene_identifier in reference_metadata:
@@ -185,7 +152,6 @@ async def map_variants_for_score_set(ctx: dict, job_manager: JobManager) -> JobR
             # allow for multiple annotation layers
             pre_mapped_metadata: dict[str, Any] = {}
             post_mapped_metadata: dict[str, Any] = {}
-            excluded_pre_mapped_keys = {"sequence"}
 
             # add gene-level info
             gene_info = reference_metadata[target_gene_identifier].get("gene_info")
@@ -203,7 +169,8 @@ async def map_variants_for_score_set(ctx: dict, job_manager: JobManager) -> JobR
                 )
                 if layer_premapped:
                     pre_mapped_metadata[ANNOTATION_LAYERS[annotation_layer]] = {
-                        k: layer_premapped[k] for k in set(list(layer_premapped.keys())) - excluded_pre_mapped_keys
+                        k: layer_premapped[k]
+                        for k in set(list(layer_premapped.keys())) - EXCLUDED_PREMAPPED_ANNOTATION_KEYS
                     }
                     job_manager.save_to_context({"pre_mapped_layer_exists": True})
 
@@ -226,7 +193,7 @@ async def map_variants_for_score_set(ctx: dict, job_manager: JobManager) -> JobR
 
         total_variants = len(mapped_scores)
         job_manager.save_to_context({"total_variants_to_process": total_variants})
-        job_manager.update_progress(90, 100, "Storing mapped variants in database.")
+        job_manager.update_progress(90, 100, "Saving mapped variants.")
 
         successful_mapped_variants = 0
         for mapped_score in mapped_scores:
@@ -270,7 +237,7 @@ async def map_variants_for_score_set(ctx: dict, job_manager: JobManager) -> JobR
 
         if successful_mapped_variants == 0:
             score_set.mapping_state = MappingState.failed
-            score_set.mapping_errors = {"error_message": "All variants failed to map"}
+            score_set.mapping_errors = {"error_message": "All variants failed to map."}
         elif successful_mapped_variants < total_variants:
             score_set.mapping_state = MappingState.incomplete
         else:
@@ -284,9 +251,15 @@ async def map_variants_for_score_set(ctx: dict, job_manager: JobManager) -> JobR
                 "inserted_mapped_variants": len(mapped_scores),
             }
         )
+    except (NonexistentMappingResultsError, NonexistentMappingScoresError, NonexistentMappingReferenceError) as e:
+        send_slack_error(e)
+        logging_context = {**job_manager.logging_context(), **format_raised_exception_info_as_dict(e)}
+        logger.error(msg="Known error during variant mapping.", extra=logging_context)
 
-        job_manager.update_progress(100, 100, "Completed processing of mapped variants.")
-        logger.info(msg="Inserted mapped variants into db.", extra=job_manager.logging_context())
+        score_set.mapping_state = MappingState.failed
+        # These exceptions have already set mapping_errors appropriately
+
+        raise e  # Re-raise to be handled by the job management system
 
     except Exception as e:
         send_slack_error(e)
@@ -302,14 +275,13 @@ async def map_variants_for_score_set(ctx: dict, job_manager: JobManager) -> JobR
             }
         job_manager.update_progress(100, 100, "Variant mapping failed due to an unexpected error.")
 
-        return {
-            "status": "error",
-            "data": {},
-            "exception_details": {"message": str(e), "type": type(e).__name__, "traceback": None},
-        }
+        # Raise unexpected exceptions to be handled by the job management system
+        raise e
 
     finally:
         job_manager.db.add(score_set)
         job_manager.db.commit()
 
+    logger.info(msg="Inserted mapped variants into db.", extra=job_manager.logging_context())
+    job_manager.update_progress(100, 100, "Finished processing mapped variants.")
     return {"status": "ok" if successful_mapped_variants > 0 else "error", "data": {}, "exception_details": None}

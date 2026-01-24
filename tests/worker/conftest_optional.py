@@ -1,3 +1,4 @@
+from concurrent.futures import ProcessPoolExecutor
 from unittest.mock import Mock, patch
 
 import pytest
@@ -50,6 +51,7 @@ def mock_worker_ctx(session):
     """Create a mock worker context dictionary for testing."""
     mock_redis = Mock(spec=ArqRedis)
     mock_hdp = Mock(spec=RESTDataProvider)
+    mock_pool = Mock(spec=ProcessPoolExecutor)
 
     # Don't mock the session itself to allow real DB interactions in tests
     # It's generally more pain than it's worth to mock out SQLAlchemy sessions,
@@ -58,4 +60,5 @@ def mock_worker_ctx(session):
         "db": session,
         "redis": mock_redis,
         "hdp": mock_hdp,
+        "pool": mock_pool,
     }
