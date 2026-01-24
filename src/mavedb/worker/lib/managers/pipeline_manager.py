@@ -156,11 +156,11 @@ class PipelineManager(BaseManager):
         self.pipeline_id = pipeline_id
         self.get_pipeline()  # Validate pipeline exists on init
 
-    async def start_pipeline(self) -> None:
+    async def start_pipeline(self, coordinate: bool = True) -> None:
         """Start the pipeline
 
         Entry point to start pipeline execution. Sets pipeline status to RUNNING
-        and enqueues independent jobs using coordinate pipeline.
+        and enqueues independent jobs using coordinate pipeline if coordinate is True.
 
         Raises:
             DatabaseConnectionError: Cannot query or update pipeline
@@ -183,7 +183,14 @@ class PipelineManager(BaseManager):
         self.db.flush()
 
         logger.info(f"Pipeline {self.pipeline_id} started successfully")
-        await self.coordinate_pipeline()
+
+        # Allow controllable coordination logic. By default, we want to coordinate
+        # immediately after starting to enqueue independent jobs. However, if a job
+        # has already been enqueued and is beginning execution and starts the pipeline,
+        # as a result of its job management decorator, we want to skip coordination here
+        # so we do not double-enqueue jobs.
+        if coordinate:
+            await self.coordinate_pipeline()
 
     async def coordinate_pipeline(self) -> None:
         """Coordinate pipeline after a job completes.
