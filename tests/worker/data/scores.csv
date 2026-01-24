@@ -1,4 +1,5 @@
-hgvs_nt,hgvs_pro,score,s_0,s_1
-c.1A>T,p.Thr1Ser,0.3,val1,val1
-c.2C>T,p.Thr1Met,0.0,val2,val2
-c.6T>A,p.Phe2Leu,-1.65,val3,val3
+hgvs_nt,hgvs_splice,hgvs_pro,score,s_0,s_1
+c.1A>T,NA,p.Met1Leu,0.3,val1,val1
+c.2T>A,NA,p.Met1Lys,0,val2,val2
+c.3G>C,NA,p.Met1Ile,-1.65,val3,val3
+c.4C>G,NA,p.His2Asp,NA,val5,val4
