@@ -5,14 +5,17 @@ from uploaded score and count data. It handles the full variant creation
 pipeline including data validation, standardization, and database persistence.
 """
 
+import io
 import logging
 
+import pandas as pd
 from sqlalchemy import delete, null, select
 
-from mavedb.data_providers.services import RESTDataProvider
+from mavedb.data_providers.services import CSV_UPLOAD_S3_BUCKET_NAME, RESTDataProvider, s3_client
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.score_sets import columns_for_dataset, create_variants, create_variants_data
 from mavedb.lib.validation.dataframe.dataframe import validate_and_standardize_dataframe_pair
+from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.mapped_variant import MappedVariant
@@ -28,20 +31,21 @@ logger = logging.getLogger(__name__)
 
 
 @with_pipeline_management
-async def create_variants_for_score_set(ctx, job_manager: JobManager) -> JobResultData:
+async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobManager) -> JobResultData:
     """
     Create variants for a given ScoreSet based on uploaded score and count data.
 
     Args:
         ctx: The job context dictionary.
+        job_id: The ID of the job being executed.
         job_manager: Manager for job lifecycle and DB operations.
 
     Job Parameters:
         - score_set_id (int): The ID of the ScoreSet to create variants for.
         - correlation_id (str): Correlation ID for tracing requests across services.
         - updater_id (int): The ID of the user performing the update.
-        - scores (pd.DataFrame): DataFrame containing score data.
-        - counts (pd.DataFrame): DataFrame containing count data.
+        - scores_file_key (str): S3 key for the uploaded scores CSV file.
+        - counts_file_key (str): S3 key for the uploaded counts CSV file.
         - score_columns_metadata (dict): Metadata for score columns.
         - count_columns_metadata (dict): Metadata for count columns.
 
@@ -51,6 +55,10 @@ async def create_variants_for_score_set(ctx, job_manager: JobManager) -> JobResu
     Returns:
         dict: Result indicating success and any exception details
     """
+    # Handle everything prior to score set fetch in an outer layer. Any issues prior to
+    # fetching the score set should fail the job outright and we will be unable to set
+    # a processing state on the score set itself.
+    logger.info(msg="Starting create_variants_for_score_set job", extra=job_manager.logging_context())
     hdp: RESTDataProvider = ctx["hdp"]
 
     # Get the job definition we are working on
@@ -60,40 +68,68 @@ async def create_variants_for_score_set(ctx, job_manager: JobManager) -> JobResu
         "score_set_id",
         "correlation_id",
         "updater_id",
-        "scores",
-        "counts",
+        "scores_file_key",
+        "counts_file_key",
         "score_columns_metadata",
         "count_columns_metadata",
     ]
-    validate_job_params(job_manager, _job_required_params, job)
+    validate_job_params(_job_required_params, job)
 
     # Fetch required resources based on param inputs. Safely ignore mypy warnings here, as they were checked above.
     score_set = job_manager.db.scalars(select(ScoreSet).where(ScoreSet.id == job.job_params["score_set_id"])).one()  # type: ignore
-    correlation_id = job.job_params["correlation_id"]  # type: ignore
-    updater_id = job.job_params["updater_id"]  # type: ignore
-    scores = job.job_params["scores"]  # type: ignore
-    counts = job.job_params["counts"]  # type: ignore
-    score_columns_metadata = job.job_params["score_columns_metadata"]  # type: ignore
-    count_columns_metadata = job.job_params["count_columns_metadata"]  # type: ignore
-
-    # Setup initial context and progress
-    job_manager.save_to_context(
-        {
-            "application": "mavedb-worker",
-            "function": "create_variants_for_score_set",
-            "resource": score_set.urn,
-            "correlation_id": correlation_id,
-        }
-    )
-    job_manager.update_progress(0, 100, "Starting variant creation job.")
-    logger.info(msg="Started variant creation job", extra=job_manager.logging_context())
-
-    updated_by = job_manager.db.scalars(select(User).where(User.id == updater_id)).one()
 
     # Main processing block. Handled in a try/except to ensure we can set score set state appropriately,
     # which is handled independently of the job state.
-    # TODO:XXX In a future iteration, we may want to move this logic into the job manager itself for better cohesion.
+    # TODO:XXX In a future iteration, we should rely on the job manager itself for maintaining processing
+    #          state for better cohesion. This try/except is redundant in it's duties with the job manager.
     try:
+        correlation_id = job.job_params["correlation_id"]  # type: ignore
+        updater_id = job.job_params["updater_id"]  # type: ignore
+        score_file_key = job.job_params["scores_file_key"]  # type: ignore
+        count_file_key = job.job_params["counts_file_key"]  # type: ignore
+        score_columns_metadata = job.job_params["score_columns_metadata"]  # type: ignore
+        count_columns_metadata = job.job_params["count_columns_metadata"]  # type: ignore
+
+        job_manager.save_to_context(
+            {
+                "score_set_id": score_set.id,
+                "updater_id": updater_id,
+                "correlation_id": correlation_id,
+                "score_file_key": score_file_key,
+                "count_file_key": count_file_key,
+                "bucket_name": CSV_UPLOAD_S3_BUCKET_NAME,
+            }
+        )
+        logger.debug(msg="Fetching file resources from S3 for variant creation", extra=job_manager.logging_context())
+
+        s3 = s3_client()
+        scores = io.BytesIO()
+        s3.download_fileobj(Bucket=CSV_UPLOAD_S3_BUCKET_NAME, Key=score_file_key, Fileobj=scores)
+        scores_df = pd.read_csv(scores)
+
+        # Counts file is optional
+        counts_df = None
+        if count_file_key:
+            counts = io.BytesIO()
+            s3.download_fileobj(Bucket=CSV_UPLOAD_S3_BUCKET_NAME, Key=count_file_key, Fileobj=counts)
+            counts_df = pd.read_csv(counts)
+
+        logger.debug(msg="Successfully fetched file resources from S3", extra=job_manager.logging_context())
+
+        # Setup initial context and progress
+        job_manager.save_to_context(
+            {
+                "application": "mavedb-worker",
+                "function": "create_variants_for_score_set",
+                "resource": score_set.urn,
+                "correlation_id": correlation_id,
+            }
+        )
+        job_manager.update_progress(0, 100, "Starting variant creation job.")
+        logger.info(msg="Started variant creation job", extra=job_manager.logging_context())
+
+        updated_by = job_manager.db.scalars(select(User).where(User.id == updater_id)).one()
+
         score_set.modified_by = updated_by
         score_set.processing_state = ProcessingState.processing
         score_set.mapping_state = MappingState.pending_variant_processing
@@ -118,8 +154,8 @@ async def create_variants_for_score_set(ctx, job_manager: JobManager) -> JobResu
 
         validated_scores, validated_counts, validated_score_columns_metadata, validated_count_columns_metadata = (
             validate_and_standardize_dataframe_pair(
-                scores_df=scores,
-                counts_df=counts,
+                scores_df=scores_df,
+                counts_df=counts_df,
                 score_columns_metadata=score_columns_metadata,
                 count_columns_metadata=count_columns_metadata,
                 targets=score_set.target_genes,
@@ -140,8 +176,6 @@ async def create_variants_for_score_set(ctx, job_manager: JobManager) -> JobResu
             else {},
         }
 
-        job_manager.update_progress(90, 100, "Creating variants in database.")
-
         # Delete variants after validation occurs so we don't overwrite them in the case of a bad update.
         if score_set.variants:
             existing_variants = job_manager.db.scalars(
@@ -161,13 +195,16 @@ async def create_variants_for_score_set(ctx, job_manager: JobManager) -> JobResu
         variants_data = create_variants_data(validated_scores, validated_counts, None)
         create_variants(job_manager.db, score_set, variants_data)
 
-    # NOTE: Since these are likely to be internal errors, it makes less sense to add them to the DB and surface them to the end user.
-    # Catch all exceptions so we can log them and set score set state appropriately.
     except Exception as e:
         job_manager.db.rollback()
         score_set.processing_state = ProcessingState.failed
-        score_set.processing_errors = {"exception": str(e), "detail": []}
         score_set.mapping_state = MappingState.not_attempted
+
+        # Capture exception details in score set processing errors for all exceptions.
+        score_set.processing_errors = {"exception": str(e), "detail": []}
+        # ValidationErrors arise from problematic input data; capture their details specifically.
+        if isinstance(e, ValidationError):
+            score_set.processing_errors["detail"] = e.triggering_exceptions
 
         if score_set.num_variants:
             score_set.processing_errors["exception"] = (
@@ -207,7 +244,6 @@ async def create_variants_for_score_set(ctx, job_manager: JobManager) -> JobResu
         job_manager.db.commit()
         job_manager.db.refresh(score_set)
 
-        job_manager.update_progress(100, 100, "Completed variant creation job.")
-        logger.info(msg="Committed new variants to score set.", extra=job_manager.logging_context())
-
+    job_manager.update_progress(100, 100, "Completed variant creation job.")
+    logger.info(msg="Committed new variants to score set.", extra=job_manager.logging_context())
     return {"status": "ok", "data": {}, "exception_details": None}

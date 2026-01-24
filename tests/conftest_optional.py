@@ -20,6 +20,7 @@ from mavedb.lib.authorization import require_current_user
 from mavedb.models.user import User
 from mavedb.server_main import app
 from mavedb.worker.jobs import BACKGROUND_CRONJOBS, BACKGROUND_FUNCTIONS
+from mavedb.worker.lib.managers.types import JobResultData
 from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_SEQREPO_INITIAL_STATE, TEST_USER
 
 ####################################################################################################
@@ -77,6 +78,10 @@ async def arq_redis():
         await redis_.aclose(close_connection_pool=True)
 
 
+async def dummy_arq_function(ctx, *args, **kwargs) -> JobResultData:
+    return {"status": "ok", "data": {}, "exception_details": None}
+
+
 @pytest_asyncio.fixture()
 async def arq_worker(data_provider, session, arq_redis):
     """
@@ -86,7 +91,7 @@ async def arq_worker(data_provider, session, arq_redis):
 
     ```
     async def worker_test(arq_redis, arq_worker):
-        await arq_redis.enqueue_job('some_job')
+        await arq_redis.enqueue_job('dummy_arq_function')
         await arq_worker.async_run()
         await arq_worker.run_check()
     ```
@@ -102,7 +107,7 @@ async def arq_worker(data_provider, session, arq_redis):
         ctx["pool"] = futures.ProcessPoolExecutor()
 
     worker_ = Worker(
-        functions=BACKGROUND_FUNCTIONS,
+        functions=BACKGROUND_FUNCTIONS + [dummy_arq_function],
         cron_jobs=BACKGROUND_CRONJOBS,
         redis_pool=arq_redis,
         burst=True,

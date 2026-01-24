@@ -1209,52 +1209,35 @@ TEST_GENOMIC_LAYER = {
     },
 }
 
-TEST_CODING_LAYER = {
+TEST_PROTEIN_LAYER = {
+    "computed_reference_sequence": {
+        "sequence_type": "protein",
+        "sequence_id": "ga4gh:SQ.ref_protein_test",
+        "sequence": "MKTIIALSYIFCLVFADYKDDDDK",
+    },
     "mapped_reference_sequence": {
+        "sequence_type": "protein",
+        "sequence_id": "ga4gh:SQ.map_protein_test",
+        "sequence_accessions": [VALID_PRO_ACCESSION],
+    },
+}
+
+TEST_CODING_LAYER = {
+    "computed_reference_sequence": {
+        "sequence_type": "coding",
+        "sequence_id": "ga4gh:SQ.ref_coding_test",
+        "sequence": "ATGAAGACGATTATTGCTCTTATCTTTCCTCTTTTGCTGATATACGACGACGACAAA",
+    },
+    "mapped_reference_sequence": {
+        "sequence_type": "coding",
+        "sequence_id": "ga4gh:SQ.map_coding_test",
         "sequence_accessions": [VALID_NT_ACCESSION],
     },
 }
 
-TEST_SEQ_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
+TEST_MAPPING_SCAFFOLD = {
     "metadata": {},
-    "reference_sequences": {
-        "TEST1": {
-            "gene_info": TEST_GENE_INFO,
-            "layers": {"g": TEST_GENOMIC_LAYER, "c": TEST_CODING_LAYER},
-        }
-    },
-    "mapped_scores": [],
-    "vrs_version": "2.0",
-    "dcd_mapping_version": "pytest.0.0",
-    "mapped_date_utc": datetime.isoformat(datetime.now()),
-}
-
-TEST_ACC_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
-    "metadata": {},
-    "reference_sequences": {
-        "TEST2": {
-            "gene_info": TEST_GENE_INFO,
-            "layers": {"g": TEST_GENOMIC_LAYER, "c": TEST_CODING_LAYER},
-        }
-    },
-    "mapped_scores": [],
-    "vrs_version": "2.0",
-    "dcd_mapping_version": "pytest.0.0",
-    "mapped_date_utc": datetime.isoformat(datetime.now()),
-}
-
-TEST_MULTI_TARGET_SCORESET_VARIANT_MAPPING_SCAFFOLD = {
-    "metadata": {},
-    "reference_sequences": {
-        "TEST3": {
-            "gene_info": TEST_GENE_INFO,
-            "layers": {"g": TEST_GENOMIC_LAYER, "c": TEST_CODING_LAYER},
-        },
-        "TEST4": {
-            "gene_info": TEST_GENE_INFO,
-            "layers": {"g": TEST_GENOMIC_LAYER, "c": TEST_CODING_LAYER},
-        },
-    },
+    "reference_sequences": {},
     "mapped_scores": [],
     "vrs_version": "2.0",
     "dcd_mapping_version": "pytest.0.0",
