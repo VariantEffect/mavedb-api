@@ -128,9 +128,12 @@ async def _execute_managed_pipeline(func: Callable[..., Awaitable[JobResultData]
 
         logger.info(f"Pipeline ID for job {job_id} is {pipeline_id}. Coordinating pipeline.")
 
-        # If the pipeline is still in the created state, start it now
+        # If the pipeline is still in the created state, start it now. From this context,
+        # we do not wish to coordinate the pipeline. Doing so would result in the current
+        # job being re-queued before it has been marked as running, leading to potential state
+        # inconsistencies.
         if pipeline_manager and pipeline_manager.get_pipeline_status() == PipelineStatus.CREATED:
-            await pipeline_manager.start_pipeline()
+            await pipeline_manager.start_pipeline(coordinate=False)
             db_session.commit()
 
             logger.info(f"Pipeline {pipeline_id} associated with job {job_id} started successfully")
