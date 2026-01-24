@@ -82,7 +82,11 @@ class TestStartPipelineUnit:
     """Unit tests for starting a pipeline."""
 
     @pytest.mark.asyncio
-    async def test_start_pipeline_successful(self, mock_pipeline_manager):
+    @pytest.mark.parametrize(
+        "coordinate_after_start",
+        [True, False],
+    )
+    async def test_start_pipeline_successful(self, mock_pipeline_manager, coordinate_after_start):
         """Test successful pipeline start from CREATED state."""
         with (
             patch.object(
@@ -94,10 +98,13 @@ class TestStartPipelineUnit:
             patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None) as mock_coordinate,
             TransactionSpy.spy(mock_pipeline_manager.db, expect_flush=True),
         ):
-            await mock_pipeline_manager.start_pipeline()
+            await mock_pipeline_manager.start_pipeline(coordinate=coordinate_after_start)
 
         mock_set_status.assert_called_once_with(PipelineStatus.RUNNING)
-        mock_coordinate.assert_called_once()
+        if coordinate_after_start:
+            mock_coordinate.assert_called_once()
+        else:
+            mock_coordinate.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -131,14 +138,18 @@ class TestStartPipelineIntegration:
     """Integration tests for starting a pipeline."""
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "coordinate_after_start",
+        [True, False],
+    )
     async def test_start_pipeline_successful(
-        self, session, arq_redis, with_populated_job_data, sample_pipeline, sample_job_run
+        self, session, arq_redis, with_populated_job_data, sample_pipeline, sample_job_run, coordinate_after_start
     ):
         """Test successful pipeline start from CREATED state."""
         manager = PipelineManager(session, arq_redis, sample_pipeline.id)
 
         with TransactionSpy.spy(session, expect_flush=True):
-            await manager.start_pipeline()
+            await manager.start_pipeline(coordinate=coordinate_after_start)
 
         # Commit the session to persist changes
         session.commit()
@@ -147,13 +158,16 @@ class TestStartPipelineIntegration:
         pipeline = session.execute(select(Pipeline).where(Pipeline.id == sample_pipeline.id)).scalar_one()
         assert pipeline.status == PipelineStatus.RUNNING
 
-        # Verify the initial job was queued
+        # Verify the initial job was queued if we are coordinating after start
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
-        assert job.status == JobStatus.QUEUED
-
-        # Verify the job was enqueued in Redis
         jobs = await arq_redis.queued_jobs()
-        assert jobs[0].function == sample_job_run.job_function
+
+        if coordinate_after_start:
+            assert job.status == JobStatus.QUEUED
+            assert jobs[0].function == sample_job_run.job_function
+        else:
+            assert job.status == JobStatus.PENDING
+            assert len(jobs) == 0
 
     @pytest.mark.asyncio
     async def test_start_pipeline_no_jobs(self, session, arq_redis, with_populated_job_data, sample_empty_pipeline):
@@ -161,7 +175,7 @@ class TestStartPipelineIntegration:
         manager = PipelineManager(session, arq_redis, sample_empty_pipeline.id)
 
         with TransactionSpy.spy(session, expect_flush=True):
-            await manager.start_pipeline()
+            await manager.start_pipeline(coordinate=True)
 
         # Commit the session to persist changes
         session.commit()
