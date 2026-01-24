@@ -21,6 +21,7 @@ from mavedb.worker.jobs.external_services import (
     submit_score_set_mappings_to_ldh,
     submit_uniprot_mapping_jobs_for_score_set,
 )
+from mavedb.worker.jobs.pipeline_management import start_pipeline
 from mavedb.worker.jobs.variant_processing import (
     create_variants_for_score_set,
     map_variants_for_score_set,
@@ -41,6 +42,8 @@ BACKGROUND_FUNCTIONS: List[Callable] = [
     # Data management jobs
     refresh_materialized_views,
     refresh_published_variants_view,
+    # Pipeline management jobs
+    start_pipeline,
 ]
 
 # Cron job definitions for ARQ worker
