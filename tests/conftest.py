@@ -8,11 +8,12 @@ import email_validator
 import pytest
 import pytest_postgresql
 import pytest_socket
-from sqlalchemy import create_engine, text
+from sqlalchemy import Column, Float, Integer, MetaData, String, Table, create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
 from mavedb.db.base import Base
+from mavedb.lib.gnomad import gnomad_table_name
 from mavedb.models import *  # noqa: F403
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
@@ -103,6 +104,56 @@ def session(postgresql):
     finally:
         session.close()
         Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
+def athena_engine():
+    """Create and yield a SQLAlchemy engine connected to a mock Athena database."""
+    engine = create_engine("sqlite:///:memory:")
+    metadata = MetaData()
+
+    # TODO: Define your table schema here
+    my_table = Table(
+        gnomad_table_name(),
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("locus.contig", String),
+        Column("locus.position", Integer),
+        Column("alleles", String),
+        Column("caid", String),
+        Column("joint.freq.all.ac", Integer),
+        Column("joint.freq.all.an", Integer),
+        Column("joint.fafmax.faf95_max_gen_anc", String),
+        Column("joint.fafmax.faf95_max", Float),
+    )
+    metadata.create_all(engine)
+
+    session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+
+    # Insert test data
+    session.execute(
+        my_table.insert(),
+        [
+            {
+                "id": 1,
+                "locus.contig": "chr1",
+                "locus.position": 12345,
+                "alleles": "[G, A]",
+                "caid": "CA123",
+                "joint.freq.all.ac": 23,
+                "joint.freq.all.an": 32432423,
+                "joint.fafmax.faf95_max_gen_anc": "anc1",
+                "joint.fafmax.faf95_max": 0.000006763700000000002,
+            }
+        ],
+    )
+    session.commit()
+    session.close()
+
+    try:
+        yield engine
+    finally:
+        engine.dispose()
 
 
 @pytest.fixture

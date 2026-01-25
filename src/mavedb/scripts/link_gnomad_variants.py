@@ -5,12 +5,12 @@ import click
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from mavedb.db import athena
 from mavedb.lib.gnomad import gnomad_variant_data_for_caids, link_gnomad_variants_to_mapped_variants
-from mavedb.models.score_set import ScoreSet
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.scripts.environment import with_database_session
-
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,9 @@ def link_gnomad_variants(db: Session, score_set_urn: list[str], all_score_sets: 
     logger.info(f"Found {len(caids)} CAIDs for the selected score sets to link to gnomAD variants.")
 
     # 2. Query Athena for gnomAD variants matching the CAIDs
-    gnomad_variant_data = gnomad_variant_data_for_caids(caids)
+    with athena.engine.connect() as athena_session:
+        logger.debug("Fetching gnomAD variants from Athena.")
+        gnomad_variant_data = gnomad_variant_data_for_caids(athena_session, caids)
 
     if not gnomad_variant_data:
         logger.error("No gnomAD records found for the provided CAIDs.")

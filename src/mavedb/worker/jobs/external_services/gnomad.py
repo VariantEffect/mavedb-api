@@ -11,6 +11,7 @@ from typing import Sequence
 
 from sqlalchemy import select
 
+from mavedb.db import athena
 from mavedb.lib.gnomad import gnomad_variant_data_for_caids, link_gnomad_variants_to_mapped_variants
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 @with_pipeline_management
-async def link_gnomad_variants(ctx: dict, job_manager: JobManager) -> JobResultData:
+async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) -> JobResultData:
     """
     Link mapped variants to gnomAD variants based on ClinGen Allele IDs (CAIDs).
     This job fetches mapped variants associated with a given score set that have CAIDs,
@@ -37,7 +38,8 @@ async def link_gnomad_variants(ctx: dict, job_manager: JobManager) -> JobResultD
 
     Args:
         ctx (dict): The job context dictionary.
-        job_manager (JobManager): Manager for job lifecycle and DB operations.
+        job_id (int): The ID of the job being executed.
+        job_manager (JobManager): The job manager instance for database and logging operations.
 
     Side Effects:
         - Updates MappedVariant records to link to gnomAD variants.
@@ -49,7 +51,7 @@ async def link_gnomad_variants(ctx: dict, job_manager: JobManager) -> JobResultD
     job = job_manager.get_job()
 
     _job_required_params = ["score_set_id", "correlation_id"]
-    validate_job_params(job_manager, _job_required_params, job)
+    validate_job_params(_job_required_params, job)
 
     # Fetch required resources based on param inputs. Safely ignore mypy warnings here, as they were checked above.
     score_set = job_manager.db.scalars(select(ScoreSet).where(ScoreSet.id == job.job_params["score_set_id"])).one()  # type: ignore
@@ -97,7 +99,10 @@ async def link_gnomad_variants(ctx: dict, job_manager: JobManager) -> JobResultD
     )
 
     # Fetch gnomAD variant data for the CAIDs
-    gnomad_variant_data = gnomad_variant_data_for_caids(variant_caids)
+    with athena.engine.connect() as athena_session:
+        logger.debug("Fetching gnomAD variants from Athena.")
+        gnomad_variant_data = gnomad_variant_data_for_caids(athena_session, variant_caids)
+
     num_gnomad_variants_with_caid_match = len(gnomad_variant_data)
 
     job_manager.save_to_context({"num_gnomad_variants_with_caid_match": num_gnomad_variants_with_caid_match})
