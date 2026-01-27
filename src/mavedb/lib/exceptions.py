@@ -208,3 +208,21 @@ class UniProtPollingEnqueueError(ValueError):
     """Raised when a UniProt ID polling job fails to be enqueued despite appearing as if it should have been"""
 
     pass
+
+
+class UniprotMappingResultNotFoundError(ValueError):
+    """Raised when no UniProt ID is found in the mapping results for a target gene."""
+
+    pass
+
+
+class UniprotAmbiguousMappingResultError(ValueError):
+    """Raised when ambiguous UniProt IDs are found in the mapping results for a target gene."""
+
+    pass
+
+
+class NonExistentTargetGeneError(ValueError):
+    """Raised when a target gene does not exist in the database."""
+
+    pass
