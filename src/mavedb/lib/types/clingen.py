@@ -1,6 +1,6 @@
-from typing import Any, Optional, TypedDict, Literal
-from typing_extensions import NotRequired
+from typing import Any, Literal, Optional, TypedDict
 
+from typing_extensions import NotRequired
 
 # See: https://ldh.genome.network/docs/ldh/submit.html#content-submission-body
 
@@ -150,5 +150,17 @@ ClinGenAllele = TypedDict(
         "genomicAlleles": NotRequired[list[ClinGenAlleleDefinition]],
         "transcriptAlleles": NotRequired[list[ClinGenAlleleDefinition]],
         "aminoAcidAlleles": NotRequired[list[ClinGenAlleleDefinition]],
+    },
+)
+
+ClinGenSubmissionError = TypedDict(
+    "ClinGenSubmissionError",
+    {
+        "description": str,
+        "errorType": str,
+        "hgvs": str,
+        "inputLine": str,
+        "message": str,
+        "position": str,
     },
 )

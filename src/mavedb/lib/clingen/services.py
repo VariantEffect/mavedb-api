@@ -1,19 +1,17 @@
 import hashlib
 import logging
-import requests
 import os
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 from urllib import parse
 
-
+import requests
 from jose import jwt
 
-from mavedb.lib.logging.context import logging_context, save_to_logging_context, format_raised_exception_info_as_dict
 from mavedb.lib.clingen.constants import GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD, LDH_MAVE_ACCESS_ENDPOINT
-
-from mavedb.lib.types.clingen import LdhSubmission, ClinGenAllele
+from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
+from mavedb.lib.types.clingen import ClinGenAllele, ClinGenSubmissionError, LdhSubmission
 from mavedb.lib.utils import batched
 
 logger = logging.getLogger(__name__)
@@ -71,7 +69,9 @@ class ClinGenAlleleRegistryService:
         token = hashlib.sha1((url + identity + gbTime).encode("utf-8")).hexdigest()
         return url + "&gbLogin=" + GENBOREE_ACCOUNT_NAME + "&gbTime=" + gbTime + "&gbToken=" + token
 
-    def dispatch_submissions(self, content_submissions: list[str]) -> list[ClinGenAllele]:
+    def dispatch_submissions(
+        self, content_submissions: list[str]
+    ) -> list[Union[ClinGenAllele, ClinGenSubmissionError]]:
         save_to_logging_context({"car_submission_count": len(content_submissions)})
 
         try:
@@ -89,7 +89,7 @@ class ClinGenAlleleRegistryService:
             logger.error(msg="Failed to dispatch CAR submission.", exc_info=exc, extra=logging_context())
             return []
 
-        response_data: list[ClinGenAllele] = response.json()
+        response_data: list[Union[ClinGenAllele, ClinGenSubmissionError]] = response.json()
         save_to_logging_context({"car_submission_response_count": len(response_data)})
         logger.info(msg="Successfully dispatched CAR submission.", extra=logging_context())
 
@@ -324,7 +324,7 @@ def clingen_allele_id_from_ldh_variation(variation: Optional[dict]) -> Optional[
 
 
 def get_allele_registry_associations(
-    content_submissions: list[str], submission_response: list[ClinGenAllele]
+    content_submissions: list[str], submission_response: list[Union[ClinGenAllele, ClinGenSubmissionError]]
 ) -> dict[str, str]:
     """
     Links HGVS strings and ClinGen Canonoical Allele IDs (CAIDs) given a list of both.
@@ -360,9 +360,20 @@ def get_allele_registry_associations(
 
     allele_registry_associations: dict[str, str] = {}
     for registration in submission_response:
+        if "errorType" in registration:
+            logger.warning(
+                msg=f"Skipping errored ClinGen Allele Registry HGVS {registration.get('hgvs', 'unknown')} ({registration.get('errorType', 'unknown')}): {registration.get('message', 'unknown error message')}",
+                extra=logging_context(),
+            )
+            continue
+
         # Extract the CAID from the URL (e.g., "http://reg.test.genome.network/allele/CA2513066" -> "CA2513066")
         caid = registration["@id"].split("/")[-1]
-        alleles = registration.get("genomicAlleles", []) + registration.get("transcriptAlleles", [])
+        alleles = (
+            registration.get("genomicAlleles", [])
+            + registration.get("transcriptAlleles", [])
+            + registration.get("aminoAcidAlleles", [])
+        )
 
         for allele in alleles:
             for hgvs_string in content_submissions:
