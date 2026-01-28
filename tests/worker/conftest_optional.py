@@ -47,7 +47,7 @@ def mock_pipeline_manager(mock_job_manager, mock_pipeline):
 
 
 @pytest.fixture
-def mock_worker_ctx(session):
+def mock_worker_ctx():
     """Create a mock worker context dictionary for testing."""
     mock_redis = Mock(spec=ArqRedis)
     mock_hdp = Mock(spec=RESTDataProvider)
@@ -57,7 +57,6 @@ def mock_worker_ctx(session):
     # It's generally more pain than it's worth to mock out SQLAlchemy sessions,
     # although it can sometimes be useful when raising specific exceptions.
     return {
-        "db": session,
         "redis": mock_redis,
         "hdp": mock_hdp,
         "pool": mock_pool,

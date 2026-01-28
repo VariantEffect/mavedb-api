@@ -16,6 +16,8 @@ from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.decorators.job_guarantee import with_guaranteed_job_run_record
 from tests.helpers.transaction_spy import TransactionSpy
 
+pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
+
 
 @with_guaranteed_job_run_record("test_job")
 async def sample_job(ctx: dict, job_id: int):
@@ -38,27 +40,19 @@ class TestJobGuaranteeDecoratorUnit:
         with pytest.raises(ValueError) as exc_info:
             await sample_job()
 
-        assert "Managed job functions must receive context as first argument" in str(exc_info.value)
-
-    async def test_decorator_must_receive_db_in_ctx(self, mock_worker_ctx):
-        del mock_worker_ctx["db"]
-
-        with pytest.raises(ValueError) as exc_info:
-            await sample_job(mock_worker_ctx)
-
-        assert "DB session not found in job context" in str(exc_info.value)
+        assert "Managed functions must receive context as first argument" in str(exc_info.value)
 
     async def test_decorator_calls_wrapped_function(self, mock_worker_ctx):
         result = await sample_job(mock_worker_ctx)
         assert result == {"status": "ok"}
 
-    async def test_decorator_creates_job_run(self, mock_worker_ctx):
+    async def test_decorator_creates_job_run(self, mock_worker_ctx, session):
         with (
-            TransactionSpy.spy(mock_worker_ctx["db"], expect_flush=True, expect_commit=True),
+            TransactionSpy.spy(session, expect_flush=True, expect_commit=True),
         ):
             await sample_job(mock_worker_ctx)
 
-        job_run = mock_worker_ctx["db"].execute(select(JobRun)).scalars().first()
+        job_run = session.execute(select(JobRun)).scalars().first()
         assert job_run is not None
         assert job_run.status == JobStatus.PENDING
         assert job_run.job_type == "test_job"

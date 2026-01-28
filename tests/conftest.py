@@ -1,6 +1,7 @@
 import logging  # noqa: F401
 import os
 import sys
+from contextlib import contextmanager
 from datetime import datetime
 from unittest import mock
 
@@ -104,6 +105,27 @@ def session(postgresql):
     finally:
         session.close()
         Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
+def db_session_fixture(session):
+    @contextmanager
+    def _db_session_cm():
+        yield session
+
+    return _db_session_cm
+
+
+# ALL locations which use the db_session fixture need to be patched to use
+# the test version.
+@pytest.fixture
+def patch_db_session_ctxmgr(db_session_fixture):
+    with (
+        mock.patch("mavedb.db.session.db_session", db_session_fixture),
+        mock.patch("mavedb.worker.lib.decorators.utils.db_session", db_session_fixture),
+        # Add other modules that use db_session here as needed
+    ):
+        yield
 
 
 @pytest.fixture
