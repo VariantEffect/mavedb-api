@@ -7,6 +7,8 @@ from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.mapped_variant import MappedVariant
 from tests.helpers.util.setup.worker import create_mappings_in_score_set
 
+pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
+
 
 # TODO#XXX: Connect with ClinGen to resolve the invalid credentials issue on test site.
 @pytest.mark.skip(reason="invalid credentials, despite what is provided in documentation.")

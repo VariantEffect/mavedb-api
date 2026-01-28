@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 from mavedb import __version__
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.models.job_run import JobRun
-from mavedb.worker.lib.decorators.utils import ensure_session_ctx, is_test_mode
+from mavedb.worker.lib.decorators.utils import ensure_ctx, ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers.types import JobResultData
 
 F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
@@ -60,7 +60,7 @@ def with_guaranteed_job_run_record(job_type: str) -> Callable[[F], F]:
     def decorator(func: F) -> F:
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
-            with ensure_session_ctx(ctx=args[0]):
+            with ensure_session_ctx(ctx=ensure_ctx(args)):
                 # No-op in test mode
                 if is_test_mode():
                     return await func(*args, **kwargs)
@@ -83,14 +83,7 @@ def _create_job_run(job_type: str, func: Callable[..., Awaitable[JobResultData]]
     Creates and persists a JobRun record for a function before job execution.
     """
     # Extract context (implicit first argument by ARQ convention)
-    if not args:
-        raise ValueError("Managed job functions must receive context as first argument")
-    ctx = args[0]
-
-    # Get database session from context
-    if "db" not in ctx:
-        raise ValueError("DB session not found in job context")
-
+    ctx = ensure_ctx(args)
     db: Session = ctx["db"]
 
     job_run = JobRun(

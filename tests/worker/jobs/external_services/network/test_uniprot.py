@@ -3,6 +3,8 @@ import pytest
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from tests.helpers.constants import TEST_REFSEQ_IDENTIFIER
 
+pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
+
 
 @pytest.mark.asyncio
 @pytest.mark.integration

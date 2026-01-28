@@ -23,6 +23,8 @@ from tests.helpers.constants import (
     VALID_UNIPROT_ACCESSION,
 )
 
+pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
+
 
 @pytest.mark.unit
 @pytest.mark.asyncio
@@ -42,7 +44,7 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
 
         # Ensure the sample score set has no target genes
         sample_score_set.target_genes = []
-        mock_worker_ctx["db"].commit()
+        session.commit()
 
         with (
             patch.object(JobManager, "update_progress") as mock_update_progress,
@@ -51,7 +53,7 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_submit_uniprot_mapping_jobs_run.id,
                 ),
@@ -85,7 +87,7 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_submit_uniprot_mapping_jobs_run.id,
                 ),
@@ -122,7 +124,7 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_submit_uniprot_mapping_jobs_run.id,
                 ),
@@ -163,7 +165,7 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_submit_uniprot_mapping_jobs_run.id,
                 ),
@@ -207,7 +209,7 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_submit_uniprot_mapping_jobs_run.id,
                 ),
@@ -245,7 +247,7 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_submit_uniprot_mapping_jobs_run.id,
                 ),
@@ -288,7 +290,7 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_submit_uniprot_mapping_jobs_run.id,
                 ),
@@ -326,8 +328,8 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
             category="protein_coding",
             target_sequence=TargetSequence(sequence="MEEPQSDPSV", sequence_type="protein"),
         )
-        mock_worker_ctx["db"].add(new_target_gene)
-        mock_worker_ctx["db"].commit()
+        session.add(new_target_gene)
+        session.commit()
 
         # Arrange the post mapped metadata to have a single AC for both target genes
         target_gene_1 = sample_score_set.target_genes[0]
@@ -347,7 +349,7 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_submit_uniprot_mapping_jobs_run.id,
                 ),
@@ -396,7 +398,7 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_submit_uniprot_mapping_jobs_run.id,
                 ),
@@ -542,7 +544,7 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
 
         # Ensure the sample score set has no target genes
         sample_score_set.target_genes = []
-        mock_worker_ctx["db"].commit()
+        session.commit()
 
         with (
             patch(
@@ -750,13 +752,13 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
             category="protein_coding",
             target_sequence=TargetSequence(sequence="MEEPQSDPSV", sequence_type="protein"),
         )
-        mock_worker_ctx["db"].add(new_target_gene)
-        mock_worker_ctx["db"].commit()
+        session.add(new_target_gene)
+        session.commit()
 
         # Add accessions to both target genes' post mapped metadata
         for idx, tg in enumerate(sample_score_set.target_genes):
             tg.post_mapped_metadata = {"protein": {"sequence_accessions": [VALID_NT_ACCESSION + f"{idx:05d}"]}}
-        mock_worker_ctx["db"].commit()
+        session.commit()
 
         with (
             patch(
@@ -1053,7 +1055,7 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_polling_job_for_submission_run.id,
                 ),
@@ -1095,7 +1097,7 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_polling_job_for_submission_run.id,
                 ),
@@ -1141,7 +1143,7 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_polling_job_for_submission_run.id,
                 ),
@@ -1199,7 +1201,7 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_polling_job_for_submission_run.id,
                 ),
@@ -1242,7 +1244,7 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_polling_job_for_submission_run.id,
                 ),
@@ -1284,7 +1286,7 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_polling_job_for_submission_run.id,
                 ),
@@ -1322,8 +1324,8 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
             category="protein_coding",
             target_sequence=TargetSequence(sequence="MEEPQSDPSV", sequence_type="protein"),
         )
-        mock_worker_ctx["db"].add(new_target_gene)
-        mock_worker_ctx["db"].commit()
+        session.add(new_target_gene)
+        session.commit()
 
         with (
             patch(
@@ -1343,7 +1345,7 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_polling_job_for_submission_run.id,
                 ),
@@ -1390,7 +1392,7 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_polling_job_for_submission_run.id,
                 ),
@@ -1437,7 +1439,7 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 mock_worker_ctx,
                 1,
                 JobManager(
-                    db=mock_worker_ctx["db"],
+                    db=session,
                     redis=mock_worker_ctx["redis"],
                     job_id=sample_polling_job_for_submission_run.id,
                 ),
@@ -1595,8 +1597,8 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
             category="protein_coding",
             target_sequence=TargetSequence(sequence="MEEPQSDPSV", sequence_type="protein"),
         )
-        mock_worker_ctx["db"].add(new_target_gene)
-        mock_worker_ctx["db"].commit()
+        session.add(new_target_gene)
+        session.commit()
 
         with (
             patch(

@@ -19,6 +19,8 @@ from mavedb.worker.lib.managers.job_manager import JobManager
 from tests.helpers.constants import TEST_CODING_LAYER, TEST_GENOMIC_LAYER, TEST_PROTEIN_LAYER
 from tests.helpers.util.setup.worker import construct_mock_mapping_output, create_variants_in_score_set
 
+pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
+
 
 @pytest.mark.unit
 @pytest.mark.asyncio
@@ -30,6 +32,7 @@ class TestMapVariantsForScoreSetUnit:
 
     async def test_map_variants_for_score_set_no_mapping_results(
         self,
+        session,
         with_independent_processing_runs,
         mock_worker_ctx,
         sample_independent_variant_mapping_run,
@@ -45,11 +48,9 @@ class TestMapVariantsForScoreSetUnit:
             pytest.raises(NonexistentMappingResultsError),
         ):
             await map_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_mapping_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         mock_update_progress.assert_any_call(100, 100, "Variant mapping failed due to missing results.")
@@ -63,6 +64,7 @@ class TestMapVariantsForScoreSetUnit:
 
     async def test_map_variants_for_score_set_no_mapped_scores(
         self,
+        session,
         with_independent_processing_runs,
         mock_worker_ctx,
         sample_independent_variant_mapping_run,
@@ -84,11 +86,9 @@ class TestMapVariantsForScoreSetUnit:
             pytest.raises(NonexistentMappingScoresError),
         ):
             await map_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_mapping_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         mock_update_progress.assert_any_call(100, 100, "Variant mapping failed; no variants were mapped.")
@@ -99,6 +99,7 @@ class TestMapVariantsForScoreSetUnit:
 
     async def test_map_variants_for_score_set_no_reference_data(
         self,
+        session,
         with_independent_processing_runs,
         mock_worker_ctx,
         sample_independent_variant_mapping_run,
@@ -120,11 +121,9 @@ class TestMapVariantsForScoreSetUnit:
             pytest.raises(NonexistentMappingReferenceError),
         ):
             await map_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_mapping_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         mock_update_progress.assert_any_call(100, 100, "Variant mapping failed due to missing reference metadata.")
@@ -135,6 +134,7 @@ class TestMapVariantsForScoreSetUnit:
 
     async def test_map_variants_for_score_set_nonexistent_target_gene(
         self,
+        session,
         with_independent_processing_runs,
         mock_worker_ctx,
         sample_independent_variant_mapping_run,
@@ -159,11 +159,9 @@ class TestMapVariantsForScoreSetUnit:
             pytest.raises(ValueError),
         ):
             await map_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_mapping_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         mock_update_progress.assert_any_call(100, 100, "Variant mapping failed due to an unexpected error.")
@@ -177,6 +175,7 @@ class TestMapVariantsForScoreSetUnit:
 
     async def test_map_variants_for_score_set_returns_variants_not_in_score_set(
         self,
+        session,
         with_independent_processing_runs,
         mock_worker_ctx,
         sample_independent_variant_mapping_run,
@@ -185,7 +184,7 @@ class TestMapVariantsForScoreSetUnit:
         """Test mapping variants when variants not in score set are returned."""
         # Add a non-existent variant to the mapped output to ensure at least one invalid mapping
         mapping_output = await construct_mock_mapping_output(
-            session=mock_worker_ctx["db"], score_set=sample_score_set, with_layers={"g", "c", "p"}
+            session=session, score_set=sample_score_set, with_layers={"g", "c", "p"}
         )
         mapping_output["mapped_scores"].append({"variant_id": "not_in_score_set", "some_other_data": "value"})
 
@@ -201,11 +200,9 @@ class TestMapVariantsForScoreSetUnit:
             pytest.raises(NoResultFound),
         ):
             await map_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_mapping_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         mock_update_progress.assert_any_call(100, 100, "Variant mapping failed due to an unexpected error.")
@@ -219,6 +216,7 @@ class TestMapVariantsForScoreSetUnit:
 
     async def test_map_variants_for_score_set_success_missing_gene_info(
         self,
+        session,
         with_independent_processing_runs,
         mock_worker_ctx,
         sample_independent_variant_mapping_run,
@@ -230,7 +228,7 @@ class TestMapVariantsForScoreSetUnit:
         # with return value from run_in_executor.
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
-                session=mock_worker_ctx["db"],
+                session=session,
                 score_set=sample_score_set,
                 with_gene_info=False,
                 with_layers={"g", "c", "p"},
@@ -245,8 +243,8 @@ class TestMapVariantsForScoreSetUnit:
         variant = Variant(
             score_set_id=sample_score_set.id, hgvs_nt="NM_000000.1:c.1A>G", hgvs_pro="NP_000000.1:p.Met1Val", data={}
         )
-        mock_worker_ctx["db"].add(variant)
-        mock_worker_ctx["db"].commit()
+        session.add(variant)
+        session.commit()
 
         with (
             patch.object(
@@ -256,11 +254,9 @@ class TestMapVariantsForScoreSetUnit:
             ),
         ):
             result = await map_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_mapping_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         assert result["status"] == "ok"
@@ -275,7 +271,7 @@ class TestMapVariantsForScoreSetUnit:
             assert target.mapped_hgnc_name is None
 
         # Verify that a mapped variant was created
-        mapped_variants = mock_worker_ctx["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 1
 
     @pytest.mark.parametrize(
@@ -292,6 +288,7 @@ class TestMapVariantsForScoreSetUnit:
     )
     async def test_map_variants_for_score_set_success_layer_permutations(
         self,
+        session,
         with_independent_processing_runs,
         mock_worker_ctx,
         sample_independent_variant_mapping_run,
@@ -304,7 +301,7 @@ class TestMapVariantsForScoreSetUnit:
         # with return value from run_in_executor.
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
-                session=mock_worker_ctx["db"],
+                session=session,
                 score_set=sample_score_set,
                 with_gene_info=True,
                 with_layers=with_layers,
@@ -319,8 +316,8 @@ class TestMapVariantsForScoreSetUnit:
         variant = Variant(
             score_set_id=sample_score_set.id, hgvs_nt="NM_000000.1:c.1A>G", hgvs_pro="NP_000000.1:p.Met1Val", data={}
         )
-        mock_worker_ctx["db"].add(variant)
-        mock_worker_ctx["db"].commit()
+        session.add(variant)
+        session.commit()
 
         with (
             patch.object(
@@ -330,11 +327,9 @@ class TestMapVariantsForScoreSetUnit:
             ),
         ):
             result = await map_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_mapping_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         assert result["status"] == "ok"
@@ -383,11 +378,12 @@ class TestMapVariantsForScoreSetUnit:
                 assert target.post_mapped_metadata.get("protein") is None
 
         # Verify that a mapped variant was created
-        mapped_variants = mock_worker_ctx["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 1
 
     async def test_map_variants_for_score_set_success_no_successful_mapping(
         self,
+        session,
         with_independent_processing_runs,
         mock_worker_ctx,
         sample_independent_variant_mapping_run,
@@ -399,7 +395,7 @@ class TestMapVariantsForScoreSetUnit:
         # with return value from run_in_executor.
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
-                session=mock_worker_ctx["db"],
+                session=session,
                 score_set=sample_score_set,
                 with_gene_info=True,
                 with_layers={"g", "c", "p"},
@@ -414,8 +410,8 @@ class TestMapVariantsForScoreSetUnit:
         variant = Variant(
             score_set_id=sample_score_set.id, hgvs_nt="NM_000000.1:c.1A>G", hgvs_pro="NP_000000.1:p.Met1Val", data={}
         )
-        mock_worker_ctx["db"].add(variant)
-        mock_worker_ctx["db"].commit()
+        session.add(variant)
+        session.commit()
 
         with (
             patch.object(
@@ -425,11 +421,9 @@ class TestMapVariantsForScoreSetUnit:
             ),
         ):
             result = await map_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_mapping_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         assert result["status"] == "error"
@@ -440,7 +434,7 @@ class TestMapVariantsForScoreSetUnit:
         assert sample_score_set.mapping_errors["error_message"] == "All variants failed to map."
 
         # Verify that one mapped variant was created. Although no successful mapping, an entry is still created.
-        mapped_variants = mock_worker_ctx["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 1
 
         # Verify that the mapped variant has no post-mapped data
@@ -449,6 +443,7 @@ class TestMapVariantsForScoreSetUnit:
 
     async def test_map_variants_for_score_set_incomplete_mapping(
         self,
+        session,
         with_independent_processing_runs,
         mock_worker_ctx,
         sample_independent_variant_mapping_run,
@@ -460,7 +455,7 @@ class TestMapVariantsForScoreSetUnit:
         # with return value from run_in_executor.
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
-                session=mock_worker_ctx["db"],
+                session=session,
                 score_set=sample_score_set,
                 with_gene_info=True,
                 with_layers={"g", "c", "p"},
@@ -486,8 +481,8 @@ class TestMapVariantsForScoreSetUnit:
             data={},
             urn="variant:2",
         )
-        mock_worker_ctx["db"].add_all([variant1, variant2])
-        mock_worker_ctx["db"].commit()
+        session.add_all([variant1, variant2])
+        session.commit()
 
         with (
             patch.object(
@@ -497,11 +492,9 @@ class TestMapVariantsForScoreSetUnit:
             ),
         ):
             result = await map_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_mapping_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         assert result["status"] == "ok"
@@ -513,22 +506,23 @@ class TestMapVariantsForScoreSetUnit:
 
         # Although only one variant was successfully mapped, verify that an entity was created
         # for each variant in the score set
-        mapped_variants = mock_worker_ctx["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 2
 
         # Verify that only one variant has post-mapped data
         mapped_variant_with_post_data = (
-            mock_worker_ctx["db"].query(MappedVariant).filter(MappedVariant.post_mapped != {}).one_or_none()
+            session.query(MappedVariant).filter(MappedVariant.post_mapped != {}).one_or_none()
         )
         assert mapped_variant_with_post_data is not None
 
         mapped_variant_without_post_data = (
-            mock_worker_ctx["db"].query(MappedVariant).filter(MappedVariant.post_mapped == {}).one_or_none()
+            session.query(MappedVariant).filter(MappedVariant.post_mapped == {}).one_or_none()
         )
         assert mapped_variant_without_post_data is not None
 
     async def test_map_variants_for_score_set_complete_mapping(
         self,
+        session,
         with_independent_processing_runs,
         mock_worker_ctx,
         sample_independent_variant_mapping_run,
@@ -540,7 +534,7 @@ class TestMapVariantsForScoreSetUnit:
         # with return value from run_in_executor.
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
-                session=mock_worker_ctx["db"],
+                session=session,
                 score_set=sample_score_set,
                 with_gene_info=True,
                 with_layers={"g", "c", "p"},
@@ -566,8 +560,8 @@ class TestMapVariantsForScoreSetUnit:
             data={},
             urn="variant:2",
         )
-        mock_worker_ctx["db"].add_all([variant1, variant2])
-        mock_worker_ctx["db"].commit()
+        session.add_all([variant1, variant2])
+        session.commit()
 
         with (
             patch.object(
@@ -577,11 +571,9 @@ class TestMapVariantsForScoreSetUnit:
             ),
         ):
             result = await map_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_mapping_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         assert result["status"] == "ok"
@@ -592,21 +584,20 @@ class TestMapVariantsForScoreSetUnit:
         assert sample_score_set.mapping_errors is None
 
         # Verify that mapped variants were created
-        mapped_variants = mock_worker_ctx["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 2
 
         # Verify that both variants have post-mapped data. I'm comfortable assuming the
         # data is correct given our layer permutation tests above.
         for urn in ["variant:1", "variant:2"]:
-            mapped_variant = (
-                mock_worker_ctx["db"].query(MappedVariant).filter(MappedVariant.variant.has(urn=urn)).one_or_none()
-            )
+            mapped_variant = session.query(MappedVariant).filter(MappedVariant.variant.has(urn=urn)).one_or_none()
             assert mapped_variant is not None
             assert mapped_variant.post_mapped != {}
 
     async def test_map_variants_for_score_set_updates_existing_mapped_variants(
         self,
         with_independent_processing_runs,
+        session,
         mock_worker_ctx,
         sample_independent_variant_mapping_run,
         sample_score_set,
@@ -617,7 +608,7 @@ class TestMapVariantsForScoreSetUnit:
         # with return value from run_in_executor.
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
-                session=mock_worker_ctx["db"],
+                session=session,
                 score_set=sample_score_set,
                 with_gene_info=True,
                 with_layers={"g", "c", "p"},
@@ -632,16 +623,16 @@ class TestMapVariantsForScoreSetUnit:
         variant = Variant(
             score_set_id=sample_score_set.id, hgvs_nt="NM_000000.1:c.1A>G", hgvs_pro="NP_000000.1:p.Met1Val", data={}
         )
-        mock_worker_ctx["db"].add(variant)
-        mock_worker_ctx["db"].commit()
+        session.add(variant)
+        session.commit()
         mapped_variant = MappedVariant(
             variant_id=variant.id,
             current=True,
             mapped_date="2023-01-01T00:00:00Z",
             mapping_api_version="v1.0.0",
         )
-        mock_worker_ctx["db"].add(mapped_variant)
-        mock_worker_ctx["db"].commit()
+        session.add(mapped_variant)
+        session.commit()
 
         with (
             patch.object(
@@ -651,11 +642,9 @@ class TestMapVariantsForScoreSetUnit:
             ),
         ):
             result = await map_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_mapping_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         assert result["status"] == "ok"
@@ -667,8 +656,7 @@ class TestMapVariantsForScoreSetUnit:
 
         # Verify the existing mapped variant was marked as non-current
         non_current_mapped_variant = (
-            mock_worker_ctx["db"]
-            .query(MappedVariant)
+            session.query(MappedVariant)
             .filter(MappedVariant.id == mapped_variant.id, MappedVariant.current.is_(False))
             .one_or_none()
         )
@@ -676,8 +664,7 @@ class TestMapVariantsForScoreSetUnit:
 
         # Verify a new mapped variant entry was created
         new_mapped_variant = (
-            mock_worker_ctx["db"]
-            .query(MappedVariant)
+            session.query(MappedVariant)
             .filter(MappedVariant.variant_id == variant.id, MappedVariant.current.is_(True))
             .one_or_none()
         )
@@ -689,6 +676,7 @@ class TestMapVariantsForScoreSetUnit:
 
     async def test_map_variants_for_score_set_progress_updates(
         self,
+        session,
         with_independent_processing_runs,
         mock_worker_ctx,
         sample_independent_variant_mapping_run,
@@ -700,7 +688,7 @@ class TestMapVariantsForScoreSetUnit:
         # with return value from run_in_executor.
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
-                session=mock_worker_ctx["db"],
+                session=session,
                 score_set=sample_score_set,
                 with_gene_info=True,
                 with_layers={"g", "c", "p"},
@@ -715,8 +703,8 @@ class TestMapVariantsForScoreSetUnit:
         variant = Variant(
             score_set_id=sample_score_set.id, hgvs_nt="NM_000000.1:c.1A>G", hgvs_pro="NP_000000.1:p.Met1Val", data={}
         )
-        mock_worker_ctx["db"].add(variant)
-        mock_worker_ctx["db"].commit()
+        session.add(variant)
+        session.commit()
 
         with (
             patch.object(
@@ -727,11 +715,9 @@ class TestMapVariantsForScoreSetUnit:
             patch.object(JobManager, "update_progress") as mock_update_progress,
         ):
             result = await map_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_mapping_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         assert result["status"] == "ok"
@@ -785,7 +771,7 @@ class TestMapVariantsForScoreSetIntegration:
 
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
-                session=mock_worker_ctx["db"],
+                session=session,
                 score_set=sample_score_set,
                 with_gene_info=True,
                 with_layers={"g", "c", "p"},
@@ -812,7 +798,7 @@ class TestMapVariantsForScoreSetIntegration:
         assert result["exception_details"] is None
 
         # Verify that mapped variants were created
-        mapped_variants = mock_worker_ctx["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 4
 
         # Verify score set mapping state
@@ -826,8 +812,7 @@ class TestMapVariantsForScoreSetIntegration:
 
         # Verify that each variant has a corresponding mapped variant
         variants = (
-            mock_worker_ctx["db"]
-            .query(Variant)
+            session.query(Variant)
             .join(MappedVariant, MappedVariant.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id, MappedVariant.current.is_(True))
             .all()
@@ -836,8 +821,7 @@ class TestMapVariantsForScoreSetIntegration:
 
         # Verify that the job status was updated
         processing_run = (
-            mock_worker_ctx["db"]
-            .query(sample_independent_variant_mapping_run.__class__)
+            session.query(sample_independent_variant_mapping_run.__class__)
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
@@ -870,7 +854,7 @@ class TestMapVariantsForScoreSetIntegration:
 
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
-                session=mock_worker_ctx["db"],
+                session=session,
                 score_set=sample_score_set,
                 with_gene_info=True,
                 with_layers={"g", "c", "p"},
@@ -897,7 +881,7 @@ class TestMapVariantsForScoreSetIntegration:
         assert result["exception_details"] is None
 
         # Verify that mapped variants were created
-        mapped_variants = mock_worker_ctx["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 4
 
         # Verify score set mapping state
@@ -911,8 +895,7 @@ class TestMapVariantsForScoreSetIntegration:
 
         # Verify that each variant has a corresponding mapped variant
         variants = (
-            mock_worker_ctx["db"]
-            .query(Variant)
+            session.query(Variant)
             .join(MappedVariant, MappedVariant.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id, MappedVariant.current.is_(True))
             .all()
@@ -921,8 +904,7 @@ class TestMapVariantsForScoreSetIntegration:
 
         # Verify that the job status was updated
         processing_run = (
-            mock_worker_ctx["db"]
-            .query(sample_pipeline_variant_mapping_run.__class__)
+            session.query(sample_pipeline_variant_mapping_run.__class__)
             .filter(sample_pipeline_variant_mapping_run.__class__.id == sample_pipeline_variant_mapping_run.id)
             .one()
         )
@@ -931,8 +913,7 @@ class TestMapVariantsForScoreSetIntegration:
         # Verify that the pipeline run status was updated. We expect RUNNING here because
         # the mapping job is not the only job in our dummy pipeline.
         pipeline_run = (
-            mock_worker_ctx["db"]
-            .query(sample_pipeline_variant_mapping_run.pipeline.__class__)
+            session.query(sample_pipeline_variant_mapping_run.pipeline.__class__)
             .filter(
                 sample_pipeline_variant_mapping_run.pipeline.__class__.id
                 == sample_pipeline_variant_mapping_run.pipeline.id
@@ -990,13 +971,12 @@ class TestMapVariantsForScoreSetIntegration:
         )
 
         # Verify that no mapped variants were created
-        mapped_variants = mock_worker_ctx["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 0
 
         # Verify that the job status was updated.
         processing_run = (
-            mock_worker_ctx["db"]
-            .query(sample_independent_variant_mapping_run.__class__)
+            session.query(sample_independent_variant_mapping_run.__class__)
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
@@ -1028,7 +1008,7 @@ class TestMapVariantsForScoreSetIntegration:
 
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
-                session=mock_worker_ctx["db"],
+                session=session,
                 score_set=sample_score_set,
                 with_gene_info=True,
                 with_layers={"g", "c", "p"},
@@ -1063,13 +1043,12 @@ class TestMapVariantsForScoreSetIntegration:
         assert "test error: no mapped scores" in sample_score_set.mapping_errors["error_message"]
 
         # Verify that no mapped variants were created
-        mapped_variants = mock_worker_ctx["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 0
 
         # Verify that the job status was updated.
         processing_run = (
-            mock_worker_ctx["db"]
-            .query(sample_independent_variant_mapping_run.__class__)
+            session.query(sample_independent_variant_mapping_run.__class__)
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
@@ -1101,7 +1080,7 @@ class TestMapVariantsForScoreSetIntegration:
 
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
-                session=mock_worker_ctx["db"],
+                session=session,
                 score_set=sample_score_set,
                 with_gene_info=True,
                 with_layers={"g", "c", "p"},
@@ -1135,13 +1114,12 @@ class TestMapVariantsForScoreSetIntegration:
         assert "Reference metadata missing from mapping results" in sample_score_set.mapping_errors["error_message"]
 
         # Verify that no mapped variants were created
-        mapped_variants = mock_worker_ctx["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 0
 
         # Verify that the job status was updated.
         processing_run = (
-            mock_worker_ctx["db"]
-            .query(sample_independent_variant_mapping_run.__class__)
+            session.query(sample_independent_variant_mapping_run.__class__)
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
@@ -1172,7 +1150,7 @@ class TestMapVariantsForScoreSetIntegration:
         )
 
         # Associate mapped variants with all variants just created in the score set
-        variants = mock_worker_ctx["db"].query(Variant).filter(Variant.score_set_id == sample_score_set.id).all()
+        variants = session.query(Variant).filter(Variant.score_set_id == sample_score_set.id).all()
         for variant in variants:
             mapped_variant = MappedVariant(
                 variant_id=variant.id,
@@ -1180,12 +1158,12 @@ class TestMapVariantsForScoreSetIntegration:
                 mapped_date="2023-01-01T00:00:00Z",
                 mapping_api_version="v1.0.0",
             )
-            mock_worker_ctx["db"].add(mapped_variant)
-        mock_worker_ctx["db"].commit()
+            session.add(mapped_variant)
+        session.commit()
 
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
-                session=mock_worker_ctx["db"],
+                session=session,
                 score_set=sample_score_set,
                 with_gene_info=True,
                 with_layers={"g", "c", "p"},
@@ -1218,20 +1196,18 @@ class TestMapVariantsForScoreSetIntegration:
         assert sample_score_set.mapping_errors is None
 
         # Verify that mapped variants were marked as non-current and new entries created
-        mapped_variants = mock_worker_ctx["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == len(variants) * 2  # Each variant has two mapped entries now
         for variant in variants:
             non_current_mapped_variant = (
-                mock_worker_ctx["db"]
-                .query(MappedVariant)
+                session.query(MappedVariant)
                 .filter(MappedVariant.variant_id == variant.id, MappedVariant.current.is_(False))
                 .one_or_none()
             )
             assert non_current_mapped_variant is not None
 
             new_mapped_variant = (
-                mock_worker_ctx["db"]
-                .query(MappedVariant)
+                session.query(MappedVariant)
                 .filter(MappedVariant.variant_id == variant.id, MappedVariant.current.is_(True))
                 .one_or_none()
             )
@@ -1243,8 +1219,7 @@ class TestMapVariantsForScoreSetIntegration:
 
         # Verify that the job status was updated.
         processing_run = (
-            mock_worker_ctx["db"]
-            .query(sample_independent_variant_mapping_run.__class__)
+            session.query(sample_independent_variant_mapping_run.__class__)
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
@@ -1252,6 +1227,7 @@ class TestMapVariantsForScoreSetIntegration:
 
     async def test_map_variants_for_score_set_no_variants(
         self,
+        session,
         with_independent_processing_runs,
         mock_worker_ctx,
         sample_independent_variant_mapping_run,
@@ -1261,7 +1237,7 @@ class TestMapVariantsForScoreSetIntegration:
 
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
-                session=mock_worker_ctx["db"],
+                session=session,
                 score_set=sample_score_set,
                 with_gene_info=True,
                 with_layers={"g", "c", "p"},
@@ -1296,13 +1272,12 @@ class TestMapVariantsForScoreSetIntegration:
         assert "test error: no mapped scores" in sample_score_set.mapping_errors["error_message"]
 
         # Verify that no mapped variants were created
-        mapped_variants = mock_worker_ctx["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 0
 
         # Verify that the job status was updated.
         processing_run = (
-            mock_worker_ctx["db"]
-            .query(sample_independent_variant_mapping_run.__class__)
+            session.query(sample_independent_variant_mapping_run.__class__)
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
@@ -1310,6 +1285,7 @@ class TestMapVariantsForScoreSetIntegration:
 
     async def test_map_variants_for_score_set_exception_in_mapping(
         self,
+        session,
         with_independent_processing_runs,
         mock_worker_ctx,
         sample_independent_variant_mapping_run,
@@ -1349,13 +1325,12 @@ class TestMapVariantsForScoreSetIntegration:
         )
 
         # Verify that no mapped variants were created
-        mapped_variants = mock_worker_ctx["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 0
 
         # Verify that the job status was updated.
         processing_run = (
-            mock_worker_ctx["db"]
-            .query(sample_independent_variant_mapping_run.__class__)
+            session.query(sample_independent_variant_mapping_run.__class__)
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )

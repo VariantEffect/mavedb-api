@@ -16,6 +16,8 @@ from mavedb.models.job_run import JobRun
 from mavedb.worker.jobs.data_management.views import refresh_materialized_views, refresh_published_variants_view
 from tests.helpers.transaction_spy import TransactionSpy
 
+pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
+
 ############################################################################################################################################
 # refresh_materialized_views
 ############################################################################################################################################

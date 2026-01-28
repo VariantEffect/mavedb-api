@@ -12,25 +12,31 @@ from mavedb.models.variant import Variant
 from mavedb.worker.jobs.variant_processing.creation import create_variants_for_score_set
 from mavedb.worker.lib.managers.job_manager import JobManager
 
+pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
+
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("patch_db_session_ctxmgr")
 class TestCreateVariantsForScoreSetUnit:
     """Unit tests for create_variants_for_score_set job."""
 
     async def test_create_variants_for_score_set_raises_key_error_on_missing_hdp_from_ctx(
         self,
+        mock_worker_ctx,
         mock_job_manager,
     ):
-        ctx = {}  # Missing 'hdp' key
+        ctx = mock_worker_ctx.copy()
+        del ctx["hdp"]
 
         with pytest.raises(KeyError) as exc_info:
-            await create_variants_for_score_set(ctx=ctx, job_id=999, job_manager=mock_job_manager)
+            await create_variants_for_score_set(ctx, 999, mock_job_manager)
 
         assert str(exc_info.value) == "'hdp'"
 
     async def test_create_variants_for_score_set_calls_s3_client_with_correct_parameters(
         self,
+        session,
         with_independent_processing_runs,
         with_populated_domain_data,
         mock_worker_ctx,
@@ -64,11 +70,9 @@ class TestCreateVariantsForScoreSetUnit:
             patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
         ):
             await create_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_creation_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_creation_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_creation_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
 
         # Use ANY for dynamically created Fileobj parameters.
@@ -99,11 +103,9 @@ class TestCreateVariantsForScoreSetUnit:
             pytest.raises(Exception) as exc_info,
         ):
             await create_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_creation_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_creation_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_creation_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
 
         mock_update_progress.assert_any_call(100, 100, "Variant creation job failed due to an internal error.")
@@ -155,11 +157,9 @@ class TestCreateVariantsForScoreSetUnit:
             patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
         ):
             await create_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_creation_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_creation_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_creation_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
 
     async def test_create_variants_for_score_set_raises_when_no_targets_exist(
@@ -189,11 +189,9 @@ class TestCreateVariantsForScoreSetUnit:
             pytest.raises(ValueError) as exc_info,
         ):
             await create_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_creation_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_creation_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_creation_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
 
         mock_update_progress.assert_any_call(100, 100, "Score set has no targets; cannot create variants.")
@@ -201,6 +199,7 @@ class TestCreateVariantsForScoreSetUnit:
 
     async def test_create_variants_for_score_set_calls_validate_standardize_dataframe_with_correct_parameters(
         self,
+        session,
         with_independent_processing_runs,
         with_populated_domain_data,
         mock_worker_ctx,
@@ -234,11 +233,9 @@ class TestCreateVariantsForScoreSetUnit:
             patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
         ):
             await create_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_creation_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_creation_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_creation_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
 
         mock_validate.assert_called_once_with(
@@ -252,6 +249,7 @@ class TestCreateVariantsForScoreSetUnit:
 
     async def test_create_variants_for_score_set_calls_create_variants_data_with_correct_parameters(
         self,
+        session,
         with_independent_processing_runs,
         with_populated_domain_data,
         mock_worker_ctx,
@@ -285,17 +283,16 @@ class TestCreateVariantsForScoreSetUnit:
             patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
         ):
             await create_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_creation_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_creation_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_creation_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
 
         mock_create_variants_data.assert_called_once_with(sample_score_dataframe, sample_count_dataframe, None)
 
     async def test_create_variants_for_score_set_calls_create_variants_with_correct_parameters(
         self,
+        session,
         with_independent_processing_runs,
         with_populated_domain_data,
         mock_worker_ctx,
@@ -333,17 +330,16 @@ class TestCreateVariantsForScoreSetUnit:
             ) as mock_create_variants,
         ):
             await create_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_creation_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_creation_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_creation_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
 
-        mock_create_variants.assert_called_once_with(mock_worker_ctx["db"], sample_score_set, [mock_variant])
+        mock_create_variants.assert_called_once_with(session, sample_score_set, [mock_variant])
 
     async def test_create_variants_for_score_set_handles_empty_variant_data(
         self,
+        session,
         with_independent_processing_runs,
         with_populated_domain_data,
         mock_worker_ctx,
@@ -374,11 +370,9 @@ class TestCreateVariantsForScoreSetUnit:
             patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
         ):
             await create_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_creation_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_creation_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_creation_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
         # If no exceptions are raised, the test passes for handling empty variant data.
 
@@ -424,11 +418,9 @@ class TestCreateVariantsForScoreSetUnit:
             patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
         ):
             await create_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_creation_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_creation_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_creation_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
 
         # Verify that existing variants have been removed
@@ -473,11 +465,9 @@ class TestCreateVariantsForScoreSetUnit:
             patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
         ):
             await create_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_creation_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_creation_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_creation_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
 
         session.refresh(sample_score_set)
@@ -487,6 +477,7 @@ class TestCreateVariantsForScoreSetUnit:
 
     async def test_create_variants_for_score_set_updates_progress(
         self,
+        session,
         with_independent_processing_runs,
         with_populated_domain_data,
         mock_worker_ctx,
@@ -521,11 +512,9 @@ class TestCreateVariantsForScoreSetUnit:
             patch.object(JobManager, "update_progress") as mock_update_progress,
         ):
             await create_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_creation_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_creation_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_creation_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
 
         mock_update_progress.assert_has_calls(
@@ -570,11 +559,9 @@ class TestCreateVariantsForScoreSetUnit:
             pytest.raises(Exception) as exc_info,
         ):
             await create_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_creation_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_creation_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_creation_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
 
         assert str(exc_info.value) == "Test exception during data validation"
@@ -613,11 +600,9 @@ class TestCreateVariantsForScoreSetUnit:
             pytest.raises(Exception) as exc_info,
         ):
             await create_variants_for_score_set(
-                ctx=mock_worker_ctx,
-                job_id=sample_independent_variant_creation_run.id,
-                job_manager=JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_independent_variant_creation_run.id
-                ),
+                mock_worker_ctx,
+                sample_independent_variant_creation_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
 
         assert str(exc_info.value) == "Test exception during data validation"
@@ -1239,11 +1224,7 @@ class TestCreateVariantsForScoreSetArqContext:
                 side_effect=[sample_score_dataframe, sample_count_dataframe],
             ),
         ):
-            await arq_redis.enqueue_job(
-                "create_variants_for_score_set",
-                sample_pipeline_variant_creation_run.id,
-                _job_id=sample_pipeline_variant_creation_run.urn,
-            )
+            await arq_redis.enqueue_job("create_variants_for_score_set", sample_pipeline_variant_creation_run.id)
             await arq_worker.async_run()
             await arq_worker.run_check()
 

@@ -16,6 +16,8 @@ from mavedb.worker.jobs.external_services.clingen import (
 from mavedb.worker.lib.managers.job_manager import JobManager
 from tests.helpers.util.setup.worker import create_mappings_in_score_set
 
+pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
+
 
 @pytest.mark.unit
 @pytest.mark.asyncio
@@ -37,9 +39,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_car_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
         mock_update_progress.assert_called_with(100, 100, "ClinGen submission is disabled. Skipping CAR submission.")
@@ -65,9 +65,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_car_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
         mock_update_progress.assert_called_with(100, 100, "No mapped variants to submit to CAR. Skipped submission.")
@@ -94,9 +92,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_car_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
         mock_update_progress.assert_called_with(
@@ -144,9 +140,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_car_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
         mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
@@ -198,9 +192,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_car_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
         mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
@@ -261,9 +253,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_car_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
         mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
@@ -330,9 +320,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_car_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
         mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
@@ -379,9 +367,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_car_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
         assert str(exc_info.value) == "ClinGen service error"
@@ -439,9 +425,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_car_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
         mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
@@ -506,9 +490,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_car_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
         mock_update_progress.assert_has_calls(
@@ -1157,9 +1139,7 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
             result = await submit_score_set_mappings_to_ldh(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_ldh_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id),
             )
 
         mock_update_progress.assert_called_with(100, 100, "No mapped variants to submit to LDH. Skipping submission.")
@@ -1207,9 +1187,7 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
             await submit_score_set_mappings_to_ldh(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_ldh_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id),
             )
 
         mock_update_progress.assert_called_with(100, 100, "All mapped variant submissions to LDH failed.")
@@ -1248,9 +1226,7 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
             result = await submit_score_set_mappings_to_ldh(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_ldh_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id),
             )
 
         mock_update_progress.assert_called_with(
@@ -1296,9 +1272,7 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
             await submit_score_set_mappings_to_ldh(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_ldh_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id),
             )
 
         assert str(exc_info.value) == "LDH service error"
@@ -1347,9 +1321,7 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
             result = await submit_score_set_mappings_to_ldh(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_ldh_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id),
             )
 
         assert result["status"] == "ok"
@@ -1401,9 +1373,7 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
             result = await submit_score_set_mappings_to_ldh(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_ldh_sample_job_run.id,
-                JobManager(
-                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id
-                ),
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id),
             )
 
         assert result["status"] == "ok"

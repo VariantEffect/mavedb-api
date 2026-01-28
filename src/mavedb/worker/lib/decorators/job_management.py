@@ -13,7 +13,7 @@ from typing import Any, Awaitable, Callable, TypeVar, cast
 from arq import ArqRedis
 from sqlalchemy.orm import Session
 
-from mavedb.worker.lib.decorators.utils import ensure_session_ctx, is_test_mode
+from mavedb.worker.lib.decorators.utils import ensure_ctx, ensure_job_id, ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers import JobManager
 from mavedb.worker.lib.managers.types import JobResultData
 
@@ -63,7 +63,7 @@ def with_job_management(func: F) -> F:
 
     @functools.wraps(func)
     async def async_wrapper(*args, **kwargs):
-        with ensure_session_ctx(ctx=args[0]):
+        with ensure_session_ctx(ctx=ensure_ctx(args)):
             # No-op in test mode
             if is_test_mode():
                 return await func(*args, **kwargs)
@@ -96,23 +96,12 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobResultData]], ar
     Raises:
         Exception: Re-raises any exception after proper job failure tracking
     """
-    # Extract context (implicit first argument by ARQ convention)
-    if not args:
-        raise ValueError("Managed job functions must receive context as first argument")
-    ctx = args[0]
+    ctx = ensure_ctx(args)
+    db_session: Session = ctx["db"]
+    job_id = ensure_job_id(args)
 
-    # Get database session and job ID from context
-    if "db" not in ctx:
-        raise ValueError("DB session not found in job context")
     if "redis" not in ctx:
         raise ValueError("Redis connection not found in job context")
-
-    # Extract job_id (second argument by MaveDB convention)
-    if not args or len(args) < 2 or not isinstance(args[1], int):
-        raise ValueError("Job ID not found in pipeline context")
-    job_id = args[1]
-
-    db_session: Session = ctx["db"]
     redis_pool: ArqRedis = ctx["redis"]
 
     try:

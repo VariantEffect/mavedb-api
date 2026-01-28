@@ -33,3 +33,21 @@ def ensure_session_ctx(ctx):
             ctx["db"] = session
             yield session
             ctx["db"] = None  # Optionally clean up
+
+
+def ensure_ctx(args) -> dict:
+    # Extract context (first argument by ARQ convention)
+    if not args or len(args) < 1 or not isinstance(args[0], dict):
+        raise ValueError("Managed functions must receive context as first argument")
+
+    ctx = args[0]
+    return ctx
+
+
+def ensure_job_id(args) -> int:
+    # Extract job_id (second argument by MaveDB convention)
+    if not args or len(args) < 2 or not isinstance(args[1], int):
+        raise ValueError("Job ID not found in function arguments")
+
+    job_id = args[1]
+    return job_id
