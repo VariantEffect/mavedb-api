@@ -14,7 +14,6 @@ from mavedb.worker.jobs.data_management import (
     refresh_published_variants_view,
 )
 from mavedb.worker.jobs.external_services import (
-    link_clingen_variants,
     link_gnomad_variants,
     poll_uniprot_mapping_jobs_for_score_set,
     submit_score_set_mappings_to_car,
@@ -35,7 +34,6 @@ BACKGROUND_FUNCTIONS: List[Callable] = [
     # External service jobs
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,
-    link_clingen_variants,
     submit_uniprot_mapping_jobs_for_score_set,
     poll_uniprot_mapping_jobs_for_score_set,
     link_gnomad_variants,

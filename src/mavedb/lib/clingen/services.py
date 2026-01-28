@@ -1,19 +1,16 @@
 import hashlib
 import logging
-import requests
 import os
 import time
 from datetime import datetime
 from typing import Optional
-from urllib import parse
 
-
+import requests
 from jose import jwt
 
-from mavedb.lib.logging.context import logging_context, save_to_logging_context, format_raised_exception_info_as_dict
-from mavedb.lib.clingen.constants import GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD, LDH_MAVE_ACCESS_ENDPOINT
-
-from mavedb.lib.types.clingen import LdhSubmission, ClinGenAllele
+from mavedb.lib.clingen.constants import GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD
+from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
+from mavedb.lib.types.clingen import ClinGenAllele, LdhSubmission
 from mavedb.lib.utils import batched
 
 logger = logging.getLogger(__name__)
@@ -276,50 +273,6 @@ class ClinGenLdhService:
             return existing_jwt
 
         logger.debug(msg="Found existing but expired Genboree JWT.", extra=logging_context())
-        return None
-
-
-def get_clingen_variation(urn: str) -> Optional[dict]:
-    """
-    Fetches ClinGen variation data for a given URN (Uniform Resource Name) from the Linked Data Hub.
-
-    Args:
-        urn (str): The URN of the variation to fetch.
-
-    Returns:
-        Optional[dict]: A dictionary containing the variation data if the request is successful,
-                        or None if the request fails.
-    """
-    response = requests.get(
-        f"{LDH_MAVE_ACCESS_ENDPOINT}/{parse.quote_plus(urn)}",
-        headers={"Accept": "application/json"},
-    )
-
-    if response.status_code == 200:
-        return response.json()
-    else:
-        logger.error(f"Failed to fetch data for URN {urn}: {response.status_code} - {response.text}")
-        return None
-
-
-def clingen_allele_id_from_ldh_variation(variation: Optional[dict]) -> Optional[str]:
-    """
-    Extracts the ClinGen allele ID from a given variation dictionary.
-
-    Args:
-        variation (Optional[dict]): A dictionary containing variation data, otherwise None.
-
-    Returns:
-        Optional[str]: The ClinGen allele ID if found, otherwise None.
-    """
-    if not variation:
-        return None
-
-    try:
-        return variation["data"]["ldFor"]["Variant"][0]["entId"]
-    except (KeyError, IndexError) as exc:
-        save_to_logging_context(format_raised_exception_info_as_dict(exc))
-        logger.error("Failed to extract ClinGen allele ID from variation data.", extra=logging_context())
         return None
 
 
