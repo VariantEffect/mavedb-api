@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 from mavedb import __version__
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.models.job_run import JobRun
-from mavedb.worker.lib.decorators.utils import is_test_mode
+from mavedb.worker.lib.decorators.utils import ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers.types import JobResultData
 
 F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
@@ -60,24 +60,25 @@ def with_guaranteed_job_run_record(job_type: str) -> Callable[[F], F]:
     def decorator(func: F) -> F:
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
-            # No-op in test mode
-            if is_test_mode():
+            with ensure_session_ctx(ctx=args[0]):
+                # No-op in test mode
+                if is_test_mode():
+                    return await func(*args, **kwargs)
+
+                # The job id must be passed as the second argument to the wrapped function.
+                job = _create_job_run(job_type, func, args, kwargs)
+                args = list(args)
+                args.insert(1, job.id)
+                args = tuple(args)
+
                 return await func(*args, **kwargs)
-
-            # The job id must be passed as the second argument to the wrapped function.
-            job = _create_job_run(job_type, func, args, kwargs)
-            args = list(args)
-            args.insert(1, job.id)
-            args = tuple(args)
-
-            return await func(*args, **kwargs)
 
         return async_wrapper  # type: ignore
 
     return decorator
 
 
-def _create_job_run(job_type: str, func: Callable[..., Awaitable[JobResultData]], args: tuple, kwargs: dict) -> None:
+def _create_job_run(job_type: str, func: Callable[..., Awaitable[JobResultData]], args: tuple, kwargs: dict) -> JobRun:
     """
     Creates and persists a JobRun record for a function before job execution.
     """
@@ -97,7 +98,7 @@ def _create_job_run(job_type: str, func: Callable[..., Awaitable[JobResultData]]
         job_function=func.__name__,
         status=JobStatus.PENDING,
         mavedb_version=__version__,
-    )
+    )  # type: ignore[call-arg]
     db.add(job_run)
     db.commit()
 

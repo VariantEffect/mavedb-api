@@ -13,7 +13,7 @@ from typing import Any, Awaitable, Callable, TypeVar, cast
 from arq import ArqRedis
 from sqlalchemy.orm import Session
 
-from mavedb.worker.lib.decorators.utils import is_test_mode
+from mavedb.worker.lib.decorators.utils import ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers import JobManager
 from mavedb.worker.lib.managers.types import JobResultData
 
@@ -63,11 +63,12 @@ def with_job_management(func: F) -> F:
 
     @functools.wraps(func)
     async def async_wrapper(*args, **kwargs):
-        # No-op in test mode
-        if is_test_mode():
-            return await func(*args, **kwargs)
+        with ensure_session_ctx(ctx=args[0]):
+            # No-op in test mode
+            if is_test_mode():
+                return await func(*args, **kwargs)
 
-        return await _execute_managed_job(func, args, kwargs)
+            return await _execute_managed_job(func, args, kwargs)
 
     return cast(F, async_wrapper)
 
@@ -181,7 +182,3 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobResultData]], ar
             # We don't mind that we lose ARQs built in job marking, since we perform our own job
             # lifecycle management via with_job_management.
             return result
-
-
-# Export decorator at module level for easy import
-__all__ = ["with_job_management"]
