@@ -9,6 +9,8 @@ from mavedb.worker.jobs.pipeline_management.start_pipeline import start_pipeline
 from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
 
+pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
+
 
 @pytest.mark.unit
 @pytest.mark.asyncio
@@ -44,7 +46,7 @@ class TestStartPipelineUnit:
             await start_pipeline(
                 mock_worker_ctx,
                 setup_start_pipeline_job_run.id,
-                JobManager(mock_worker_ctx["db"], mock_worker_ctx["redis"], setup_start_pipeline_job_run.id),
+                JobManager(session, mock_worker_ctx["redis"], setup_start_pipeline_job_run.id),
             )
 
     async def test_start_pipeline_starts_pipeline_successfully(
@@ -65,7 +67,7 @@ class TestStartPipelineUnit:
             result = await start_pipeline(
                 mock_worker_ctx,
                 setup_start_pipeline_job_run.id,
-                JobManager(mock_worker_ctx["db"], mock_worker_ctx["redis"], setup_start_pipeline_job_run.id),
+                JobManager(session, mock_worker_ctx["redis"], setup_start_pipeline_job_run.id),
             )
 
         assert result["status"] == "ok"
@@ -94,7 +96,7 @@ class TestStartPipelineUnit:
             result = await start_pipeline(
                 mock_worker_ctx,
                 setup_start_pipeline_job_run.id,
-                JobManager(mock_worker_ctx["db"], mock_worker_ctx["redis"], setup_start_pipeline_job_run.id),
+                JobManager(session, mock_worker_ctx["redis"], setup_start_pipeline_job_run.id),
             )
 
         assert result["status"] == "ok"
@@ -129,7 +131,7 @@ class TestStartPipelineUnit:
             await start_pipeline(
                 mock_worker_ctx,
                 setup_start_pipeline_job_run.id,
-                JobManager(mock_worker_ctx["db"], mock_worker_ctx["redis"], setup_start_pipeline_job_run.id),
+                JobManager(session, mock_worker_ctx["redis"], setup_start_pipeline_job_run.id),
             )
 
 
@@ -194,7 +196,7 @@ class TestStartPipelineIntegration:
                 call_count["n"] += 1
                 raise Exception("Simulated pipeline start failure")
             return await real_coordinate_pipeline(
-                PipelineManager(session, mock_worker_ctx["db"], sample_dummy_pipeline.id), *args, **kwargs
+                PipelineManager(session, session, sample_dummy_pipeline.id), *args, **kwargs
             )  # Allow the final coordination attempt to proceed 'normally'
 
         with patch(

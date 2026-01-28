@@ -218,9 +218,10 @@ def sample_link_gnomad_variants_run_pipeline(
 
 
 @pytest.fixture
-def setup_sample_variants_with_caid(with_populated_domain_data, mock_worker_ctx, sample_link_gnomad_variants_run):
+def setup_sample_variants_with_caid(
+    session, with_populated_domain_data, mock_worker_ctx, sample_link_gnomad_variants_run
+):
     """Setup variants and mapped variants in the database for testing."""
-    session = mock_worker_ctx["db"]
     score_set = session.get(ScoreSet, sample_link_gnomad_variants_run.job_params["score_set_id"])
 
     # Add a variant and mapped variant to the database with a CAID

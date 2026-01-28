@@ -44,7 +44,7 @@ async def create_variants_in_score_set(
             result = await create_variants_for_score_set(
                 mock_worker_ctx,
                 variant_creation_run.id,
-                JobManager(mock_worker_ctx["db"], mock_worker_ctx["redis"], variant_creation_run.id),
+                JobManager(session, mock_worker_ctx["redis"], variant_creation_run.id),
             )
 
     assert result["status"] == "ok"
@@ -80,7 +80,7 @@ async def create_mappings_in_score_set(
             result = await map_variants_for_score_set(
                 mock_worker_ctx,
                 variant_mapping_run.id,
-                JobManager(mock_worker_ctx["db"], mock_worker_ctx["redis"], variant_mapping_run.id),
+                JobManager(session, mock_worker_ctx["redis"], variant_mapping_run.id),
             )
 
     assert result["status"] == "ok"

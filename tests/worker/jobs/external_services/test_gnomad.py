@@ -10,6 +10,8 @@ from mavedb.models.variant import Variant
 from mavedb.worker.jobs.external_services.gnomad import link_gnomad_variants
 from mavedb.worker.lib.managers.job_manager import JobManager
 
+pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
+
 
 @pytest.mark.asyncio
 @pytest.mark.unit
@@ -18,10 +20,9 @@ class TestLinkGnomadVariantsUnit:
 
     @pytest.fixture
     def setup_sample_variants_with_caid(
-        self, with_populated_domain_data, mock_worker_ctx, sample_link_gnomad_variants_run
+        self, session, with_populated_domain_data, mock_worker_ctx, sample_link_gnomad_variants_run
     ):
         """Setup variants and mapped variants in the database for testing."""
-        session = mock_worker_ctx["db"]
         score_set = session.get(ScoreSet, sample_link_gnomad_variants_run.job_params["score_set_id"])
 
         # Add a variant and mapped variant to the database with a CAID
@@ -46,6 +47,7 @@ class TestLinkGnomadVariantsUnit:
 
     async def test_link_gnomad_variants_no_variants_with_caids(
         self,
+        session,
         with_populated_domain_data,
         with_gnomad_linking_job,
         mock_worker_ctx,
@@ -56,7 +58,7 @@ class TestLinkGnomadVariantsUnit:
             result = await link_gnomad_variants(
                 mock_worker_ctx,
                 1,
-                JobManager(mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
+                JobManager(session, mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
             )
 
         assert result["status"] == "ok"
@@ -66,6 +68,7 @@ class TestLinkGnomadVariantsUnit:
 
     async def test_link_gnomad_variants_no_gnomad_matches(
         self,
+        session,
         with_populated_domain_data,
         with_gnomad_linking_job,
         mock_worker_ctx,
@@ -84,7 +87,7 @@ class TestLinkGnomadVariantsUnit:
             result = await link_gnomad_variants(
                 mock_worker_ctx,
                 1,
-                JobManager(mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
+                JobManager(session, mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
             )
 
         assert result["status"] == "ok"
@@ -92,6 +95,7 @@ class TestLinkGnomadVariantsUnit:
 
     async def test_link_gnomad_variants_call_linking_method(
         self,
+        session,
         with_populated_domain_data,
         with_gnomad_linking_job,
         mock_worker_ctx,
@@ -114,7 +118,7 @@ class TestLinkGnomadVariantsUnit:
             result = await link_gnomad_variants(
                 mock_worker_ctx,
                 1,
-                JobManager(mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
+                JobManager(session, mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
             )
 
         assert result["status"] == "ok"
@@ -123,6 +127,7 @@ class TestLinkGnomadVariantsUnit:
 
     async def test_link_gnomad_variants_updates_progress(
         self,
+        session,
         with_populated_domain_data,
         with_gnomad_linking_job,
         mock_worker_ctx,
@@ -145,7 +150,7 @@ class TestLinkGnomadVariantsUnit:
             result = await link_gnomad_variants(
                 mock_worker_ctx,
                 1,
-                JobManager(mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
+                JobManager(session, mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
             )
 
         assert result["status"] == "ok"
@@ -160,6 +165,7 @@ class TestLinkGnomadVariantsUnit:
 
     async def test_link_gnomad_variants_propagates_exceptions(
         self,
+        session,
         with_populated_domain_data,
         with_gnomad_linking_job,
         mock_worker_ctx,
@@ -175,7 +181,7 @@ class TestLinkGnomadVariantsUnit:
                 await link_gnomad_variants(
                     mock_worker_ctx,
                     1,
-                    JobManager(mock_worker_ctx["db"], mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
+                    JobManager(session, mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
                 )
 
         assert str(exc_info.value) == "Test exception"
@@ -188,6 +194,7 @@ class TestLinkGnomadVariantsIntegration:
 
     async def test_link_gnomad_variants_no_variants_with_caids(
         self,
+        session,
         with_populated_domain_data,
         with_gnomad_linking_job,
         mock_worker_ctx,
@@ -199,7 +206,6 @@ class TestLinkGnomadVariantsIntegration:
         assert result["status"] == "ok"
 
         # Verify that no gnomAD variants were linked
-        session = mock_worker_ctx["db"]
         gnomad_variants = session.query(GnomADVariant).all()
         assert len(gnomad_variants) == 0
 
@@ -209,6 +215,7 @@ class TestLinkGnomadVariantsIntegration:
 
     async def test_link_gnomad_variants_no_matching_caids(
         self,
+        session,
         with_populated_domain_data,
         with_gnomad_linking_job,
         mock_worker_ctx,
@@ -218,7 +225,6 @@ class TestLinkGnomadVariantsIntegration:
     ):
         """Test the end-to-end functionality of the link_gnomad_variants job when no matching CAIDs are found."""
         # Update the created mapped variant to have a CAID that won't match any gnomAD data
-        session = mock_worker_ctx["db"]
         mapped_variant = session.query(MappedVariant).first()
         mapped_variant.clingen_allele_id = "NON_MATCHING_CAID"
         session.commit()
@@ -230,7 +236,6 @@ class TestLinkGnomadVariantsIntegration:
         assert result["status"] == "ok"
 
         # Verify that no gnomAD variants were linked
-        session = mock_worker_ctx["db"]
         gnomad_variants = session.query(GnomADVariant).all()
         assert len(gnomad_variants) == 0
 
@@ -240,6 +245,7 @@ class TestLinkGnomadVariantsIntegration:
 
     async def test_link_gnomad_variants_successful_linking_independent(
         self,
+        session,
         with_populated_domain_data,
         with_gnomad_linking_job,
         mock_worker_ctx,
@@ -256,7 +262,6 @@ class TestLinkGnomadVariantsIntegration:
         assert result["status"] == "ok"
 
         # Verify that gnomAD variants were linked
-        session = mock_worker_ctx["db"]
         gnomad_variants = session.query(GnomADVariant).all()
         assert len(gnomad_variants) > 0
 
@@ -266,6 +271,7 @@ class TestLinkGnomadVariantsIntegration:
 
     async def test_link_gnomad_variants_successful_linking_pipeline(
         self,
+        session,
         with_populated_domain_data,
         mock_worker_ctx,
         sample_link_gnomad_variants_run_pipeline,
@@ -282,7 +288,6 @@ class TestLinkGnomadVariantsIntegration:
         assert result["status"] == "ok"
 
         # Verify that gnomAD variants were linked
-        session = mock_worker_ctx["db"]
         gnomad_variants = session.query(GnomADVariant).all()
         assert len(gnomad_variants) > 0
 
@@ -296,6 +301,7 @@ class TestLinkGnomadVariantsIntegration:
 
     async def test_link_gnomad_variants_exceptions_handled_by_decorators(
         self,
+        session,
         with_populated_domain_data,
         with_gnomad_linking_job,
         mock_worker_ctx,
@@ -322,7 +328,6 @@ class TestLinkGnomadVariantsIntegration:
         assert "Test exception" in result["exception_details"]["message"]
 
         # Verify job status updates
-        session = mock_worker_ctx["db"]
         session.refresh(sample_link_gnomad_variants_run)
         assert sample_link_gnomad_variants_run.status == JobStatus.FAILED
 

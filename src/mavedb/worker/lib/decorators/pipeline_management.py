@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from mavedb.models.enums.job_pipeline import PipelineStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.decorators import with_job_management
-from mavedb.worker.lib.decorators.utils import ensure_session_ctx, is_test_mode
+from mavedb.worker.lib.decorators.utils import ensure_ctx, ensure_job_id, ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers import PipelineManager
 from mavedb.worker.lib.managers.types import JobResultData
 
@@ -72,7 +72,7 @@ def with_pipeline_management(func: F) -> F:
 
     @functools.wraps(func)
     async def async_wrapper(*args, **kwargs):
-        with ensure_session_ctx(ctx=args[0]):
+        with ensure_session_ctx(ctx=ensure_ctx(args)):
             # No-op in test mode
             if is_test_mode():
                 return await func(*args, **kwargs)
@@ -97,24 +97,13 @@ async def _execute_managed_pipeline(func: Callable[..., Awaitable[JobResultData]
     Raises:
         Exception: Propagates any exception raised during function execution.
     """
-    # Extract context (first argument by ARQ convention)
-    if not args or len(args) < 1 or not isinstance(args[0], dict):
-        raise ValueError("Managed pipeline functions must receive context as first argument")
-    ctx = args[0]
+    ctx = ensure_ctx(args)
+    job_id = ensure_job_id(args)
+    db_session: Session = ctx["db"]
 
-    # Get database session and pipeline ID from context
-    if "db" not in ctx:
-        raise ValueError("DB session not found in pipeline context")
     if "redis" not in ctx:
         raise ValueError("Redis connection not found in pipeline context")
-
-    db_session: Session = ctx["db"]
     redis_pool: ArqRedis = ctx["redis"]
-
-    # Extract job_id (second argument by MaveDB convention)
-    if not args or len(args) < 2 or not isinstance(args[1], int):
-        raise ValueError("Job ID not found in pipeline context")
-    job_id = args[1]
 
     pipeline_manager = None
     pipeline_id = None
