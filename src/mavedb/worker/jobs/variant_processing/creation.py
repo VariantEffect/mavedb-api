@@ -105,6 +105,7 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
         s3 = s3_client()
         scores = io.BytesIO()
         s3.download_fileobj(Bucket=CSV_UPLOAD_S3_BUCKET_NAME, Key=score_file_key, Fileobj=scores)
+        scores.seek(0)
         scores_df = pd.read_csv(scores)
 
         # Counts file is optional
@@ -112,6 +113,7 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
         if count_file_key:
             counts = io.BytesIO()
             s3.download_fileobj(Bucket=CSV_UPLOAD_S3_BUCKET_NAME, Key=count_file_key, Fileobj=counts)
+            counts.seek(0)
             counts_df = pd.read_csv(counts)
 
         logger.debug(msg="Successfully fetched file resources from S3", extra=job_manager.logging_context())
