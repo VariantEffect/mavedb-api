@@ -226,3 +226,9 @@ class NonExistentTargetGeneError(ValueError):
     """Raised when a target gene does not exist in the database."""
 
     pass
+
+
+class LDHSubmissionFailureError(Exception):
+    """Raised when submission to ClinGen Linked Data Hub (LDH) fails for all submissions."""
+
+    pass

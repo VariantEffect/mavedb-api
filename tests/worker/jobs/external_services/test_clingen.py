@@ -1,518 +1,2005 @@
-# ruff: noqa: E402
-
-from unittest.mock import MagicMock, call, patch
-from uuid import uuid4
+from asyncio.unix_events import _UnixSelectorEventLoop
+from unittest.mock import call, patch
 
 import pytest
+from sqlalchemy import select
 
-from mavedb.models.enums.job_pipeline import JobStatus
-from mavedb.models.job_run import JobRun
-from mavedb.worker.lib.managers.job_manager import JobManager
-
-arq = pytest.importorskip("arq")
-
-from sqlalchemy.exc import NoResultFound
-
-from mavedb.lib.clingen.services import (
-    ClinGenAlleleRegistryService,
-)
+from mavedb.lib.exceptions import LDHSubmissionFailureError
+from mavedb.lib.variants import get_hgvs_from_post_mapped
+from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.mapped_variant import MappedVariant
-from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
-from mavedb.worker.jobs import (
+from mavedb.models.variant import Variant
+from mavedb.worker.jobs.external_services.clingen import (
     submit_score_set_mappings_to_car,
+    submit_score_set_mappings_to_ldh,
 )
-from tests.helpers.constants import (
-    TEST_CLINGEN_ALLELE_OBJECT,
-    TEST_MINIMAL_SEQ_SCORESET,
-)
-from tests.helpers.util.setup.worker import (
-    setup_records_files_and_variants_with_mapping,
-)
-
-############################################################################################################################################
-# ClinGen CAR Submission
-############################################################################################################################################
+from mavedb.worker.lib.managers.job_manager import JobManager
+from tests.helpers.util.setup.worker import create_mappings_in_score_set
 
 
-@pytest.mark.asyncio
 @pytest.mark.unit
-class TestSubmitScoreSetMappingsToCARUnit:
-    """Tests for the submit_score_set_mappings_to_car function."""
+@pytest.mark.asyncio
+class TestClingenSubmitScoreSetMappingsToCarUnit:
+    """Tests for the Clingen submit_score_set_mappings_to_car function."""
 
-    @pytest.mark.parametrize("missing_param", ["score_set_id", "correlation_id"])
-    async def test_submit_score_set_mappings_to_car_required_params(
+    async def test_submit_score_set_mappings_to_car_submission_disabled(
         self,
-        mock_job_manager,
-        mock_job_run,
         mock_worker_ctx,
-        missing_param,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
     ):
-        """Test that submitting a non-existent score set raises an exception."""
-
-        mock_job_run.job_params = {"score_set_id": 99, "correlation_id": uuid4().hex}
-
-        del mock_job_run.job_params[missing_param]
-
-        with pytest.raises(ValueError):
-            await submit_score_set_mappings_to_car(mock_worker_ctx, 99, job_manager=mock_job_manager)
-
-    async def test_submit_score_set_mappings_to_car_raises_when_no_score_set(
-        self,
-        mock_job_manager,
-        mock_job_run,
-        mock_worker_ctx,
-    ):
-        """Test that submitting a non-existent score set raises an exception."""
-
-        mock_job_run.job_params = {"score_set_id": 99, "correlation_id": uuid4().hex}
-
+        # Patch to disable ClinGen submission endpoint
         with (
-            pytest.raises(NoResultFound),
-            patch.object(mock_job_manager.db, "scalars", side_effect=NoResultFound()),
-            patch.object(mock_job_manager, "update_progress", return_value=None),
-            patch("mavedb.worker.jobs.external_services.clingen.validate_job_params", return_value=None),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", False),
+            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
         ):
-            await submit_score_set_mappings_to_car(mock_worker_ctx, 99, job_manager=mock_job_manager)
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
+                ),
+            )
 
-    async def test_submit_score_set_mappings_to_car_no_mapped_variants(
-        self,
-        mock_job_manager,
-        mock_job_run,
-        mock_worker_ctx,
-    ):
-        """Test that submitting a score set with no mapped variants completes successfully."""
-
-        mock_job_run.job_params = {"score_set_id": 1, "correlation_id": uuid4().hex}
-
-        with (
-            patch.object(
-                mock_job_manager.db,
-                "scalars",
-                return_value=MagicMock(one=MagicMock(spec=ScoreSetDbModel, urn="urn:1", num_variants=0)),
-            ),
-            patch.object(
-                mock_job_manager.db,
-                "execute",
-                return_value=MagicMock(all=lambda: []),
-            ),
-            patch("mavedb.worker.jobs.external_services.clingen.validate_job_params", return_value=None),
-            patch.object(mock_job_manager, "update_progress", return_value=None),
-        ):
-            result = await submit_score_set_mappings_to_car(mock_worker_ctx, 1, job_manager=mock_job_manager)
-
+        mock_update_progress.assert_called_with(100, 100, "ClinGen submission is disabled. Skipping CAR submission.")
         assert result["status"] == "ok"
 
-    async def test_submit_score_set_mappings_to_car_no_variants_updates_progress(
+        # Verify no variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 0
+
+    async def test_submit_score_set_mappings_to_car_no_mappings(
         self,
-        mock_job_manager,
-        mock_job_run,
         mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
     ):
-        """Test that submitting a score set with no variants updates progress to 100%."""
-
-        mock_job_run.job_params = {"score_set_id": 1, "correlation_id": uuid4().hex}
-
+        """Test submitting score set mappings to ClinGen when there are no mappings."""
         with (
-            patch.object(
-                mock_job_manager.db,
-                "scalars",
-                return_value=MagicMock(one=MagicMock(spec=ScoreSetDbModel, urn="urn:1", num_variants=0)),
-            ),
-            patch.object(
-                mock_job_manager.db,
-                "execute",
-                return_value=MagicMock(all=lambda: []),
-            ),
-            patch("mavedb.worker.jobs.external_services.clingen.validate_job_params", return_value=None),
-            patch.object(mock_job_manager, "update_progress", return_value=None) as mock_update_progress,
+            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
         ):
-            await submit_score_set_mappings_to_car(mock_worker_ctx, 1, job_manager=mock_job_manager)
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
+                ),
+            )
 
-        expected_calls = [
-            call(0, 100, "Starting CAR mapped resource submission."),
-            call(100, 100, "No mapped variants to submit to CAR. Skipped submission."),
-        ]
-        mock_update_progress.assert_has_calls(expected_calls)
+        mock_update_progress.assert_called_with(100, 100, "No mapped variants to submit to CAR. Skipped submission.")
+        assert result["status"] == "ok"
 
-    async def test_submit_score_set_mappings_to_car_no_submission_endpoint(
+        # Verify no variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 0
+
+    async def test_submit_score_set_mappings_to_car_submission_endpoint_not_set(
         self,
-        mock_job_manager,
-        mock_job_run,
         mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
     ):
-        """Test that submitting a score set with no CAR submission endpoint configured raises an exception."""
-
-        mock_job_run.job_params = {"score_set_id": 1, "correlation_id": uuid4().hex}
-
+        # Patch to disable ClinGen submission endpoint
         with (
-            patch.object(
-                mock_job_manager.db,
-                "scalars",
-                return_value=MagicMock(one=MagicMock(spec=ScoreSetDbModel, urn="urn:1", num_variants=1)),
-            ),
-            patch.object(
-                mock_job_manager.db,
-                "execute",
-                return_value=MagicMock(all=lambda: [(999, {}), (1000, {})]),
-            ),
-            patch("mavedb.worker.jobs.external_services.clingen.validate_job_params", return_value=None),
-            patch.object(mock_job_manager, "update_progress", return_value=None),
-            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", None),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", ""),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
             pytest.raises(ValueError),
         ):
-            await submit_score_set_mappings_to_car(mock_worker_ctx, 1, job_manager=mock_job_manager)
-
-    async def test_submit_score_set_mappings_to_car_no_variants_associated(
-        self,
-        mock_job_manager,
-        mock_job_run,
-        mock_worker_ctx,
-    ):
-        """Test that submitting a score set with no variants associated completes successfully."""
-
-        mock_job_run.job_params = {"score_set_id": 1, "correlation_id": uuid4().hex}
-
-        mocked_score_set = MagicMock(spec=ScoreSetDbModel, urn="urn:1", num_variants=2)
-        mocked_mapped_variant_with_hgvs = MagicMock(spec=MappedVariant, id=1000, clingen_allele_id=None)
-
-        with (
-            # db.scalars is called twice in this function: once to get the score set (one), once to get the mapped variants (all)
-            patch.object(
-                mock_job_manager.db,
-                "scalars",
-                return_value=MagicMock(
-                    one=mocked_score_set,
-                    all=lambda: [mocked_mapped_variant_with_hgvs],
+            await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
                 ),
-            ),
-            # db.execute is called to get the mapped variant IDs and post mapped data
-            patch.object(mock_job_manager.db, "execute", return_value=MagicMock(all=lambda: [(999, {}), (1000, {})])),
-            # get_hgvs_from_post_mapped is called twice, once for each mapped variant. mock that both
-            # calls return valid HGVS strings.
-            patch(
-                "mavedb.worker.jobs.external_services.clingen.get_hgvs_from_post_mapped",
-                side_effect=["c.122G>C", "c.123A>T"],
-            ),
-            # validate_job_params is called to validate job parameters
-            patch("mavedb.worker.jobs.external_services.clingen.validate_job_params", return_value=None),
-            # update_progress is called multiple times to update job progress
-            patch.object(mock_job_manager, "update_progress", return_value=None),
-            # CAR_SUBMISSION_ENDPOINT is patched to a test URL
-            patch(
-                "mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT",
-                "https://reg.test.genome.network/pytest",
-            ),
-            # Mock the dispatch_submissions method to return a test ClinGen allele object, which we should associate with the variant
-            patch.object(ClinGenAlleleRegistryService, "dispatch_submissions", return_value=[]),
-            # Mock the get_allele_registry_associations function to return a mapping from HGVS to CAID
-            patch(
-                "mavedb.worker.jobs.external_services.clingen.get_allele_registry_associations",
-                return_value={},
-            ),
-            patch.object(mock_job_manager.db, "add", return_value=None) as mock_db_add,
-        ):
-            result = await submit_score_set_mappings_to_car(mock_worker_ctx, 1, job_manager=mock_job_manager)
+            )
 
-        # Assert no CAID was not added to the variant
-        mock_db_add.assert_not_called()
-        assert mocked_mapped_variant_with_hgvs.clingen_allele_id is None
+        mock_update_progress.assert_called_with(
+            100, 100, "CAR submission endpoint not configured. Can't complete submission."
+        )
+
+        # Verify no variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 0
+
+    async def test_submit_score_set_mappings_to_car_no_registered_alleles(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenAlleleRegistryService to return no registered alleles
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=[],
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
+        ):
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
+                ),
+            )
+
+        mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
         assert result["status"] == "ok"
 
-    async def test_submit_score_set_mappings_to_car_no_variants_found_in_db(
+        # Verify no variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 0
+
+    async def test_submit_score_set_mappings_to_car_no_linked_alleles(
         self,
-        mock_job_manager,
-        mock_job_run,
         mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
     ):
-        """Test that submitting a score set with no mapped variants found in the db completes successfully."""
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
 
-        mock_job_run.job_params = {"score_set_id": 1, "correlation_id": uuid4().hex}
-
-        mocked_score_set = MagicMock(spec=ScoreSetDbModel, urn="urn:1", num_variants=2)
-        mocked_mapped_variant_with_hgvs = MagicMock(spec=MappedVariant, id=1000, clingen_allele_id=None)
+        # Patch ClinGenAlleleRegistryService to return registered alleles that do not match submitted HGVS
+        registered_alleles_mock = [
+            {"@id": "CA123456", "type": "nucleotide", "genomicAlleles": [{"hgvs": "NC_000007.14:g.140453136A>C"}]},
+            {"@id": "CA234567", "type": "nucleotide", "genomicAlleles": [{"hgvs": "NC_000007.14:g.140453136A>G"}]},
+        ]
 
         with (
-            # db.scalars is called twice in this function: once to get the score set (one), twice to get the mapped variants (all)
-            patch.object(
-                mock_job_manager.db,
-                "scalars",
-                return_value=MagicMock(
-                    one=mocked_score_set,
-                    all=lambda: [],
-                ),
-            ),
-            # db.execute is called to get the mapped variant IDs and post mapped data
-            patch.object(mock_job_manager.db, "execute", return_value=MagicMock(all=lambda: [(999, {}), (1000, {})])),
-            # get_hgvs_from_post_mapped is called twice, once for each mapped variant. mock that both
-            # calls return valid HGVS strings.
             patch(
-                "mavedb.worker.jobs.external_services.clingen.get_hgvs_from_post_mapped",
-                side_effect=["c.122G>C", "c.123A>T"],
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
             ),
-            # validate_job_params is called to validate job parameters
-            patch("mavedb.worker.jobs.external_services.clingen.validate_job_params", return_value=None),
-            # update_progress is called multiple times to update job progress
-            patch.object(mock_job_manager, "update_progress", return_value=None),
-            # CAR_SUBMISSION_ENDPOINT is patched to a test URL
-            patch(
-                "mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT",
-                "https://reg.test.genome.network/pytest",
-            ),
-            # Mock the dispatch_submissions method to return a test ClinGen allele object, which we should associate with the variant
-            patch.object(
-                ClinGenAlleleRegistryService, "dispatch_submissions", return_value=[TEST_CLINGEN_ALLELE_OBJECT]
-            ),
-            # Mock the get_allele_registry_associations function to return a mapping from HGVS to CAID
-            patch(
-                "mavedb.worker.jobs.external_services.clingen.get_allele_registry_associations",
-                return_value={"c.122G>C": "CAID:0000000", "c.123A>T": "CAID:0000001"},
-            ),
-            patch.object(mock_job_manager.db, "add", return_value=None) as mock_db_add,
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
         ):
-            result = await submit_score_set_mappings_to_car(mock_worker_ctx, 1, job_manager=mock_job_manager)
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
+                ),
+            )
 
-        # Assert no CAID was not added to the variant
-        mock_db_add.assert_not_called()
-        assert mocked_mapped_variant_with_hgvs.clingen_allele_id is None
+        mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
         assert result["status"] == "ok"
 
-    async def test_submit_score_set_mappings_to_car_skips_submission_for_variants_without_hgvs_string(
+        # Verify no variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 0
+
+    async def test_submit_score_set_mappings_to_car_repeated_hgvs(
         self,
-        mock_job_manager,
-        mock_job_run,
         mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
     ):
-        """Test that submitting a score set with mapped variants completes successfully but skips variants without an HGVS string."""
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
 
-        mock_job_run.job_params = {"score_set_id": 1, "correlation_id": uuid4().hex}
-
-        mocked_score_set = MagicMock(spec=ScoreSetDbModel, urn="urn:1", num_variants=2)
-        mocked_mapped_variant_with_hgvs = MagicMock(spec=MappedVariant, id=1000)
+        # Patch ClinGenAlleleRegistryService to return registered alleles with repeated HGVS
+        mapped_variants = session.scalars(select(MappedVariant)).all()
+        registered_alleles_mock = [
+            {
+                "@id": "CA_DUPLICATE",
+                "type": "nucleotide",
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mapped_variants[0].post_mapped)}],
+            }
+        ]
 
         with (
-            # db.scalars is called twice in this function: once to get the score set (one), once to get the mapped variants (all)
-            patch.object(
-                mock_job_manager.db,
-                "scalars",
-                return_value=MagicMock(
-                    one=mocked_score_set,
-                    all=lambda: [mocked_mapped_variant_with_hgvs],
-                ),
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
             ),
-            # db.execute is called to get the mapped variant IDs and post mapped data
-            patch.object(mock_job_manager.db, "execute", return_value=MagicMock(all=lambda: [(999, {}), (1000, {})])),
-            # get_hgvs_from_post_mapped is called twice, once for each mapped variant. mock that the first
-            # call returns None (no HGVS), the second returns a valid HGVS string.
+            # Patch get_hgvs_from_post_mapped to return the same HGVS for all variants
             patch(
                 "mavedb.worker.jobs.external_services.clingen.get_hgvs_from_post_mapped",
-                side_effect=[None, "c.123A>T"],
+                return_value=get_hgvs_from_post_mapped(mapped_variants[0].post_mapped),
             ),
-            # validate_job_params is called to validate job parameters
-            patch("mavedb.worker.jobs.external_services.clingen.validate_job_params", return_value=None),
-            # update_progress is called multiple times to update job progress
-            patch.object(mock_job_manager, "update_progress", return_value=None),
-            # CAR_SUBMISSION_ENDPOINT is patched to a test URL
-            patch(
-                "mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT",
-                "https://reg.test.genome.network/pytest",
-            ),
-            # Mock the dispatch_submissions method to return a test ClinGen allele object, which we should associate with the variant
-            patch.object(
-                ClinGenAlleleRegistryService, "dispatch_submissions", return_value=[TEST_CLINGEN_ALLELE_OBJECT]
-            ),
-            # Mock the get_allele_registry_associations function to return a mapping from HGVS to CAID
-            patch(
-                "mavedb.worker.jobs.external_services.clingen.get_allele_registry_associations",
-                return_value={"c.123A>T": "CAID:0000001"},
-            ),
-            patch.object(mock_job_manager.db, "add", return_value=None) as mock_db_add,
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
         ):
-            result = await submit_score_set_mappings_to_car(mock_worker_ctx, 1, job_manager=mock_job_manager)
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
+                ),
+            )
 
-        # Assert the variant without an HGVS string was skipped, and the other variant was updated with the CAID
-        mock_db_add.assert_has_calls([call(mocked_mapped_variant_with_hgvs)])
-        assert mocked_mapped_variant_with_hgvs.clingen_allele_id == "CAID:0000001"
+        mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
         assert result["status"] == "ok"
+
+        # Verify variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 4
+        for variant in variants:
+            assert variant.clingen_allele_id == "CA_DUPLICATE"
+
+    async def test_submit_score_set_mappings_to_car_hgvs_not_found(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Get the mapped variants from score set before submission
+        mapped_variants = session.scalars(
+            select(MappedVariant)
+            .join(Variant)
+            .where(Variant.score_set_id == submit_score_set_mappings_to_car_sample_job_run.job_params["score_set_id"])
+        ).all()
+
+        # Patch ClinGenAlleleRegistryService to return registered alleles
+        registered_alleles_mock = [
+            {
+                "@id": f"CA{mv.id}",
+                "type": "nucleotide",
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mv.post_mapped)}],
+            }
+            for mv in mapped_variants
+        ]
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
+            ),
+            # Patch get_hgvs_from_post_mapped to not find any HGVS in registered alleles
+            patch("mavedb.worker.jobs.external_services.clingen.get_hgvs_from_post_mapped", return_value=None),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
+        ):
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
+                ),
+            )
+
+        mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
+        assert result["status"] == "ok"
+
+        # Verify no variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 0
+
+    async def test_submit_score_set_mappings_to_car_propagates_exception(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenAlleleRegistryService to raise an exception
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                side_effect=Exception("ClinGen service error"),
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            pytest.raises(Exception) as exc_info,
+        ):
+            await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
+                ),
+            )
+
+        assert str(exc_info.value) == "ClinGen service error"
 
     async def test_submit_score_set_mappings_to_car_success(
         self,
-        mock_job_manager,
-        mock_job_run,
         mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        sample_score_set,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
     ):
-        """Test that submitting a score set with mapped variants completes successfully."""
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
 
-        mock_job_run.job_params = {"score_set_id": 1, "correlation_id": uuid4().hex}
+        # Get the mapped variants from score set before submission
+        mapped_variants = session.scalars(
+            select(MappedVariant).join(Variant).where(Variant.score_set_id == sample_score_set.id)
+        ).all()
+        assert len(mapped_variants) == 4
 
-        mocked_score_set = MagicMock(spec=ScoreSetDbModel, urn="urn:1", num_variants=2)
-        mocked_mapped_variant_with_hgvs_999 = MagicMock(spec=MappedVariant, id=999)
-        mocked_mapped_variant_with_hgvs_1000 = MagicMock(spec=MappedVariant, id=1000)
+        # Patch ClinGenAlleleRegistryService to return registered alleles
+        registered_alleles_mock = [
+            {
+                "@id": f"CA{mv.id}",
+                "type": "nucleotide",
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mv.post_mapped)}],
+            }
+            for mv in mapped_variants
+        ]
 
         with (
-            # db.scalars is called three times in this function: once to get the score set (one), twice to get the mapped variants (all)
-            patch.object(
-                mock_job_manager.db,
-                "scalars",
-                return_value=MagicMock(
-                    one=mocked_score_set,
-                    all=MagicMock(
-                        side_effect=[[mocked_mapped_variant_with_hgvs_999], [mocked_mapped_variant_with_hgvs_1000]]
-                    ),
-                ),
-            ),
-            # db.execute is called to get the mapped variant IDs and post mapped data
-            patch.object(mock_job_manager.db, "execute", return_value=MagicMock(all=lambda: [(999, {}), (1000, {})])),
-            # get_hgvs_from_post_mapped is called twice, once for each mapped variant. mock that both
-            # calls return valid HGVS strings.
             patch(
-                "mavedb.worker.jobs.external_services.clingen.get_hgvs_from_post_mapped",
-                side_effect=["c.122G>C", "c.123A>T"],
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
             ),
-            # validate_job_params is called to validate job parameters
-            patch("mavedb.worker.jobs.external_services.clingen.validate_job_params", return_value=None),
-            # update_progress is called multiple times to update job progress
-            patch.object(mock_job_manager, "update_progress", return_value=None),
-            # CAR_SUBMISSION_ENDPOINT is patched to a test URL
-            patch(
-                "mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT",
-                "https://reg.test.genome.network/pytest",
-            ),
-            # Mock the dispatch_submissions method to return a test ClinGen allele object, which we should associate with the variant
-            patch.object(
-                ClinGenAlleleRegistryService,
-                "dispatch_submissions",
-                return_value=[TEST_CLINGEN_ALLELE_OBJECT, TEST_CLINGEN_ALLELE_OBJECT],
-            ),
-            # Mock the get_allele_registry_associations function to return a mapping from HGVS to CAID
-            patch(
-                "mavedb.worker.jobs.external_services.clingen.get_allele_registry_associations",
-                return_value={"c.122G>C": "CAID:0000000", "c.123A>T": "CAID:0000001"},
-            ),
-            patch.object(mock_job_manager.db, "add", return_value=None) as mock_db_add,
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
         ):
-            result = await submit_score_set_mappings_to_car(mock_worker_ctx, 1, job_manager=mock_job_manager)
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
+                ),
+            )
 
-        # Assert the variant without an HGVS string was skipped, and the other variant was updated with the CAID
-        mock_db_add.assert_has_calls(
-            [call(mocked_mapped_variant_with_hgvs_999), call(mocked_mapped_variant_with_hgvs_1000)]
-        )
-        assert mocked_mapped_variant_with_hgvs_999.clingen_allele_id == "CAID:0000000"
-        assert mocked_mapped_variant_with_hgvs_1000.clingen_allele_id == "CAID:0000001"
+        mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
         assert result["status"] == "ok"
+
+        # Verify variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 4
+        for variant in variants:
+            assert variant.clingen_allele_id == f"CA{variant.id}"
 
     async def test_submit_score_set_mappings_to_car_updates_progress(
         self,
-        mock_job_manager,
-        mock_job_run,
         mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        sample_score_set,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
     ):
-        """Test that submitting a score set with mapped variants updates progress correctly."""
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
 
-        mock_job_run.job_params = {"score_set_id": 1, "correlation_id": uuid4().hex}
+        # Get the mapped variants from score set before submission
+        mapped_variants = session.scalars(
+            select(MappedVariant).join(Variant).where(Variant.score_set_id == sample_score_set.id)
+        ).all()
+        assert len(mapped_variants) == 4
 
-        mocked_score_set = MagicMock(spec=ScoreSetDbModel, urn="urn:1", num_variants=2)
-        mocked_mapped_variant_with_hgvs_999 = MagicMock(spec=MappedVariant, id=999)
-        mocked_mapped_variant_with_hgvs_1000 = MagicMock(spec=MappedVariant, id=1000)
+        # Patch ClinGenAlleleRegistryService to return registered alleles
+        registered_alleles_mock = [
+            {
+                "@id": f"CA{mv.id}",
+                "type": "nucleotide",
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mv.post_mapped)}],
+            }
+            for mv in mapped_variants
+        ]
 
         with (
-            # db.scalars is called three times in this function: once to get the score set (one), twice to get the mapped variants (all)
-            patch.object(
-                mock_job_manager.db,
-                "scalars",
-                return_value=MagicMock(
-                    one=mocked_score_set,
-                    all=MagicMock(
-                        side_effect=[[mocked_mapped_variant_with_hgvs_999], [mocked_mapped_variant_with_hgvs_1000]]
-                    ),
-                ),
-            ),
-            # db.execute is called to get the mapped variant IDs and post mapped data
-            patch.object(mock_job_manager.db, "execute", return_value=MagicMock(all=lambda: [(999, {}), (1000, {})])),
-            # get_hgvs_from_post_mapped is called twice, once for each mapped variant. mock that both
-            # calls return valid HGVS strings.
             patch(
-                "mavedb.worker.jobs.external_services.clingen.get_hgvs_from_post_mapped",
-                side_effect=["c.122G>C", "c.123A>T"],
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
             ),
-            # validate_job_params is called to validate job parameters
-            patch("mavedb.worker.jobs.external_services.clingen.validate_job_params", return_value=None),
-            # update_progress is called multiple times to update job progress
-            patch.object(mock_job_manager, "update_progress", return_value=None) as mock_update_progress,
-            # CAR_SUBMISSION_ENDPOINT is patched to a test URL
-            patch(
-                "mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT",
-                "https://reg.test.genome.network/pytest",
-            ),
-            # Mock the dispatch_submissions method to return a test ClinGen allele object, which we should associate with the variant
-            patch.object(
-                ClinGenAlleleRegistryService,
-                "dispatch_submissions",
-                return_value=[TEST_CLINGEN_ALLELE_OBJECT],
-            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
         ):
-            result = await submit_score_set_mappings_to_car(mock_worker_ctx, 1, job_manager=mock_job_manager)
+            await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id
+                ),
+            )
 
-        # Assert the variant without an HGVS string was skipped, and the other variant was updated with the CAID
         mock_update_progress.assert_has_calls(
             [
                 call(0, 100, "Starting CAR mapped resource submission."),
-                call(10, 100, "Preparing 2 mapped variants for CAR submission."),
+                call(10, 100, "Preparing 4 mapped variants for CAR submission."),
                 call(15, 100, "Submitting mapped variants to CAR."),
-                call(50, 100, "Processing registered alleles from CAR."),
+                call(60, 100, "Processing registered alleles from CAR."),
+                call(95, 100, "Processed 4 of 4 registered alleles."),
                 call(100, 100, "Completed CAR mapped resource submission."),
             ]
         )
+
+        # Verify variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 4
+        for variant in variants:
+            assert variant.clingen_allele_id == f"CA{variant.id}"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestClingenSubmitScoreSetMappingsToCarIntegration:
+    """Integration tests for the Clingen submit_score_set_mappings_to_car function."""
+
+    async def test_submit_score_set_mappings_to_car_independent_ctx(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenAlleleRegistryService to return registered alleles
+        mapped_variants = session.scalars(select(MappedVariant)).all()
+        registered_alleles_mock = [
+            {
+                "@id": f"CA{mv.id}",
+                "type": "nucleotide",
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mv.post_mapped)}],
+            }
+            for mv in mapped_variants
+        ]
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
+            )
+
         assert result["status"] == "ok"
 
+        # Verify variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == len(mapped_variants)
+        for variant in variants:
+            assert variant.clingen_allele_id == f"CA{variant.id}"
 
-@pytest.mark.asyncio
-@pytest.mark.integration
-class TestSubmitScoreSetMappingsToCARIntegration:
-    """Integration tests for the submit_score_set_mappings_to_car function."""
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_job_run)
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.SUCCEEDED
 
-    @pytest.fixture()
-    def setup_car_submission_job_run(self, session):
-        """Add a submit_score_set_mappings_to_car job run to the DB before each test."""
-        job_run = JobRun(
-            job_type="external_service",
-            job_function="submit_score_set_mappings_to_car",
-            status=JobStatus.PENDING,
-            job_params={"correlation_id": "test-corr-id"},
+    async def test_submit_score_set_mappings_to_car_pipeline_ctx(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run_in_pipeline,
+        submit_score_set_mappings_to_car_sample_pipeline,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
         )
-        session.add(job_run)
-        session.commit()
-        return job_run
+
+        # Patch ClinGenAlleleRegistryService to return registered alleles
+        mapped_variants = session.scalars(select(MappedVariant)).all()
+        registered_alleles_mock = [
+            {
+                "@id": f"CA{mv.id}",
+                "type": "nucleotide",
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mv.post_mapped)}],
+            }
+            for mv in mapped_variants
+        ]
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run_in_pipeline.id
+            )
+
+        assert result["status"] == "ok"
+
+        # Verify variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == len(mapped_variants)
+        for variant in variants:
+            assert variant.clingen_allele_id == f"CA{variant.id}"
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_job_run_in_pipeline)
+        assert submit_score_set_mappings_to_car_sample_job_run_in_pipeline.status == JobStatus.SUCCEEDED
+
+        # Verify the pipeline status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_pipeline)
+        assert submit_score_set_mappings_to_car_sample_pipeline.status == PipelineStatus.SUCCEEDED
+
+    async def test_submit_score_set_mappings_to_car_submission_disabled(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Patch to disable ClinGen submission endpoint
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", False),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
+            )
+
+        assert result["status"] == "ok"
+
+        # Verify no variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 0
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_job_run)
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.SUCCEEDED
 
     async def test_submit_score_set_mappings_to_car_no_submission_endpoint(
         self,
         standalone_worker_context,
         session,
-        with_populated_test_data,
-        setup_car_submission_job_run,
-        async_client,
-        data_files,
-        arq_redis,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
     ):
-        """Test that submitting a score set with no CAR submission endpoint configured raises an exception."""
-        score_set = await setup_records_files_and_variants_with_mapping(
-            session,
-            async_client,
-            data_files,
-            TEST_MINIMAL_SEQ_SCORESET,
-            standalone_worker_context,
+        # Patch to disable ClinGen submission endpoint
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", ""),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
+            )
+
+        assert result["status"] == "failed"
+        assert (
+            result["exception_details"]["message"] == "ClinGen Allele Registry submission endpoint is not configured."
         )
 
-        with patch(
-            "mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT",
-            None,
+        # Verify no variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 0
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_job_run)
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.FAILED
+
+    async def test_submit_score_set_mappings_to_car_no_mappings(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+    ):
+        """Test submitting score set mappings to ClinGen when there are no mappings."""
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
         ):
-            with pytest.raises(ValueError):
-                await submit_score_set_mappings_to_car(
-                    standalone_worker_context,
-                    score_set.id,
-                    JobManager(
-                        session,
-                        arq_redis,
-                        setup_car_submission_job_run.id,
-                    ),
-                )
+            result = await submit_score_set_mappings_to_car(
+                standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
+            )
+
+        assert result["status"] == "ok"
+
+        # Verify no variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 0
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_job_run)
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.SUCCEEDED
+
+    async def test_submit_score_set_mappings_to_car_no_registered_alleles(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenAlleleRegistryService to return no registered alleles
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=[],
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
+            )
+
+        assert result["status"] == "ok"
+
+        # Verify no variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 0
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_job_run)
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.SUCCEEDED
+
+    async def test_submit_score_set_mappings_to_car_no_linked_alleles(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenAlleleRegistryService to return registered alleles that do not match submitted HGVS
+        registered_alleles_mock = [
+            {"@id": "CA123456", "type": "nucleotide", "genomicAlleles": [{"hgvs": "NC_000007.14:g.140453136A>C"}]},
+            {"@id": "CA234567", "type": "nucleotide", "genomicAlleles": [{"hgvs": "NC_000007.14:g.140453136A>G"}]},
+        ]
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
+            )
+
+        assert result["status"] == "ok"
+
+        # Verify no variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 0
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_job_run)
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.SUCCEEDED
+
+    async def test_submit_score_set_mappings_to_car_propagates_exception_to_decorator(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenAlleleRegistryService to raise an exception
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                side_effect=Exception("ClinGen service error"),
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
+            )
+
+        assert result["status"] == "failed"
+        assert result["exception_details"]["message"] == "ClinGen service error"
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_job_run)
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.FAILED
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestClingenSubmitScoreSetMappingsToCarArqContext:
+    """Tests for the Clingen submit_score_set_mappings_to_car function with ARQ context."""
+
+    async def test_submit_score_set_mappings_to_car_with_arq_context_independent(
+        self,
+        standalone_worker_context,
+        session,
+        arq_redis,
+        arq_worker,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenAlleleRegistryService to return registered alleles
+        mapped_variants = session.scalars(select(MappedVariant)).all()
+        registered_alleles_mock = [
+            {
+                "@id": f"CA{mv.id}",
+                "type": "nucleotide",
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mv.post_mapped)}],
+            }
+            for mv in mapped_variants
+        ]
+
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
+            ),
+        ):
+            await arq_redis.enqueue_job(
+                "submit_score_set_mappings_to_car", submit_score_set_mappings_to_car_sample_job_run.id
+            )
+            await arq_worker.async_run()
+            await arq_worker.run_check()
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_job_run)
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.SUCCEEDED
+
+        # Verify variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == len(mapped_variants)
+        for variant in variants:
+            assert variant.clingen_allele_id == f"CA{variant.id}"
+
+    async def test_submit_score_set_mappings_to_car_with_arq_context_pipeline(
+        self,
+        standalone_worker_context,
+        session,
+        arq_redis,
+        arq_worker,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run_in_pipeline,
+        submit_score_set_mappings_to_car_sample_pipeline,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenAlleleRegistryService to return registered alleles
+        mapped_variants = session.scalars(select(MappedVariant)).all()
+        registered_alleles_mock = [
+            {
+                "@id": f"CA{mv.id}",
+                "type": "nucleotide",
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mv.post_mapped)}],
+            }
+            for mv in mapped_variants
+        ]
+
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
+            ),
+        ):
+            await arq_redis.enqueue_job(
+                "submit_score_set_mappings_to_car", submit_score_set_mappings_to_car_sample_job_run_in_pipeline.id
+            )
+            await arq_worker.async_run()
+            await arq_worker.run_check()
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_job_run_in_pipeline)
+        assert submit_score_set_mappings_to_car_sample_job_run_in_pipeline.status == JobStatus.SUCCEEDED
+
+        # Verify the pipeline status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_pipeline)
+        assert submit_score_set_mappings_to_car_sample_pipeline.status == PipelineStatus.SUCCEEDED
+
+        # Verify variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == len(mapped_variants)
+        for variant in variants:
+            assert variant.clingen_allele_id == f"CA{variant.id}"
+
+    async def test_submit_score_set_mappings_to_car_with_arq_context_exception_handling_independent(
+        self,
+        standalone_worker_context,
+        session,
+        arq_redis,
+        arq_worker,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenAlleleRegistryService to raise an exception
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                side_effect=Exception("ClinGen service error"),
+            ),
+        ):
+            await arq_redis.enqueue_job(
+                "submit_score_set_mappings_to_car", submit_score_set_mappings_to_car_sample_job_run.id
+            )
+            await arq_worker.async_run()
+            await arq_worker.run_check()
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_job_run)
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.FAILED
+        assert submit_score_set_mappings_to_car_sample_job_run.error_message == "ClinGen service error"
+
+        # Verify no variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 0
+
+    async def test_submit_score_set_mappings_to_car_with_arq_context_exception_handling_pipeline(
+        self,
+        standalone_worker_context,
+        session,
+        arq_redis,
+        arq_worker,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run_in_pipeline,
+        submit_score_set_mappings_to_car_sample_pipeline,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenAlleleRegistryService to raise an exception
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                side_effect=Exception("ClinGen service error"),
+            ),
+        ):
+            await arq_redis.enqueue_job(
+                "submit_score_set_mappings_to_car", submit_score_set_mappings_to_car_sample_job_run_in_pipeline.id
+            )
+            await arq_worker.async_run()
+            await arq_worker.run_check()
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_job_run_in_pipeline)
+        assert submit_score_set_mappings_to_car_sample_job_run_in_pipeline.status == JobStatus.FAILED
+        assert submit_score_set_mappings_to_car_sample_job_run_in_pipeline.error_message == "ClinGen service error"
+
+        # Verify the pipeline status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_pipeline)
+        assert submit_score_set_mappings_to_car_sample_pipeline.status == PipelineStatus.FAILED
+
+        # Verify no variants have CAIDs assigned
+        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
+        assert len(variants) == 0
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+class TestClingenSubmitScoreSetMappingsToLdhUnit:
+    """Unit tests for the Clingen submit_score_set_mappings_to_car function."""
+
+    async def test_submit_score_set_mappings_to_ldh_no_variants(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch("mavedb.worker.jobs.external_services.clingen.LDH_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
+        ):
+            result = await submit_score_set_mappings_to_ldh(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_ldh_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id
+                ),
+            )
+
+        mock_update_progress.assert_called_with(100, 100, "No mapped variants to submit to LDH. Skipping submission.")
+        assert result["status"] == "ok"
+
+    async def test_submit_score_set_mappings_to_ldh_all_submissions_failed(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        async def dummy_submission_failure(*args, **kwargs):
+            return ([], ["Submission failed"])
+
+        # Patch ClinGenLdhService to simulate all submissions failing
+        with (
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                return_value=dummy_submission_failure(),
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch("mavedb.worker.jobs.external_services.clingen.LDH_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
+            pytest.raises(LDHSubmissionFailureError),
+        ):
+            await submit_score_set_mappings_to_ldh(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_ldh_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id
+                ),
+            )
+
+        mock_update_progress.assert_called_with(100, 100, "All mapped variant submissions to LDH failed.")
+
+    async def test_submit_score_set_mappings_to_ldh_hgvs_not_found(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenLdhService to raise HGVS not found exception
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch("mavedb.worker.jobs.external_services.clingen.LDH_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.get_hgvs_from_post_mapped", return_value=None),
+            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
+        ):
+            result = await submit_score_set_mappings_to_ldh(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_ldh_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id
+                ),
+            )
+
+        mock_update_progress.assert_called_with(
+            100, 100, "No valid mapped variants to submit to LDH. Skipping submission."
+        )
+        assert result["status"] == "ok"
+
+    async def test_submit_score_set_mappings_to_ldh_propagates_exception(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenLdhService to raise an exception
+        with (
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                side_effect=Exception("LDH service error"),
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch("mavedb.worker.jobs.external_services.clingen.LDH_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            pytest.raises(Exception) as exc_info,
+        ):
+            await submit_score_set_mappings_to_ldh(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_ldh_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id
+                ),
+            )
+
+        assert str(exc_info.value) == "LDH service error"
+
+    async def test_submit_score_set_mappings_to_ldh_partial_submission(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        async def dummy_partial_submission(*args, **kwargs):
+            return (
+                [{"@id": "LDH12345"}, {"@id": "LDH23456"}],
+                ["Submission failed for some variants"],
+            )
+
+        # Patch ClinGenLdhService to simulate partial submission success
+        with (
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                return_value=dummy_partial_submission(),
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch("mavedb.worker.jobs.external_services.clingen.LDH_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
+        ):
+            result = await submit_score_set_mappings_to_ldh(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_ldh_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id
+                ),
+            )
+
+        assert result["status"] == "ok"
+        mock_update_progress.assert_called_with(
+            100, 100, "Finalized LDH mapped resource submission (2 successes, 1 failures)."
+        )
+
+    async def test_submit_score_set_mappings_to_ldh_all_successful_submission(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        async def dummy_successful_submission(*args, **kwargs):
+            return (
+                [{"@id": "LDH12345"}, {"@id": "LDH23456"}],
+                [],
+            )
+
+        # Patch ClinGenLdhService to simulate all submissions succeeding
+        with (
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                return_value=dummy_successful_submission(),
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch("mavedb.worker.jobs.external_services.clingen.LDH_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
+        ):
+            result = await submit_score_set_mappings_to_ldh(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_ldh_sample_job_run.id,
+                JobManager(
+                    mock_worker_ctx["db"], mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id
+                ),
+            )
+
+        assert result["status"] == "ok"
+        mock_update_progress.assert_called_with(
+            100, 100, "Finalized LDH mapped resource submission (2 successes, 0 failures)."
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestClingenSubmitScoreSetMappingsToLdhIntegration:
+    """Integration tests for the Clingen submit_score_set_mappings_to_ldh function."""
+
+    async def test_submit_score_set_mappings_to_ldh_independent(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        async def dummy_ldh_submission(*args, **kwargs):
+            return (
+                [{"@id": "LDH12345"}, {"@id": "LDH23456"}],
+                [],
+            )
+
+        # Patch to disable ClinGen submission endpoint
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                return_value=dummy_ldh_submission(),
+            ),
+        ):
+            result = await submit_score_set_mappings_to_ldh(
+                standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
+            )
+
+        assert result["status"] == "ok"
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
+        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.SUCCEEDED
+
+    async def test_submit_score_set_mappings_to_ldh_pipeline_ctx(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline,
+        submit_score_set_mappings_to_ldh_sample_pipeline,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        async def dummy_ldh_submission(*args, **kwargs):
+            return (
+                [{"@id": "LDH12345"}, {"@id": "LDH23456"}],
+                [],
+            )
+
+        # Patch to disable ClinGen submission endpoint
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                return_value=dummy_ldh_submission(),
+            ),
+        ):
+            result = await submit_score_set_mappings_to_ldh(
+                standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline.id
+            )
+
+        assert result["status"] == "ok"
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline)
+        assert submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline.status == JobStatus.SUCCEEDED
+
+        # Verify the pipeline status is updated in the database
+        session.refresh(submit_score_set_mappings_to_ldh_sample_pipeline)
+        assert submit_score_set_mappings_to_ldh_sample_pipeline.status == PipelineStatus.SUCCEEDED
+
+    async def test_submit_score_set_mappings_to_ldh_propagates_exception_to_decorator(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenLdhService to raise an exception
+        with (
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                side_effect=Exception("LDH service error"),
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+        ):
+            result = await submit_score_set_mappings_to_ldh(
+                standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
+            )
+
+        assert result["status"] == "failed"
+        assert result["exception_details"]["message"] == "LDH service error"
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
+        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.FAILED
+
+    async def test_submit_score_set_mappings_to_ldh_no_linked_alleles(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        async def dummy_no_linked_alleles_submission(*args, **kwargs):
+            return ([], [])
+
+        # Patch ClinGenLdhService to simulate no linked alleles found
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                return_value=dummy_no_linked_alleles_submission(),
+            ),
+        ):
+            result = await submit_score_set_mappings_to_ldh(
+                standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
+            )
+
+        assert result["status"] == "ok"
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
+        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.SUCCEEDED
+
+    async def test_submit_score_set_mappings_to_ldh_hgvs_not_found(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenLdhService to raise HGVS not found exception
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch("mavedb.worker.jobs.external_services.clingen.get_hgvs_from_post_mapped", return_value=None),
+        ):
+            result = await submit_score_set_mappings_to_ldh(
+                standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
+            )
+
+        assert result["status"] == "ok"
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
+        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.SUCCEEDED
+
+    async def test_submit_score_set_mappings_to_ldh_all_submissions_failed(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        async def dummy_submission_failure(*args, **kwargs):
+            return ([], ["Submission failed"])
+
+        # Patch ClinGenLdhService to simulate all submissions failing
+        with (
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                return_value=dummy_submission_failure(),
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+        ):
+            result = await submit_score_set_mappings_to_ldh(
+                standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
+            )
+
+        assert result["status"] == "failed"
+        assert "All LDH submissions failed for score set" in result["exception_details"]["message"]
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
+        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.FAILED
+
+    async def test_submit_score_set_mappings_to_ldh_partial_submission(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        async def dummy_partial_submission(*args, **kwargs):
+            return (
+                [{"@id": "LDH12345"}],
+                ["Submission failed for some variants"],
+            )
+
+        # Patch ClinGenLdhService to simulate partial submission success
+        with (
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                return_value=dummy_partial_submission(),
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+        ):
+            result = await submit_score_set_mappings_to_ldh(
+                standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
+            )
+
+        assert result["status"] == "ok"
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
+        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.SUCCEEDED
+
+    async def test_submit_score_set_mappings_to_ldh_all_successful_submission(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        async def dummy_successful_submission(*args, **kwargs):
+            return (
+                [{"@id": "LDH12345"}, {"@id": "LDH23456"}],
+                [],
+            )
+
+        # Patch ClinGenLdhService to simulate all submissions succeeding
+        with (
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                return_value=dummy_successful_submission(),
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+        ):
+            result = await submit_score_set_mappings_to_ldh(
+                standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
+            )
+
+        assert result["status"] == "ok"
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
+        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.SUCCEEDED
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
+    """ARQ Integration tests for the Clingen submit_score_set_mappings_to_ldh function."""
+
+    async def test_submit_score_set_mappings_to_ldh_independent(
+        self,
+        standalone_worker_context,
+        session,
+        arq_redis,
+        arq_worker,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        async def dummy_ldh_submission(*args, **kwargs):
+            return (
+                [{"@id": "LDH12345"}, {"@id": "LDH23456"}],
+                [],
+            )
+
+        # Patch to disable ClinGen submission endpoint
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                return_value=dummy_ldh_submission(),
+            ),
+        ):
+            await arq_redis.enqueue_job(
+                "submit_score_set_mappings_to_ldh", submit_score_set_mappings_to_ldh_sample_job_run.id
+            )
+            await arq_worker.async_run()
+            await arq_worker.run_check()
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
+        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.SUCCEEDED
+
+    async def test_submit_score_set_mappings_to_ldh_with_arq_context_in_pipeline(
+        self,
+        standalone_worker_context,
+        session,
+        arq_redis,
+        arq_worker,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline,
+        submit_score_set_mappings_to_ldh_sample_pipeline,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        async def dummy_ldh_submission(*args, **kwargs):
+            return (
+                [{"@id": "LDH12345"}, {"@id": "LDH23456"}],
+                [],
+            )
+
+        # Patch to disable ClinGen submission endpoint
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                return_value=dummy_ldh_submission(),
+            ),
+        ):
+            await arq_redis.enqueue_job(
+                "submit_score_set_mappings_to_ldh", submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline.id
+            )
+            await arq_worker.async_run()
+            await arq_worker.run_check()
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline)
+        assert submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline.status == JobStatus.SUCCEEDED
+
+        # Verify the pipeline status is updated in the database
+        session.refresh(submit_score_set_mappings_to_ldh_sample_pipeline)
+        assert submit_score_set_mappings_to_ldh_sample_pipeline.status == PipelineStatus.SUCCEEDED
+
+    async def test_submit_score_set_mappings_to_ldh_with_arq_context_exception_handling(
+        self,
+        standalone_worker_context,
+        session,
+        arq_redis,
+        arq_worker,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenLdhService to raise an exception
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                side_effect=Exception("LDH service error"),
+            ),
+        ):
+            await arq_redis.enqueue_job(
+                "submit_score_set_mappings_to_ldh", submit_score_set_mappings_to_ldh_sample_job_run.id
+            )
+            await arq_worker.async_run()
+            await arq_worker.run_check()
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
+        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.FAILED
+        assert submit_score_set_mappings_to_ldh_sample_job_run.error_message == "LDH service error"
+
+    async def test_submit_score_set_mappings_to_ldh_with_arq_context_exception_handling_pipeline_ctx(
+        self,
+        standalone_worker_context,
+        session,
+        arq_redis,
+        arq_worker,
+        with_submit_score_set_mappings_to_ldh_job,
+        submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline,
+        submit_score_set_mappings_to_ldh_sample_pipeline,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Patch ClinGenLdhService to raise an exception
+        with (
+            patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                side_effect=Exception("LDH service error"),
+            ),
+        ):
+            await arq_redis.enqueue_job(
+                "submit_score_set_mappings_to_ldh", submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline.id
+            )
+            await arq_worker.async_run()
+            await arq_worker.run_check()
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline)
+        assert submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline.status == JobStatus.FAILED
+        assert submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline.error_message == "LDH service error"
+
+        # Verify the pipeline status is updated in the database
+        session.refresh(submit_score_set_mappings_to_ldh_sample_pipeline)
+        assert submit_score_set_mappings_to_ldh_sample_pipeline.status == PipelineStatus.FAILED
