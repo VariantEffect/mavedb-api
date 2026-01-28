@@ -81,3 +81,13 @@ class AnnotationStatus(str, Enum):
     SUCCESS = "success"
     FAILED = "failed"
     SKIPPED = "skipped"
+
+
+class JobType(str, Enum):
+    """Types of jobs in the pipeline."""
+
+    VARIANT_CREATION = "variant_creation"
+    VARIANT_MAPPING = "variant_mapping"
+    MAPPED_VARIANT_ANNOTATION = "mapped_variant_annotation"
+    PIPELINE_MANAGEMENT = "pipeline_management"
+    DATA_MANAGEMENT = "data_management"
