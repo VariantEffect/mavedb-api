@@ -1,4 +1,7 @@
 import os
+from contextlib import contextmanager
+
+from mavedb.db.session import db_session
 
 
 def is_test_mode() -> bool:
@@ -18,3 +21,15 @@ def is_test_mode() -> bool:
     # This pattern allows us to control decorator behavior in tests without
     # altering production code paths.
     return os.getenv("MAVEDB_TEST_MODE") == "1"
+
+
+@contextmanager
+def ensure_session_ctx(ctx):
+    if "db" in ctx and ctx["db"] is not None:
+        # No-op context manager
+        yield ctx["db"]
+    else:
+        with db_session() as session:
+            ctx["db"] = session
+            yield session
+            ctx["db"] = None  # Optionally clean up

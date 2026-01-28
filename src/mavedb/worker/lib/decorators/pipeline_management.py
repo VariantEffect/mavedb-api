@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from mavedb.models.enums.job_pipeline import PipelineStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.decorators import with_job_management
-from mavedb.worker.lib.decorators.utils import is_test_mode
+from mavedb.worker.lib.decorators.utils import ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers import PipelineManager
 from mavedb.worker.lib.managers.types import JobResultData
 
@@ -72,11 +72,12 @@ def with_pipeline_management(func: F) -> F:
 
     @functools.wraps(func)
     async def async_wrapper(*args, **kwargs):
-        # No-op in test mode
-        if is_test_mode():
-            return await func(*args, **kwargs)
+        with ensure_session_ctx(ctx=args[0]):
+            # No-op in test mode
+            if is_test_mode():
+                return await func(*args, **kwargs)
 
-        return await _execute_managed_pipeline(func, args, kwargs)
+            return await _execute_managed_pipeline(func, args, kwargs)
 
     return cast(F, async_wrapper)
 
@@ -196,7 +197,3 @@ async def _execute_managed_pipeline(func: Callable[..., Awaitable[JobResultData]
             # We don't mind that we lose ARQs built in job marking, since we perform our own job
             # lifecycle management via with_job_management.
             return result
-
-
-# Export decorator at module level for easy import
-__all__ = ["with_pipeline_management"]
