@@ -68,6 +68,7 @@ from mavedb.lib.urns import (
     generate_experiment_urn,
     generate_score_set_urn,
 )
+from mavedb.lib.workflow.pipeline_factory import PipelineFactory
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
@@ -113,6 +114,7 @@ async def enqueue_variant_creation(
     new_score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
     new_count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
     worker: ArqRedis,
+    db: Session,
 ) -> None:
     assert item.dataset_columns is not None
 
@@ -169,25 +171,36 @@ async def enqueue_variant_creation(
                 Key=counts_file_key,
             )
 
+    pipeline_factory = PipelineFactory(session=db)
+    pipeline, pipeline_entrypoint = pipeline_factory.create_pipeline(
+        pipeline_name="validate_map_annotate_score_set",
+        creating_user=user_data.user,
+        pipeline_params={
+            "correlation_id": correlation_id_for_context(),
+            "score_set_id": item.id,
+            "updater_id": user_data.user.id,
+            "scores_file_key": scores_file_key,
+            "counts_file_key": counts_file_key,
+            "score_columns_metadata": item.dataset_columns.get("score_columns_metadata")
+            if new_score_columns_metadata is None
+            else new_score_columns_metadata,
+            "count_columns_metadata": item.dataset_columns.get("count_columns_metadata")
+            if new_count_columns_metadata is None
+            else new_count_columns_metadata,
+        },
+    )
+
     # Await the insertion of this job into the worker queue, not the job itself.
     # Uses provided score and counts dataframes and metadata files, or falls back to existing data on the score set if not provided.
     job = await worker.enqueue_job(
-        "create_variants_for_score_set",
-        correlation_id_for_context(),
-        item.id,
-        user_data.user.id,
-        scores_file_to_upload,
-        counts_file_to_upload,
-        item.dataset_columns.get("score_columns_metadata")
-        if new_score_columns_metadata is None
-        else new_score_columns_metadata,
-        item.dataset_columns.get("count_columns_metadata")
-        if new_count_columns_metadata is None
-        else new_count_columns_metadata,
+        pipeline_entrypoint.job_function, pipeline_entrypoint.id, _job_id=pipeline_entrypoint.urn
     )
     if job is not None:
         save_to_logging_context({"worker_job_id": job.job_id})
-        logger.info(msg="Enqueued variant creation job.", extra=logging_context())
+        logger.info(
+            msg="Enqueued validate_map_annotate_score_set pipeline (job_id: {}).".format(job.job_id),
+            extra=logging_context(),
+        )
 
 
 class ScoreSetUpdateResult(TypedDict):
@@ -1780,6 +1793,7 @@ async def upload_score_set_variant_data(
         new_score_columns_metadata=dataset_column_metadata.get("score_columns_metadata", {}),
         new_count_columns_metadata=dataset_column_metadata.get("count_columns_metadata", {}),
         worker=worker,
+        db=db,
     )
 
     db.add(item)
@@ -1904,6 +1918,7 @@ async def update_score_set_with_variants(
             new_count_columns_metadata=dataset_column_metadata.get("count_columns_metadata")
             if did_count_columns_metadata_change
             else existing_count_columns_metadata,
+            db=db,
         )
 
     db.add(updatedItem)
@@ -1951,7 +1966,12 @@ async def update_score_set(
         updatedItem.processing_state = ProcessingState.processing
 
         logger.info(msg="Enqueuing variant creation job.", extra=logging_context())
-        await enqueue_variant_creation(item=updatedItem, user_data=user_data, worker=worker)
+        await enqueue_variant_creation(
+            item=updatedItem,
+            user_data=user_data,
+            worker=worker,
+            db=db,
+        )
 
         db.add(updatedItem)
         db.commit()
