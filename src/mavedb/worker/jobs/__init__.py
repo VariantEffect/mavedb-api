@@ -16,7 +16,6 @@ from mavedb.worker.jobs.data_management.views import (
     refresh_published_variants_view,
 )
 from mavedb.worker.jobs.external_services.clingen import (
-    link_clingen_variants,
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,
 )
@@ -39,7 +38,6 @@ __all__ = [
     "create_variants_for_score_set",
     "map_variants_for_score_set",
     # External service integration jobs
-    "link_clingen_variants",
     "submit_score_set_mappings_to_car",
     "submit_score_set_mappings_to_ldh",
     "poll_uniprot_mapping_jobs_for_score_set",
