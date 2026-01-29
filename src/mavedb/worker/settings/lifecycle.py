@@ -16,6 +16,7 @@ def standalone_ctx():
     """Create a standalone worker context dictionary."""
     ctx = {}
     ctx["pool"] = futures.ProcessPoolExecutor()
+    ctx["redis"] = None  # Redis connection can be set up here if needed.
     ctx["hdp"] = cdot_rest()
     ctx["state"] = {}
 

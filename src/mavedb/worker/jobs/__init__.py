@@ -27,6 +27,7 @@ from mavedb.worker.jobs.external_services.uniprot import (
 from mavedb.worker.jobs.registry import (
     BACKGROUND_CRONJOBS,
     BACKGROUND_FUNCTIONS,
+    STANDALONE_JOB_DEFINITIONS,
 )
 from mavedb.worker.jobs.variant_processing.creation import create_variants_for_score_set
 from mavedb.worker.jobs.variant_processing.mapping import (
@@ -49,4 +50,5 @@ __all__ = [
     # Job registry and utilities
     "BACKGROUND_FUNCTIONS",
     "BACKGROUND_CRONJOBS",
+    "STANDALONE_JOB_DEFINITIONS",
 ]
