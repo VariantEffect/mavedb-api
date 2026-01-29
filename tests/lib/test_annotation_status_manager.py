@@ -1,4 +1,8 @@
+# ruff: noqa: E402
+
 import pytest
+
+pytest.importorskip("psycopg2")
 
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.models.enums.annotation_type import AnnotationType

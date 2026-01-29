@@ -7,8 +7,6 @@ Covers orchestration steps, error handling, and PipelineManager interaction.
 
 import pytest
 
-from mavedb.worker.lib.managers.job_manager import JobManager
-
 pytest.importorskip("arq")  # Skip tests if arq is not installed
 
 import asyncio
@@ -20,6 +18,7 @@ from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
+from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
 from tests.helpers.transaction_spy import TransactionSpy
 

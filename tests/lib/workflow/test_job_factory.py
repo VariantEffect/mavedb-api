@@ -1,6 +1,9 @@
-from unittest.mock import patch
-
+# ruff: noqa: E402
 import pytest
+
+pytest.importorskip("fastapi")
+
+from unittest.mock import patch
 
 from mavedb.models.pipeline import Pipeline
 

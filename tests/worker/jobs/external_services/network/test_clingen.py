@@ -1,6 +1,11 @@
-from unittest.mock import patch
+# ruff: noqa: E402
 
 import pytest
+
+pytest.importorskip("arq")
+
+from unittest.mock import patch
+
 from sqlalchemy import select
 
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
