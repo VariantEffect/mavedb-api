@@ -142,7 +142,9 @@ class PipelineManager(BaseManager):
 
         Args:
             db: SQLAlchemy database session for job and pipeline queries
-            redis: ARQ Redis client for job queue operations
+            redis: ARQ Redis client for job queue operations. Note that although the Redis
+                   client is optional for base managers, PipelineManager requires it for
+                   job coordination.
             pipeline_id: ID of the pipeline this manager instance will coordinate
 
         Raises:
@@ -1126,6 +1128,10 @@ class PipelineManager(BaseManager):
         Raises:
             PipelineCoordinationError: If ARQ enqueuing fails
         """
+        if not self.redis:
+            logger.error(f"Redis client is not configured for PipelineManager; cannot enqueue job {job.urn}")
+            raise PipelineCoordinationError("Redis client is not configured for job enqueueing; cannot proceed.")
+
         try:
             defer_by = timedelta(seconds=job.retry_delay_seconds if is_retry and job.retry_delay_seconds else 0)
             arq_success = await self.redis.enqueue_job(job.job_function, job.id, _defer_by=defer_by, _job_id=job.urn)

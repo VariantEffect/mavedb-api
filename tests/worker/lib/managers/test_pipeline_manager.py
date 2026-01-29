@@ -3266,6 +3266,20 @@ class TestEnqueueInArqUnit:
     """Test enqueuing jobs in ARQ."""
 
     @pytest.mark.asyncio
+    async def test_enqueue_in_arq_without_redis_raises_pipeline_coordination_error(self, mock_pipeline_manager):
+        """Test that attempting to enqueue a job without a Redis connection raises PipelineCoordinationError."""
+        mock_job = Mock(spec=JobRun, job_function="test_func", id=1, urn="urn:example", retry_delay_seconds=10)
+        mock_pipeline_manager.redis = None
+
+        with (
+            pytest.raises(
+                PipelineCoordinationError, match="Redis client is not configured for job enqueueing; cannot proceed."
+            ),
+            TransactionSpy.spy(mock_pipeline_manager.db),
+        ):
+            await mock_pipeline_manager._enqueue_in_arq(job=mock_job, is_retry=False)
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("enqueud", [Mock(spec=ArqJob), None])
     @pytest.mark.parametrize("retry", [True, False])
     async def test_enqueue_in_arq_success(self, mock_pipeline_manager, retry, enqueud):

@@ -6,6 +6,7 @@ session management patterns used across all manager classes.
 
 import logging
 from abc import ABC
+from typing import Optional
 
 from arq import ArqRedis
 from sqlalchemy.orm import Session
@@ -27,12 +28,12 @@ class BaseManager(ABC):
         redis: ARQ Redis client for job queue operations
     """
 
-    def __init__(self, db: Session, redis: ArqRedis):
+    def __init__(self, db: Session, redis: Optional[ArqRedis]):
         """Initialize base manager with database and Redis connections.
 
         Args:
             db: SQLAlchemy database session for job and pipeline queries
-            redis: ARQ Redis client for job queue operations
+            redis(Optional[ArqRedis]): ARQ Redis client for job queue operations
 
         Raises:
             DatabaseConnectionError: Cannot connect to database
