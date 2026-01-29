@@ -7,6 +7,7 @@ Covers status transitions, error handling, and JobManager interaction.
 
 import pytest
 
+
 pytest.importorskip("arq")  # Skip tests if arq is not installed
 
 import asyncio
@@ -141,6 +142,7 @@ class TestManagedJobDecoratorUnit:
     ):
         with (
             patch("mavedb.worker.lib.decorators.job_management.JobManager") as mock_job_manager_class,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
             patch.object(mock_job_manager, "start_job", return_value=None) as mock_start_job,
             patch.object(mock_job_manager, "should_retry", return_value=False),
             patch.object(mock_job_manager, "fail_job", return_value=None) as mock_fail_job,
@@ -151,12 +153,14 @@ class TestManagedJobDecoratorUnit:
 
         mock_start_job.assert_called_once()
         mock_fail_job.assert_called_once()
+        mock_send_slack_error.assert_called_once()
 
     async def test_decorator_calls_start_job_and_retries_job_when_wrapped_function_raises_and_retry(
         self, session, mock_worker_ctx, mock_job_manager
     ):
         with (
             patch("mavedb.worker.lib.decorators.job_management.JobManager") as mock_job_manager_class,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
             patch.object(mock_job_manager, "start_job", return_value=None) as mock_start_job,
             patch.object(mock_job_manager, "should_retry", return_value=True),
             patch.object(mock_job_manager, "prepare_retry", return_value=None) as mock_prepare_retry,
@@ -167,6 +171,7 @@ class TestManagedJobDecoratorUnit:
 
         mock_start_job.assert_called_once()
         mock_prepare_retry.assert_called_once_with(reason="error in wrapped function")
+        mock_send_slack_error.assert_called_once()
 
     @pytest.mark.parametrize("missing_key", ["redis"])
     async def test_decorator_raises_value_error_if_required_context_missing(
@@ -174,9 +179,13 @@ class TestManagedJobDecoratorUnit:
     ):
         del mock_worker_ctx[missing_key]
 
-        with pytest.raises(ValueError) as exc_info:
+        with (
+            pytest.raises(ValueError) as exc_info,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+        ):
             await sample_job(mock_worker_ctx, 999)
 
+        mock_send_slack_error.assert_called_once()
         assert missing_key.replace("_", " ") in str(exc_info.value).lower()
         assert "not found in job context" in str(exc_info.value).lower()
 
@@ -186,6 +195,7 @@ class TestManagedJobDecoratorUnit:
         raised_exc = JobStateError("error in job start")
         with (
             patch("mavedb.worker.lib.decorators.job_management.JobManager") as mock_job_manager_class,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
             patch.object(mock_job_manager, "start_job", side_effect=raised_exc),
             patch.object(mock_job_manager, "should_retry", return_value=False),
             patch.object(mock_job_manager, "fail_job", return_value=None),
@@ -196,12 +206,18 @@ class TestManagedJobDecoratorUnit:
 
         assert result["status"] == "exception"
         assert raised_exc == result["exception"]
+        mock_send_slack_error.assert_called_once()
 
     async def test_decorator_raises_value_error_if_job_id_missing(self, session, mock_job_manager, mock_worker_ctx):
         # Remove job_id from args to simulate missing job_id
-        with pytest.raises(ValueError) as exc_info, TransactionSpy.spy(session):
+        with (
+            pytest.raises(ValueError) as exc_info,
+            TransactionSpy.spy(session),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+        ):
             await sample_job(mock_worker_ctx)
 
+        mock_send_slack_error.assert_called_once()
         assert "job id not found in function arguments" in str(exc_info.value).lower()
 
     async def test_decorator_swallows_exception_from_wrapped_function_inside_except(
@@ -213,10 +229,13 @@ class TestManagedJobDecoratorUnit:
             patch.object(mock_job_manager, "should_retry", return_value=False),
             patch.object(mock_job_manager, "fail_job", side_effect=JobStateError("error in job fail")),
             TransactionSpy.spy(session, expect_commit=True, expect_rollback=True),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             mock_job_manager_class.return_value = mock_job_manager
             result = await sample_raise(mock_worker_ctx, 999)
 
+        # Should notify for internal and job error
+        assert mock_send_slack_error.call_count == 2
         # Errors within the main try block should take precedence
         assert result["status"] == "exception"
         assert str(result["exception"]) == "error in wrapped function"
@@ -290,9 +309,11 @@ class TestManagedJobDecoratorIntegration:
         async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
             return {"status": "failed", "data": {}, "exception": RuntimeError("Simulated job failure")}
 
-        # Run the job
-        await sample_job(standalone_worker_context, sample_job_run.id)
+        with patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error:
+            # Run the job
+            await sample_job(standalone_worker_context, sample_job_run.id)
 
+        mock_send_slack_error.assert_called_once()
         # After completion, status should be FAILED
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
         assert job.status == JobStatus.FAILED
@@ -310,17 +331,20 @@ class TestManagedJobDecoratorIntegration:
             raise RuntimeError("Simulated job failure")
 
         # Start the job (it will block at event.wait())
-        job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))
+        with patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error:
+            job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))
 
-        # At this point, the job should be started but not in error
-        await asyncio.sleep(0.1)  # Give the event loop a moment to start the job
-        job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
-        assert job.status == JobStatus.RUNNING
+            # At this point, the job should be started but not in error
+            await asyncio.sleep(0.1)  # Give the event loop a moment to start the job
+            job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
+            assert job.status == JobStatus.RUNNING
 
-        # Now allow the job to complete with failure. This failure
-        # should be swallowed by the job_task.
-        event.set()
-        await job_task
+            # Now allow the job to complete with failure. This failure
+            # should be swallowed by the job_task.
+            event.set()
+            await job_task
+
+            mock_send_slack_error.assert_called_once()
 
         # After failure, status should be FAILED
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -339,23 +363,26 @@ class TestManagedJobDecoratorIntegration:
             await event.wait()  # Simulate async work, block until test signals
             raise RuntimeError("Simulated job failure for retry")
 
-        # Start the job (it will block at event.wait())
-        job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))
+        with patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error:
+            # Start the job (it will block at event.wait())
+            job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))
 
-        # At this point, the job should be started but not in error
-        await asyncio.sleep(0.1)  # Give the event loop a moment to start the job
-        job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
-        assert job.status == JobStatus.RUNNING
+            # At this point, the job should be started but not in error
+            await asyncio.sleep(0.1)  # Give the event loop a moment to start the job
+            job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
+            assert job.status == JobStatus.RUNNING
 
-        # TODO: We patch `should_retry` to return True to force a retry scenario. After implementing failure
-        # categorization in the worker, this patch can be removed and we should directly test retry logic based
-        # on failure categories.
-        #
-        # Now allow the job to complete with failure that triggers a retry. This failure
-        # should be swallowed by the job_task.
-        with patch.object(JobManager, "should_retry", return_value=True):
-            event.set()
-            await job_task
+            # TODO: We patch `should_retry` to return True to force a retry scenario. After implementing failure
+            # categorization in the worker, this patch can be removed and we should directly test retry logic based
+            # on failure categories.
+            #
+            # Now allow the job to complete with failure that triggers a retry. This failure
+            # should be swallowed by the job_task.
+            with patch.object(JobManager, "should_retry", return_value=True):
+                event.set()
+                await job_task
+
+            mock_send_slack_error.assert_called_once()
 
         # After failure with retry, status should be PENDING
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()

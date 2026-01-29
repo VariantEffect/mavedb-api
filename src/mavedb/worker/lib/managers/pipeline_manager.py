@@ -42,6 +42,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from mavedb.lib.slack import send_slack_message
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.job_dependency import JobDependency
 from mavedb.models.job_run import JobRun
@@ -312,7 +313,10 @@ class PipelineManager(BaseManager):
                 else:
                     new_status = PipelineStatus.PARTIAL
                     logger.warning(f"Inconsistent job counts detected for pipeline {self.pipeline_id}: {status_counts}")
-                    # TODO: Notification hooks
+                    send_slack_message(
+                        f"Inconsistent job counts detected for pipeline {self.pipeline_id}: {status_counts}"
+                    )
+
             else:
                 new_status = PipelineStatus.CANCELLED
 
