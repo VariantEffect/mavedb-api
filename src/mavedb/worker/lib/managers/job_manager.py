@@ -134,7 +134,7 @@ class JobManager(BaseManager):
 
     context: dict[str, Any] = {}
 
-    def __init__(self, db: Session, redis: ArqRedis, job_id: int):
+    def __init__(self, db: Session, redis: Optional[ArqRedis], job_id: int):
         """Initialize JobManager for a specific job.
 
         Args:
@@ -142,7 +142,7 @@ class JobManager(BaseManager):
                 be configured for the appropriate database and have proper
                 transaction isolation.
             redis: ARQ Redis client for job queue operations. Must be connected
-                   and ready for enqueue operations.
+                   and ready for enqueue operations. Optional; can be None if Redis is not used.
             job_id: Unique identifier of the job to manage. Must correspond to
                     an existing JobRun record in the database.
 
