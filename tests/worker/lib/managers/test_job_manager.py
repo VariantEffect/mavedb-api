@@ -312,7 +312,6 @@ class TestJobCompletionUnit:
                 "exception_details": format_raised_exception_info_as_dict(Exception()),
             }
         }
-        assert mock_job_run.progress_message == "Job failed"
         assert mock_job_run.error_message is None
         assert mock_job_run.error_traceback is None
         assert mock_job_run.failure_category == FailureCategory.UNKNOWN
@@ -344,7 +343,6 @@ class TestJobCompletionUnit:
             "data": {"output": "test"},
             "exception_details": format_raised_exception_info_as_dict(exception) if exception else None,
         }
-        assert mock_job_run.progress_message is not None
 
         # If an exception was provided, verify error fields are set appropriately.
         if exception:
@@ -502,7 +500,6 @@ class TestJobFailureUnit:
                 "exception_details": format_raised_exception_info_as_dict(test_exception),
             }
         }
-        assert mock_job_run.progress_message == "Job failed"
         assert mock_job_run.error_message == str(test_exception)
         assert mock_job_run.error_traceback is not None
         assert mock_job_run.failure_category == FailureCategory.UNKNOWN
@@ -531,7 +528,6 @@ class TestJobFailureIntegration:
         assert job.metadata_ == {
             "result": {"status": "failed", "data": {}, "exception_details": format_raised_exception_info_as_dict(exc)}
         }
-        assert job.progress_message == "Job failed"
         assert job.error_message == "Test error"
         assert job.error_traceback is not None
         assert job.failure_category == FailureCategory.UNKNOWN
@@ -562,7 +558,6 @@ class TestJobSuccessUnit:
         assert mock_job_run.metadata_ == {
             "result": {"status": "ok", "data": {"output": "test"}, "exception_details": None}
         }
-        assert mock_job_run.progress_message == "Job completed successfully"
         assert mock_job_run.error_message is None
         assert mock_job_run.error_traceback is None
         assert mock_job_run.failure_category is None
@@ -587,7 +582,6 @@ class TestJobSuccessIntegration:
 
         assert job.status == JobStatus.SUCCEEDED
         assert job.finished_at is not None
-        assert job.progress_message == "Job completed successfully"
         assert job.metadata_ == {"result": {"status": "ok", "data": {"output": "test"}, "exception_details": None}}
         assert job.error_message is None
         assert job.error_traceback is None
@@ -619,7 +613,6 @@ class TestJobCancellationUnit:
         assert mock_job_run.metadata_ == {
             "result": {"status": "ok", "data": {"output": "test"}, "exception_details": None}
         }
-        assert mock_job_run.progress_message == "Job cancelled"
         assert mock_job_run.error_message is None
         assert mock_job_run.error_traceback is None
         assert mock_job_run.failure_category is None
@@ -643,7 +636,6 @@ class TestJobCancellationIntegration:
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
 
         assert job.status == JobStatus.CANCELLED
-        assert job.progress_message == "Job cancelled"
         assert job.finished_at is not None
         assert job.metadata_ == {"result": {"status": "ok", "data": {"output": "test"}, "exception_details": None}}
         assert job.error_message is None
@@ -676,7 +668,6 @@ class TestJobSkipUnit:
         assert mock_job_run.metadata_ == {
             "result": {"status": "ok", "data": {"output": "test"}, "exception_details": None}
         }
-        assert mock_job_run.progress_message == "Job skipped"
         assert mock_job_run.error_message is None
         assert mock_job_run.error_traceback is None
         assert mock_job_run.failure_category is None
@@ -701,7 +692,6 @@ class TestJobSkipIntegration:
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
 
         assert job.status == JobStatus.SKIPPED
-        assert job.progress_message == "Job skipped"
         assert job.finished_at is not None
         assert job.metadata_ == {"result": {"status": "ok", "data": {"output": "test"}, "exception_details": None}}
         assert job.error_message is None
@@ -1972,7 +1962,6 @@ class TestJobManagerJob:
         assert final_job.status == JobStatus.SUCCEEDED
         assert final_job.progress_current == 200
         assert final_job.progress_total == 200
-        assert final_job.progress_message == "Job completed successfully"
 
     def test_full_cancelled_job_lifecycle(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test full job lifecycle for a cancelled job."""
@@ -2009,7 +1998,6 @@ class TestJobManagerJob:
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
         assert job.status == JobStatus.CANCELLED
         assert job.finished_at is not None
-        assert job.progress_message == "Job cancelled"
 
     def test_full_skipped_job_lifecycle(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test full job lifecycle for a skipped job."""
@@ -2027,7 +2015,6 @@ class TestJobManagerJob:
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
         assert job.status == JobStatus.SKIPPED
         assert job.finished_at is not None
-        assert job.progress_message == "Job skipped"
 
     def test_full_failed_job_lifecycle(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test full job lifecycle for a failed job."""
