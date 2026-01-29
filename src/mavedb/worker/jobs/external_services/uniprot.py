@@ -63,7 +63,7 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_
         - Submits UniProt ID mapping jobs for each target gene in the ScoreSet.
         - Fetches the dependent job for this function, which is the polling job for UniProt results.
           Sets the parameter `mapping_jobs` on the polling job with a dictionary of target gene IDs to UniProt job IDs.
-          TODO#XXX: Split mapping jobs into one per target gene so that polling can be more granular.
+          TODO#646: Split mapping jobs into one per target gene so that polling can be more granular.
 
     Raises:
         - UniProtPollingEnqueueError: If the dependent polling job cannot be found.
@@ -216,7 +216,7 @@ async def poll_uniprot_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_ma
         - Polls UniProt ID mapping jobs for each target gene in the ScoreSet.
         - Updates target genes with mapped UniProt IDs in the database.
 
-    TODO#XXX: Split mapping jobs into one per target gene so that polling can be more granular.
+    TODO#646: Split mapping jobs into one per target gene so that polling can be more granular.
 
     Returns:
         dict: Result indicating success and any exception details
