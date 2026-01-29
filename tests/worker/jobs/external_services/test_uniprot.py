@@ -837,7 +837,6 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
 
         # Verify that the submission job failed
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
-        # TODO#XXX: Should be failed when supported by decorator
         assert sample_submit_uniprot_mapping_jobs_run.status == JobStatus.FAILED
 
         # nothing to verify for dependent polling job since it does not exist
