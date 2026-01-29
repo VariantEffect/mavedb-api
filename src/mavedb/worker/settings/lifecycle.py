@@ -12,6 +12,20 @@ from concurrent import futures
 from mavedb.data_providers.services import cdot_rest
 
 
+def standalone_ctx():
+    """Create a standalone worker context dictionary."""
+    ctx = {}
+    ctx["pool"] = futures.ProcessPoolExecutor()
+    ctx["hdp"] = cdot_rest()
+    ctx["state"] = {}
+
+    # Additional context setup can be added here as needed.
+    # This function should not drift from the lifecycle hooks
+    # below and is useful for invoking worker jobs outside of ARQ.
+
+    return ctx
+
+
 async def startup(ctx):
     ctx["pool"] = futures.ProcessPoolExecutor()
 
