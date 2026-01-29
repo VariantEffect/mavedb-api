@@ -13,10 +13,13 @@ from arq.worker import Worker
 from biocommons.seqrepo import SeqRepo
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
+from sqlalchemy import Column, Float, Integer, MetaData, String, Table
 
+from mavedb.db.session import create_engine, sessionmaker
 from mavedb.deps import get_db, get_seqrepo, get_worker, hgvs_data_provider
 from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.authorization import require_current_user
+from mavedb.lib.gnomad import gnomad_table_name
 from mavedb.models.user import User
 from mavedb.server_main import app
 from mavedb.worker.jobs import BACKGROUND_CRONJOBS, BACKGROUND_FUNCTIONS
@@ -404,3 +407,58 @@ def client(app_):
 async def async_client(app_):
     async with AsyncClient(app=app_, base_url="http://testserver") as ac:
         yield ac
+
+
+#####################################################################################################
+# Athena
+#####################################################################################################
+
+
+@pytest.fixture
+def athena_engine():
+    """Create and yield a SQLAlchemy engine connected to a mock Athena database."""
+    engine = create_engine("sqlite:///:memory:")
+    metadata = MetaData()
+
+    # TODO: Define your table schema here
+    my_table = Table(
+        gnomad_table_name(),
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("locus.contig", String),
+        Column("locus.position", Integer),
+        Column("alleles", String),
+        Column("caid", String),
+        Column("joint.freq.all.ac", Integer),
+        Column("joint.freq.all.an", Integer),
+        Column("joint.fafmax.faf95_max_gen_anc", String),
+        Column("joint.fafmax.faf95_max", Float),
+    )
+    metadata.create_all(engine)
+
+    session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+
+    # Insert test data
+    session.execute(
+        my_table.insert(),
+        [
+            {
+                "id": 1,
+                "locus.contig": "chr1",
+                "locus.position": 12345,
+                "alleles": "[G, A]",
+                "caid": "CA123",
+                "joint.freq.all.ac": 23,
+                "joint.freq.all.an": 32432423,
+                "joint.fafmax.faf95_max_gen_anc": "anc1",
+                "joint.fafmax.faf95_max": 0.000006763700000000002,
+            }
+        ],
+    )
+    session.commit()
+    session.close()
+
+    try:
+        yield engine
+    finally:
+        engine.dispose()
