@@ -140,8 +140,9 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
             {"processing_state": score_set.processing_state.name, "mapping_state": score_set.mapping_state.name}
         )
 
+        # Flush initial score set state
         job_manager.db.add(score_set)
-        job_manager.db.commit()
+        job_manager.db.flush()
         job_manager.db.refresh(score_set)
 
         job_manager.update_progress(10, 100, "Validated score set metadata and beginning data validation.")
@@ -226,7 +227,15 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
             msg="Encountered an internal exception while processing variants.", extra=job_manager.logging_context()
         )
 
-        raise e
+        return {
+            "status": "failed",
+            "data": {},
+            "exception_details": {
+                "message": str(e),
+                "type": e.__class__.__name__,
+                "traceback": format_raised_exception_info_as_dict(e).get("traceback", ""),
+            },
+        }
 
     else:
         score_set.processing_state = ProcessingState.success
@@ -243,9 +252,9 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
 
     finally:
         job_manager.db.add(score_set)
-        job_manager.db.commit()
+        job_manager.db.flush()
         job_manager.db.refresh(score_set)
 
     job_manager.update_progress(100, 100, "Completed variant creation job.")
-    logger.info(msg="Committed new variants to score set.", extra=job_manager.logging_context())
+    logger.info(msg="Added new variants to score set.", extra=job_manager.logging_context())
     return {"status": "ok", "data": {}, "exception_details": None}

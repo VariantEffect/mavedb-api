@@ -15,6 +15,7 @@ from sqlalchemy import cast, null, select
 from sqlalchemy.dialects.postgresql import JSONB
 
 from mavedb.data_providers.services import vrs_mapper
+from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.exceptions import (
     NonexistentMappingReferenceError,
     NonexistentMappingResultsError,
@@ -23,6 +24,9 @@ from mavedb.lib.exceptions import (
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.mapping import ANNOTATION_LAYERS, EXCLUDED_PREMAPPED_ANNOTATION_KEYS
 from mavedb.lib.slack import send_slack_error
+from mavedb.lib.variants import get_hgvs_from_post_mapped
+from mavedb.models.enums.annotation_type import AnnotationType
+from mavedb.models.enums.job_pipeline import AnnotationStatus
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
@@ -84,7 +88,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         score_set.modification_date = date.today()
 
         job_manager.db.add(score_set)
-        job_manager.db.commit()
+        job_manager.db.flush()
 
         job_manager.save_to_context({"mapping_state": score_set.mapping_state.name})
         job_manager.update_progress(10, 100, "Score set prepared for variant mapping.")
@@ -196,6 +200,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         job_manager.update_progress(90, 100, "Saving mapped variants.")
 
         successful_mapped_variants = 0
+        annotation_manager = AnnotationStatusManager(job_manager.db)
         for mapped_score in mapped_scores:
             variant_urn = mapped_score.get("mavedb_id")
             variant = job_manager.db.scalars(select(Variant).where(Variant.urn == variant_urn)).one()
@@ -216,7 +221,8 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 job_manager.db.add(existing_mapped_variant)
                 logger.debug(msg="Set existing mapped variant to current = false.", extra=job_manager.logging_context())
 
-            if mapped_score.get("pre_mapped") and mapped_score.get("post_mapped"):
+            annotation_was_successful = mapped_score.get("pre_mapped") and mapped_score.get("post_mapped")
+            if annotation_was_successful:
                 successful_mapped_variants += 1
                 job_manager.save_to_context({"successful_mapped_variants": successful_mapped_variants})
 
@@ -229,6 +235,21 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 vrs_version=mapped_score.get("vrs_version", null()),
                 mapping_api_version=mapping_results["dcd_mapping_version"],
                 error_message=mapped_score.get("error_message", null()),
+                current=True,
+            )
+
+            annotation_manager.add_annotation(
+                variant_id=variant.id,  # type: ignore
+                annotation_type=AnnotationType.VRS_MAPPING,
+                version=mapped_score.get("vrs_version", null()),
+                status=AnnotationStatus.SUCCESS if annotation_was_successful else AnnotationStatus.FAILED,
+                annotation_data={
+                    "error_message": mapped_score.get("error_message", null()),
+                    "job_run_id": job.id,
+                    "success_data": {
+                        "mapped_assay_level_hgvs": get_hgvs_from_post_mapped(mapped_score.get("post_mapped", {})),
+                    },
+                },
                 current=True,
             )
 
@@ -259,7 +280,11 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         score_set.mapping_state = MappingState.failed
         # These exceptions have already set mapping_errors appropriately
 
-        raise e  # Re-raise to be handled by the job management system
+        return {
+            "status": "error",
+            "data": {},
+            "exception_details": {"message": str(e), "type": e.__class__.__name__, "traceback": None},
+        }
 
     except Exception as e:
         send_slack_error(e)
@@ -275,12 +300,15 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             }
         job_manager.update_progress(100, 100, "Variant mapping failed due to an unexpected error.")
 
-        # Raise unexpected exceptions to be handled by the job management system
-        raise e
+        return {
+            "status": "error",
+            "data": {},
+            "exception_details": {"message": str(e), "type": e.__class__.__name__, "traceback": None},
+        }
 
     finally:
         job_manager.db.add(score_set)
-        job_manager.db.commit()
+        job_manager.db.flush()
 
     logger.info(msg="Inserted mapped variants into db.", extra=job_manager.logging_context())
     job_manager.update_progress(100, 100, "Finished processing mapped variants.")

@@ -52,7 +52,7 @@ async def start_pipeline(ctx: dict, job_id: int, job_manager: JobManager) -> Job
     await pipeline_manager.coordinate_pipeline()
 
     # Finalize job state
-    job_manager.db.commit()
+    job_manager.db.flush()
     job_manager.update_progress(100, 100, "Initial pipeline coordination complete.")
     logger.debug(msg="Done starting pipeline.", extra=job_manager.logging_context())
 

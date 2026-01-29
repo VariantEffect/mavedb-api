@@ -124,9 +124,8 @@ async def arq_worker(data_provider, session, arq_redis):
 
 
 @pytest.fixture
-def standalone_worker_context(session, data_provider, arq_redis):
+def standalone_worker_context(data_provider, arq_redis):
     yield {
-        "db": session,
         "hdp": data_provider,
         "state": {},
         "job_id": "test_job",

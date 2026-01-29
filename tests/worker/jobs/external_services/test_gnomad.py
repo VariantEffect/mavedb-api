@@ -7,6 +7,7 @@ from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
+from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 from mavedb.worker.jobs.external_services.gnomad import link_gnomad_variants
 from mavedb.worker.lib.managers.job_manager import JobManager
 
@@ -91,7 +92,7 @@ class TestLinkGnomadVariantsUnit:
             )
 
         assert result["status"] == "ok"
-        mock_update_progress.assert_any_call(100, 100, "No gnomAD variants with CAID matches found. Nothing to link.")
+        mock_update_progress.assert_any_call(100, 100, "Linked 0 mapped variants to gnomAD variants.")
 
     async def test_link_gnomad_variants_call_linking_method(
         self,
@@ -209,6 +210,10 @@ class TestLinkGnomadVariantsIntegration:
         gnomad_variants = session.query(GnomADVariant).all()
         assert len(gnomad_variants) == 0
 
+        # Verify no annotations were rendered (since there were no variants with CAIDs)
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == 0
+
         # Verify job status updates
         session.refresh(sample_link_gnomad_variants_run)
         assert sample_link_gnomad_variants_run.status == JobStatus.SUCCEEDED
@@ -239,6 +244,12 @@ class TestLinkGnomadVariantsIntegration:
         gnomad_variants = session.query(GnomADVariant).all()
         assert len(gnomad_variants) == 0
 
+        # Verify a skipped annotation status was rendered (since there were variants with CAIDs)
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == 1
+        assert annotation_statuses[0].status == "skipped"
+        assert annotation_statuses[0].annotation_type == "gnomad_allele_frequency"
+
         # Verify job status updates
         session.refresh(sample_link_gnomad_variants_run)
         assert sample_link_gnomad_variants_run.status == JobStatus.SUCCEEDED
@@ -265,6 +276,12 @@ class TestLinkGnomadVariantsIntegration:
         gnomad_variants = session.query(GnomADVariant).all()
         assert len(gnomad_variants) > 0
 
+        # Verify annotation status was rendered
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == 1
+        assert annotation_statuses[0].status == "success"
+        assert annotation_statuses[0].annotation_type == "gnomad_allele_frequency"
+
         # Verify job status updates
         session.refresh(sample_link_gnomad_variants_run)
         assert sample_link_gnomad_variants_run.status == JobStatus.SUCCEEDED
@@ -290,6 +307,12 @@ class TestLinkGnomadVariantsIntegration:
         # Verify that gnomAD variants were linked
         gnomad_variants = session.query(GnomADVariant).all()
         assert len(gnomad_variants) > 0
+
+        # Verify annotation status was rendered
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == 1
+        assert annotation_statuses[0].status == "success"
+        assert annotation_statuses[0].annotation_type == "gnomad_allele_frequency"
 
         # Verify job status updates
         session.refresh(sample_link_gnomad_variants_run_pipeline)
@@ -361,6 +384,12 @@ class TestLinkGnomadVariantsArqContext:
         gnomad_variants = session.query(GnomADVariant).all()
         assert len(gnomad_variants) > 0
 
+        # Verify annotation status was rendered
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == 1
+        assert annotation_statuses[0].status == "success"
+        assert annotation_statuses[0].annotation_type == "gnomad_allele_frequency"
+
         # Verify that the job completed successfully
         session.refresh(sample_link_gnomad_variants_run)
         assert sample_link_gnomad_variants_run.status == JobStatus.SUCCEEDED
@@ -388,6 +417,12 @@ class TestLinkGnomadVariantsArqContext:
         # Verify that gnomAD variants were linked
         gnomad_variants = session.query(GnomADVariant).all()
         assert len(gnomad_variants) > 0
+
+        # Verify annotation status was rendered
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == 1
+        assert annotation_statuses[0].status == "success"
+        assert annotation_statuses[0].annotation_type == "gnomad_allele_frequency"
 
         # Verify that the job completed successfully
         session.refresh(sample_link_gnomad_variants_run_pipeline)
@@ -425,6 +460,10 @@ class TestLinkGnomadVariantsArqContext:
         gnomad_variants = session.query(GnomADVariant).all()
         assert len(gnomad_variants) == 0
 
+        # Verify no annotations were rendered
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == 0
+
         # Verify that the job failed
         session.refresh(sample_link_gnomad_variants_run)
         assert sample_link_gnomad_variants_run.status == JobStatus.FAILED
@@ -456,6 +495,10 @@ class TestLinkGnomadVariantsArqContext:
         # Verify that no gnomAD variants were linked
         gnomad_variants = session.query(GnomADVariant).all()
         assert len(gnomad_variants) == 0
+
+        # Verify no annotations were rendered
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == 0
 
         # Verify that the job failed
         session.refresh(sample_link_gnomad_variants_run_pipeline)

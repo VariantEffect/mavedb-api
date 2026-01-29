@@ -55,7 +55,7 @@ async def refresh_materialized_views(ctx: dict, job_id: int, job_manager: JobMan
 
     # Do refresh
     refresh_all_mat_views(job_manager.db)
-    job_manager.db.commit()
+    job_manager.db.flush()
 
     # Finalize job state
     job_manager.update_progress(100, 100, "Completed refresh of all materialized views.")
@@ -105,7 +105,7 @@ async def refresh_published_variants_view(ctx: dict, job_id: int, job_manager: J
 
     # Do refresh
     PublishedVariantsMV.refresh(job_manager.db)
-    job_manager.db.commit()
+    job_manager.db.flush()
 
     # Finalize job state
     job_manager.update_progress(100, 100, "Completed refresh of published variants materialized view.")

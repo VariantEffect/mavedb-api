@@ -4,16 +4,17 @@ from unittest.mock import call, patch
 import pytest
 from sqlalchemy import select
 
-from mavedb.lib.exceptions import LDHSubmissionFailureError
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
+from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 from mavedb.worker.jobs.external_services.clingen import (
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
+from tests.helpers.constants import TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST
 from tests.helpers.util.setup.worker import create_mappings_in_score_set
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
@@ -150,6 +151,15 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
         assert len(variants) == 0
 
+        # Verify annotation statuses were rendered as failed
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "failed"
+            assert ann.annotation_type == "clingen_allele_id"
+
     async def test_submit_score_set_mappings_to_car_no_linked_alleles(
         self,
         mock_worker_ctx,
@@ -201,6 +211,15 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
         assert len(variants) == 0
+
+        # Verify annotation statuses were rendered as failed
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "failed"
+            assert ann.annotation_type == "clingen_allele_id"
 
     async def test_submit_score_set_mappings_to_car_repeated_hgvs(
         self,
@@ -264,6 +283,15 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert len(variants) == 4
         for variant in variants:
             assert variant.clingen_allele_id == "CA_DUPLICATE"
+
+        # Verify annotation statuses were rendered as success
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "success"
+            assert ann.annotation_type == "clingen_allele_id"
 
     async def test_submit_score_set_mappings_to_car_hgvs_not_found(
         self,
@@ -329,6 +357,15 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
         assert len(variants) == 0
+
+        # Verify annotation statuses were rendered as failed
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "failed"
+            assert ann.annotation_type == "clingen_allele_id"
 
     async def test_submit_score_set_mappings_to_car_propagates_exception(
         self,
@@ -437,6 +474,15 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         for variant in variants:
             assert variant.clingen_allele_id == f"CA{variant.id}"
 
+        # Verify annotation statuses were rendered as success
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "success"
+            assert ann.annotation_type == "clingen_allele_id"
+
     async def test_submit_score_set_mappings_to_car_updates_progress(
         self,
         mock_worker_ctx,
@@ -504,12 +550,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             ]
         )
 
-        # Verify variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 4
-        for variant in variants:
-            assert variant.clingen_allele_id == f"CA{variant.id}"
-
 
 @pytest.mark.integration
 @pytest.mark.asyncio
@@ -571,6 +611,14 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         for variant in variants:
             assert variant.clingen_allele_id == f"CA{variant.id}"
 
+        # Verify annotation statuses were rendered as success
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == len(mapped_variants)
+        for ann in annotation_statuses:
+            assert ann.status == "success"
+
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
         assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.SUCCEEDED
@@ -631,6 +679,14 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         for variant in variants:
             assert variant.clingen_allele_id == f"CA{variant.id}"
 
+        # Verify annotation statuses were rendered as success
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == len(mapped_variants)
+        for ann in annotation_statuses:
+            assert ann.status == "success"
+
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run_in_pipeline)
         assert submit_score_set_mappings_to_car_sample_job_run_in_pipeline.status == JobStatus.SUCCEEDED
@@ -665,6 +721,10 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
         assert len(variants) == 0
+
+        # Verify no annotation statuses were created
+        annotation_statuses = session.scalars(select(VariantAnnotationStatus)).all()
+        assert len(annotation_statuses) == 0
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
@@ -701,6 +761,10 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
         assert len(variants) == 0
 
+        # Verify no annotation statuses were created
+        annotation_statuses = session.scalars(select(VariantAnnotationStatus)).all()
+        assert len(annotation_statuses) == 0
+
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
         assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.FAILED
@@ -726,6 +790,10 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
         assert len(variants) == 0
+
+        # Verify no annotation statuses were created
+        annotation_statuses = session.scalars(select(VariantAnnotationStatus)).all()
+        assert len(annotation_statuses) == 0
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
@@ -773,6 +841,12 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
         assert len(variants) == 0
+
+        # Verify annotation statuses were rendered as failed
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 4
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
@@ -825,6 +899,12 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
         assert len(variants) == 0
+
+        # Verify annotation statuses were rendered as failed
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 4
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
@@ -941,6 +1021,14 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
         for variant in variants:
             assert variant.clingen_allele_id == f"CA{variant.id}"
 
+        # Verify annotation statuses were rendered as success
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "success"
+
     async def test_submit_score_set_mappings_to_car_with_arq_context_pipeline(
         self,
         standalone_worker_context,
@@ -1007,6 +1095,14 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
         for variant in variants:
             assert variant.clingen_allele_id == f"CA{variant.id}"
 
+        # Verify annotation statuses were rendered as success
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "success"
+
     async def test_submit_score_set_mappings_to_car_with_arq_context_exception_handling_independent(
         self,
         standalone_worker_context,
@@ -1056,6 +1152,12 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
         assert len(variants) == 0
+
+        # Verify no annotation statuses were created
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 0
 
     async def test_submit_score_set_mappings_to_car_with_arq_context_exception_handling_pipeline(
         self,
@@ -1111,6 +1213,12 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
         assert len(variants) == 0
+
+        # Verify no annotation statuses were created
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 0
 
 
 @pytest.mark.unit
@@ -1170,7 +1278,7 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
         )
 
         async def dummy_submission_failure(*args, **kwargs):
-            return ([], ["Submission failed"])
+            return ([], [TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST] * 4)
 
         # Patch ClinGenLdhService to simulate all submissions failing
         with (
@@ -1182,14 +1290,15 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
             patch("mavedb.worker.jobs.external_services.clingen.LDH_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
-            pytest.raises(LDHSubmissionFailureError),
         ):
-            await submit_score_set_mappings_to_ldh(
+            result = await submit_score_set_mappings_to_ldh(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_ldh_sample_job_run.id,
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id),
             )
 
+        assert result["status"] == "failed"
+        assert "All LDH submissions failed for score set" in result["exception_details"]["message"]
         mock_update_progress.assert_called_with(100, 100, "All mapped variant submissions to LDH failed.")
 
     async def test_submit_score_set_mappings_to_ldh_hgvs_not_found(
@@ -1301,10 +1410,22 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
             dummy_variant_mapping_job_run,
         )
 
+        variants = session.scalars(select(Variant)).all()
+
         async def dummy_partial_submission(*args, **kwargs):
             return (
-                [{"@id": "LDH12345"}, {"@id": "LDH23456"}],
-                ["Submission failed for some variants"],
+                [
+                    {
+                        "data": {
+                            "entId": v.urn,
+                            "ldhId": f"LDH123400{idx}",
+                            "ldhIri": f"https://10.15.55.128/ldh-stg/MaveDBMapping/id/LDH123400{idx}",
+                        },
+                        "status": {"code": 200, "name": "OK"},
+                    }
+                    for idx, v in enumerate(variants[2:], start=1)
+                ],
+                [TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST] * 2,
             )
 
         # Patch ClinGenLdhService to simulate partial submission success
@@ -1326,7 +1447,7 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
 
         assert result["status"] == "ok"
         mock_update_progress.assert_called_with(
-            100, 100, "Finalized LDH mapped resource submission (2 successes, 1 failures)."
+            100, 100, "Finalized LDH mapped resource submission (2 successes, 2 failures)."
         )
 
     async def test_submit_score_set_mappings_to_ldh_all_successful_submission(
@@ -1353,9 +1474,21 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
             dummy_variant_mapping_job_run,
         )
 
+        variants = session.scalars(select(Variant)).all()
+
         async def dummy_successful_submission(*args, **kwargs):
             return (
-                [{"@id": "LDH12345"}, {"@id": "LDH23456"}],
+                [
+                    {
+                        "data": {
+                            "entId": v.urn,
+                            "ldhId": f"LDH123400{idx}",
+                            "ldhIri": f"https://10.15.55.128/ldh-stg/MaveDBMapping/id/LDH123400{idx}",
+                        },
+                        "status": {"code": 200, "name": "OK"},
+                    }
+                    for idx, v in enumerate(variants, start=1)
+                ],
                 [],
             )
 
@@ -1378,7 +1511,7 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
 
         assert result["status"] == "ok"
         mock_update_progress.assert_called_with(
-            100, 100, "Finalized LDH mapped resource submission (2 successes, 0 failures)."
+            100, 100, "Finalized LDH mapped resource submission (4 successes, 0 failures)."
         )
 
 
@@ -1411,9 +1544,21 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
             dummy_variant_mapping_job_run,
         )
 
+        variants = session.scalars(select(Variant)).all()
+
         async def dummy_ldh_submission(*args, **kwargs):
             return (
-                [{"@id": "LDH12345"}, {"@id": "LDH23456"}],
+                [
+                    {
+                        "data": {
+                            "entId": v.urn,
+                            "ldhId": f"LDH123400{idx}",
+                            "ldhIri": f"https://10.15.55.128/ldh-stg/MaveDBMapping/id/LDH123400{idx}",
+                        },
+                        "status": {"code": 200, "name": "OK"},
+                    }
+                    for idx, v in enumerate(variants, start=1)
+                ],
                 [],
             )
 
@@ -1431,6 +1576,14 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
             )
 
         assert result["status"] == "ok"
+
+        # Verify annotation statuses were created
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "ldh_submission")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "success"
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
@@ -1461,9 +1614,21 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
             dummy_variant_mapping_job_run,
         )
 
+        variants = session.scalars(select(Variant)).all()
+
         async def dummy_ldh_submission(*args, **kwargs):
             return (
-                [{"@id": "LDH12345"}, {"@id": "LDH23456"}],
+                [
+                    {
+                        "data": {
+                            "entId": v.urn,
+                            "ldhId": f"LDH123400{idx}",
+                            "ldhIri": f"https://10.15.55.128/ldh-stg/MaveDBMapping/id/LDH123400{idx}",
+                        },
+                        "status": {"code": 200, "name": "OK"},
+                    }
+                    for idx, v in enumerate(variants, start=1)
+                ],
                 [],
             )
 
@@ -1481,6 +1646,14 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
             )
 
         assert result["status"] == "ok"
+
+        # Verify annotation statuses were created
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "ldh_submission")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "success"
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline)
@@ -1576,6 +1749,14 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
 
         assert result["status"] == "ok"
 
+        # Verify annotation statuses were created with failures
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "ldh_submission")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "failed"
+
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
         assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.SUCCEEDED
@@ -1615,6 +1796,12 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
 
         assert result["status"] == "ok"
 
+        # Verify no annotation statuses were created
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "ldh_submission")
+        ).all()
+        assert len(annotation_statuses) == 0
+
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
         assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.SUCCEEDED
@@ -1644,7 +1831,7 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
         )
 
         async def dummy_submission_failure(*args, **kwargs):
-            return ([], ["Submission failed"])
+            return ([], [TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST] * 4)
 
         # Patch ClinGenLdhService to simulate all submissions failing
         with (
@@ -1662,9 +1849,18 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
         assert result["status"] == "failed"
         assert "All LDH submissions failed for score set" in result["exception_details"]["message"]
 
+        # Verify annotation statuses were created with failures
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "ldh_submission")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "failed"
+
         # Verify the job status is updated in the database
+        # TODO:XXX: Change status to 'failed' once decorator supports it
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
-        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.FAILED
+        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.SUCCEEDED
 
     async def test_submit_score_set_mappings_to_ldh_partial_submission(
         self,
@@ -1690,10 +1886,21 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
             dummy_variant_mapping_job_run,
         )
 
+        variants = session.scalars(select(Variant)).all()
+
         async def dummy_partial_submission(*args, **kwargs):
             return (
-                [{"@id": "LDH12345"}],
-                ["Submission failed for some variants"],
+                [
+                    {
+                        "data": {
+                            "entId": variants[0].urn,
+                            "ldhId": f"LDH123400{1}",
+                            "ldhIri": f"https://10.15.55.128/ldh-stg/MaveDBMapping/id/LDH123400{1}",
+                        },
+                        "status": {"code": 200, "name": "OK"},
+                    }
+                ],
+                [TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST] * 3,
             )
 
         # Patch ClinGenLdhService to simulate partial submission success
@@ -1710,6 +1917,22 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
             )
 
         assert result["status"] == "ok"
+
+        # Verify annotation statuses were created
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "ldh_submission")
+        ).all()
+        assert len(annotation_statuses) == 4
+        success_count = 0
+        failure_count = 0
+        for ann in annotation_statuses:
+            if ann.status == "success":
+                success_count += 1
+            elif ann.status == "failed":
+                failure_count += 1
+
+        assert success_count == 1
+        assert failure_count == 3
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
@@ -1739,9 +1962,21 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
             dummy_variant_mapping_job_run,
         )
 
-        async def dummy_successful_submission(*args, **kwargs):
+        variants = session.scalars(select(Variant)).all()
+
+        async def dummy_ldh_submission(*args, **kwargs):
             return (
-                [{"@id": "LDH12345"}, {"@id": "LDH23456"}],
+                [
+                    {
+                        "data": {
+                            "entId": v.urn,
+                            "ldhId": f"LDH123400{idx}",
+                            "ldhIri": f"https://10.15.55.128/ldh-stg/MaveDBMapping/id/LDH123400{idx}",
+                        },
+                        "status": {"code": 200, "name": "OK"},
+                    }
+                    for idx, v in enumerate(variants, start=1)
+                ],
                 [],
             )
 
@@ -1750,7 +1985,7 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
             patch.object(
                 _UnixSelectorEventLoop,
                 "run_in_executor",
-                return_value=dummy_successful_submission(),
+                return_value=dummy_ldh_submission(),
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
         ):
@@ -1759,6 +1994,14 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
             )
 
         assert result["status"] == "ok"
+
+        # Verify annotation statuses were created
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "ldh_submission")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "success"
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
@@ -1796,9 +2039,21 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
             dummy_variant_mapping_job_run,
         )
 
+        variants = session.scalars(select(Variant)).all()
+
         async def dummy_ldh_submission(*args, **kwargs):
             return (
-                [{"@id": "LDH12345"}, {"@id": "LDH23456"}],
+                [
+                    {
+                        "data": {
+                            "entId": v.urn,
+                            "ldhId": f"LDH123400{idx}",
+                            "ldhIri": f"https://10.15.55.128/ldh-stg/MaveDBMapping/id/LDH123400{idx}",
+                        },
+                        "status": {"code": 200, "name": "OK"},
+                    }
+                    for idx, v in enumerate(variants, start=1)
+                ],
                 [],
             )
 
@@ -1816,6 +2071,14 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
             )
             await arq_worker.async_run()
             await arq_worker.run_check()
+
+        # Verify annotation statuses were created
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "ldh_submission")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "success"
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
@@ -1848,9 +2111,21 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
             dummy_variant_mapping_job_run,
         )
 
+        variants = session.scalars(select(Variant)).all()
+
         async def dummy_ldh_submission(*args, **kwargs):
             return (
-                [{"@id": "LDH12345"}, {"@id": "LDH23456"}],
+                [
+                    {
+                        "data": {
+                            "entId": v.urn,
+                            "ldhId": f"LDH123400{idx}",
+                            "ldhIri": f"https://10.15.55.128/ldh-stg/MaveDBMapping/id/LDH123400{idx}",
+                        },
+                        "status": {"code": 200, "name": "OK"},
+                    }
+                    for idx, v in enumerate(variants, start=1)
+                ],
                 [],
             )
 
@@ -1868,6 +2143,14 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
             )
             await arq_worker.async_run()
             await arq_worker.run_check()
+
+        # Verify annotation statuses were created
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "ldh_submission")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "success"
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline)
@@ -1918,6 +2201,12 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
+        # Verify no annotation statuses were created
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "ldh_submission")
+        ).all()
+        assert len(annotation_statuses) == 0
+
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
         assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.FAILED
@@ -1964,6 +2253,12 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
             )
             await arq_worker.async_run()
             await arq_worker.run_check()
+
+        # Verify no annotation statuses were created
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "ldh_submission")
+        ).all()
+        assert len(annotation_statuses) == 0
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline)

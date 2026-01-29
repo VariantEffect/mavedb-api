@@ -6,8 +6,11 @@ from typing import Any, Sequence, Union
 from sqlalchemy import Connection, Row, select, text
 from sqlalchemy.orm import Session
 
+from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.utils import batched
+from mavedb.models.enums.annotation_type import AnnotationType
+from mavedb.models.enums.job_pipeline import AnnotationStatus
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
 
@@ -168,6 +171,7 @@ def link_gnomad_variants_to_mapped_variants(
         if faf95_max is not None:
             faf95_max = float(faf95_max)
 
+        annotation_manager = AnnotationStatusManager(db)
         for mapped_variant in mapped_variants_with_caids:
             # Remove any existing gnomAD variants for this mapped variant that match the current gnomAD data version to avoid data duplication.
             # There should only be one gnomAD variant per mapped variant per gnomAD data version, since each gnomAD variant can only match to one
@@ -215,6 +219,18 @@ def link_gnomad_variants_to_mapped_variants(
                 linked_gnomad_variants += 1
 
             db.add(gnomad_variant)
+            annotation_manager.add_annotation(
+                variant_id=mapped_variant.variant_id,  # type: ignore
+                annotation_type=AnnotationType.GNOMAD_ALLELE_FREQUENCY,
+                version=GNOMAD_DATA_VERSION,
+                status=AnnotationStatus.SUCCESS,
+                annotation_data={
+                    "success_data": {
+                        "gnomad_db_identifier": gnomad_variant.db_identifier,
+                    }
+                },
+                current=True,
+            )
 
             logger.debug(
                 msg=f"Linked gnomAD variant {gnomad_variant.db_identifier} to mapped variant {mapped_variant.id} ({mapped_variant.clingen_allele_id})",
