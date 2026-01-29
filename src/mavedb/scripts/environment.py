@@ -4,15 +4,13 @@ Environment setup for scripts.
 
 import enum
 import logging
-import click
 from functools import wraps
 
-
+import asyncclick as click
 from sqlalchemy.orm import configure_mappers
 
 from mavedb import deps
 from mavedb.models import *  # noqa: F403
-
 
 logger = logging.getLogger(__name__)
 
