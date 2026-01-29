@@ -1,12 +1,15 @@
 import logging  # noqa: F401
+import os
 import sys
+from contextlib import contextmanager
 from datetime import datetime
 from unittest import mock
 
 import email_validator
 import pytest
 import pytest_postgresql
-from sqlalchemy import create_engine
+import pytest_socket
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -57,6 +60,21 @@ assert pytest_postgresql.factories
 email_validator.TEST_ENVIRONMENT = True
 
 
+def pytest_runtest_setup(item):
+    # Only block sockets for tests not marked with 'network'
+    if "network" not in item.keywords:
+        try:
+            pytest_socket.socket_allow_hosts(["localhost", "127.0.0.1", "::1"], allow_unix_socket=True)
+        except ImportError:
+            pass
+
+    else:
+        try:
+            pytest_socket.enable_socket()
+        except ImportError:
+            pass
+
+
 @pytest.fixture()
 def session(postgresql):
     # Un-comment this line to log all database queries:
@@ -72,11 +90,41 @@ def session(postgresql):
 
     Base.metadata.create_all(bind=engine)
 
+    # Create a unique index for the published_variants_materialized_view to
+    # enforce uniqueness on (variant_id, mapped_variant_id, score_set_id). This
+    # allows us to test mat view refreshes that require this constraint.
+    session.execute(
+        text("""CREATE UNIQUE INDEX IF NOT EXISTS published_variants_mv_unique_idx
+        ON published_variants_materialized_view (variant_id, mapped_variant_id, score_set_id)"""),
+    )
+    session.commit()
+
     try:
         yield session
     finally:
         session.close()
         Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
+def db_session_fixture(session):
+    @contextmanager
+    def _db_session_cm():
+        yield session
+
+    return _db_session_cm
+
+
+# ALL locations which use the db_session fixture need to be patched to use
+# the test version.
+@pytest.fixture
+def patch_db_session_ctxmgr(db_session_fixture):
+    with (
+        mock.patch("mavedb.db.session.db_session", db_session_fixture),
+        mock.patch("mavedb.worker.lib.decorators.utils.db_session", db_session_fixture),
+        # Add other modules that use db_session here as needed
+    ):
+        yield
 
 
 @pytest.fixture
@@ -336,3 +384,13 @@ def mock_publication_fetch(request, requests_mock):
         mocked_publications.append(publication_to_mock)
     # Return a single dict (original behavior) if only one was provided; otherwise the list.
     return mocked_publications[0] if len(mocked_publications) == 1 else mocked_publications
+
+
+# Automatically set MAVEDB_TEST_MODE=1 for unit tests, unset for integration tests.
+@pytest.fixture(autouse=True)
+def set_mavedb_test_mode_flag(request):
+    # If 'unit' marker is present, set the flag; otherwise, unset it.
+    if request.node.get_closest_marker("unit"):
+        os.environ["MAVEDB_TEST_MODE"] = "1"
+    else:
+        os.environ.pop("MAVEDB_TEST_MODE", None)

@@ -168,6 +168,12 @@ class NonexistentMappingResultsError(ValueError):
     pass
 
 
+class NonexistentMappingScoresError(ValueError):
+    """Raised when score set mapping results do not contain mapping scores"""
+
+    pass
+
+
 class NonexistentMappingReferenceError(ValueError):
     """Raised when score set mapping results do not contain a valid reference sequence"""
 
@@ -200,5 +206,41 @@ class UniProtIDMappingEnqueueError(Exception):
 
 class UniProtPollingEnqueueError(ValueError):
     """Raised when a UniProt ID polling job fails to be enqueued despite appearing as if it should have been"""
+
+    pass
+
+
+class UniprotMappingResultNotFoundError(ValueError):
+    """Raised when no UniProt ID is found in the mapping results for a target gene."""
+
+    pass
+
+
+class UniprotAmbiguousMappingResultError(ValueError):
+    """Raised when ambiguous UniProt IDs are found in the mapping results for a target gene."""
+
+    pass
+
+
+class NonExistentTargetGeneError(ValueError):
+    """Raised when a target gene does not exist in the database."""
+
+    pass
+
+
+class LDHSubmissionFailureError(Exception):
+    """Raised when submission to ClinGen Linked Data Hub (LDH) fails for all submissions."""
+
+    pass
+
+
+class PipelineNotFoundError(Exception):
+    """Raised when a pipeline associated with a job is not found."""
+
+    pass
+
+
+class NoMappedVariantsError(Exception):
+    """Raised when no variants were mapped during the variant mapping process."""
 
     pass

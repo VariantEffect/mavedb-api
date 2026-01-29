@@ -1,178 +1,72 @@
+import datetime
 import logging
-from datetime import date
-from typing import Optional, Sequence, Union
+from typing import Optional, Sequence
 
-import click
-from sqlalchemy import cast, select
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Session
+import asyncclick as click  # using asyncclick to allow async commands
+from sqlalchemy import select
 
-from mavedb.data_providers.services import vrs_mapper
-from mavedb.lib.exceptions import NonexistentMappingReferenceError
-from mavedb.lib.logging.context import format_raised_exception_info_as_dict
-from mavedb.lib.mapping import ANNOTATION_LAYERS
-from mavedb.models.enums.mapping_state import MappingState
-from mavedb.models.mapped_variant import MappedVariant
+from mavedb.db.session import SessionLocal
+from mavedb.lib.workflow.job_factory import JobFactory
 from mavedb.models.score_set import ScoreSet
-from mavedb.models.variant import Variant
-from mavedb.scripts.environment import script_environment, with_database_session
+from mavedb.scripts.environment import script_environment
+from mavedb.worker.jobs import STANDALONE_JOB_DEFINITIONS, map_variants_for_score_set
+from mavedb.worker.settings.lifecycle import standalone_ctx
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-def variant_from_mapping(db: Session, mapping: dict, dcd_mapping_version: str) -> MappedVariant:
-    variant_urn = mapping.get("mavedb_id")
-    variant = db.scalars(select(Variant).where(Variant.urn == variant_urn)).one()
-
-    return MappedVariant(
-        variant_id=variant.id,
-        pre_mapped=mapping.get("pre_mapped"),
-        post_mapped=mapping.get("post_mapped"),
-        modification_date=date.today(),
-        mapped_date=date.today(),  # since this is a one-time script, assume mapping was done today
-        vrs_version=mapping.get("vrs_version"),
-        mapping_api_version=dcd_mapping_version,
-        error_message=mapping.get("error_message"),
-        current=True,
-    )
-
-
 @script_environment.command()
-@with_database_session
 @click.argument("urns", nargs=-1)
 @click.option("--all", help="Populate mapped variants for every score set in MaveDB.", is_flag=True)
-def populate_mapped_variant_data(db: Session, urns: Sequence[Optional[str]], all: bool):
+@click.option("--as-user-id", type=int, help="User ID to attribute as the updater of the mapped variants.")
+async def populate_mapped_variant_data(urns: Sequence[Optional[str]], all: bool, as_user_id: Optional[int]):
     score_set_ids: Sequence[Optional[int]]
+    db = SessionLocal()
+
     if all:
         score_set_ids = db.scalars(select(ScoreSet.id)).all()
         logger.info(
-            f"Command invoked with --all. Routine will populate mapped variant data for {len(urns)} score sets."
+            f"Command invoked with --all. Routine will populate mapped variant data for {len(score_set_ids)} score sets."
         )
     else:
         score_set_ids = db.scalars(select(ScoreSet.id).where(ScoreSet.urn.in_(urns))).all()
-        logger.info(f"Populating mapped variant data for the provided score sets ({len(urns)}).")
+        logger.info(f"Populating mapped variant data for the provided score sets ({len(score_set_ids)}).")
 
-    vrs = vrs_mapper()
+    # Unique correlation ID for this batch run
+    correlation_id = f"populate_mapped_variants_{datetime.datetime.now().isoformat()}"
 
-    for idx, ss_id in enumerate(score_set_ids):
-        if not ss_id:
-            continue
+    # Job definition for mapping variants
+    job_def = STANDALONE_JOB_DEFINITIONS[map_variants_for_score_set]
+    job_factory = JobFactory(db)
 
-        score_set = db.scalar(select(ScoreSet).where(ScoreSet.id == ss_id))
-        if not score_set:
-            logger.warning(f"Could not fetch score set with id={ss_id}.")
-            continue
+    # Use a standalone context for job execution outside of ARQ worker.
+    ctx = standalone_ctx()
+    ctx["db"] = db
 
-        try:
-            existing_mapped_variants = (
-                db.query(MappedVariant)
-                .join(Variant)
-                .join(ScoreSet)
-                .filter(ScoreSet.id == ss_id, MappedVariant.current.is_(True))
-                .all()
-            )
+    for score_set_id in score_set_ids:
+        logger.info(f"Populating mapped variant data for score set ID {score_set_id}...")
 
-            for variant in existing_mapped_variants:
-                variant.current = False
+        job_run = job_factory.create_job_run(
+            job_def=job_def,
+            pipeline_id=None,
+            correlation_id=correlation_id,
+            pipeline_params={
+                "score_set_id": score_set_id,
+                "updater_id": as_user_id
+                if as_user_id is not None
+                else 1,  # Use provided user ID or default to System user
+                "correlation_id": correlation_id,
+            },
+        )
+        db.add(job_run)
+        db.flush()
+        logger.info(f"Submitted job run ID {job_run.id} for score set ID {score_set_id}.")
 
-            assert score_set.urn
-            logger.info(f"Mapping score set {score_set.urn}.")
-            mapped_scoreset = vrs.map_score_set(score_set.urn)
-            logger.info(f"Done mapping score set {score_set.urn}.")
-
-            dcd_mapping_version = mapped_scoreset["dcd_mapping_version"]
-            mapped_scores = mapped_scoreset.get("mapped_scores")
-
-            if not mapped_scores:
-                # if there are no mapped scores, the score set failed to map.
-                score_set.mapping_state = MappingState.failed
-                score_set.mapping_errors = {"error_message": mapped_scoreset.get("error_message")}
-                db.commit()
-                logger.info(f"No mapped variants available for {score_set.urn}.")
-            else:
-                reference_metadata = mapped_scoreset.get("reference_sequences")
-                if not reference_metadata:
-                    raise NonexistentMappingReferenceError()
-
-                for target_gene_identifier in reference_metadata:
-                    target_gene = next(
-                        (
-                            target_gene
-                            for target_gene in score_set.target_genes
-                            if target_gene.name == target_gene_identifier
-                        ),
-                        None,
-                    )
-                    if not target_gene:
-                        raise ValueError(
-                            f"Target gene {target_gene_identifier} not found in database for score set {score_set.urn}."
-                        )
-                    # allow for multiple annotation layers
-                    pre_mapped_metadata = {}
-                    post_mapped_metadata: dict[str, Union[Optional[str], dict[str, dict[str, str | list[str]]]]] = {}
-                    excluded_pre_mapped_keys = {"sequence"}
-
-                    gene_info = reference_metadata[target_gene_identifier].get("gene_info")
-                    if gene_info:
-                        target_gene.mapped_hgnc_name = gene_info.get("hgnc_symbol")
-                        post_mapped_metadata["hgnc_name_selection_method"] = gene_info.get("selection_method")
-
-                    for annotation_layer in reference_metadata[target_gene_identifier]["layers"]:
-                        layer_premapped = reference_metadata[target_gene_identifier]["layers"][annotation_layer].get(
-                            "computed_reference_sequence"
-                        )
-                        if layer_premapped:
-                            pre_mapped_metadata[ANNOTATION_LAYERS[annotation_layer]] = {
-                                k: layer_premapped[k]
-                                for k in set(list(layer_premapped.keys())) - excluded_pre_mapped_keys
-                            }
-                        layer_postmapped = reference_metadata[target_gene_identifier]["layers"][annotation_layer].get(
-                            "mapped_reference_sequence"
-                        )
-                        if layer_postmapped:
-                            post_mapped_metadata[ANNOTATION_LAYERS[annotation_layer]] = layer_postmapped
-                    target_gene.pre_mapped_metadata = cast(pre_mapped_metadata, JSONB)
-                    target_gene.post_mapped_metadata = cast(post_mapped_metadata, JSONB)
-
-                mapped_variants = [
-                    variant_from_mapping(db=db, mapping=mapped_score, dcd_mapping_version=dcd_mapping_version)
-                    for mapped_score in mapped_scores
-                ]
-                logger.debug(f"Done constructing {len(mapped_variants)} mapped variant objects.")
-
-                num_successful_variants = len(
-                    [variant for variant in mapped_variants if variant.post_mapped is not None]
-                )
-                logger.debug(
-                    f"{num_successful_variants}/{len(mapped_variants)} variants generated a post-mapped VRS object."
-                )
-
-                if num_successful_variants == 0:
-                    score_set.mapping_state = MappingState.failed
-                    score_set.mapping_errors = {"error_message": "All variants failed to map"}
-                elif num_successful_variants < len(mapped_variants):
-                    score_set.mapping_state = MappingState.incomplete
-                else:
-                    score_set.mapping_state = MappingState.complete
-
-                db.bulk_save_objects(mapped_variants)
-                db.commit()
-                logger.info(f"Done populating {len(mapped_variants)} mapped variants for {score_set.urn}.")
-
-        except Exception as e:
-            logging_context = {
-                "mapped_score_sets": urns[:idx],
-                "unmapped_score_sets": urns[idx:],
-            }
-            logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
-            logger.error(f"Score set {score_set.urn} failed to map.", extra=logging_context)
-            logger.info(f"Rolling back all changes for scoreset {score_set.urn}")
-            db.rollback()
-
-        logger.info(f"Done with score set {score_set.urn}. ({idx+1}/{len(urns)}).")
-
-    logger.info("Done populating mapped variant data.")
+        # Despite accepting a third argument for the job manager and MyPy expecting it, this
+        # argument will be injected automatically by the decorator. We only need to pass
+        # the ctx and job_run.id here for the decorator to generate the job manager.
+        await map_variants_for_score_set(ctx, job_run.id)  # type: ignore[call-arg]
 
 
 if __name__ == "__main__":

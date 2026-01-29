@@ -153,3 +153,25 @@ def generate_calibration_urn():
     :return: A new calibration URN
     """
     return f"urn:mavedb:calibration-{uuid4()}"
+
+
+def generate_pipeline_urn():
+    """
+    Generate a new URN for a pipeline.
+
+    Pipeline URNs include a 16-digit UUID.
+
+    :return: A new pipeline URN
+    """
+    return f"urn:mavedb:pipeline-{uuid4()}"
+
+
+def generate_job_run_urn():
+    """
+    Generate a new URN for a job run.
+
+    Job run URNs include a 16-digit UUID.
+
+    :return: A new job run URN
+    """
+    return f"urn:mavedb:job-{uuid4()}"

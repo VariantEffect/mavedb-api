@@ -1,9 +1,10 @@
 import os
+import shutil
+import tempfile
 from concurrent import futures
 from inspect import getsourcefile
 from posixpath import abspath
-import shutil
-import tempfile
+from unittest.mock import patch
 
 import cdot.hgvs.dataproviders
 import pytest
@@ -12,15 +13,17 @@ from arq.worker import Worker
 from biocommons.seqrepo import SeqRepo
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
-from unittest.mock import patch
+from sqlalchemy import Column, Float, Integer, MetaData, String, Table
 
+from mavedb.db.session import create_engine, sessionmaker
+from mavedb.deps import get_db, get_seqrepo, get_worker, hgvs_data_provider
 from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.authorization import require_current_user
+from mavedb.lib.gnomad import gnomad_table_name
 from mavedb.models.user import User
 from mavedb.server_main import app
-from mavedb.deps import get_db, get_worker, hgvs_data_provider, get_seqrepo
-from mavedb.worker.settings import BACKGROUND_FUNCTIONS, BACKGROUND_CRONJOBS
-
+from mavedb.worker.jobs import BACKGROUND_CRONJOBS, BACKGROUND_FUNCTIONS
+from mavedb.worker.lib.managers.types import JobResultData
 from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_SEQREPO_INITIAL_STATE, TEST_USER
 
 ####################################################################################################
@@ -78,6 +81,10 @@ async def arq_redis():
         await redis_.aclose(close_connection_pool=True)
 
 
+async def dummy_arq_function(ctx, *args, **kwargs) -> JobResultData:
+    return {"status": "ok", "data": {}, "exception_details": None}
+
+
 @pytest_asyncio.fixture()
 async def arq_worker(data_provider, session, arq_redis):
     """
@@ -87,7 +94,7 @@ async def arq_worker(data_provider, session, arq_redis):
 
     ```
     async def worker_test(arq_redis, arq_worker):
-        await arq_redis.enqueue_job('some_job')
+        await arq_redis.enqueue_job('dummy_arq_function')
         await arq_worker.async_run()
         await arq_worker.run_check()
     ```
@@ -103,7 +110,7 @@ async def arq_worker(data_provider, session, arq_redis):
         ctx["pool"] = futures.ProcessPoolExecutor()
 
     worker_ = Worker(
-        functions=BACKGROUND_FUNCTIONS,
+        functions=BACKGROUND_FUNCTIONS + [dummy_arq_function],
         cron_jobs=BACKGROUND_CRONJOBS,
         redis_pool=arq_redis,
         burst=True,
@@ -120,9 +127,8 @@ async def arq_worker(data_provider, session, arq_redis):
 
 
 @pytest.fixture
-def standalone_worker_context(session, data_provider, arq_redis):
+def standalone_worker_context(data_provider, arq_redis):
     yield {
-        "db": session,
         "hdp": data_provider,
         "state": {},
         "job_id": "test_job",
@@ -401,3 +407,58 @@ def client(app_):
 async def async_client(app_):
     async with AsyncClient(app=app_, base_url="http://testserver") as ac:
         yield ac
+
+
+#####################################################################################################
+# Athena
+#####################################################################################################
+
+
+@pytest.fixture
+def athena_engine():
+    """Create and yield a SQLAlchemy engine connected to a mock Athena database."""
+    engine = create_engine("sqlite:///:memory:")
+    metadata = MetaData()
+
+    # TODO: Define your table schema here
+    my_table = Table(
+        gnomad_table_name(),
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("locus.contig", String),
+        Column("locus.position", Integer),
+        Column("alleles", String),
+        Column("caid", String),
+        Column("joint.freq.all.ac", Integer),
+        Column("joint.freq.all.an", Integer),
+        Column("joint.fafmax.faf95_max_gen_anc", String),
+        Column("joint.fafmax.faf95_max", Float),
+    )
+    metadata.create_all(engine)
+
+    session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+
+    # Insert test data
+    session.execute(
+        my_table.insert(),
+        [
+            {
+                "id": 1,
+                "locus.contig": "chr1",
+                "locus.position": 12345,
+                "alleles": "[G, A]",
+                "caid": "CA123",
+                "joint.freq.all.ac": 23,
+                "joint.freq.all.an": 32432423,
+                "joint.fafmax.faf95_max_gen_anc": "anc1",
+                "joint.fafmax.faf95_max": 0.000006763700000000002,
+            }
+        ],
+    )
+    session.commit()
+    session.close()
+
+    try:
+        yield engine
+    finally:
+        engine.dispose()
