@@ -14,6 +14,7 @@ from arq import ArqRedis
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from mavedb.lib.slack import send_slack_error
 from mavedb.models.enums.job_pipeline import PipelineStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.decorators import with_job_management
@@ -97,13 +98,18 @@ async def _execute_managed_pipeline(func: Callable[..., Awaitable[JobResultData]
     Raises:
         Exception: Propagates any exception raised during function execution.
     """
-    ctx = ensure_ctx(args)
-    job_id = ensure_job_id(args)
-    db_session: Session = ctx["db"]
+    try:
+        ctx = ensure_ctx(args)
+        job_id = ensure_job_id(args)
+        db_session: Session = ctx["db"]
 
-    if "redis" not in ctx:
-        raise ValueError("Redis connection not found in pipeline context")
-    redis_pool: ArqRedis = ctx["redis"]
+        if "redis" not in ctx:
+            raise ValueError("Redis connection not found in pipeline context")
+        redis_pool: ArqRedis = ctx["redis"]
+    except Exception as e:
+        logger.critical(f"Failed to initialize pipeline management context: {e}")
+        send_slack_error(e)
+        raise
 
     pipeline_manager = None
     pipeline_id = None
@@ -164,6 +170,9 @@ async def _execute_managed_pipeline(func: Callable[..., Awaitable[JobResultData]
                 f"Unable to perform cleanup coordination on pipeline {pipeline_id} associated with job {job_id} after error: {inner_e}"
             )
 
+            # Notify about the internal error, as it indicates a serious problem with pipeline state persistence
+            send_slack_error(inner_e)
+
             # No further work here. We can rely on the notification hooks below to alert on the original failure
             # and should allow result generation to proceed as normal so the job can be logged.
         finally:
@@ -172,7 +181,8 @@ async def _execute_managed_pipeline(func: Callable[..., Awaitable[JobResultData]
             # Build job result data for failure
             result = {"status": "failed", "data": {}, "exception": e}
 
-            # TODO: Notification hooks
+            # Notify about the original failure
+            send_slack_error(e)
 
             # Swallow the exception after alerting so ARQ can finish the job cleanly and log results.
             # We don't mind that we lose ARQs built in job marking, since we perform our own job

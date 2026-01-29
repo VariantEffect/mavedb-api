@@ -670,14 +670,18 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
         target_gene.post_mapped_metadata = {"protein": {"sequence_accessions": [VALID_NT_ACCESSION]}}
         session.commit()
 
-        with patch(
-            "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
-            side_effect=Exception("UniProt API failure"),
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
+                side_effect=Exception("UniProt API failure"),
+            ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await submit_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx, sample_submit_uniprot_mapping_jobs_run.id
             )
 
+        mock_send_slack_error.assert_called_once()
         assert result["status"] == "exception"
         assert isinstance(result["exception"], Exception)
 
@@ -810,14 +814,18 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
         target_gene.post_mapped_metadata = {"protein": {"sequence_accessions": [VALID_NT_ACCESSION]}}
         session.commit()
 
-        with patch(
-            "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
-            return_value="job_12345",
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
+                return_value="job_12345",
+            ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await submit_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx, sample_submit_uniprot_mapping_jobs_run.id
             )
 
+        mock_send_slack_error.assert_called_once()
         assert result["status"] == "failed"
         assert isinstance(result["exception"], UniProtPollingEnqueueError)
 
@@ -964,9 +972,12 @@ class TestSubmitUniprotMappingJobsArqContext:
         target_gene.post_mapped_metadata = {"protein": {"sequence_accessions": [VALID_NT_ACCESSION]}}
         session.commit()
 
-        with patch(
-            "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
-            side_effect=Exception("UniProt API failure"),
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
+                side_effect=Exception("UniProt API failure"),
+            ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             await arq_redis.enqueue_job(
                 "submit_uniprot_mapping_jobs_for_score_set", sample_submit_uniprot_mapping_jobs_run.id
@@ -974,6 +985,7 @@ class TestSubmitUniprotMappingJobsArqContext:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
+        mock_send_slack_error.assert_called_once()
         # Verify that the job metadata contains no submitted jobs
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
         assert sample_submit_uniprot_mapping_jobs_run.metadata_.get("submitted_jobs") is None
@@ -1007,9 +1019,12 @@ class TestSubmitUniprotMappingJobsArqContext:
         target_gene.post_mapped_metadata = {"protein": {"sequence_accessions": [VALID_NT_ACCESSION]}}
         session.commit()
 
-        with patch(
-            "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
-            side_effect=Exception("UniProt API failure"),
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
+                side_effect=Exception("UniProt API failure"),
+            ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             await arq_redis.enqueue_job(
                 "submit_uniprot_mapping_jobs_for_score_set", sample_submit_uniprot_mapping_jobs_run_in_pipeline.id
@@ -1017,6 +1032,7 @@ class TestSubmitUniprotMappingJobsArqContext:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
+        mock_send_slack_error.assert_called_once()
         # Verify that the job metadata contains no submitted jobs
         session.refresh(sample_submit_uniprot_mapping_jobs_run_in_pipeline)
         assert sample_submit_uniprot_mapping_jobs_run_in_pipeline.metadata_.get("submitted_jobs") is None
@@ -1688,11 +1704,13 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
                 "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.get_id_mapping_results",
                 return_value={"results": []},  # minimal response with no results
             ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await poll_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx, sample_polling_job_for_submission_run.id
             )
 
+        mock_send_slack_error.assert_called_once()
         assert result["status"] == "exception"
         assert isinstance(result["exception"], UniprotMappingResultNotFoundError)
 
@@ -1745,11 +1763,13 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
                     ]
                 },
             ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await poll_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx, sample_polling_job_for_submission_run.id
             )
 
+        mock_send_slack_error.assert_called_once()
         assert result["status"] == "exception"
         assert isinstance(result["exception"], UniprotAmbiguousMappingResultError)
 
@@ -1785,11 +1805,13 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
                 "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.get_id_mapping_results",
                 return_value=TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE,
             ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await poll_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx, sample_polling_job_for_submission_run.id
             )
 
+        mock_send_slack_error.assert_called_once()
         assert result["status"] == "exception"
         assert isinstance(result["exception"], NonExistentTargetGeneError)
 
@@ -1816,14 +1838,18 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
         }
         session.commit()
 
-        with patch(
-            "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.check_id_mapping_results_ready",
-            side_effect=Exception("UniProt API failure"),
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.check_id_mapping_results_ready",
+                side_effect=Exception("UniProt API failure"),
+            ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await poll_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx, sample_polling_job_for_submission_run.id
             )
 
+        mock_send_slack_error.assert_called_once()
         assert result["status"] == "exception"
         assert isinstance(result["exception"], Exception)
 
@@ -1960,6 +1986,7 @@ class TestPollUniprotMappingJobsForScoreSetArqContext:
                 "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.check_id_mapping_results_ready",
                 side_effect=Exception("UniProt API failure"),
             ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             await arq_redis.enqueue_job(
                 "poll_uniprot_mapping_jobs_for_score_set", sample_polling_job_for_submission_run.id
@@ -1967,6 +1994,7 @@ class TestPollUniprotMappingJobsForScoreSetArqContext:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
+        mock_send_slack_error.assert_called_once()
         # Verify that the polling job failed
         session.refresh(sample_polling_job_for_submission_run)
         assert sample_polling_job_for_submission_run.status == JobStatus.FAILED
@@ -1998,6 +2026,7 @@ class TestPollUniprotMappingJobsForScoreSetArqContext:
                 "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.check_id_mapping_results_ready",
                 side_effect=Exception("UniProt API failure"),
             ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             await arq_redis.enqueue_job(
                 "poll_uniprot_mapping_jobs_for_score_set",
@@ -2006,6 +2035,7 @@ class TestPollUniprotMappingJobsForScoreSetArqContext:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
+        mock_send_slack_error.assert_called_once()
         # Verify that the polling job failed
         session.refresh(sample_poll_uniprot_mapping_jobs_run_in_pipeline)
         assert sample_poll_uniprot_mapping_jobs_run_in_pipeline.status == JobStatus.FAILED

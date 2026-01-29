@@ -98,18 +98,28 @@ class TestPipelineManagementDecoratorUnit:
     ):
         del mock_worker_ctx[missing_key]
 
-        with pytest.raises(ValueError) as exc_info, TransactionSpy.spy(mock_pipeline_manager.db):
+        with (
+            pytest.raises(ValueError) as exc_info,
+            TransactionSpy.spy(mock_pipeline_manager.db),
+            patch("mavedb.worker.lib.decorators.pipeline_management.send_slack_error") as mock_send_slack_error,
+        ):
             await sample_job(mock_worker_ctx, 999)
 
         assert missing_key.replace("_", " ") in str(exc_info.value).lower()
         assert "not found in pipeline context" in str(exc_info.value).lower()
+        mock_send_slack_error.assert_called_once()
 
     async def test_decorator_raises_value_error_if_job_id_missing(self, mock_pipeline_manager, mock_worker_ctx):
         # Remove job_id from args to simulate missing job_id
-        with pytest.raises(ValueError) as exc_info, TransactionSpy.spy(mock_pipeline_manager.db):
+        with (
+            pytest.raises(ValueError) as exc_info,
+            TransactionSpy.spy(mock_pipeline_manager.db),
+            patch("mavedb.worker.lib.decorators.pipeline_management.send_slack_error") as mock_send_slack_error,
+        ):
             await sample_job(mock_worker_ctx)
 
         assert "job id not found in function arguments" in str(exc_info.value).lower()
+        mock_send_slack_error.assert_called_once()
 
     async def test_decorator_swallows_exception_if_cant_fetch_pipeline_id(
         self, session, mock_pipeline_manager, mock_worker_ctx
@@ -120,8 +130,10 @@ class TestPipelineManagementDecoratorUnit:
                 exception=ValueError("job id not found in pipeline context"),
                 expect_rollback=True,
             ),
+            patch("mavedb.worker.lib.decorators.pipeline_management.send_slack_error") as mock_send_slack_error,
         ):
             await sample_job(mock_worker_ctx, 999)
+        mock_send_slack_error.assert_called_once()
 
     async def test_decorator_fetches_pipeline_from_db_and_constructs_pipeline_manager(
         self, session, mock_pipeline_manager, mock_worker_ctx, sample_job_run, with_populated_job_data
@@ -214,11 +226,12 @@ class TestPipelineManagementDecoratorUnit:
             patch.object(mock_pipeline_manager, "start_pipeline", return_value=None),
             patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=PipelineStatus.CREATED),
             TransactionSpy.spy(session, expect_commit=True, expect_rollback=True),
+            patch("mavedb.worker.lib.decorators.pipeline_management.send_slack_error") as mock_send_slack_error,
         ):
             mock_pipeline_manager_class.return_value = mock_pipeline_manager
             await sample_raise(mock_worker_ctx, sample_job_run.id)
 
-        # TODO: Assert calls for notification hooks and job result data
+        mock_send_slack_error.assert_called_once()
 
     async def test_decorator_swallows_exception_from_pipeline_manager_coordinate_pipeline(
         self, session, mock_pipeline_manager, mock_worker_ctx, sample_job_run, with_populated_job_data
@@ -235,11 +248,12 @@ class TestPipelineManagementDecoratorUnit:
             # Exception raised from coordinate_pipeline should trigger rollback,
             # and commit will be called when pipeline status is set to running
             TransactionSpy.spy(session, expect_commit=True, expect_rollback=True),
+            patch("mavedb.worker.lib.decorators.pipeline_management.send_slack_error") as mock_send_slack_error,
         ):
             mock_pipeline_manager_class.return_value = mock_pipeline_manager
             await sample_job(mock_worker_ctx, sample_job_run.id)
 
-        # TODO: Assert calls for notification hooks and job result data
+        assert mock_send_slack_error.call_count == 2
 
     async def test_decorator_swallows_exception_from_job_management_decorator(
         self, session, mock_pipeline_manager, mock_worker_ctx, sample_job_run, with_populated_job_data
@@ -256,8 +270,10 @@ class TestPipelineManagementDecoratorUnit:
             ) as mock_with_job_mgmt,
             patch.object(mock_pipeline_manager, "start_pipeline", return_value=None),
             patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=PipelineStatus.CREATED),
+            patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None),
             patch("mavedb.worker.lib.decorators.pipeline_management.PipelineManager") as mock_pipeline_manager_class,
             TransactionSpy.spy(session, expect_commit=True, expect_rollback=True),
+            patch("mavedb.worker.lib.decorators.pipeline_management.send_slack_error") as mock_send_slack_error,
         ):
             mock_pipeline_manager_class.return_value = mock_pipeline_manager
 
@@ -268,7 +284,7 @@ class TestPipelineManagementDecoratorUnit:
             await sample_job(mock_worker_ctx, sample_job_run.id, pipeline_manager=mock_pipeline_manager)
 
         mock_with_job_mgmt.assert_called_once()
-        # TODO: Assert calls for notification hooks and job result data
+        mock_send_slack_error.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -398,22 +414,26 @@ class TestPipelineManagementDecoratorIntegration:
             await dep_event.wait()  # Simulate async work, block until test signals
             return {"status": "ok", "data": {}, "exception": None}
 
-        # Start the job (it will block at event.wait())
-        job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))
+        # job management handles slack alerting in this context
+        with patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error:
+            # Start the job (it will block at event.wait())
+            job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))
 
-        # At this point, the job should be started but not completed
-        await asyncio.sleep(0.1)  # Give the event loop a moment to start the job
-        job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
-        assert job.status == JobStatus.RUNNING
+            # At this point, the job should be started but not completed
+            await asyncio.sleep(0.1)  # Give the event loop a moment to start the job
+            job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
+            assert job.status == JobStatus.RUNNING
 
-        pipeline = session.execute(select(Pipeline).where(Pipeline.id == sample_pipeline.id)).scalar_one()
-        assert pipeline.status == PipelineStatus.RUNNING
+            pipeline = session.execute(select(Pipeline).where(Pipeline.id == sample_pipeline.id)).scalar_one()
+            assert pipeline.status == PipelineStatus.RUNNING
 
-        # Now allow the job to complete with failure that triggers a retry. This failure
-        # should be swallowed by the job_task.
-        with patch.object(JobManager, "should_retry", return_value=True):
-            event.set()
-            await job_task
+            # Now allow the job to complete with failure that triggers a retry. This failure
+            # should be swallowed by the job_task.
+            with patch.object(JobManager, "should_retry", return_value=True):
+                event.set()
+                await job_task
+
+            mock_send_slack_error.assert_called_once()
 
         # After failure with retry, status should be QUEUED
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -494,22 +514,26 @@ class TestPipelineManagementDecoratorIntegration:
             await event.wait()  # Simulate async work, block until test signals
             raise RuntimeError("Simulated job failure")
 
-        # Start the job (it will block at event.wait())
-        job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))
+        # job management handles slack alerting in this context
+        with patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error:
+            # Start the job (it will block at event.wait())
+            job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))
 
-        # At this point, the job should be started but not completed
-        await asyncio.sleep(0.1)  # Give the event loop a moment to start the job
-        job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
-        assert job.status == JobStatus.RUNNING
+            # At this point, the job should be started but not completed
+            await asyncio.sleep(0.1)  # Give the event loop a moment to start the job
+            job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
+            assert job.status == JobStatus.RUNNING
 
-        pipeline = session.execute(select(Pipeline).where(Pipeline.id == sample_pipeline.id)).scalar_one()
-        assert pipeline.status == PipelineStatus.RUNNING
+            pipeline = session.execute(select(Pipeline).where(Pipeline.id == sample_pipeline.id)).scalar_one()
+            assert pipeline.status == PipelineStatus.RUNNING
 
-        # Now allow the job to complete with failure and flush the Redis queue. This failure
-        # should be swallowed by the pipeline manager
-        await arq_redis.flushdb()
-        event.set()
-        await job_task
+            # Now allow the job to complete with failure and flush the Redis queue. This failure
+            # should be swallowed by the pipeline manager
+            await arq_redis.flushdb()
+            event.set()
+            await job_task
+
+            mock_send_slack_error.assert_called_once()
 
         # After failure with no retry, status should be FAILED
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()

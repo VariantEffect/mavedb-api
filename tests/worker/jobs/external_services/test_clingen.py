@@ -754,11 +754,13 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         with (
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", ""),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await submit_score_set_mappings_to_car(
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
+        mock_send_slack_error.assert_called_once()
         assert result["status"] == "failed"
         assert isinstance(result["exception"], ValueError)
 
@@ -947,11 +949,13 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await submit_score_set_mappings_to_car(
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
+        mock_send_slack_error.assert_called_once()
         assert result["status"] == "exception"
         assert isinstance(result["exception"], Exception)
         assert str(result["exception"]) == "ClinGen service error"
@@ -1143,6 +1147,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
                 "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
                 side_effect=Exception("ClinGen service error"),
             ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             await arq_redis.enqueue_job(
                 "submit_score_set_mappings_to_car", submit_score_set_mappings_to_car_sample_job_run.id
@@ -1150,6 +1155,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
+        mock_send_slack_error.assert_called_once()
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
         assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.FAILED
@@ -1200,6 +1206,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
                 "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
                 side_effect=Exception("ClinGen service error"),
             ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             await arq_redis.enqueue_job(
                 "submit_score_set_mappings_to_car", submit_score_set_mappings_to_car_sample_job_run_in_pipeline.id
@@ -1207,6 +1214,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
+        mock_send_slack_error.assert_called_once()
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run_in_pipeline)
         assert submit_score_set_mappings_to_car_sample_job_run_in_pipeline.status == JobStatus.FAILED
@@ -1701,11 +1709,13 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
                 side_effect=Exception("LDH service error"),
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await submit_score_set_mappings_to_ldh(
                 standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
             )
 
+        mock_send_slack_error.assert_called_once()
         assert result["status"] == "exception"
         assert isinstance(result["exception"], Exception)
         assert str(result["exception"]) == "LDH service error"
@@ -1848,11 +1858,13 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
                 return_value=dummy_submission_failure(),
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await submit_score_set_mappings_to_ldh(
                 standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
             )
 
+        mock_send_slack_error.assert_called_once()
         assert result["status"] == "failed"
         assert isinstance(result["exception"], LDHSubmissionFailureError)
 
@@ -2201,6 +2213,7 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
                 "run_in_executor",
                 side_effect=Exception("LDH service error"),
             ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             await arq_redis.enqueue_job(
                 "submit_score_set_mappings_to_ldh", submit_score_set_mappings_to_ldh_sample_job_run.id
@@ -2208,6 +2221,7 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
+        mock_send_slack_error.assert_called_once()
         # Verify no annotation statuses were created
         annotation_statuses = session.scalars(
             select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "ldh_submission")
@@ -2254,6 +2268,7 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
                 "run_in_executor",
                 side_effect=Exception("LDH service error"),
             ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             await arq_redis.enqueue_job(
                 "submit_score_set_mappings_to_ldh", submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline.id
@@ -2261,6 +2276,7 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
+        mock_send_slack_error.assert_called_once()
         # Verify no annotation statuses were created
         annotation_statuses = session.scalars(
             select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "ldh_submission")

@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable, TypeVar, cast
 from arq import ArqRedis
 from sqlalchemy.orm import Session
 
+from mavedb.lib.slack import send_slack_error
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.worker.lib.decorators.utils import ensure_ctx, ensure_job_id, ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers import JobManager
@@ -97,13 +98,18 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobResultData]], ar
     Raises:
         Exception: Re-raises any exception after proper job failure tracking
     """
-    ctx = ensure_ctx(args)
-    db_session: Session = ctx["db"]
-    job_id = ensure_job_id(args)
+    try:
+        ctx = ensure_ctx(args)
+        db_session: Session = ctx["db"]
+        job_id = ensure_job_id(args)
 
-    if "redis" not in ctx:
-        raise ValueError("Redis connection not found in job context")
-    redis_pool: ArqRedis = ctx["redis"]
+        if "redis" not in ctx:
+            raise ValueError("Redis connection not found in job context")
+        redis_pool: ArqRedis = ctx["redis"]
+    except Exception as e:
+        logger.critical(f"Failed to initialize job management context: {e}")
+        send_slack_error(e)
+        raise
 
     try:
         # Initialize JobManager
@@ -123,6 +129,8 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobResultData]], ar
         if result.get("status") == "failed" or result.get("exception"):
             # Exception info should always be present for failed jobs
             job_manager.fail_job(result=result, error=result["exception"])  # type: ignore[arg-type]
+            send_slack_error(result["exception"])
+
         elif result.get("status") == "skipped":
             job_manager.skip_job(result=result)
         else:
@@ -161,13 +169,15 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobResultData]], ar
         except Exception as inner_e:
             logger.critical(f"Failed to mark job {job_id} as failed: {inner_e}")
 
-            # TODO: Notification hooks
+            # Notify separately about inner failure, which affects job persistence
+            send_slack_error(inner_e)
 
             # Re-raise the outer exception immediately to prevent duplicate notifications
         finally:
             logger.error(f"Job {job_id} failed: {e}")
 
-            # TODO: Notification hooks
+            # Notify about the original exception
+            send_slack_error(e)
 
             # Swallow the exception after alerting so ARQ can finish the job cleanly and log results.
             # We don't mind that we lose ARQs built in job marking, since we perform our own job
