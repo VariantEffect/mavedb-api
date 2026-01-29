@@ -95,7 +95,7 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_
 
     # Preset submitted jobs metadata so it persists even if no jobs are submitted.
     job.metadata_["submitted_jobs"] = {}
-    job_manager.db.commit()
+    job_manager.db.flush()
 
     if not score_set.target_genes:
         job_manager.update_progress(100, 100, "No target genes found. Skipped UniProt mapping job submission.")
@@ -155,7 +155,7 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_
     # Save submitted jobs to job metadata for auditing purposes
     job.metadata_["submitted_jobs"] = mapping_jobs
     flag_modified(job, "metadata_")
-    job_manager.db.commit()
+    job_manager.db.flush()
 
     # If no mapping jobs were submitted, log and exit early.
     if not mapping_jobs or not any((job_info["job_id"] for job_info in mapping_jobs.values())):
@@ -175,9 +175,17 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_
             extra=job_manager.logging_context(),
         )
 
-        raise UniProtPollingEnqueueError(
-            f"Could not find unique dependent polling job for UniProt mapping job {job.id}."
-        )
+        # Return a failure state here rather than raising to indicate to the manager
+        # we should still commit any successful annotations.
+        return {
+            "status": "failed",
+            "data": {},
+            "exception_details": {
+                "type": UniProtPollingEnqueueError.__name__,
+                "message": f"Could not find unique dependent polling job for UniProt mapping job {job.id}.",
+                "traceback": None,
+            },
+        }
 
     # Set mapping jobs on dependent polling job. Only one polling job per score set should be created.
     polling_job = dependent_polling_job[0].job_run
@@ -188,7 +196,7 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_
 
     job_manager.update_progress(100, 100, "Completed submission of UniProt mapping jobs.")
     logger.info(msg="Completed UniProt mapping job submission", extra=job_manager.logging_context())
-    job_manager.db.commit()
+    job_manager.db.flush()
     return {"status": "ok", "data": {}, "exception_details": None}
 
 
@@ -312,5 +320,5 @@ async def poll_uniprot_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_ma
         )
 
     job_manager.update_progress(100, 100, "Completed polling of UniProt mapping jobs.")
-    job_manager.db.commit()
+    job_manager.db.flush()
     return {"status": "ok", "data": {}, "exception_details": None}

@@ -14,6 +14,7 @@ from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
+from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 from mavedb.worker.jobs.variant_processing.mapping import map_variants_for_score_set
 from mavedb.worker.lib.managers.job_manager import JobManager
 from tests.helpers.constants import TEST_CODING_LAYER, TEST_GENOMIC_LAYER, TEST_PROTEIN_LAYER
@@ -62,6 +63,15 @@ class TestMapVariantsForScoreSetUnit:
             in sample_score_set.mapping_errors["error_message"]
         )
 
+        # Verify no annotations were created
+        annotation_statuses = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id)
+            .all()
+        )
+        assert len(annotation_statuses) == 0
+
     async def test_map_variants_for_score_set_no_mapped_scores(
         self,
         session,
@@ -97,6 +107,15 @@ class TestMapVariantsForScoreSetUnit:
         assert sample_score_set.mapping_errors is not None
         assert "No variants were mapped for this score set" in sample_score_set.mapping_errors["error_message"]
 
+        # Verify no annotations were created
+        annotation_statuses = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id)
+            .all()
+        )
+        assert len(annotation_statuses) == 0
+
     async def test_map_variants_for_score_set_no_reference_data(
         self,
         session,
@@ -131,6 +150,15 @@ class TestMapVariantsForScoreSetUnit:
         assert sample_score_set.mapping_state == MappingState.failed
         assert sample_score_set.mapping_errors is not None
         assert "Reference metadata missing from mapping results" in sample_score_set.mapping_errors["error_message"]
+
+        # Verify no annotations were created
+        annotation_statuses = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id)
+            .all()
+        )
+        assert len(annotation_statuses) == 0
 
     async def test_map_variants_for_score_set_nonexistent_target_gene(
         self,
@@ -173,6 +201,15 @@ class TestMapVariantsForScoreSetUnit:
             in sample_score_set.mapping_errors["error_message"]
         )
 
+        # Verify no annotations were created
+        annotation_statuses = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id)
+            .all()
+        )
+        assert len(annotation_statuses) == 0
+
     async def test_map_variants_for_score_set_returns_variants_not_in_score_set(
         self,
         session,
@@ -213,6 +250,15 @@ class TestMapVariantsForScoreSetUnit:
             "Encountered an unexpected error while parsing mapped variants"
             in sample_score_set.mapping_errors["error_message"]
         )
+
+        # Verify no annotations were created
+        annotation_statuses = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id)
+            .all()
+        )
+        assert len(annotation_statuses) == 0
 
     async def test_map_variants_for_score_set_success_missing_gene_info(
         self,
@@ -273,6 +319,17 @@ class TestMapVariantsForScoreSetUnit:
         # Verify that a mapped variant was created
         mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 1
+
+        # Verify that annotation statuses were created and correct
+        annotation_statuses = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id)
+            .all()
+        )
+        assert len(annotation_statuses) == 1
+        assert annotation_statuses[0].annotation_type == "vrs_mapping"
+        assert annotation_statuses[0].status == "success"
 
     @pytest.mark.parametrize(
         "with_layers",
@@ -381,6 +438,17 @@ class TestMapVariantsForScoreSetUnit:
         mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 1
 
+        # Verify that annotation statuses were created and correct
+        annotation_statuses = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id)
+            .all()
+        )
+        assert len(annotation_statuses) == 1
+        assert annotation_statuses[0].annotation_type == "vrs_mapping"
+        assert annotation_statuses[0].status == "success"
+
     async def test_map_variants_for_score_set_success_no_successful_mapping(
         self,
         session,
@@ -440,6 +508,17 @@ class TestMapVariantsForScoreSetUnit:
         # Verify that the mapped variant has no post-mapped data
         mapped_variant = mapped_variants[0]
         assert mapped_variant.post_mapped == {}
+
+        # Verify that annotation statuses were created and correct
+        annotation_statuses = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id)
+            .all()
+        )
+        assert len(annotation_statuses) == 1
+        assert annotation_statuses[0].annotation_type == "vrs_mapping"
+        assert annotation_statuses[0].status == "failed"
 
     async def test_map_variants_for_score_set_incomplete_mapping(
         self,
@@ -520,6 +599,24 @@ class TestMapVariantsForScoreSetUnit:
         )
         assert mapped_variant_without_post_data is not None
 
+        # Verify that annotation statuses were created and correct
+        annotation_status_success = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id, VariantAnnotationStatus.status == "success")
+            .all()
+        )
+        assert len(annotation_status_success) == 1
+        assert annotation_status_success[0].annotation_type == "vrs_mapping"
+        annotation_status_failed = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id, VariantAnnotationStatus.status == "failed")
+            .all()
+        )
+        assert len(annotation_status_failed) == 1
+        assert annotation_status_failed[0].annotation_type == "vrs_mapping"
+
     async def test_map_variants_for_score_set_complete_mapping(
         self,
         session,
@@ -594,6 +691,18 @@ class TestMapVariantsForScoreSetUnit:
             assert mapped_variant is not None
             assert mapped_variant.post_mapped != {}
 
+        # Verify that annotation statuses were created and correct
+        annotation_statuses = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id)
+            .all()
+        )
+        assert len(annotation_statuses) == 2
+        for status in annotation_statuses:
+            assert status.annotation_type == "vrs_mapping"
+            assert status.status == "success"
+
     async def test_map_variants_for_score_set_updates_existing_mapped_variants(
         self,
         with_independent_processing_runs,
@@ -619,7 +728,7 @@ class TestMapVariantsForScoreSetUnit:
                 with_all_variants=True,
             )
 
-        # Create a variant and associated mapped data in the score set to be updated
+        # Create a variant and associated mapped data/annotation status in the score set to be updated
         variant = Variant(
             score_set_id=sample_score_set.id, hgvs_nt="NM_000000.1:c.1A>G", hgvs_pro="NP_000000.1:p.Met1Val", data={}
         )
@@ -632,6 +741,11 @@ class TestMapVariantsForScoreSetUnit:
             mapping_api_version="v1.0.0",
         )
         session.add(mapped_variant)
+        session.commit()
+        variant_annotation_status = VariantAnnotationStatus(
+            variant_id=variant.id, current=True, annotation_type="vrs_mapping", status="success"
+        )
+        session.add(variant_annotation_status)
         session.commit()
 
         with (
@@ -673,6 +787,25 @@ class TestMapVariantsForScoreSetUnit:
         # Verify that the new mapped variant has updated mapping data
         assert new_mapped_variant.mapped_date != "2023-01-01T00:00:00Z"
         assert new_mapped_variant.mapping_api_version != "v1.0.0"
+
+        # Verify the non-current annotation status still exists
+        old_annotation_status = (
+            session.query(VariantAnnotationStatus)
+            .filter(
+                VariantAnnotationStatus.variant_id == non_current_mapped_variant.variant_id,
+                VariantAnnotationStatus.current.is_(False),
+            )
+            .one_or_none()
+        )
+        assert old_annotation_status is not None
+
+        # Verify that a new annotation status was created
+        new_annotation_status = (
+            session.query(VariantAnnotationStatus)
+            .filter(VariantAnnotationStatus.variant_id == variant.id, VariantAnnotationStatus.current.is_(True))
+            .one_or_none()
+        )
+        assert new_annotation_status is not None
 
     async def test_map_variants_for_score_set_progress_updates(
         self,
@@ -819,6 +952,15 @@ class TestMapVariantsForScoreSetIntegration:
         )
         assert len(variants) == 4
 
+        # Verify that each variant has an annotation status
+        annotation_statuses = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id)
+            .all()
+        )
+        assert len(annotation_statuses) == 4
+
         # Verify that the job status was updated
         processing_run = (
             session.query(sample_independent_variant_mapping_run.__class__)
@@ -902,6 +1044,15 @@ class TestMapVariantsForScoreSetIntegration:
         )
         assert len(variants) == 4
 
+        # Verify that each variant has an annotation status
+        annotation_statuses = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id)
+            .all()
+        )
+        assert len(annotation_statuses) == 4
+
         # Verify that the job status was updated
         processing_run = (
             session.query(sample_pipeline_variant_mapping_run.__class__)
@@ -959,7 +1110,7 @@ class TestMapVariantsForScoreSetIntegration:
                 sample_independent_variant_mapping_run.id,
             )
 
-        assert result["status"] == "failed"
+        assert result["status"] == "error"
         assert result["exception_details"]["type"] == "NonexistentMappingResultsError"
         assert result["data"] == {}
 
@@ -974,13 +1125,17 @@ class TestMapVariantsForScoreSetIntegration:
         mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 0
 
+        # Verify that no annotation statuses were created
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == 0
+
         # Verify that the job status was updated.
         processing_run = (
             session.query(sample_independent_variant_mapping_run.__class__)
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
-        assert processing_run.status == JobStatus.FAILED
+        assert processing_run.status == JobStatus.SUCCEEDED
 
     async def test_map_variants_for_score_set_no_mapped_scores(
         self,
@@ -1033,7 +1188,7 @@ class TestMapVariantsForScoreSetIntegration:
                 sample_independent_variant_mapping_run.id,
             )
 
-        assert result["status"] == "failed"
+        assert result["status"] == "error"
         assert result["exception_details"]["type"] == "NonexistentMappingScoresError"
         assert result["data"] == {}
 
@@ -1046,13 +1201,17 @@ class TestMapVariantsForScoreSetIntegration:
         mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 0
 
+        # Verify that no annotation statuses were created
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == 0
+
         # Verify that the job status was updated.
         processing_run = (
             session.query(sample_independent_variant_mapping_run.__class__)
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
-        assert processing_run.status == JobStatus.FAILED
+        assert processing_run.status == JobStatus.SUCCEEDED
 
     async def test_map_variants_for_score_set_no_reference_data(
         self,
@@ -1105,7 +1264,7 @@ class TestMapVariantsForScoreSetIntegration:
                 sample_independent_variant_mapping_run.id,
             )
 
-        assert result["status"] == "failed"
+        assert result["status"] == "error"
         assert result["exception_details"]["type"] == "NonexistentMappingReferenceError"
         assert result["data"] == {}
 
@@ -1117,13 +1276,17 @@ class TestMapVariantsForScoreSetIntegration:
         mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 0
 
+        # Verify that no annotation statuses were created
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == 0
+
         # Verify that the job status was updated.
         processing_run = (
             session.query(sample_independent_variant_mapping_run.__class__)
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
-        assert processing_run.status == JobStatus.FAILED
+        assert processing_run.status == JobStatus.SUCCEEDED
 
     async def test_map_variants_for_score_set_updates_current_mapped_variants(
         self,
@@ -1158,6 +1321,10 @@ class TestMapVariantsForScoreSetIntegration:
                 mapped_date="2023-01-01T00:00:00Z",
                 mapping_api_version="v1.0.0",
             )
+            annotation_status = VariantAnnotationStatus(
+                variant_id=variant.id, current=True, annotation_type="vrs_mapping", status="success"
+            )
+            session.add(annotation_status)
             session.add(mapped_variant)
         session.commit()
 
@@ -1217,6 +1384,24 @@ class TestMapVariantsForScoreSetIntegration:
             assert new_mapped_variant.mapped_date != "2023-01-01T00:00:00Z"
             assert new_mapped_variant.mapping_api_version != "v1.0.0"
 
+        # Verify that annotation statuses where marked as non-current and new entries created
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == len(variants) * 2  # Each variant has two annotation statuses now
+        for variant in variants:
+            old_annotation_status = (
+                session.query(VariantAnnotationStatus)
+                .filter(VariantAnnotationStatus.variant_id == variant.id, VariantAnnotationStatus.current.is_(False))
+                .one_or_none()
+            )
+            assert old_annotation_status is not None
+
+            new_annotation_status = (
+                session.query(VariantAnnotationStatus)
+                .filter(VariantAnnotationStatus.variant_id == variant.id, VariantAnnotationStatus.current.is_(True))
+                .one_or_none()
+            )
+            assert new_annotation_status is not None
+
         # Verify that the job status was updated.
         processing_run = (
             session.query(sample_independent_variant_mapping_run.__class__)
@@ -1262,7 +1447,7 @@ class TestMapVariantsForScoreSetIntegration:
                 sample_independent_variant_mapping_run.id,
             )
 
-        assert result["status"] == "failed"
+        assert result["status"] == "error"
         assert result["data"] == {}
         assert result["exception_details"] is not None
         assert result["exception_details"]["type"] == "NonexistentMappingScoresError"
@@ -1275,13 +1460,17 @@ class TestMapVariantsForScoreSetIntegration:
         mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 0
 
+        # Verify that no annotation statuses were created
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == 0
+
         # Verify that the job status was updated.
         processing_run = (
             session.query(sample_independent_variant_mapping_run.__class__)
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
-        assert processing_run.status == JobStatus.FAILED
+        assert processing_run.status == JobStatus.SUCCEEDED
 
     async def test_map_variants_for_score_set_exception_in_mapping(
         self,
@@ -1310,7 +1499,7 @@ class TestMapVariantsForScoreSetIntegration:
                 sample_independent_variant_mapping_run.id,
             )
 
-        assert result["status"] == "failed"
+        assert result["status"] == "error"
         assert result["data"] == {}
         assert result["exception_details"]["type"] == "ValueError"
         # exception messages are persisted in internal properties
@@ -1328,13 +1517,17 @@ class TestMapVariantsForScoreSetIntegration:
         mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 0
 
+        # Verify that no annotation statuses were created
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == 0
+
         # Verify that the job status was updated.
         processing_run = (
             session.query(sample_independent_variant_mapping_run.__class__)
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
-        assert processing_run.status == JobStatus.FAILED
+        assert processing_run.status == JobStatus.SUCCEEDED
 
 
 @pytest.mark.integration
@@ -1368,7 +1561,7 @@ class TestMapVariantsForScoreSetArqContext:
 
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
-                session=standalone_worker_context["db"],
+                session=session,
                 score_set=sample_score_set,
                 with_gene_info=True,
                 with_layers={"g", "c", "p"},
@@ -1391,7 +1584,7 @@ class TestMapVariantsForScoreSetArqContext:
             await arq_worker.run_check()
 
         # Verify that mapped variants were created
-        mapped_variants = standalone_worker_context["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 4
 
         # Verify score set mapping state
@@ -1400,18 +1593,25 @@ class TestMapVariantsForScoreSetArqContext:
 
         # Verify that each variant has a corresponding mapped variant
         variants = (
-            standalone_worker_context["db"]
-            .query(Variant)
+            session.query(Variant)
             .join(MappedVariant, MappedVariant.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id, MappedVariant.current.is_(True))
             .all()
         )
         assert len(variants) == 4
 
+        # Verify that each variant has an annotation status
+        annotation_statuses = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id)
+            .all()
+        )
+        assert len(annotation_statuses) == 4
+
         # Verify that the job status was updated
         processing_run = (
-            standalone_worker_context["db"]
-            .query(sample_independent_variant_mapping_run.__class__)
+            session.query(sample_independent_variant_mapping_run.__class__)
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
@@ -1447,7 +1647,7 @@ class TestMapVariantsForScoreSetArqContext:
 
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
-                session=standalone_worker_context["db"],
+                session=session,
                 score_set=sample_score_set,
                 with_gene_info=True,
                 with_layers={"g", "c", "p"},
@@ -1472,7 +1672,7 @@ class TestMapVariantsForScoreSetArqContext:
             await arq_worker.run_check()
 
         # Verify that mapped variants were created
-        mapped_variants = standalone_worker_context["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 4
 
         # Verify score set mapping state
@@ -1481,18 +1681,25 @@ class TestMapVariantsForScoreSetArqContext:
 
         # Verify that each variant has a corresponding mapped variant
         variants = (
-            standalone_worker_context["db"]
-            .query(Variant)
+            session.query(Variant)
             .join(MappedVariant, MappedVariant.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id, MappedVariant.current.is_(True))
             .all()
         )
         assert len(variants) == 4
 
+        # Verify that each variant has an annotation status
+        annotation_statuses = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id)
+            .all()
+        )
+        assert len(annotation_statuses) == 4
+
         # Verify that the job status was updated
         processing_run = (
-            standalone_worker_context["db"]
-            .query(sample_pipeline_variant_mapping_run.__class__)
+            session.query(sample_pipeline_variant_mapping_run.__class__)
             .filter(sample_pipeline_variant_mapping_run.__class__.id == sample_pipeline_variant_mapping_run.id)
             .one()
         )
@@ -1501,8 +1708,7 @@ class TestMapVariantsForScoreSetArqContext:
         # Verify that the pipeline run status was updated. We expect RUNNING here because
         # the mapping job is not the only job in our dummy pipeline.
         pipeline_run = (
-            standalone_worker_context["db"]
-            .query(sample_pipeline_variant_mapping_run.pipeline.__class__)
+            session.query(sample_pipeline_variant_mapping_run.pipeline.__class__)
             .filter(
                 sample_pipeline_variant_mapping_run.pipeline.__class__.id
                 == sample_pipeline_variant_mapping_run.pipeline.id
@@ -1513,6 +1719,7 @@ class TestMapVariantsForScoreSetArqContext:
 
     async def test_map_variants_for_score_set_with_arq_context_generic_exception_handling(
         self,
+        session,
         arq_redis,
         arq_worker,
         standalone_worker_context,
@@ -1547,20 +1754,24 @@ class TestMapVariantsForScoreSetArqContext:
         )
 
         # Verify that no mapped variants were created
-        mapped_variants = standalone_worker_context["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 0
+
+        # Verify that no annotation statuses were created
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == 0
 
         # Verify that the job status was updated.
         processing_run = (
-            standalone_worker_context["db"]
-            .query(sample_independent_variant_mapping_run.__class__)
+            session.query(sample_independent_variant_mapping_run.__class__)
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
-        assert processing_run.status == JobStatus.FAILED
+        assert processing_run.status == JobStatus.SUCCEEDED
 
     async def test_map_variants_for_score_set_with_arq_context_generic_exception_in_pipeline_ctx(
         self,
+        session,
         arq_redis,
         arq_worker,
         standalone_worker_context,
@@ -1595,31 +1806,33 @@ class TestMapVariantsForScoreSetArqContext:
         )
 
         # Verify that no mapped variants were created
-        mapped_variants = standalone_worker_context["db"].query(MappedVariant).all()
+        mapped_variants = session.query(MappedVariant).all()
         assert len(mapped_variants) == 0
+
+        # Verify that no annotation statuses were created
+        annotation_statuses = session.query(VariantAnnotationStatus).all()
+        assert len(annotation_statuses) == 0
 
         # Verify that the job status was updated.
         processing_run = (
-            standalone_worker_context["db"]
-            .query(sample_pipeline_variant_mapping_run.__class__)
+            session.query(sample_pipeline_variant_mapping_run.__class__)
             .filter(sample_pipeline_variant_mapping_run.__class__.id == sample_pipeline_variant_mapping_run.id)
             .one()
         )
-        assert processing_run.status == JobStatus.FAILED
+        assert processing_run.status == JobStatus.SUCCEEDED
 
         # Verify that the pipeline run status was updated to FAILED.
         pipeline_run = (
-            standalone_worker_context["db"]
-            .query(sample_pipeline_variant_mapping_run.pipeline.__class__)
+            session.query(sample_pipeline_variant_mapping_run.pipeline.__class__)
             .filter(
                 sample_pipeline_variant_mapping_run.pipeline.__class__.id
                 == sample_pipeline_variant_mapping_run.pipeline.id
             )
             .one()
         )
-        assert pipeline_run.status == PipelineStatus.FAILED
+        assert pipeline_run.status == PipelineStatus.RUNNING
 
         # Verify that other jobs in the pipeline were skipped
         for job_run in pipeline_run.job_runs:
             if job_run.id != sample_pipeline_variant_mapping_run.id:
-                assert job_run.status == JobStatus.SKIPPED
+                assert job_run.status == JobStatus.QUEUED

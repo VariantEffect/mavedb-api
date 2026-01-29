@@ -12,7 +12,14 @@ from typing import Sequence
 from sqlalchemy import select
 
 from mavedb.db import athena
-from mavedb.lib.gnomad import gnomad_variant_data_for_caids, link_gnomad_variants_to_mapped_variants
+from mavedb.lib.annotation_status_manager import AnnotationStatusManager
+from mavedb.lib.gnomad import (
+    GNOMAD_DATA_VERSION,
+    gnomad_variant_data_for_caids,
+    link_gnomad_variants_to_mapped_variants,
+)
+from mavedb.models.enums.annotation_type import AnnotationType
+from mavedb.models.enums.job_pipeline import AnnotationStatus
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -105,22 +112,41 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
 
     num_gnomad_variants_with_caid_match = len(gnomad_variant_data)
 
+    # NOTE: Proceed intentionally with linking even if no matches were found, to record skipped annotations.
+
     job_manager.save_to_context({"num_gnomad_variants_with_caid_match": num_gnomad_variants_with_caid_match})
-
-    if not gnomad_variant_data:
-        job_manager.update_progress(100, 100, "No gnomAD variants with CAID matches found. Nothing to link.")
-        logger.warning(
-            msg="No gnomAD variants with CAID matches were found for this score set. Skipping gnomAD linkage (nothing to do).",
-            extra=job_manager.logging_context(),
-        )
-
-        return {"status": "ok", "data": {}, "exception_details": None}
     job_manager.update_progress(75, 100, f"Found {num_gnomad_variants_with_caid_match} gnomAD variants matching CAIDs.")
 
     # Link mapped variants to gnomAD variants
     logger.info(msg="Attempting to link mapped variants to gnomAD variants.", extra=job_manager.logging_context())
     num_linked_gnomad_variants = link_gnomad_variants_to_mapped_variants(job_manager.db, gnomad_variant_data)
-    job_manager.db.commit()
+    job_manager.db.flush()
+
+    # For variants which are not linked, create annotation status records indicating skipped linkage
+    mapped_variants_with_caids = job_manager.db.scalars(
+        select(MappedVariant)
+        .join(Variant)
+        .join(ScoreSet)
+        .where(
+            ScoreSet.urn == score_set.urn,
+            MappedVariant.current.is_(True),
+            MappedVariant.clingen_allele_id.is_not(None),
+        )
+    ).all()
+    annotation_manager = AnnotationStatusManager(job_manager.db)
+    for mapped_variant in mapped_variants_with_caids:
+        if not mapped_variant.gnomad_variants:
+            annotation_manager.add_annotation(
+                variant_id=mapped_variant.variant_id,  # type: ignore
+                annotation_type=AnnotationType.GNOMAD_ALLELE_FREQUENCY,
+                version=GNOMAD_DATA_VERSION,
+                status=AnnotationStatus.SKIPPED,
+                annotation_data={
+                    "error_message": "No gnomAD variant could be linked for this mapped variant.",
+                    "failure_category": "not_found",
+                },
+                current=True,
+            )
 
     # Save final context and progress
     job_manager.save_to_context({"num_mapped_variants_linked_to_gnomad_variants": num_linked_gnomad_variants})

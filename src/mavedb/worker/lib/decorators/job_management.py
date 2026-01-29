@@ -118,7 +118,9 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobResultData]], ar
         # Execute the async function
         result = await func(*args, **kwargs)
 
-        # Mark job as succeeded and persist state
+        # Mark job as succeeded and persist state. As a general rule, jobs do not
+        # commit their own state and we do not persist their state until we mark
+        # them as succeeded.
         job_manager.succeed_job(result=result)
         db_session.commit()
 
