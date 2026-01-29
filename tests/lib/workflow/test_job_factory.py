@@ -1,6 +1,8 @@
 # ruff: noqa: E402
 import pytest
 
+from mavedb.models.job_dependency import JobDependency
+
 pytest.importorskip("fastapi")
 
 from unittest.mock import patch
@@ -9,8 +11,8 @@ from mavedb.models.pipeline import Pipeline
 
 
 @pytest.mark.unit
-class TestJobFactoryUnit:
-    """Unit tests for the JobFactory class."""
+class TestJobFactoryCreateJobRunUnit:
+    """Unit tests for the JobFactory create_job_run method."""
 
     def test_create_job_run_persists_preset_params_from_definition(self, job_factory, sample_job_definition):
         existing_params = {"param1": "new_value1", "param2": "new_value2", "required_param": "required_value"}
@@ -129,8 +131,8 @@ class TestJobFactoryUnit:
 
 
 @pytest.mark.integration
-class TestJobFactoryIntegration:
-    """Integration tests for the JobFactory class within pipeline execution."""
+class TestJobFactoryCreateJobRunIntegration:
+    """Integration tests for the JobFactory create_job_run method within pipeline execution."""
 
     def test_create_job_run_independent(self, job_factory, sample_job_definition):
         pipeline_params = {"required_param": "required_value"}
@@ -192,3 +194,123 @@ class TestJobFactoryIntegration:
             )
 
         assert "Missing required param: required_param" in str(exc_info.value)
+
+
+@pytest.mark.unit
+class TestJobFactoryCreateJobDependencyUnit:
+    """Unit tests for the JobFactory create_job_dependency method."""
+
+    def test_create_job_dependency_persists_fields(
+        self, job_factory, test_workflow_parent_job_run, test_workflow_child_job_run
+    ):
+        parent_job_run_id = test_workflow_parent_job_run.id
+        child_job_run_id = test_workflow_child_job_run.id
+        dependency_type = "success_required"
+
+        job_dependency = job_factory.create_job_dependency(
+            parent_job_run_id=parent_job_run_id,
+            child_job_run_id=child_job_run_id,
+            dependency_type=dependency_type,
+        )
+
+        assert job_dependency.id == child_job_run_id
+        assert job_dependency.depends_on_job_id == parent_job_run_id
+        assert job_dependency.dependency_type == dependency_type
+
+    def test_create_job_dependency_defaults_dependency_type(
+        self, job_factory, test_workflow_parent_job_run, test_workflow_child_job_run
+    ):
+        parent_job_run_id = test_workflow_parent_job_run.id
+        child_job_run_id = test_workflow_child_job_run.id
+
+        job_dependency = job_factory.create_job_dependency(
+            parent_job_run_id=parent_job_run_id,
+            child_job_run_id=child_job_run_id,
+        )
+
+        assert job_dependency.id == child_job_run_id
+        assert job_dependency.depends_on_job_id == parent_job_run_id
+        assert job_dependency.dependency_type == "success_required"
+
+    def test_create_job_dependency_raises_error_for_nonexistent_parent(self, job_factory, test_workflow_child_job_run):
+        parent_job_run_id = 9999  # Assuming this ID does not exist
+        child_job_run_id = test_workflow_child_job_run.id
+
+        with pytest.raises(ValueError) as exc_info:
+            job_factory.create_job_dependency(
+                parent_job_run_id=parent_job_run_id,
+                child_job_run_id=child_job_run_id,
+            )
+
+        assert f"Parent job run ID {parent_job_run_id} does not exist." in str(exc_info.value)
+
+    def test_create_job_dependency_raises_error_for_nonexistent_child(self, job_factory, test_workflow_parent_job_run):
+        parent_job_run_id = test_workflow_parent_job_run.id
+        child_job_run_id = 9999  # Assuming this ID does not exist
+
+        with pytest.raises(ValueError) as exc_info:
+            job_factory.create_job_dependency(
+                parent_job_run_id=parent_job_run_id,
+                child_job_run_id=child_job_run_id,
+            )
+
+        assert f"Child job run ID {child_job_run_id} does not exist." in str(exc_info.value)
+
+
+@pytest.mark.integration
+class TestJobFactoryCreateJobDependencyIntegration:
+    """Integration tests for the JobFactory create_job_dependency method within job execution."""
+
+    def test_create_job_dependency(self, job_factory, test_workflow_parent_job_run, test_workflow_child_job_run):
+        parent_job_run_id = test_workflow_parent_job_run.id
+        child_job_run_id = test_workflow_child_job_run.id
+        dependency_type = "success_required"
+
+        job_dependency = job_factory.create_job_dependency(
+            parent_job_run_id=parent_job_run_id,
+            child_job_run_id=child_job_run_id,
+            dependency_type=dependency_type,
+        )
+        job_factory.session.commit()
+
+        retrieved_dependency = (
+            job_factory.session.query(type(job_dependency))
+            .filter(
+                type(job_dependency).id == child_job_run_id,
+                type(job_dependency).depends_on_job_id == parent_job_run_id,
+            )
+            .first()
+        )
+
+        assert retrieved_dependency is not None
+        assert retrieved_dependency.id == child_job_run_id
+        assert retrieved_dependency.depends_on_job_id == parent_job_run_id
+        assert retrieved_dependency.dependency_type == dependency_type
+
+    def test_create_job_dependency_missing_parent_raises_error(self, session, job_factory, test_workflow_child_job_run):
+        parent_job_run_id = 9999  # Assuming this ID does not exist
+        child_job_run_id = test_workflow_child_job_run.id
+
+        with pytest.raises(ValueError) as exc_info:
+            job_factory.create_job_dependency(
+                parent_job_run_id=parent_job_run_id,
+                child_job_run_id=child_job_run_id,
+            )
+
+        assert f"Parent job run ID {parent_job_run_id} does not exist." in str(exc_info.value)
+        job_dependencies = session.query(JobDependency).all()
+        assert not job_dependencies
+
+    def test_create_job_dependency_missing_child_raises_error(self, session, job_factory, test_workflow_parent_job_run):
+        parent_job_run_id = test_workflow_parent_job_run.id
+        child_job_run_id = 9999  # Assuming this ID does not exist
+
+        with pytest.raises(ValueError) as exc_info:
+            job_factory.create_job_dependency(
+                parent_job_run_id=parent_job_run_id,
+                child_job_run_id=child_job_run_id,
+            )
+
+        assert f"Child job run ID {child_job_run_id} does not exist." in str(exc_info.value)
+        job_dependencies = session.query(JobDependency).all()
+        assert not job_dependencies

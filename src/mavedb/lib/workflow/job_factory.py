@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 
 from mavedb import __version__ as mavedb_version
 from mavedb.lib.types.workflow import JobDefinition
+from mavedb.models.enums.job_pipeline import DependencyType
+from mavedb.models.job_dependency import JobDependency
 from mavedb.models.job_run import JobRun
 
 
@@ -60,3 +62,41 @@ class JobFactory:
 
         self.session.add(job_run)
         return job_run
+
+    def create_job_dependency(
+        self,
+        parent_job_run_id: int,
+        child_job_run_id: int,
+        dependency_type: DependencyType = DependencyType.SUCCESS_REQUIRED,
+    ) -> JobDependency:
+        """
+        Creates and persists a JobDependency instance linking a parent job run to a child job run.
+
+        Args:
+            parent_job_run_id (int): The ID of the parent job run.
+            child_job_run_id (int): The ID of the child job run.
+            dependency_type (DependencyType): The type of dependency (default is SUCCESS_REQUIRED).
+
+        Returns:
+            JobDependency: The newly created JobDependency instance (not yet committed to the database).
+
+        Raises:
+            ValueError: If the parent or child job run IDs do not exist in the database.
+        """
+
+        # Validate that the parent and child job runs exist
+        parent_exists = self.session.query(JobRun.id).filter(JobRun.id == parent_job_run_id).first() is not None
+        child_exists = self.session.query(JobRun.id).filter(JobRun.id == child_job_run_id).first() is not None
+        if not parent_exists:
+            raise ValueError(f"Parent job run ID {parent_job_run_id} does not exist.")
+        if not child_exists:
+            raise ValueError(f"Child job run ID {child_job_run_id} does not exist.")
+
+        job_dependency = JobDependency(
+            id=child_job_run_id,
+            depends_on_job_id=parent_job_run_id,
+            dependency_type=dependency_type,
+        )  # type: ignore[call-arg]
+
+        self.session.add(job_dependency)
+        return job_dependency
