@@ -15,7 +15,7 @@ from tests.helpers.util.setup.worker import create_mappings_in_score_set
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
 
-# TODO#XXX: Connect with ClinGen to resolve the invalid credentials issue on test site.
+# XXX: Connect with ClinGen to resolve the invalid credentials issue on test site.
 @pytest.mark.skip(reason="invalid credentials, despite what is provided in documentation.")
 @pytest.mark.asyncio
 @pytest.mark.integration
@@ -82,7 +82,7 @@ class TestE2EClingenSubmitScoreSetMappingsToCar:
             assert variant.clingen_allele_id is not None
 
 
-# TODO#XXX: Connect with ClinGen to resolve the invalid credentials issue on test site.
+# XXX: Connect with ClinGen to resolve the invalid credentials issue on test site.
 @pytest.mark.skip(reason="invalid credentials, despite what is provided in documentation.")
 @pytest.mark.integration
 @pytest.mark.asyncio

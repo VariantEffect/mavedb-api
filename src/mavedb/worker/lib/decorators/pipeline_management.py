@@ -50,7 +50,7 @@ def with_pipeline_management(func: F) -> F:
     Features:
     - Pipeline lifecycle tracking
     - Job lifecycle tracking via with_job_management
-    - Robust error handling, logging, and TODO(alerting) on failures
+    - Robust error handling, logging, and alerting on failures
 
     Example:
         @with_pipeline_management

@@ -80,7 +80,7 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
 
     # Main processing block. Handled in a try/except to ensure we can set score set state appropriately,
     # which is handled independently of the job state.
-    # TODO:XXX In a future iteration, we should rely on the job manager itself for maintaining processing
+    # TODO:647 In a future iteration, we should rely on the job manager itself for maintaining processing
     #          state for better cohesion. This try/except is redundant in it's duties with the job manager.
     try:
         correlation_id = job.job_params["correlation_id"]  # type: ignore
