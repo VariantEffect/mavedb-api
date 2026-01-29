@@ -3,6 +3,7 @@ from unittest.mock import patch
 import pytest
 
 from mavedb.models.enums.job_pipeline import DependencyType
+from mavedb.models.job_run import JobRun
 from mavedb.models.user import User
 from tests.helpers.constants import TEST_USER
 
@@ -78,3 +79,33 @@ def test_user(session):
     db.add(user)
     db.commit()
     yield user
+
+
+@pytest.fixture
+def test_workflow_parent_job_run(session, test_user):
+    """Fixture to create and provide a test parent job run for workflow tests."""
+    parent_job_run = JobRun(
+        job_type="test_type",
+        job_function="test_function",
+        job_params={},
+        correlation_id="test_correlation_id",
+    )
+    session.add(parent_job_run)
+    session.commit()
+
+    yield parent_job_run
+
+
+@pytest.fixture
+def test_workflow_child_job_run(session, test_user, test_workflow_parent_job_run):
+    """Fixture to create and provide a test child job run for workflow tests."""
+    child_job_run = JobRun(
+        job_type="test_type",
+        job_function="test_function",
+        job_params={},
+        correlation_id="test_correlation_id",
+    )
+    session.add(child_job_run)
+    session.commit()
+
+    yield child_job_run
