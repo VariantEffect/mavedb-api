@@ -388,6 +388,7 @@ class PipelineManager(BaseManager):
 
             should_skip, reason = self.should_skip_job_due_to_dependencies(job)
             if should_skip:
+                job_manager.update_status_message(f"Job skipped: {reason}")
                 job_manager.skip_job(
                     {
                         "status": "skipped",

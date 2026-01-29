@@ -287,14 +287,7 @@ class JobManager(BaseManager):
             }
             job_run.finished_at = datetime.now()
 
-            if status == JobStatus.SUCCEEDED:
-                job_run.progress_message = "Job completed successfully"
-            elif status == JobStatus.CANCELLED:
-                job_run.progress_message = "Job cancelled"
-            elif status == JobStatus.SKIPPED:
-                job_run.progress_message = "Job skipped"
-            elif status == JobStatus.FAILED:
-                job_run.progress_message = "Job failed"
+            if status == JobStatus.FAILED:
                 job_run.failure_category = FailureCategory.UNKNOWN
 
             if error:
