@@ -232,3 +232,15 @@ class LDHSubmissionFailureError(Exception):
     """Raised when submission to ClinGen Linked Data Hub (LDH) fails for all submissions."""
 
     pass
+
+
+class PipelineNotFoundError(Exception):
+    """Raised when a pipeline associated with a job is not found."""
+
+    pass
+
+
+class NoMappedVariantsError(Exception):
+    """Raised when no variants were mapped during the variant mapping process."""
+
+    pass

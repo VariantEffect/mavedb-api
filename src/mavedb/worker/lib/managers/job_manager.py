@@ -278,7 +278,13 @@ class JobManager(BaseManager):
         job_run = self.get_job()
         try:
             job_run.status = status
-            job_run.metadata_["result"] = result
+            job_run.metadata_["result"] = {
+                "status": result["status"],
+                "data": result["data"],
+                "exception_details": format_raised_exception_info_as_dict(result["exception"])  # type: ignore
+                if result.get("exception")
+                else None,
+            }
             job_run.finished_at = datetime.now()
 
             if status == JobStatus.SUCCEEDED:

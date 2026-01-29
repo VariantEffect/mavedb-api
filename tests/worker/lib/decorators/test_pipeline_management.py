@@ -301,12 +301,12 @@ class TestPipelineManagementDecoratorIntegration:
         @with_pipeline_management
         async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
             await event.wait()  # Simulate async work, block until test signals
-            return {"status": "ok"}
+            return {"status": "ok", "data": {}, "exception": None}
 
         @with_pipeline_management
         async def sample_dependent_job(ctx: dict, job_id: int, job_manager: JobManager):
             await dep_event.wait()  # Simulate async work, block until test signals
-            return {"status": "ok"}
+            return {"status": "ok", "data": {}, "exception": None}
 
         # Start the job (it will block at event.wait())
         job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))
@@ -392,12 +392,12 @@ class TestPipelineManagementDecoratorIntegration:
         @with_pipeline_management
         async def sample_retried_job(ctx: dict, job_id: int, job_manager: JobManager):
             await retry_event.wait()  # Simulate async work, block until test signals
-            return {"status": "ok"}
+            return {"status": "ok", "data": {}, "exception": None}
 
         @with_pipeline_management
         async def sample_dependent_job(ctx: dict, job_id: int, job_manager: JobManager):
             await dep_event.wait()  # Simulate async work, block until test signals
-            return {"status": "ok"}
+            return {"status": "ok", "data": {}, "exception": None}
 
         # Start the job (it will block at event.wait())
         job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))

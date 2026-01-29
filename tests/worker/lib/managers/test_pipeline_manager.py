@@ -3387,7 +3387,7 @@ class TestPipelineManagerLifecycle:
         await arq_redis.flushdb()
 
         # exit job manager decorator: set job to SUCCEEDED
-        job_manager.succeed_job({"output": "some result", "logs": "some logs", "metadata": {"key": "value"}})
+        job_manager.succeed_job({"status": "ok", "data": {}, "exception": None})
         session.commit()
 
         # exit pipeline manager decorator: enqueue newly queueable jobs or terminate pipeline
@@ -3427,7 +3427,7 @@ class TestPipelineManagerLifecycle:
         await arq_redis.flushdb()
 
         # exit job manager decorator: set dependent job to SUCCEEDED
-        job_manager.succeed_job({"output": "some result", "logs": "some logs", "metadata": {"key": "value"}})
+        job_manager.succeed_job({"status": "ok", "data": {}, "exception": None})
         session.commit()
 
         # exit pipeline manager decorator: enqueue newly queueable jobs or terminate pipeline
@@ -3481,7 +3481,7 @@ class TestPipelineManagerLifecycle:
         await arq_redis.flushdb()
 
         # Simulate job completion
-        job_manager.succeed_job({"output": "some result", "logs": "some logs", "metadata": {"key": "value"}})
+        job_manager.succeed_job({"status": "ok", "data": {}, "exception": None})
         session.commit()
 
         # Coordinate the pipeline
@@ -3524,7 +3524,7 @@ class TestPipelineManagerLifecycle:
         await arq_redis.flushdb()
 
         # Simulate dependent job completion
-        dependent_job_manager.succeed_job({"output": "some result", "logs": "some logs", "metadata": {"key": "value"}})
+        dependent_job_manager.succeed_job({"status": "ok", "data": {}, "exception": None})
         session.commit()
 
         # Coordinate the pipeline
@@ -3630,9 +3630,8 @@ class TestPipelineManagerLifecycle:
         # Evict the job from redis to simulate completion.
         await arq_redis.flushdb()
 
-        job_manager.fail_job(
-            error=Exception("Simulated job failure"), result={"output": None, "logs": "some logs", "metadata": {}}
-        )
+        exc = Exception("Simulated job failure")
+        job_manager.fail_job(error=exc, result={"status": "error", "data": {}, "exception": exc})
         session.commit()
 
         # Coordinate the pipeline
@@ -3709,9 +3708,8 @@ class TestPipelineManagerLifecycle:
         # Evict the job from redis to simulate completion.
         await arq_redis.flushdb()
 
-        job_manager.fail_job(
-            error=Exception("Simulated job failure"), result={"output": None, "logs": "some logs", "metadata": {}}
-        )
+        exc = Exception("Simulated job failure")
+        job_manager.fail_job(error=exc, result={"status": "error", "data": {}, "exception": exc})
         session.commit()
 
         # Coordinate the pipeline
