@@ -15,6 +15,7 @@ import logging
 
 from sqlalchemy import select
 
+from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.clingen.constants import (
     CAR_SUBMISSION_ENDPOINT,
     CLIN_GEN_SUBMISSION_ENABLED,
@@ -29,6 +30,8 @@ from mavedb.lib.clingen.services import (
 )
 from mavedb.lib.exceptions import LDHSubmissionFailureError
 from mavedb.lib.variants import get_hgvs_from_post_mapped
+from mavedb.models.enums.annotation_type import AnnotationType
+from mavedb.models.enums.job_pipeline import AnnotationStatus
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -154,18 +157,33 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
 
     # Process registered alleles and update mapped variants
     linked_alleles = get_allele_registry_associations(list(variant_post_mapped_hgvs.keys()), registered_alleles)
-    processed = 0
     total = len(linked_alleles)
+    processed = 0
+    # Setup annotation manager
+    annotation_manager = AnnotationStatusManager(job_manager.db)
+    registered_mapped_variant_ids = []
     for hgvs_string, caid in linked_alleles.items():
         mapped_variant_ids = variant_post_mapped_hgvs[hgvs_string]
+        registered_mapped_variant_ids.extend(mapped_variant_ids)
         mapped_variants = job_manager.db.scalars(
             select(MappedVariant).where(MappedVariant.id.in_(mapped_variant_ids))
         ).all()
 
-        # TODO: Track annotation progress.
         for mapped_variant in mapped_variants:
             mapped_variant.clingen_allele_id = caid
             job_manager.db.add(mapped_variant)
+
+            annotation_manager.add_annotation(
+                variant_id=mapped_variant.variant_id,  # type: ignore
+                annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
+                version=None,
+                status=AnnotationStatus.SUCCESS,
+                annotation_data={
+                    "success_data": {"clingen_allele_id": caid},
+                },
+                current=True,
+            )
+
             processed += 1
 
             # Calculate progress: 50% + (processed/total_mapped)*50, rounded to nearest 5%
@@ -173,9 +191,27 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
                 progress = 50 + round((processed / total) * 45 / 5) * 5
                 job_manager.update_progress(progress, 100, f"Processed {processed} of {total} registered alleles.")
 
+    # For mapped variants which did not get a CAID, log failure annotation
+    failed_submissions = set(obj[0] for obj in variant_post_mapped_objects) - set(registered_mapped_variant_ids)
+    for mapped_variant_id in failed_submissions:
+        mapped_variant = job_manager.db.scalars(
+            select(MappedVariant).where(MappedVariant.id == mapped_variant_id)
+        ).one()
+
+        annotation_manager.add_annotation(
+            variant_id=mapped_variant.variant_id,  # type: ignore
+            annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
+            version=None,
+            status=AnnotationStatus.FAILED,
+            annotation_data={
+                "error_message": "Failed to register variant with ClinGen Allele Registry.",
+            },
+            current=True,
+        )
+
     # Finalize progress
     job_manager.update_progress(100, 100, "Completed CAR mapped resource submission.")
-    job_manager.db.commit()
+    job_manager.db.flush()
     logger.info(msg="Completed CAR mapped resource submission", extra=job_manager.logging_context())
     return {"status": "ok", "data": {}, "exception_details": None}
 
@@ -251,6 +287,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
 
     # Build submission content
     variant_content = []
+    variant_for_urn = {}
     for variant, mapped_variant in variant_objects:
         variation = get_hgvs_from_post_mapped(mapped_variant.post_mapped)
 
@@ -262,6 +299,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
             continue
 
         variant_content.append((variation, variant, mapped_variant))
+        variant_for_urn[variant.urn] = variant
 
     if not variant_content:
         job_manager.update_progress(100, 100, "No valid mapped variants to submit to LDH. Skipping submission.")
@@ -288,7 +326,53 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
         }
     )
 
-    # TODO: Track submission successes and failures, add as annotation features.
+    # TODO prior to finalizing: Verify typing of ClinGen submission responses. See https://reg.clinicalgenome.org/doc/AlleleRegistry_1.01.xx_api_v1.pdf
+    annotation_manager = AnnotationStatusManager(job_manager.db)
+    submitted_variant_urns = set()
+    for success in submission_successes:
+        logger.debug(
+            msg=f"Successfully submitted mapped variant to LDH: {success}",
+            extra=job_manager.logging_context(),
+        )
+
+        submitted_urn = success["data"]["entId"]
+        submitted_variant = variant_for_urn[submitted_urn]
+
+        annotation_manager.add_annotation(
+            variant_id=submitted_variant.id,
+            annotation_type=AnnotationType.LDH_SUBMISSION,
+            version=None,
+            status=AnnotationStatus.SUCCESS,
+            annotation_data={
+                "success_data": {"ldh_iri": success["data"]["ldhIri"], "ldh_id": success["data"]["ldhId"]},
+            },
+            current=True,
+        )
+        submitted_variant_urns.add(submitted_urn)
+
+    # It isn't trivial to map individual failures back to their corresponding variants,
+    # especially when submission occurred in batch. Save all failures generically here.
+    # Note that failures may not be present in the submission failures list, but they are
+    # guaranteed to be absent from the successes list.
+    for failure_urn in set(variant_for_urn.keys()) - submitted_variant_urns:
+        logger.error(
+            msg=f"Failed to submit mapped variant to LDH: {failure_urn}",
+            extra=job_manager.logging_context(),
+        )
+
+        failed_variant = variant_for_urn[failure_urn]
+
+        annotation_manager.add_annotation(
+            variant_id=failed_variant.id,
+            annotation_type=AnnotationType.LDH_SUBMISSION,
+            version=None,
+            status=AnnotationStatus.FAILED,
+            annotation_data={
+                "error_message": "Failed to submit variant to ClinGen Linked Data Hub.",
+            },
+            current=True,
+        )
+
     if submission_failures:
         logger.warning(
             msg=f"LDH mapped resource submission encountered {len(submission_failures)} failures.",
@@ -303,7 +387,17 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
                 extra=job_manager.logging_context(),
             )
 
-            raise LDHSubmissionFailureError(error_message)
+            # Return a failure state here rather than raising to indicate to the manager
+            # we should still commit any successful annotations.
+            return {
+                "status": "failed",
+                "data": {},
+                "exception_details": {
+                    "message": error_message,
+                    "type": LDHSubmissionFailureError.__name__,
+                    "traceback": None,
+                },
+            }
 
     logger.info(
         msg="Completed LDH mapped resource submission",
@@ -316,5 +410,5 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
         100,
         f"Finalized LDH mapped resource submission ({len(submission_successes)} successes, {len(submission_failures)} failures).",
     )
-    job_manager.db.commit()
+    job_manager.db.flush()
     return {"status": "ok", "data": {}, "exception_details": None}
