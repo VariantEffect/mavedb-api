@@ -95,7 +95,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
             msg="ClinGen submission is disabled via configuration, skipping submission of mapped variants to CAR.",
             extra=job_manager.logging_context(),
         )
-        return {"status": "ok", "data": {}, "exception_details": None}
+        return {"status": "skipped", "data": {}, "exception": None}
 
     # Check for CAR submission endpoint
     if not CAR_SUBMISSION_ENDPOINT:
@@ -104,7 +104,11 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
             msg="ClinGen Allele Registry submission is disabled (no submission endpoint), unable to complete submission of mapped variants to CAR.",
             extra=job_manager.logging_context(),
         )
-        raise ValueError("ClinGen Allele Registry submission endpoint is not configured.")
+        return {
+            "status": "failed",
+            "data": {},
+            "exception": ValueError("ClinGen Allele Registry submission endpoint is not configured."),
+        }
 
     # Fetch mapped variants with post-mapped data for the score set
     variant_post_mapped_objects = job_manager.db.execute(
@@ -124,7 +128,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
             msg="No current mapped variants with post mapped metadata were found for this score set. Skipping CAR submission.",
             extra=job_manager.logging_context(),
         )
-        return {"status": "ok", "data": {}, "exception_details": None}
+        return {"status": "ok", "data": {}, "exception": None}
 
     job_manager.update_progress(
         10, 100, f"Preparing {len(variant_post_mapped_objects)} mapped variants for CAR submission."
@@ -213,7 +217,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
     job_manager.update_progress(100, 100, "Completed CAR mapped resource submission.")
     job_manager.db.flush()
     logger.info(msg="Completed CAR mapped resource submission", extra=job_manager.logging_context())
-    return {"status": "ok", "data": {}, "exception_details": None}
+    return {"status": "ok", "data": {}, "exception": None}
 
 
 @with_pipeline_management
@@ -282,7 +286,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
             msg="No current mapped variants with post mapped metadata were found for this score set. Skipping LDH submission.",
             extra=job_manager.logging_context(),
         )
-        return {"status": "ok", "data": {}, "exception_details": None}
+        return {"status": "ok", "data": {}, "exception": None}
     job_manager.update_progress(10, 100, f"Submitting {len(variant_objects)} mapped variants to LDH.")
 
     # Build submission content
@@ -307,7 +311,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
             msg="No valid mapped variants with post mapped metadata were found for this score set. Skipping LDH submission.",
             extra=job_manager.logging_context(),
         )
-        return {"status": "ok", "data": {}, "exception_details": None}
+        return {"status": "ok", "data": {}, "exception": None}
 
     job_manager.save_to_context({"unique_variants_to_submit_ldh": len(variant_content)})
     job_manager.update_progress(30, 100, f"Dispatching submissions for {len(variant_content)} unique variants to LDH.")
@@ -392,11 +396,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
             return {
                 "status": "failed",
                 "data": {},
-                "exception_details": {
-                    "message": error_message,
-                    "type": LDHSubmissionFailureError.__name__,
-                    "traceback": None,
-                },
+                "exception": LDHSubmissionFailureError(error_message),
             }
 
     logger.info(
@@ -411,4 +411,4 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
         f"Finalized LDH mapped resource submission ({len(submission_successes)} successes, {len(submission_failures)} failures).",
     )
     job_manager.db.flush()
-    return {"status": "ok", "data": {}, "exception_details": None}
+    return {"status": "ok", "data": {}, "exception": None}

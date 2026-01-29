@@ -91,6 +91,51 @@ class TestManagedJobDecoratorUnit:
         mock_start_job.assert_called_once()
         mock_succeed_job.assert_called_once()
 
+    @pytest.mark.parametrize(
+        "status",
+        [
+            "failed",
+            "exception",
+        ],
+    )
+    async def test_decorator_calls_start_job_and_fail_job_when_wrapped_function_returns_failed_status(
+        self, session, mock_worker_ctx, mock_job_manager, status
+    ):
+        @with_job_management
+        async def sample_fail(ctx: dict, job_id: int, job_manager: JobManager):
+            return {"status": status, "data": {}, "exception": RuntimeError("simulated failure")}
+
+        with (
+            patch("mavedb.worker.lib.decorators.job_management.JobManager") as mock_job_manager_class,
+            patch.object(mock_job_manager, "start_job", return_value=None) as mock_start_job,
+            patch.object(mock_job_manager, "fail_job", return_value=None) as mock_fail_job,
+            TransactionSpy.spy(session, expect_commit=True),
+        ):
+            mock_job_manager_class.return_value = mock_job_manager
+            await sample_fail(mock_worker_ctx, 999)
+
+        mock_start_job.assert_called_once()
+        mock_fail_job.assert_called_once()
+
+    async def test_decorator_calls_start_job_and_skip_job_when_wrapped_function_returns_skipped_status(
+        self, session, mock_worker_ctx, mock_job_manager
+    ):
+        @with_job_management
+        async def sample_skip(ctx: dict, job_id: int, job_manager: JobManager):
+            return {"status": "skipped", "data": {}, "exception": None}
+
+        with (
+            patch("mavedb.worker.lib.decorators.job_management.JobManager") as mock_job_manager_class,
+            patch.object(mock_job_manager, "start_job", return_value=None) as mock_start_job,
+            patch.object(mock_job_manager, "skip_job", return_value=None) as mock_skip_job,
+            TransactionSpy.spy(session, expect_commit=True),
+        ):
+            mock_job_manager_class.return_value = mock_job_manager
+            await sample_skip(mock_worker_ctx, 999)
+
+        mock_start_job.assert_called_once()
+        mock_skip_job.assert_called_once()
+
     async def test_decorator_calls_start_job_and_fail_job_when_wrapped_function_raises_and_no_retry(
         self, session, mock_worker_ctx, mock_job_manager
     ):
@@ -138,9 +183,10 @@ class TestManagedJobDecoratorUnit:
     async def test_decorator_swallows_exception_from_lifecycle_state_outside_except(
         self, session, mock_job_manager, mock_worker_ctx
     ):
+        raised_exc = JobStateError("error in job start")
         with (
             patch("mavedb.worker.lib.decorators.job_management.JobManager") as mock_job_manager_class,
-            patch.object(mock_job_manager, "start_job", side_effect=JobStateError("error in job start")),
+            patch.object(mock_job_manager, "start_job", side_effect=raised_exc),
             patch.object(mock_job_manager, "should_retry", return_value=False),
             patch.object(mock_job_manager, "fail_job", return_value=None),
             TransactionSpy.spy(session, expect_rollback=True, expect_commit=True),
@@ -148,7 +194,8 @@ class TestManagedJobDecoratorUnit:
             mock_job_manager_class.return_value = mock_job_manager
             result = await sample_job(mock_worker_ctx, 999)
 
-        assert "error in job start" in result["exception_details"]["message"]
+        assert result["status"] == "exception"
+        assert raised_exc == result["exception"]
 
     async def test_decorator_raises_value_error_if_job_id_missing(self, session, mock_job_manager, mock_worker_ctx):
         # Remove job_id from args to simulate missing job_id
@@ -171,13 +218,14 @@ class TestManagedJobDecoratorUnit:
             result = await sample_raise(mock_worker_ctx, 999)
 
         # Errors within the main try block should take precedence
-        assert "error in wrapped function" in result["exception_details"]["message"]
+        assert result["status"] == "exception"
+        assert str(result["exception"]) == "error in wrapped function"
 
     async def test_decorator_passes_job_manager_to_wrapped(self, session, mock_job_manager, mock_worker_ctx):
         @with_job_management
         async def assert_manager_passed_job(ctx, job_id: int, job_manager):
             assert isinstance(job_manager, JobManager)
-            return True
+            return {"status": "ok", "data": {}, "exception": None}
 
         with (
             patch("mavedb.worker.lib.decorators.job_management.JobManager") as mock_job_manager_class,
@@ -203,7 +251,7 @@ class TestManagedJobDecoratorIntegration:
         @with_job_management
         async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
             await event.wait()  # Simulate async work, block until test signals
-            return {"status": "ok"}
+            return {"status": "ok", "data": {}, "exception": None}
 
         # Start the job (it will block at event.wait())
         job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))
@@ -221,7 +269,36 @@ class TestManagedJobDecoratorIntegration:
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
         assert job.status == JobStatus.SUCCEEDED
 
-    async def test_decorator_integrated_job_lifecycle_failure(
+    async def test_decorator_integrated_job_lifecycle_skipped(
+        self, session, arq_redis, sample_job_run, standalone_worker_context, with_populated_job_data
+    ):
+        @with_job_management
+        async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
+            return {"status": "skipped", "data": {}, "exception": None}
+
+        # Run the job
+        await sample_job(standalone_worker_context, sample_job_run.id)
+
+        # After completion, status should be SKIPPED
+        job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
+        assert job.status == JobStatus.SKIPPED
+
+    async def test_decorator_integrated_job_lifecycle_failed(
+        self, session, arq_redis, sample_job_run, standalone_worker_context, with_populated_job_data
+    ):
+        @with_job_management
+        async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
+            return {"status": "failed", "data": {}, "exception": RuntimeError("Simulated job failure")}
+
+        # Run the job
+        await sample_job(standalone_worker_context, sample_job_run.id)
+
+        # After completion, status should be FAILED
+        job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
+        assert job.status == JobStatus.FAILED
+        assert job.error_message == "Simulated job failure"
+
+    async def test_decorator_integrated_job_lifecycle_raised_exception(
         self, session, arq_redis, sample_job_run, standalone_worker_context, with_populated_job_data
     ):
         # Use an event to control when the job completes

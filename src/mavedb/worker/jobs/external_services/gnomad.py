@@ -97,7 +97,7 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
             msg="No current mapped variants with CAIDs were found for this score set. Skipping gnomAD linkage (nothing to do).",
             extra=job_manager.logging_context(),
         )
-        return {"status": "ok", "data": {}, "exception_details": None}
+        return {"status": "ok", "data": {}, "exception": None}
 
     job_manager.update_progress(10, 100, f"Found {num_variant_caids} variants with CAIDs to link to gnomAD variants.")
     logger.info(
@@ -152,4 +152,4 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
     job_manager.save_to_context({"num_mapped_variants_linked_to_gnomad_variants": num_linked_gnomad_variants})
     job_manager.update_progress(100, 100, f"Linked {num_linked_gnomad_variants} mapped variants to gnomAD variants.")
     logger.info(msg="Done linking gnomAD variants to mapped variants.", extra=job_manager.logging_context())
-    return {"status": "ok", "data": {}, "exception_details": None}
+    return {"status": "ok", "data": {}, "exception": None}

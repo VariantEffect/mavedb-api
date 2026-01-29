@@ -3,6 +3,7 @@ from unittest.mock import call, patch
 import pytest
 from sqlalchemy import select
 
+from mavedb.lib.exceptions import PipelineNotFoundError
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.jobs.pipeline_management.start_pipeline import start_pipeline
@@ -42,12 +43,14 @@ class TestStartPipelineUnit:
         setup_start_pipeline_job_run.pipeline_id = None
         session.commit()
 
-        with pytest.raises(ValueError, match="No pipeline associated with job"):
-            await start_pipeline(
-                mock_worker_ctx,
-                setup_start_pipeline_job_run.id,
-                JobManager(session, mock_worker_ctx["redis"], setup_start_pipeline_job_run.id),
-            )
+        result = await start_pipeline(
+            mock_worker_ctx,
+            setup_start_pipeline_job_run.id,
+            JobManager(session, mock_worker_ctx["redis"], setup_start_pipeline_job_run.id),
+        )
+
+        assert result["status"] == "exception"
+        assert isinstance(result["exception"], PipelineNotFoundError)
 
     async def test_start_pipeline_starts_pipeline_successfully(
         self,
@@ -153,7 +156,7 @@ class TestStartPipelineIntegration:
         session.commit()
 
         result = await start_pipeline(mock_worker_ctx, sample_dummy_pipeline_start.id)
-        assert result["status"] == "failed"
+        assert result["status"] == "exception"
 
         # Verify the start job run status
         session.refresh(sample_dummy_pipeline_start)
@@ -204,7 +207,7 @@ class TestStartPipelineIntegration:
             side_effect=custom_side_effect,
         ):
             result = await start_pipeline(mock_worker_ctx, sample_dummy_pipeline_start.id)
-            assert result["status"] == "failed"
+            assert result["status"] == "exception"
 
         # Verify the start job run status
         session.refresh(sample_dummy_pipeline_start)

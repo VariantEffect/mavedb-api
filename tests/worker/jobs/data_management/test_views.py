@@ -37,7 +37,7 @@ class TestRefreshMaterializedViewsUnit:
             result = await refresh_materialized_views(mock_worker_ctx, 999, job_manager=mock_job_manager)
 
         mock_refresh.assert_called_once_with(mock_job_manager.db)
-        assert result == {"status": "ok", "data": {}, "exception_details": None}
+        assert result == {"status": "ok", "data": {}, "exception": None}
 
     async def test_refresh_materialized_views_updates_progress(self, mock_worker_ctx, mock_job_manager):
         """Test that refresh_materialized_views updates progress correctly."""
@@ -53,7 +53,7 @@ class TestRefreshMaterializedViewsUnit:
             call(100, 100, "Completed refresh of all materialized views."),
         ]
         mock_update_progress.assert_has_calls(expected_calls)
-        assert result == {"status": "ok", "data": {}, "exception_details": None}
+        assert result == {"status": "ok", "data": {}, "exception": None}
 
 
 @pytest.mark.asyncio
@@ -75,7 +75,7 @@ class TestRefreshMaterializedViewsIntegration:
         assert job.status == JobStatus.SUCCEEDED
         assert job.job_type == "cron_job"
 
-        assert result == {"status": "ok", "data": {}, "exception_details": None}
+        assert result == {"status": "ok", "data": {}, "exception": None}
 
     async def test_refresh_materialized_views_handles_exceptions(self, standalone_worker_context, session):
         """Integration test that ensures exceptions during refresh are handled properly."""
@@ -97,7 +97,8 @@ class TestRefreshMaterializedViewsIntegration:
         assert job.status == JobStatus.FAILED
         assert job.job_type == "cron_job"
         assert job.error_message == "Test exception during refresh"
-        assert result["exception_details"]["message"] == "Test exception during refresh"
+        assert result["status"] == "exception"
+        assert isinstance(result["exception"], Exception)
 
 
 @pytest.mark.asyncio
@@ -145,7 +146,7 @@ class TestRefreshPublishedVariantsViewUnit:
             result = await refresh_published_variants_view(mock_worker_ctx, 999, job_manager=mock_job_manager)
 
         mock_refresh.assert_called_once_with(mock_job_manager.db)
-        assert result == {"status": "ok", "data": {}, "exception_details": None}
+        assert result == {"status": "ok", "data": {}, "exception": None}
 
     async def test_refresh_published_variants_view_updates_progress(
         self, mock_worker_ctx, mock_job_manager, mock_job_run
@@ -166,7 +167,7 @@ class TestRefreshPublishedVariantsViewUnit:
             call(100, 100, "Completed refresh of published variants materialized view."),
         ]
         mock_update_progress.assert_has_calls(expected_calls)
-        assert result == {"status": "ok", "data": {}, "exception_details": None}
+        assert result == {"status": "ok", "data": {}, "exception": None}
 
 
 @pytest.mark.asyncio
@@ -197,7 +198,7 @@ class TestRefreshPublishedVariantsViewIntegration:
 
         session.refresh(setup_refresh_job_run)
         assert setup_refresh_job_run.status == JobStatus.SUCCEEDED
-        assert result == {"status": "ok", "data": {}, "exception_details": None}
+        assert result == {"status": "ok", "data": {}, "exception": None}
 
     async def test_refresh_published_variants_view_integration_pipeline(
         self, standalone_worker_context, session, setup_refresh_job_run
@@ -220,7 +221,7 @@ class TestRefreshPublishedVariantsViewIntegration:
 
         session.refresh(setup_refresh_job_run)
         assert setup_refresh_job_run.status == JobStatus.SUCCEEDED
-        assert result == {"status": "ok", "data": {}, "exception_details": None}
+        assert result == {"status": "ok", "data": {}, "exception": None}
         session.refresh(pipeline)
         assert pipeline.status == PipelineStatus.SUCCEEDED
 
@@ -241,7 +242,8 @@ class TestRefreshPublishedVariantsViewIntegration:
         session.refresh(setup_refresh_job_run)
         assert setup_refresh_job_run.status == JobStatus.FAILED
         assert setup_refresh_job_run.error_message == "Test exception during published variants view refresh"
-        assert result["exception_details"]["message"] == "Test exception during published variants view refresh"
+        assert result["status"] == "exception"
+        assert isinstance(result["exception"], Exception)
 
     async def test_refresh_published_variants_view_requires_params(
         self, setup_refresh_job_run, standalone_worker_context, session
@@ -257,7 +259,8 @@ class TestRefreshPublishedVariantsViewIntegration:
         session.refresh(setup_refresh_job_run)
         assert setup_refresh_job_run.status == JobStatus.FAILED
         assert "Job has no job_params defined" in setup_refresh_job_run.error_message
-        assert "Job has no job_params defined" in result["exception_details"]["message"]
+        assert result["status"] == "exception"
+        assert isinstance(result["exception"], Exception)
 
 
 @pytest.mark.asyncio

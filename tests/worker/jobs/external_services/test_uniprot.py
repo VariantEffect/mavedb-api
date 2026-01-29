@@ -241,9 +241,8 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 return_value="job_12345",
             ),
             patch.object(JobManager, "update_progress") as mock_update_progress,
-            pytest.raises(UniProtPollingEnqueueError),
         ):
-            await submit_uniprot_mapping_jobs_for_score_set(
+            result = await submit_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx,
                 1,
                 JobManager(
@@ -254,6 +253,8 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
             )
 
         mock_update_progress.assert_called_with(100, 100, "Failed to submit UniProt mapping jobs.")
+        assert result["status"] == "failed"
+        assert isinstance(result["exception"], UniProtPollingEnqueueError)
 
         # Verify that the job metadata contains the submitted jobs (which were submitted before the error)
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -673,8 +674,8 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
                 mock_worker_ctx, sample_submit_uniprot_mapping_jobs_run.id
             )
 
-        assert result["status"] == "failed"
-        assert "UniProt API failure" in result["exception_details"]["message"]
+        assert result["status"] == "exception"
+        assert isinstance(result["exception"], Exception)
 
         # Verify that the job metadata contains no submitted jobs
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -814,10 +815,7 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
             )
 
         assert result["status"] == "failed"
-        assert (
-            "Could not find unique dependent polling job for UniProt mapping job"
-            in result["exception_details"]["message"]
-        )
+        assert isinstance(result["exception"], UniProtPollingEnqueueError)
 
         # Verify that the job metadata contains the job we submitted before the error
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -828,7 +826,7 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
         # Verify that the submission job failed
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
         # TODO#XXX: Should be failed when supported by decorator
-        assert sample_submit_uniprot_mapping_jobs_run.status == JobStatus.SUCCEEDED
+        assert sample_submit_uniprot_mapping_jobs_run.status == JobStatus.FAILED
 
         # nothing to verify for dependent polling job since it does not exist
 
@@ -1691,8 +1689,8 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
                 mock_worker_ctx, sample_polling_job_for_submission_run.id
             )
 
-        assert result["status"] == "failed"
-        assert result["exception_details"]["type"] == "UniprotMappingResultNotFoundError"
+        assert result["status"] == "exception"
+        assert isinstance(result["exception"], UniprotMappingResultNotFoundError)
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
@@ -1748,8 +1746,8 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
                 mock_worker_ctx, sample_polling_job_for_submission_run.id
             )
 
-        assert result["status"] == "failed"
-        assert result["exception_details"]["type"] == "UniprotAmbiguousMappingResultError"
+        assert result["status"] == "exception"
+        assert isinstance(result["exception"], UniprotAmbiguousMappingResultError)
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
@@ -1788,8 +1786,8 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
                 mock_worker_ctx, sample_polling_job_for_submission_run.id
             )
 
-        assert result["status"] == "failed"
-        assert result["exception_details"]["type"] == "NonExistentTargetGeneError"
+        assert result["status"] == "exception"
+        assert isinstance(result["exception"], NonExistentTargetGeneError)
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
@@ -1822,8 +1820,8 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
                 mock_worker_ctx, sample_polling_job_for_submission_run.id
             )
 
-        assert result["status"] == "failed"
-        assert result["exception_details"]["message"] == "UniProt API failure"
+        assert result["status"] == "exception"
+        assert isinstance(result["exception"], Exception)
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)

@@ -4,6 +4,7 @@ from unittest.mock import call, patch
 import pytest
 from sqlalchemy import select
 
+from mavedb.lib.exceptions import LDHSubmissionFailureError
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.mapped_variant import MappedVariant
@@ -44,7 +45,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             )
 
         mock_update_progress.assert_called_with(100, 100, "ClinGen submission is disabled. Skipping CAR submission.")
-        assert result["status"] == "ok"
+        assert result["status"] == "skipped"
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -88,9 +89,8 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", ""),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
             patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
-            pytest.raises(ValueError),
         ):
-            await submit_score_set_mappings_to_car(
+            result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
                 submit_score_set_mappings_to_car_sample_job_run.id,
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
@@ -99,6 +99,8 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         mock_update_progress.assert_called_with(
             100, 100, "CAR submission endpoint not configured. Can't complete submission."
         )
+        assert result["status"] == "failed"
+        assert isinstance(result["exception"], ValueError)
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -716,7 +718,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
-        assert result["status"] == "ok"
+        assert result["status"] == "skipped"
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -728,7 +730,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
-        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.SUCCEEDED
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.SKIPPED
 
     async def test_submit_score_set_mappings_to_car_no_submission_endpoint(
         self,
@@ -753,9 +755,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             )
 
         assert result["status"] == "failed"
-        assert (
-            result["exception_details"]["message"] == "ClinGen Allele Registry submission endpoint is not configured."
-        )
+        assert isinstance(result["exception"], ValueError)
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -947,8 +947,9 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
-        assert result["status"] == "failed"
-        assert result["exception_details"]["message"] == "ClinGen service error"
+        assert result["status"] == "exception"
+        assert isinstance(result["exception"], Exception)
+        assert str(result["exception"]) == "ClinGen service error"
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
@@ -1298,7 +1299,7 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
             )
 
         assert result["status"] == "failed"
-        assert "All LDH submissions failed for score set" in result["exception_details"]["message"]
+        assert isinstance(result["exception"], LDHSubmissionFailureError)
         mock_update_progress.assert_called_with(100, 100, "All mapped variant submissions to LDH failed.")
 
     async def test_submit_score_set_mappings_to_ldh_hgvs_not_found(
@@ -1700,8 +1701,9 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
             )
 
-        assert result["status"] == "failed"
-        assert result["exception_details"]["message"] == "LDH service error"
+        assert result["status"] == "exception"
+        assert isinstance(result["exception"], Exception)
+        assert str(result["exception"]) == "LDH service error"
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
@@ -1847,7 +1849,7 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
             )
 
         assert result["status"] == "failed"
-        assert "All LDH submissions failed for score set" in result["exception_details"]["message"]
+        assert isinstance(result["exception"], LDHSubmissionFailureError)
 
         # Verify annotation statuses were created with failures
         annotation_statuses = session.scalars(
@@ -1860,7 +1862,7 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
         # Verify the job status is updated in the database
         # TODO:XXX: Change status to 'failed' once decorator supports it
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
-        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.SUCCEEDED
+        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.FAILED
 
     async def test_submit_score_set_mappings_to_ldh_partial_submission(
         self,
