@@ -79,6 +79,7 @@ class TestLinkGnomadVariantsUnit:
         mock_worker_ctx,
         sample_link_gnomad_variants_run,
         setup_sample_variants_with_caid,
+        athena_engine,
     ):
         """Test linking gnomAD variants when no gnomAD variants match the CAIDs."""
 
@@ -88,6 +89,7 @@ class TestLinkGnomadVariantsUnit:
                 "mavedb.worker.jobs.external_services.gnomad.gnomad_variant_data_for_caids",
                 return_value={},
             ),
+            patch("mavedb.worker.jobs.external_services.gnomad.athena.engine", athena_engine),
         ):
             result = await link_gnomad_variants(
                 mock_worker_ctx,
@@ -106,6 +108,7 @@ class TestLinkGnomadVariantsUnit:
         mock_worker_ctx,
         sample_link_gnomad_variants_run,
         setup_sample_variants_with_caid,
+        athena_engine,
     ):
         """Test that the linking method is called when gnomAD variants match CAIDs."""
 
@@ -119,6 +122,7 @@ class TestLinkGnomadVariantsUnit:
                 "mavedb.worker.jobs.external_services.gnomad.link_gnomad_variants_to_mapped_variants",
                 return_value=1,
             ) as mock_linking_method,
+            patch("mavedb.worker.jobs.external_services.gnomad.athena.engine", athena_engine),
         ):
             result = await link_gnomad_variants(
                 mock_worker_ctx,
@@ -138,6 +142,7 @@ class TestLinkGnomadVariantsUnit:
         mock_worker_ctx,
         sample_link_gnomad_variants_run,
         setup_sample_variants_with_caid,
+        athena_engine,
     ):
         """Test that progress updates are made during the linking process."""
 
@@ -151,6 +156,7 @@ class TestLinkGnomadVariantsUnit:
                 "mavedb.worker.jobs.external_services.gnomad.link_gnomad_variants_to_mapped_variants",
                 return_value=1,
             ),
+            patch("mavedb.worker.jobs.external_services.gnomad.athena.engine", athena_engine),
         ):
             result = await link_gnomad_variants(
                 mock_worker_ctx,
@@ -176,11 +182,15 @@ class TestLinkGnomadVariantsUnit:
         mock_worker_ctx,
         sample_link_gnomad_variants_run,
         setup_sample_variants_with_caid,
+        athena_engine,
     ):
         """Test that exceptions during the linking process are propagated."""
-        with patch(
-            "mavedb.worker.jobs.external_services.gnomad.gnomad_variant_data_for_caids",
-            side_effect=Exception("Test exception"),
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.gnomad.gnomad_variant_data_for_caids",
+                side_effect=Exception("Test exception"),
+            ),
+            patch("mavedb.worker.jobs.external_services.gnomad.athena.engine", athena_engine),
         ):
             with pytest.raises(Exception) as exc_info:
                 await link_gnomad_variants(
