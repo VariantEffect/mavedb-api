@@ -36,7 +36,11 @@ def mock_worker_variant_insertion(
     with (
         open(scores_csv_path, "rb") as score_file,
         patch.object(ArqRedis, "enqueue_job", return_value=None) as worker_queue,
+        patch("mavedb.routers.score_sets.s3_client") as mock_s3_client,
     ):
+        mock_s3 = mock_s3_client.return_value
+        mock_s3.upload_fileobj.return_value = None  # or whatever you want
+
         files = {"scores_file": (scores_csv_path.name, score_file, "rb")}
 
         if counts_csv_path is not None:
@@ -69,6 +73,7 @@ def mock_worker_variant_insertion(
 
         # Assert we have mocked a job being added to the queue, and that the request succeeded. The
         # response value here isn't important- we will add variants to the score set manually.
+        mock_s3.upload_fileobj.assert_called()
         worker_queue.assert_called_once()
         assert response.status_code == 200
 

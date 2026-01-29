@@ -1,7 +1,12 @@
+# ruff: noqa: E402
+
+import pytest
+
+pytest.importorskip("arq")
+
 from asyncio.unix_events import _UnixSelectorEventLoop
 from unittest.mock import call, patch
 
-import pytest
 from sqlalchemy import select
 
 from mavedb.lib.exceptions import LDHSubmissionFailureError

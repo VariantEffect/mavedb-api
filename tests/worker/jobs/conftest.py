@@ -1,7 +1,4 @@
-from unittest import mock
-
 import pytest
-from mypy_boto3_s3 import S3Client
 
 from mavedb.models.enums.job_pipeline import DependencyType
 from mavedb.models.job_dependency import JobDependency
@@ -11,15 +8,10 @@ from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 
-
-@pytest.fixture
-def mock_s3_client():
-    """Mock S3 client for tests that interact with S3."""
-
-    with mock.patch("mavedb.worker.jobs.variant_processing.creation.s3_client") as mock_s3_client_func:
-        mock_s3 = mock.MagicMock(spec=S3Client)
-        mock_s3_client_func.return_value = mock_s3
-        yield mock_s3
+try:
+    from .conftest_optional import *  # noqa: F403, F401
+except ImportError:
+    pass
 
 
 ## param fixtures for job runs ##

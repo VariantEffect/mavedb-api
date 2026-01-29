@@ -1,4 +1,8 @@
+# ruff: noqa: E402
+
 import pytest
+
+pytest.importorskip("arq")
 
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from tests.helpers.constants import TEST_REFSEQ_IDENTIFIER

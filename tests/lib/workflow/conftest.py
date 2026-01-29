@@ -2,23 +2,14 @@ from unittest.mock import patch
 
 import pytest
 
-from mavedb.lib.workflow.job_factory import JobFactory
-from mavedb.lib.workflow.pipeline_factory import PipelineFactory
 from mavedb.models.enums.job_pipeline import DependencyType
 from mavedb.models.user import User
 from tests.helpers.constants import TEST_USER
 
-
-@pytest.fixture
-def job_factory(session):
-    """Fixture to provide a mocked JobFactory instance."""
-    yield JobFactory(session)
-
-
-@pytest.fixture
-def pipeline_factory(session):
-    """Fixture to provide a mocked PipelineFactory instance."""
-    yield PipelineFactory(session)
+try:
+    from .conftest_optional import *  # noqa: F403, F401
+except ImportError:
+    pass
 
 
 @pytest.fixture

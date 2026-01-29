@@ -1,6 +1,10 @@
-from unittest.mock import MagicMock, call, patch
+# ruff: noqa: E402
 
 import pytest
+
+pytest.importorskip("arq")
+
+from unittest.mock import MagicMock, call, patch
 
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.gnomad_variant import GnomADVariant

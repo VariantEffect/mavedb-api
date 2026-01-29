@@ -1,6 +1,10 @@
-from unittest.mock import Mock
+# ruff: noqa: E402
 
 import pytest
+
+pytest.importorskip("arq")
+
+from unittest.mock import Mock
 
 from mavedb.models.job_run import JobRun
 from mavedb.worker.jobs.utils.setup import validate_job_params

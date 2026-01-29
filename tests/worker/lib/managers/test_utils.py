@@ -1,4 +1,8 @@
+# ruff: noqa: E402
+
 import pytest
+
+pytest.importorskip("arq")
 
 from mavedb.models.enums.job_pipeline import DependencyType, JobStatus
 from mavedb.worker.lib.managers.constants import COMPLETED_JOB_STATUSES

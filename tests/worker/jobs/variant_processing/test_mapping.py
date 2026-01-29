@@ -1,7 +1,12 @@
+# ruff: noqa: E402
+
+import pytest
+
+pytest.importorskip("arq")
+
 from asyncio.unix_events import _UnixSelectorEventLoop
 from unittest.mock import MagicMock, call, patch
 
-import pytest
 from sqlalchemy.exc import NoResultFound
 
 from mavedb.lib.exceptions import (

@@ -1,6 +1,11 @@
-from unittest.mock import call, patch
+# ruff: noqa: E402
 
 import pytest
+
+pytest.importorskip("arq")
+
+from unittest.mock import call, patch
+
 from sqlalchemy import select
 
 from mavedb.lib.exceptions import PipelineNotFoundError

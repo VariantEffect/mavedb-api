@@ -8,8 +8,6 @@ error handling, and database interactions.
 
 import pytest
 
-from mavedb.lib.logging.context import format_raised_exception_info_as_dict
-
 pytest.importorskip("arq")
 
 import re
@@ -19,6 +17,7 @@ from arq import ArqRedis
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.managers.constants import (

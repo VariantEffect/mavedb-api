@@ -4,31 +4,35 @@ from shutil import copytree
 import pytest
 
 from mavedb.models.clinical_control import ClinicalControl
-from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.contributor import Contributor
+from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.enums.user_role import UserRole
-from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.license import License
+from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.role import Role
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
-
 from tests.helpers.constants import (
     ADMIN_USER,
-    TEST_CLINVAR_CONTROL,
-    TEST_GENERIC_CLINICAL_CONTROL,
-    EXTRA_USER,
     EXTRA_CONTRIBUTOR,
-    TEST_DB_KEYWORDS,
-    TEST_LICENSE,
-    TEST_INACTIVE_LICENSE,
     EXTRA_LICENSE,
+    EXTRA_USER,
+    TEST_CLINVAR_CONTROL,
+    TEST_DB_KEYWORDS,
+    TEST_GENERIC_CLINICAL_CONTROL,
+    TEST_GNOMAD_VARIANT,
+    TEST_INACTIVE_LICENSE,
+    TEST_LICENSE,
+    TEST_PUBMED_PUBLICATION,
     TEST_SAVED_TAXONOMY,
     TEST_USER,
-    TEST_PUBMED_PUBLICATION,
-    TEST_GNOMAD_VARIANT,
 )
+
+try:
+    from .conftest_optional import *  # noqa: F403, F401
+except ImportError:
+    pass
 
 
 @pytest.fixture
