@@ -31,7 +31,7 @@ def construct_bulk_cancellation_result(reason: str) -> JobResultData:
             "reason": reason,
             "timestamp": datetime.now().isoformat(),
         },
-        "exception_details": None,
+        "exception": None,
     }
 
 

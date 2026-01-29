@@ -347,8 +347,8 @@ class TestLinkGnomadVariantsIntegration:
                 sample_link_gnomad_variants_run.id,
             )
 
-        assert result["status"] == "failed"
-        assert "Test exception" in result["exception_details"]["message"]
+        assert result["status"] == "exception"
+        assert isinstance(result["exception"], Exception)
 
         # Verify job status updates
         session.refresh(sample_link_gnomad_variants_run)

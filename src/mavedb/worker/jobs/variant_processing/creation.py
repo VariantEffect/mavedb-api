@@ -227,15 +227,7 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
             msg="Encountered an internal exception while processing variants.", extra=job_manager.logging_context()
         )
 
-        return {
-            "status": "failed",
-            "data": {},
-            "exception_details": {
-                "message": str(e),
-                "type": e.__class__.__name__,
-                "traceback": format_raised_exception_info_as_dict(e).get("traceback", ""),
-            },
-        }
+        return {"status": "failed" if isinstance(e, ValidationError) else "exception", "data": {}, "exception": e}
 
     else:
         score_set.processing_state = ProcessingState.success
@@ -257,4 +249,4 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
 
     job_manager.update_progress(100, 100, "Completed variant creation job.")
     logger.info(msg="Added new variants to score set.", extra=job_manager.logging_context())
-    return {"status": "ok", "data": {}, "exception_details": None}
+    return {"status": "ok", "data": {}, "exception": None}

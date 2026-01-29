@@ -17,6 +17,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from mavedb.data_providers.services import vrs_mapper
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.exceptions import (
+    NoMappedVariantsError,
     NonexistentMappingReferenceError,
     NonexistentMappingResultsError,
     NonexistentMappingScoresError,
@@ -280,11 +281,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         score_set.mapping_state = MappingState.failed
         # These exceptions have already set mapping_errors appropriately
 
-        return {
-            "status": "error",
-            "data": {},
-            "exception_details": {"message": str(e), "type": e.__class__.__name__, "traceback": None},
-        }
+        return {"status": "exception", "data": {}, "exception": e}
 
     except Exception as e:
         send_slack_error(e)
@@ -300,11 +297,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             }
         job_manager.update_progress(100, 100, "Variant mapping failed due to an unexpected error.")
 
-        return {
-            "status": "error",
-            "data": {},
-            "exception_details": {"message": str(e), "type": e.__class__.__name__, "traceback": None},
-        }
+        return {"status": "exception", "data": {}, "exception": e}
 
     finally:
         job_manager.db.add(score_set)
@@ -312,4 +305,14 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
     logger.info(msg="Inserted mapped variants into db.", extra=job_manager.logging_context())
     job_manager.update_progress(100, 100, "Finished processing mapped variants.")
-    return {"status": "ok" if successful_mapped_variants > 0 else "error", "data": {}, "exception_details": None}
+
+    if successful_mapped_variants == 0:
+        logger.error(msg="No variants were successfully mapped.", extra=job_manager.logging_context())
+        return {
+            "status": "failed",
+            "data": {},
+            "exception": NoMappedVariantsError("No variants were successfully mapped."),
+        }
+
+    logger.info(msg="Variant mapping job completed successfully.", extra=job_manager.logging_context())
+    return {"status": "ok", "data": {}, "exception": None}

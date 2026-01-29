@@ -1,5 +1,6 @@
 import logging
 
+from mavedb.lib.exceptions import PipelineNotFoundError
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
@@ -44,7 +45,11 @@ async def start_pipeline(ctx: dict, job_id: int, job_manager: JobManager) -> Job
     logger.debug(msg="Coordinating pipeline for the first time.", extra=job_manager.logging_context())
 
     if not job_manager.pipeline_id:
-        raise ValueError(f"No pipeline associated with job {job_id}")
+        return {
+            "status": "exception",
+            "data": {},
+            "exception": PipelineNotFoundError("No pipeline associated with this job."),
+        }
 
     # Initialize PipelineManager and coordinate pipeline. The pipeline manager decorator
     # will have started the pipeline for us already, but doesn't coordinate on start automatically.
@@ -56,4 +61,4 @@ async def start_pipeline(ctx: dict, job_id: int, job_manager: JobManager) -> Job
     job_manager.update_progress(100, 100, "Initial pipeline coordination complete.")
     logger.debug(msg="Done starting pipeline.", extra=job_manager.logging_context())
 
-    return {"status": "ok", "data": {}, "exception_details": None}
+    return {"status": "ok", "data": {}, "exception": None}

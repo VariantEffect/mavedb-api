@@ -390,9 +390,9 @@ class PipelineManager(BaseManager):
             if should_skip:
                 job_manager.skip_job(
                     {
-                        "output": {},
-                        "logs": "",
-                        "metadata": {"result": reason, "timestamp": datetime.now().isoformat()},
+                        "status": "skipped",
+                        "exception": None,
+                        "data": {"result": reason, "timestamp": datetime.now().isoformat()},
                     }
                 )
                 logger.info(f"Skipped job {job.urn} due to unreachable dependencies: {reason}")

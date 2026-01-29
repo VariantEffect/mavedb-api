@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable, TypeVar, cast
 from arq import ArqRedis
 from sqlalchemy.orm import Session
 
+from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.worker.lib.decorators.utils import ensure_ctx, ensure_job_id, ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers import JobManager
 from mavedb.worker.lib.managers.types import JobResultData
@@ -118,11 +119,19 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobResultData]], ar
         # Execute the async function
         result = await func(*args, **kwargs)
 
-        # Mark job as succeeded and persist state. As a general rule, jobs do not
-        # commit their own state and we do not persist their state until we mark
-        # them as succeeded.
-        job_manager.succeed_job(result=result)
+        # Move job to final state based on result
+        if result.get("status") == "failed" or result.get("exception"):
+            job_manager.fail_job(result=result, error=result["exception"])
+        elif result.get("status") == "skipped":
+            job_manager.skip_job(result=result)
+        else:
+            job_manager.succeed_job(result=result)
         db_session.commit()
+
+        # If the job is not marked as succeeded, check if we should retry
+        if job_manager.get_job_status() != JobStatus.SUCCEEDED and job_manager.should_retry():
+            job_manager.prepare_retry(reason="Job did not complete successfully")
+            db_session.commit()
 
         return result
 
@@ -132,15 +141,7 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobResultData]], ar
             db_session.rollback()
 
             # Build failure result data
-            result = {
-                "status": "failed",
-                "data": {},
-                "exception_details": {
-                    "type": type(e).__name__,
-                    "message": str(e),
-                    "traceback": None,  # Could be populated with actual traceback if needed
-                },
-            }
+            result = {"status": "exception", "data": {}, "exception": e}
 
             # Mark job as failed
             job_manager.fail_job(result=result, error=e)
@@ -151,8 +152,6 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobResultData]], ar
                 # Prepare job for retry and persist state
                 job_manager.prepare_retry(reason=str(e))
                 db_session.commit()
-
-                result["status"] = "retried"
 
                 # short circuit raising the exception. We indicate to the caller
                 # we did encounter a terminal failure and coordination should proceed.

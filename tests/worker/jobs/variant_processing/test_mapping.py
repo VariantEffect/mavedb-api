@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy.exc import NoResultFound
 
 from mavedb.lib.exceptions import (
+    NoMappedVariantsError,
     NonexistentMappingReferenceError,
     NonexistentMappingResultsError,
     NonexistentMappingScoresError,
@@ -46,15 +47,17 @@ class TestMapVariantsForScoreSetUnit:
         with (
             patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=self.dummy_mapping_output({})),
             patch.object(JobManager, "update_progress") as mock_update_progress,
-            pytest.raises(NonexistentMappingResultsError),
         ):
-            await map_variants_for_score_set(
+            result = await map_variants_for_score_set(
                 mock_worker_ctx,
                 sample_independent_variant_mapping_run.id,
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         mock_update_progress.assert_any_call(100, 100, "Variant mapping failed due to missing results.")
+        assert result["status"] == "exception"
+        assert result["data"] == {}
+        assert isinstance(result["exception"], NonexistentMappingResultsError)
 
         assert sample_score_set.mapping_state == MappingState.failed
         assert sample_score_set.mapping_errors is not None
@@ -93,15 +96,17 @@ class TestMapVariantsForScoreSetUnit:
                 ),
             ),
             patch.object(JobManager, "update_progress") as mock_update_progress,
-            pytest.raises(NonexistentMappingScoresError),
         ):
-            await map_variants_for_score_set(
+            result = await map_variants_for_score_set(
                 mock_worker_ctx,
                 sample_independent_variant_mapping_run.id,
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         mock_update_progress.assert_any_call(100, 100, "Variant mapping failed; no variants were mapped.")
+        assert result["status"] == "exception"
+        assert result["data"] == {}
+        assert isinstance(result["exception"], NonexistentMappingScoresError)
 
         assert sample_score_set.mapping_state == MappingState.failed
         assert sample_score_set.mapping_errors is not None
@@ -137,15 +142,17 @@ class TestMapVariantsForScoreSetUnit:
                 ),
             ),
             patch.object(JobManager, "update_progress") as mock_update_progress,
-            pytest.raises(NonexistentMappingReferenceError),
         ):
-            await map_variants_for_score_set(
+            result = await map_variants_for_score_set(
                 mock_worker_ctx,
                 sample_independent_variant_mapping_run.id,
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         mock_update_progress.assert_any_call(100, 100, "Variant mapping failed due to missing reference metadata.")
+        assert result["status"] == "exception"
+        assert result["data"] == {}
+        assert isinstance(result["exception"], NonexistentMappingReferenceError)
 
         assert sample_score_set.mapping_state == MappingState.failed
         assert sample_score_set.mapping_errors is not None
@@ -184,15 +191,17 @@ class TestMapVariantsForScoreSetUnit:
                 ),
             ),
             patch.object(JobManager, "update_progress") as mock_update_progress,
-            pytest.raises(ValueError),
         ):
-            await map_variants_for_score_set(
+            result = await map_variants_for_score_set(
                 mock_worker_ctx,
                 sample_independent_variant_mapping_run.id,
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         mock_update_progress.assert_any_call(100, 100, "Variant mapping failed due to an unexpected error.")
+        assert result["status"] == "exception"
+        assert result["data"] == {}
+        assert isinstance(result["exception"], ValueError)
 
         assert sample_score_set.mapping_state == MappingState.failed
         assert sample_score_set.mapping_errors is not None
@@ -234,15 +243,17 @@ class TestMapVariantsForScoreSetUnit:
                 return_value=self.dummy_mapping_output(mapping_output),
             ),
             patch.object(JobManager, "update_progress") as mock_update_progress,
-            pytest.raises(NoResultFound),
         ):
-            await map_variants_for_score_set(
+            result = await map_variants_for_score_set(
                 mock_worker_ctx,
                 sample_independent_variant_mapping_run.id,
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
         mock_update_progress.assert_any_call(100, 100, "Variant mapping failed due to an unexpected error.")
+        assert result["status"] == "exception"
+        assert result["data"] == {}
+        assert isinstance(result["exception"], NoResultFound)
 
         assert sample_score_set.mapping_state == MappingState.failed
         assert sample_score_set.mapping_errors is not None
@@ -307,7 +318,7 @@ class TestMapVariantsForScoreSetUnit:
 
         assert result["status"] == "ok"
         assert result["data"] == {}
-        assert result["exception_details"] is None
+        assert result["exception"] is None
 
         assert sample_score_set.mapping_state == MappingState.complete
         assert sample_score_set.mapping_errors is None
@@ -391,7 +402,7 @@ class TestMapVariantsForScoreSetUnit:
 
         assert result["status"] == "ok"
         assert result["data"] == {}
-        assert result["exception_details"] is None
+        assert result["exception"] is None
 
         assert sample_score_set.mapping_state == MappingState.complete
         assert sample_score_set.mapping_errors is None
@@ -494,9 +505,9 @@ class TestMapVariantsForScoreSetUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
-        assert result["status"] == "error"
+        assert result["status"] == "failed"
         assert result["data"] == {}
-        assert result["exception_details"] is None
+        assert isinstance(result["exception"], NoMappedVariantsError)
 
         assert sample_score_set.mapping_state == MappingState.failed
         assert sample_score_set.mapping_errors["error_message"] == "All variants failed to map."
@@ -578,7 +589,7 @@ class TestMapVariantsForScoreSetUnit:
 
         assert result["status"] == "ok"
         assert result["data"] == {}
-        assert result["exception_details"] is None
+        assert result["exception"] is None
 
         assert sample_score_set.mapping_state == MappingState.incomplete
         assert sample_score_set.mapping_errors is None
@@ -675,7 +686,7 @@ class TestMapVariantsForScoreSetUnit:
 
         assert result["status"] == "ok"
         assert result["data"] == {}
-        assert result["exception_details"] is None
+        assert result["exception"] is None
 
         assert sample_score_set.mapping_state == MappingState.complete
         assert sample_score_set.mapping_errors is None
@@ -763,7 +774,7 @@ class TestMapVariantsForScoreSetUnit:
 
         assert result["status"] == "ok"
         assert result["data"] == {}
-        assert result["exception_details"] is None
+        assert result["exception"] is None
 
         assert sample_score_set.mapping_state == MappingState.complete
         assert sample_score_set.mapping_errors is None
@@ -855,7 +866,7 @@ class TestMapVariantsForScoreSetUnit:
 
         assert result["status"] == "ok"
         assert result["data"] == {}
-        assert result["exception_details"] is None
+        assert result["exception"] is None
 
         assert sample_score_set.mapping_state == MappingState.complete
         assert sample_score_set.mapping_errors is None
@@ -928,7 +939,7 @@ class TestMapVariantsForScoreSetIntegration:
 
         assert result["status"] == "ok"
         assert result["data"] == {}
-        assert result["exception_details"] is None
+        assert result["exception"] is None
 
         # Verify that mapped variants were created
         mapped_variants = session.query(MappedVariant).all()
@@ -1020,7 +1031,7 @@ class TestMapVariantsForScoreSetIntegration:
 
         assert result["status"] == "ok"
         assert result["data"] == {}
-        assert result["exception_details"] is None
+        assert result["exception"] is None
 
         # Verify that mapped variants were created
         mapped_variants = session.query(MappedVariant).all()
@@ -1110,8 +1121,8 @@ class TestMapVariantsForScoreSetIntegration:
                 sample_independent_variant_mapping_run.id,
             )
 
-        assert result["status"] == "error"
-        assert result["exception_details"]["type"] == "NonexistentMappingResultsError"
+        assert result["status"] == "exception"
+        assert isinstance(result["exception"], NonexistentMappingResultsError)
         assert result["data"] == {}
 
         assert sample_score_set.mapping_state == MappingState.failed
@@ -1135,7 +1146,7 @@ class TestMapVariantsForScoreSetIntegration:
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
-        assert processing_run.status == JobStatus.SUCCEEDED
+        assert processing_run.status == JobStatus.FAILED
 
     async def test_map_variants_for_score_set_no_mapped_scores(
         self,
@@ -1188,8 +1199,8 @@ class TestMapVariantsForScoreSetIntegration:
                 sample_independent_variant_mapping_run.id,
             )
 
-        assert result["status"] == "error"
-        assert result["exception_details"]["type"] == "NonexistentMappingScoresError"
+        assert result["status"] == "exception"
+        assert isinstance(result["exception"], NonexistentMappingScoresError)
         assert result["data"] == {}
 
         assert sample_score_set.mapping_state == MappingState.failed
@@ -1211,7 +1222,7 @@ class TestMapVariantsForScoreSetIntegration:
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
-        assert processing_run.status == JobStatus.SUCCEEDED
+        assert processing_run.status == JobStatus.FAILED
 
     async def test_map_variants_for_score_set_no_reference_data(
         self,
@@ -1264,8 +1275,8 @@ class TestMapVariantsForScoreSetIntegration:
                 sample_independent_variant_mapping_run.id,
             )
 
-        assert result["status"] == "error"
-        assert result["exception_details"]["type"] == "NonexistentMappingReferenceError"
+        assert result["status"] == "exception"
+        assert isinstance(result["exception"], NonexistentMappingReferenceError)
         assert result["data"] == {}
 
         assert sample_score_set.mapping_state == MappingState.failed
@@ -1286,7 +1297,7 @@ class TestMapVariantsForScoreSetIntegration:
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
-        assert processing_run.status == JobStatus.SUCCEEDED
+        assert processing_run.status == JobStatus.FAILED
 
     async def test_map_variants_for_score_set_updates_current_mapped_variants(
         self,
@@ -1357,7 +1368,7 @@ class TestMapVariantsForScoreSetIntegration:
 
         assert result["status"] == "ok"
         assert result["data"] == {}
-        assert result["exception_details"] is None
+        assert result["exception"] is None
 
         assert sample_score_set.mapping_state == MappingState.complete
         assert sample_score_set.mapping_errors is None
@@ -1447,10 +1458,9 @@ class TestMapVariantsForScoreSetIntegration:
                 sample_independent_variant_mapping_run.id,
             )
 
-        assert result["status"] == "error"
+        assert result["status"] == "exception"
         assert result["data"] == {}
-        assert result["exception_details"] is not None
-        assert result["exception_details"]["type"] == "NonexistentMappingScoresError"
+        assert isinstance(result["exception"], NonexistentMappingScoresError)
 
         assert sample_score_set.mapping_state == MappingState.failed
         assert sample_score_set.mapping_errors is not None
@@ -1470,7 +1480,7 @@ class TestMapVariantsForScoreSetIntegration:
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
-        assert processing_run.status == JobStatus.SUCCEEDED
+        assert processing_run.status == JobStatus.FAILED
 
     async def test_map_variants_for_score_set_exception_in_mapping(
         self,
@@ -1499,11 +1509,11 @@ class TestMapVariantsForScoreSetIntegration:
                 sample_independent_variant_mapping_run.id,
             )
 
-        assert result["status"] == "error"
+        assert result["status"] == "exception"
         assert result["data"] == {}
-        assert result["exception_details"]["type"] == "ValueError"
+        assert isinstance(result["exception"], ValueError)
         # exception messages are persisted in internal properties
-        assert "test exception during mapping" in result["exception_details"]["message"]
+        assert "test exception during mapping" in str(result["exception"])
 
         assert sample_score_set.mapping_state == MappingState.failed
         assert sample_score_set.mapping_errors is not None
@@ -1527,7 +1537,7 @@ class TestMapVariantsForScoreSetIntegration:
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
-        assert processing_run.status == JobStatus.SUCCEEDED
+        assert processing_run.status == JobStatus.FAILED
 
 
 @pytest.mark.integration
@@ -1767,7 +1777,7 @@ class TestMapVariantsForScoreSetArqContext:
             .filter(sample_independent_variant_mapping_run.__class__.id == sample_independent_variant_mapping_run.id)
             .one()
         )
-        assert processing_run.status == JobStatus.SUCCEEDED
+        assert processing_run.status == JobStatus.FAILED
 
     async def test_map_variants_for_score_set_with_arq_context_generic_exception_in_pipeline_ctx(
         self,
@@ -1819,7 +1829,7 @@ class TestMapVariantsForScoreSetArqContext:
             .filter(sample_pipeline_variant_mapping_run.__class__.id == sample_pipeline_variant_mapping_run.id)
             .one()
         )
-        assert processing_run.status == JobStatus.SUCCEEDED
+        assert processing_run.status == JobStatus.FAILED
 
         # Verify that the pipeline run status was updated to FAILED.
         pipeline_run = (
@@ -1830,9 +1840,9 @@ class TestMapVariantsForScoreSetArqContext:
             )
             .one()
         )
-        assert pipeline_run.status == PipelineStatus.RUNNING
+        assert pipeline_run.status == PipelineStatus.FAILED
 
         # Verify that other jobs in the pipeline were skipped
         for job_run in pipeline_run.job_runs:
             if job_run.id != sample_pipeline_variant_mapping_run.id:
-                assert job_run.status == JobStatus.QUEUED
+                assert job_run.status == JobStatus.SKIPPED

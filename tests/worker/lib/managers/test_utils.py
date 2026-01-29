@@ -18,7 +18,7 @@ class TestConstructBulkCancellationResultUnit:
         assert result["status"] == "cancelled"
         assert result["data"]["reason"] == reason
         assert "timestamp" in result["data"]
-        assert result["exception_details"] is None
+        assert result["exception"] is None
 
 
 @pytest.mark.unit

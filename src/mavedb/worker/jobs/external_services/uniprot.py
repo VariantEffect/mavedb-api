@@ -104,7 +104,7 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_
             extra=job_manager.logging_context(),
         )
 
-        return {"status": "ok", "data": {}, "exception_details": None}
+        return {"status": "ok", "data": {}, "exception": None}
 
     uniprot_api = UniProtIDMappingAPI()
     job_manager.save_to_context({"total_target_genes_to_map_to_uniprot": len(score_set.target_genes)})
@@ -162,7 +162,7 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_
         job_manager.update_progress(100, 100, "No UniProt mapping jobs were submitted.")
         logger.warning(msg="No UniProt mapping jobs were submitted.", extra=job_manager.logging_context())
 
-        return {"status": "ok", "data": {}, "exception_details": None}
+        return {"status": "ok", "data": {}, "exception": None}
 
     # It's an essential responsibility of the submit job (when submissions exist) to ensure that the polling job exists.
     dependent_polling_job = job_manager.db.scalars(
@@ -180,11 +180,9 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_
         return {
             "status": "failed",
             "data": {},
-            "exception_details": {
-                "type": UniProtPollingEnqueueError.__name__,
-                "message": f"Could not find unique dependent polling job for UniProt mapping job {job.id}.",
-                "traceback": None,
-            },
+            "exception": UniProtPollingEnqueueError(
+                f"Could not find unique dependent polling job for UniProt mapping job {job.id}."
+            ),
         }
 
     # Set mapping jobs on dependent polling job. Only one polling job per score set should be created.
@@ -197,7 +195,7 @@ async def submit_uniprot_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_
     job_manager.update_progress(100, 100, "Completed submission of UniProt mapping jobs.")
     logger.info(msg="Completed UniProt mapping job submission", extra=job_manager.logging_context())
     job_manager.db.flush()
-    return {"status": "ok", "data": {}, "exception_details": None}
+    return {"status": "ok", "data": {}, "exception": None}
 
 
 @with_pipeline_management
@@ -252,7 +250,7 @@ async def poll_uniprot_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_ma
             msg=f"No mapping jobs found in job parameters for polling UniProt mapping jobs for score set {score_set.urn}.",
             extra=job_manager.logging_context(),
         )
-        return {"status": "ok", "data": {}, "exception_details": None}
+        return {"status": "ok", "data": {}, "exception": None}
 
     # Poll each mapping job and update target genes with UniProt IDs
     uniprot_api = UniProtIDMappingAPI()
@@ -321,4 +319,4 @@ async def poll_uniprot_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_ma
 
     job_manager.update_progress(100, 100, "Completed polling of UniProt mapping jobs.")
     job_manager.db.flush()
-    return {"status": "ok", "data": {}, "exception_details": None}
+    return {"status": "ok", "data": {}, "exception": None}

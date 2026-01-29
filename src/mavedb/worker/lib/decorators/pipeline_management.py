@@ -170,15 +170,7 @@ async def _execute_managed_pipeline(func: Callable[..., Awaitable[JobResultData]
             logger.error(f"Pipeline {pipeline_id} associated with job {job_id} failed to coordinate: {e}")
 
             # Build job result data for failure
-            result = {
-                "status": "failed",
-                "data": {},
-                "exception_details": {
-                    "type": type(e).__name__,
-                    "message": str(e),
-                    "traceback": None,  # Could be populated with actual traceback if needed
-                },
-            }
+            result = {"status": "failed", "data": {}, "exception": e}
 
             # TODO: Notification hooks
 
