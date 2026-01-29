@@ -85,8 +85,10 @@ class TestRefreshMaterializedViewsIntegration:
                 side_effect=Exception("Test exception during refresh"),
             ),
             TransactionSpy.spy(session, expect_rollback=True, expect_flush=True, expect_commit=True),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await refresh_materialized_views(standalone_worker_context)
+            mock_send_slack_error.assert_called_once()
 
         job = session.execute(
             select(JobRun).where(JobRun.job_function == "refresh_materialized_views")
@@ -235,8 +237,10 @@ class TestRefreshPublishedVariantsViewIntegration:
                 side_effect=Exception("Test exception during published variants view refresh"),
             ),
             TransactionSpy.spy(session, expect_rollback=True, expect_flush=True, expect_commit=True),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await refresh_published_variants_view(standalone_worker_context, setup_refresh_job_run.id)
+            mock_send_slack_error.assert_called_once()
 
         session.refresh(setup_refresh_job_run)
         assert setup_refresh_job_run.status == JobStatus.FAILED
@@ -252,8 +256,12 @@ class TestRefreshPublishedVariantsViewIntegration:
         session.add(setup_refresh_job_run)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_rollback=True, expect_flush=True, expect_commit=True):
+        with (
+            TransactionSpy.spy(session, expect_rollback=True, expect_flush=True, expect_commit=True),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+        ):
             result = await refresh_published_variants_view(standalone_worker_context, setup_refresh_job_run.id)
+            mock_send_slack_error.assert_called_once()
 
         session.refresh(setup_refresh_job_run)
         assert setup_refresh_job_run.status == JobStatus.FAILED

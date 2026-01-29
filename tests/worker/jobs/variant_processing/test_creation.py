@@ -943,9 +943,11 @@ class TestCreateVariantsForScoreSetIntegration:
                 "mavedb.worker.jobs.variant_processing.creation.pd.read_csv",
                 side_effect=[sample_score_dataframe, sample_count_dataframe],
             ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             await create_variants_for_score_set(mock_worker_ctx, sample_independent_variant_creation_run.id)
 
+        mock_send_slack_error.assert_called_once()
         # Verify that the score set's processing state is updated to failed
         session.refresh(sample_score_set)
         assert sample_score_set.processing_state == ProcessingState.failed
@@ -990,9 +992,11 @@ class TestCreateVariantsForScoreSetIntegration:
                 "mavedb.worker.jobs.variant_processing.creation.validate_and_standardize_dataframe_pair",
                 side_effect=Exception("Generic exception during data validation"),
             ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             await create_variants_for_score_set(mock_worker_ctx, sample_independent_variant_creation_run.id)
 
+        mock_send_slack_error.assert_called_once()
         # Verify that the score set's processing state is updated to failed
         session.refresh(sample_score_set)
         assert sample_score_set.processing_state == ProcessingState.failed
@@ -1049,9 +1053,11 @@ class TestCreateVariantsForScoreSetIntegration:
                 "mavedb.worker.jobs.variant_processing.creation.validate_and_standardize_dataframe_pair",
                 side_effect=Exception("Generic exception during data validation"),
             ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             await create_variants_for_score_set(mock_worker_ctx, sample_independent_variant_creation_run.id)
 
+        mock_send_slack_error.assert_called_once()
         # Verify that the score set's processing state is updated to failed
         session.refresh(sample_score_set)
         assert sample_score_set.processing_state == ProcessingState.failed
@@ -1098,9 +1104,11 @@ class TestCreateVariantsForScoreSetIntegration:
                 "mavedb.worker.jobs.variant_processing.creation.validate_and_standardize_dataframe_pair",
                 side_effect=Exception("Generic exception during data validation"),
             ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             await create_variants_for_score_set(mock_worker_ctx, sample_pipeline_variant_creation_run.id)
 
+        mock_send_slack_error.assert_called_once()
         # Verify that the score set's processing state is updated to failed
         session.refresh(sample_score_set)
         assert sample_score_set.processing_state == ProcessingState.failed
@@ -1305,11 +1313,13 @@ class TestCreateVariantsForScoreSetArqContext:
                 "mavedb.worker.jobs.variant_processing.creation.validate_and_standardize_dataframe_pair",
                 side_effect=Exception("Generic exception during data validation"),
             ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             await arq_redis.enqueue_job("create_variants_for_score_set", sample_independent_variant_creation_run.id)
             await arq_worker.async_run()
             await arq_worker.run_check()
 
+        mock_send_slack_error.assert_called_once()
         # Verify that the score set's processing state is updated to failed
         session.refresh(sample_score_set)
         assert sample_score_set.processing_state == ProcessingState.failed
@@ -1351,11 +1361,13 @@ class TestCreateVariantsForScoreSetArqContext:
                 "mavedb.worker.jobs.variant_processing.creation.validate_and_standardize_dataframe_pair",
                 side_effect=Exception("Generic exception during data validation"),
             ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             await arq_redis.enqueue_job("create_variants_for_score_set", sample_pipeline_variant_creation_run.id)
             await arq_worker.async_run()
             await arq_worker.run_check()
 
+        mock_send_slack_error.assert_called_once()
         # Verify that the score set's processing state is updated to failed
         session.refresh(sample_score_set)
         assert sample_score_set.processing_state == ProcessingState.failed

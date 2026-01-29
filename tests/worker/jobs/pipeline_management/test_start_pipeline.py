@@ -160,8 +160,10 @@ class TestStartPipelineIntegration:
         sample_dummy_pipeline_start.pipeline_id = None
         session.commit()
 
-        result = await start_pipeline(mock_worker_ctx, sample_dummy_pipeline_start.id)
-        assert result["status"] == "exception"
+        with patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error:
+            result = await start_pipeline(mock_worker_ctx, sample_dummy_pipeline_start.id)
+            assert result["status"] == "exception"
+            mock_send_slack_error.assert_called_once()
 
         # Verify the start job run status
         session.refresh(sample_dummy_pipeline_start)
@@ -207,12 +209,16 @@ class TestStartPipelineIntegration:
                 PipelineManager(session, session, sample_dummy_pipeline.id), *args, **kwargs
             )  # Allow the final coordination attempt to proceed 'normally'
 
-        with patch(
-            "mavedb.worker.lib.managers.pipeline_manager.PipelineManager.coordinate_pipeline",
-            side_effect=custom_side_effect,
+        with (
+            patch(
+                "mavedb.worker.lib.managers.pipeline_manager.PipelineManager.coordinate_pipeline",
+                side_effect=custom_side_effect,
+            ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await start_pipeline(mock_worker_ctx, sample_dummy_pipeline_start.id)
             assert result["status"] == "exception"
+            mock_send_slack_error.assert_called_once()
 
         # Verify the start job run status
         session.refresh(sample_dummy_pipeline_start)
