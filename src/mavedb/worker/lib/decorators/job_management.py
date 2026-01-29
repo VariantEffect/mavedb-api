@@ -121,7 +121,8 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobResultData]], ar
 
         # Move job to final state based on result
         if result.get("status") == "failed" or result.get("exception"):
-            job_manager.fail_job(result=result, error=result["exception"])
+            # Exception info should always be present for failed jobs
+            job_manager.fail_job(result=result, error=result["exception"])  # type: ignore[keyword-arg]
         elif result.get("status") == "skipped":
             job_manager.skip_job(result=result)
         else:
