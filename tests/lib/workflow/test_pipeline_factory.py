@@ -1,4 +1,8 @@
+# ruff: noqa: E402
 import pytest
+
+pytest.importorskip("fastapi")
+
 from sqlalchemy import select
 
 from mavedb.lib.workflow.pipeline_factory import PipelineFactory

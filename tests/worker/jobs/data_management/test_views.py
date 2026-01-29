@@ -2,9 +2,6 @@
 
 import pytest
 
-from mavedb.models.pipeline import Pipeline
-from mavedb.models.published_variant import PublishedVariantsMV
-
 pytest.importorskip("arq")  # Skip tests if arq is not installed
 
 from unittest.mock import call, patch
@@ -13,6 +10,8 @@ from sqlalchemy import select
 
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.job_run import JobRun
+from mavedb.models.pipeline import Pipeline
+from mavedb.models.published_variant import PublishedVariantsMV
 from mavedb.worker.jobs.data_management.views import refresh_materialized_views, refresh_published_variants_view
 from tests.helpers.transaction_spy import TransactionSpy
 

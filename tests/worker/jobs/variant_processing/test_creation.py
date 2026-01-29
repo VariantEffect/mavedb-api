@@ -1,7 +1,11 @@
-import math
-from unittest.mock import ANY, MagicMock, call, patch
+# ruff: noqa: E402
 
 import pytest
+
+pytest.importorskip("arq")
+
+import math
+from unittest.mock import ANY, MagicMock, call, patch
 
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.enums.mapping_state import MappingState
