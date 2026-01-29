@@ -63,7 +63,10 @@ async def populate_mapped_variant_data(urns: Sequence[Optional[str]], all: bool,
         db.flush()
         logger.info(f"Submitted job run ID {job_run.id} for score set ID {score_set_id}.")
 
-        await map_variants_for_score_set(ctx, job_run.id)
+        # Despite accepting a third argument for the job manager and MyPy expecting it, this
+        # argument will be injected automatically by the decorator. We only need to pass
+        # the ctx and job_run.id here for the decorator to generate the job manager.
+        await map_variants_for_score_set(ctx, job_run.id)  # type: ignore[call-arg]
 
 
 if __name__ == "__main__":
