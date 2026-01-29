@@ -53,7 +53,8 @@ async def start_pipeline(ctx: dict, job_id: int, job_manager: JobManager) -> Job
 
     # Initialize PipelineManager and coordinate pipeline. The pipeline manager decorator
     # will have started the pipeline for us already, but doesn't coordinate on start automatically.
-    pipeline_manager = PipelineManager(job_manager.db, job_manager.redis, job_manager.pipeline_id)
+    redis = job_manager.redis or ctx["redis"]
+    pipeline_manager = PipelineManager(job_manager.db, redis, job_manager.pipeline_id)
     await pipeline_manager.coordinate_pipeline()
 
     # Finalize job state
