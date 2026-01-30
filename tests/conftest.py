@@ -119,6 +119,15 @@ def db_session_fixture(session):
 # the test version.
 @pytest.fixture
 def patch_db_session_ctxmgr(db_session_fixture):
+    """Patches all known locations of the db_session fixture to use the test version.
+
+    To use this fixture, add it to the pytestmark list of a test module:
+    pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
+
+    If you see an error about a test being unable to connect to the database, you
+    likely need to add another patch here for the module that is trying to use
+    db_session or include the above mark in your test module.
+    """
     with (
         mock.patch("mavedb.db.session.db_session", db_session_fixture),
         mock.patch("mavedb.worker.lib.decorators.utils.db_session", db_session_fixture),
