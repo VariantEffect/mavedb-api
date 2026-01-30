@@ -1,7 +1,7 @@
 """add acmg classification and functional classification tables
 
 Revision ID: 16beeb593513
-Revises: b22b450d409c
+Revises: 00dab0f5f498
 Create Date: 2025-11-17 11:46:38.276980
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "16beeb593513"
-down_revision = "b22b450d409c"
+down_revision = "00dab0f5f498"
 branch_labels = None
 depends_on = None
 
