@@ -1,82 +1,66 @@
+import datetime
 import logging
-from typing import Sequence
 
-import click
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+import asyncclick as click
 
-from mavedb.db import athena
-from mavedb.lib.gnomad import gnomad_variant_data_for_caids, link_gnomad_variants_to_mapped_variants
-from mavedb.models.mapped_variant import MappedVariant
+from mavedb.db.session import SessionLocal
+from mavedb.lib.workflow.job_factory import JobFactory
 from mavedb.models.score_set import ScoreSet
-from mavedb.models.variant import Variant
-from mavedb.scripts.environment import with_database_session
+from mavedb.worker.jobs.external_services.gnomad import link_gnomad_variants
+from mavedb.worker.jobs.registry import STANDALONE_JOB_DEFINITIONS
+from mavedb.worker.settings.lifecycle import standalone_ctx
 
 logger = logging.getLogger(__name__)
 
 
 @click.command()
-@with_database_session
-@click.option(
-    "--score-set-urn", multiple=True, type=str, help="Score set URN(s) to process. Can be used multiple times."
-)
+@click.argument("urns", nargs=-1)
 @click.option("--all", "all_score_sets", is_flag=True, help="Process all score sets in the database.", default=False)
-@click.option("--only-current", is_flag=True, help="Only process current mapped variants.", default=True)
-def link_gnomad_variants(db: Session, score_set_urn: list[str], all_score_sets: bool, only_current: bool) -> None:
+async def main(urns: list[str], all_score_sets: bool) -> None:
     """
     Query AWS Athena for gnomAD variants matching mapped variant CAIDs for one or more score sets.
     """
-    # 1. Collect all CAIDs for mapped variants in the selected score sets
+    db = SessionLocal()
+
     if all_score_sets:
-        score_sets = db.query(ScoreSet.id).all()
-        score_set_ids = [s.id for s in score_sets]
+        logger.info("Processing all score sets in the database.")
+        score_sets = db.query(ScoreSet).all()
     else:
-        if not score_set_urn:
-            logger.error("No score set URNs specified.")
-            return
+        logger.info(f"Processing score sets with URNs: {urns}")
+        score_sets = db.query(ScoreSet).filter(ScoreSet.urn.in_(urns)).all()
 
-        score_sets = db.query(ScoreSet.id).filter(ScoreSet.urn.in_(score_set_urn)).all()
-        score_set_ids = [s.id for s in score_sets]
-        if len(score_set_ids) != len(score_set_urn):
-            logger.warning("Some provided URNs were not found in the database.")
+    # Unique correlation ID for this batch run
+    correlation_id = f"populate_mapped_variants_{datetime.datetime.now().isoformat()}"
 
-    if not score_set_ids:
-        logger.error("No score sets found.")
-        return
+    # Job definition for gnomAD linking
+    job_def = STANDALONE_JOB_DEFINITIONS[link_gnomad_variants]
+    job_factory = JobFactory(db)
 
-    caid_query = (
-        select(MappedVariant.clingen_allele_id)
-        .join(Variant)
-        .where(Variant.score_set_id.in_(score_set_ids), MappedVariant.clingen_allele_id.is_not(None))
-    )
+    # Use a standalone context for job execution outside of ARQ worker.
+    ctx = standalone_ctx()
+    ctx["db"] = db
 
-    if only_current:
-        caid_query = caid_query.where(MappedVariant.current.is_(True))
+    for score_set in score_sets:
+        logger.info(f"Linking gnomAD variants for score set ID {score_set.id} (URN: {score_set.urn})...")
 
-    # We filter out Nonetype CAIDs to avoid issues with Athena queries, so we can type this as Sequence[str] and ignore MyPy warnings
-    caids: Sequence[str] = db.scalars(caid_query.distinct()).all()  # type: ignore
-    if not caids:
-        logger.error("No CAIDs found for the selected score sets.")
-        return
+        job_run = job_factory.create_job_run(
+            job_def=job_def,
+            pipeline_id=None,
+            correlation_id=correlation_id,
+            pipeline_params={
+                "score_set_id": score_set.id,
+                "correlation_id": correlation_id,
+            },
+        )
+        db.add(job_run)
+        db.flush()
+        logger.info(f"Submitted job run ID {job_run.id} for score set ID {score_set.id}.")
 
-    logger.info(f"Found {len(caids)} CAIDs for the selected score sets to link to gnomAD variants.")
-
-    # 2. Query Athena for gnomAD variants matching the CAIDs
-    with athena.engine.connect() as athena_session:
-        logger.debug("Fetching gnomAD variants from Athena.")
-        gnomad_variant_data = gnomad_variant_data_for_caids(athena_session, caids)
-
-    if not gnomad_variant_data:
-        logger.error("No gnomAD records found for the provided CAIDs.")
-        return
-
-    logger.info(f"Fetched {len(gnomad_variant_data)} gnomAD records from Athena.")
-
-    # 3. Link gnomAD variants to mapped variants in the database
-    link_gnomad_variants_to_mapped_variants(db, gnomad_variant_data, only_current=only_current)
-
-    logger.info("Done linking gnomAD variants.")
+        # Despite accepting a third argument for the job manager and MyPy expecting it, this
+        # argument will be injected automatically by the decorator. We only need to pass
+        # the ctx and job_run.id here for the decorator to generate the job manager.
+        await link_gnomad_variants(ctx, job_run.id)  # type: ignore
 
 
 if __name__ == "__main__":
-    link_gnomad_variants()
+    main()
