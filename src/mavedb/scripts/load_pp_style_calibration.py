@@ -1,4 +1,4 @@
-"""Load an archive of Zeiberg calibration style calibrations into Score Sets.
+"""Load an archive of ExCALIBR calibration style calibrations into Score Sets.
 
 This script processes JSON calibration files from an archive directory and applies them
 to MaveDB Score Sets based on a dataset mapping file. The script iterates through all
@@ -9,7 +9,7 @@ range calibrations for each Score Set.
 Args:
     archive_path (str): Path to directory containing calibration JSON files
     dataset_map (str): Path to JSON file mapping dataset names to Score Set URNs
-    overwrite (bool): Whether to overwrite existing "Zeiberg calibration" entries
+    overwrite (bool): Whether to overwrite existing "ExCALIBR calibration" entries
 
 Input File Formats:
 
@@ -56,8 +56,8 @@ Behavior:
    - Strength labels: Supporting (±1), Moderate (±2), Moderate+ (±3), Strong (±4-8)
 6. File Variants: Automatically detects and processes both regular and ClinVar 2018 variants
 7. Calibration Naming:
-   - Regular files: "Zeiberg calibration"
-   - ClinVar 2018 files: "Zeiberg calibration (ClinVar 2018)"
+   - Regular files: "ExCALIBR calibration"
+   - ClinVar 2018 files: "ExCALIBR calibration (ClinVar 2018)"
 
 Skipping Behavior:
 - Files with no mapping entry or empty/invalid URNs (N/A, #VALUE!, empty string)
@@ -103,16 +103,16 @@ POINT_LABEL_MAPPINGS: Dict[int, str] = {
 }
 
 ALL_POINT_LABEL_MAPPINGS = {**POINT_LABEL_MAPPINGS, **{k * -1: v for k, v in POINT_LABEL_MAPPINGS.items()}}
-ZEIBERG_CALIBRATION_CITATION = {"identifier": "2025.04.29.651326", "db_name": "bioRxiv"}
+EXCALIBR_CALIBRATION_CITATION = {"identifier": "2025.04.29.651326", "db_name": "bioRxiv"}
 
 
 @click.command()
 @with_database_session
 @click.argument("archive_path", type=click.Path(exists=True, file_okay=False))
 @click.argument("dataset_map", type=click.Path(exists=True, dir_okay=False))
-@click.option("--overwrite", is_flag=True, default=False, help="Overwrite existing `Zeiberg calibration` in score set")
+@click.option("--overwrite", is_flag=True, default=False, help="Overwrite existing `ExCALIBR calibration` in score set")
 def main(db: Session, archive_path: str, dataset_map: str, overwrite: bool) -> None:
-    """Load an archive of Zeiberg calibration style calibrations into Score Sets"""
+    """Load an archive of ExCALIBR calibration style calibrations into Score Sets"""
     with open(dataset_map, "r") as f:
         dataset_mapping: Dict[str, str] = json.load(f)
 
@@ -165,16 +165,18 @@ def main(db: Session, archive_path: str, dataset_map: str, overwrite: bool) -> N
 
             # Determine calibration name based on file name
             if "_clinvar_2018" in json_file:
-                calibration_name = "Zeiberg calibration (ClinVar 2018)"
+                calibration_name = "ExCALIBR calibration (ClinVar 2018)"
+                legacy_name = "Zeiberg calibration (ClinVar 2018)"  # --- IGNORE ---
             else:
-                calibration_name = "Zeiberg calibration"
+                calibration_name = "ExCALIBR calibration"
+                legacy_name = "Zeiberg calibration"  # --- IGNORE ---
 
             existing_calibration = None
             if overwrite:
                 existing_calibration = (
                     db.query(ScoreCalibration)
                     .filter(ScoreCalibration.score_set_id == score_set.id)
-                    .filter(ScoreCalibration.title == calibration_name)
+                    .filter(ScoreCalibration.title.in_([calibration_name, legacy_name]))
                     .one_or_none()
                 )
 
@@ -233,9 +235,9 @@ def main(db: Session, archive_path: str, dataset_map: str, overwrite: bool) -> N
                 research_use_only=True,
                 score_set_urn=score_set.urn,
                 calibration_metadata={"prior_probability_pathogenicity": calibration_data.get("prior", None)},
-                method_sources=[ZEIBERG_CALIBRATION_CITATION],
                 threshold_sources=[],
                 classification_sources=[],
+                method_sources=[EXCALIBR_CALIBRATION_CITATION],
             )
 
             new_calibration_object = asyncio.run(

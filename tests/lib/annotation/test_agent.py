@@ -1,14 +1,13 @@
 from unittest import mock
 
 from mavedb import __version__
-from mavedb.models.user import User
 from mavedb.lib.annotation.agent import (
+    excalibr_calibration_agent,
     mavedb_api_agent,
-    mavedb_vrs_agent,
     mavedb_user_agent,
-    zeiberg_calibration_agent,
+    mavedb_vrs_agent,
 )
-
+from mavedb.models.user import User
 from tests.helpers.constants import TEST_USER
 
 
@@ -45,9 +44,9 @@ def test_mavedb_user_agent():
     assert agent.agentType == "Person"
 
 
-def test_zeiberg_calibration_agent():
-    agent = zeiberg_calibration_agent()
+def test_excalibr_calibration_agent():
+    agent = excalibr_calibration_agent()
 
-    assert agent.name == "Zeiberg Variant Calibrator"
-    assert agent.description == "Zeiberg variant calibrator, see https://github.com/Dzeiberg/mave_calibration"
+    assert agent.name == "ExCALIBR Variant Calibrator"
+    assert agent.description == "ExCALIBR variant calibrator, see https://github.com/Dzeiberg/mave_calibration"
     assert agent.agentType == "Software"

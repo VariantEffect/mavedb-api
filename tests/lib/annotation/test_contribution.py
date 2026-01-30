@@ -1,14 +1,14 @@
 from datetime import datetime
-import pytest
 
+import pytest
 from ga4gh.va_spec.base import Contribution
 
 from mavedb.lib.annotation.contribution import (
+    excalibr_calibration_contribution,
     mavedb_api_contribution,
-    mavedb_vrs_contribution,
-    zeiberg_calibration_contribution,
     mavedb_creator_contribution,
     mavedb_modifier_contribution,
+    mavedb_vrs_contribution,
 )
 
 
@@ -32,12 +32,12 @@ def test_mavedb_vrs_contribution(mock_mapped_variant):
     assert contribution.date.strftime("%Y-%m-%d") == mock_mapped_variant.mapped_date.strftime("%Y-%m-%d")
 
 
-def test_zeiberg_calibration_contribution():
-    contribution = zeiberg_calibration_contribution()
+def test_excalibr_calibration_contribution():
+    contribution = excalibr_calibration_contribution()
     assert isinstance(contribution, Contribution)
     assert contribution.activityType == "variant specific calibration software"
-    assert contribution.name == "Zeiberg Calibration"
-    assert contribution.description == "Contribution from the Zeiberg Calibration software"
+    assert contribution.name == "ExCALIBR Calibration"
+    assert contribution.description == "Contribution from the ExCALIBR Calibration software"
     assert contribution.contributor is not None
 
 
