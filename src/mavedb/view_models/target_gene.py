@@ -70,15 +70,16 @@ class SavedTargetGene(TargetGeneBase):
         arbitrary_types_allowed = True
 
     # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
-    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.
+    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created. Only perform these
+    # transformations if the relevant attributes are present on the input data (i.e., when creating from an ORM object).
     @model_validator(mode="before")
     def generate_external_identifiers_list(cls, data: Any):
-        if not hasattr(data, "external_identifiers"):
+        if hasattr(data, "ensembl_offset") or hasattr(data, "refseq_offset") or hasattr(data, "uniprot_offset"):
             try:
                 data.__setattr__("external_identifiers", transform_external_identifier_offsets_to_list(data))
-            except AttributeError as exc:
+            except (AttributeError, KeyError) as exc:
                 raise ValidationError(
-                    f"Unable to create {cls.__name__} without attribute: {exc}."  # type: ignore
+                    f"Unable to coerce external identifiers for {cls.__name__}: {exc}."  # type: ignore
                 )
         return data
 
@@ -109,15 +110,16 @@ class TargetGeneWithScoreSetUrn(TargetGene):
     score_set_urn: str
 
     # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
-    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.
+    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created. Only perform these
+    # transformations if the relevant attributes are present on the input data (i.e., when creating from an ORM object).
     @model_validator(mode="before")
     def generate_score_set_urn(cls, data: Any):
-        if not hasattr(data, "score_set_urn"):
+        if hasattr(data, "score_set"):
             try:
                 data.__setattr__("score_set_urn", transform_score_set_to_urn(data.score_set))
-            except AttributeError as exc:
+            except (AttributeError, KeyError) as exc:
                 raise ValidationError(
-                    f"Unable to create {cls.__name__} without attribute: {exc}."  # type: ignore
+                    f"Unable to coerce score set urn for {cls.__name__}: {exc}."  # type: ignore
                 )
         return data
 

@@ -28,6 +28,7 @@ from tests.helpers.constants import (
     TEST_EXPERIMENT_WITH_KEYWORD,
     TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE,
     TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE,
+    TEST_EXPERIMENT_WITH_UPDATE_KEYWORD_RESPONSE,
     TEST_MEDRXIV_IDENTIFIER,
     TEST_MINIMAL_EXPERIMENT,
     TEST_MINIMAL_EXPERIMENT_RESPONSE,
@@ -292,6 +293,236 @@ def test_cannot_create_experiment_that_keywords_has_wrong_combination4(client, s
     )
 
 
+# Test the validator of Endogenous locus keywords
+def test_create_experiment_that_keywords_has_endogenous(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
+    if users choose endogenous locus library method in Variant Library Creation Method
+    """
+    keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "label": "Endogenous locus library method",
+                    "special": False,
+                    "description": "Description",
+                },
+            },
+            {
+                "keyword": {
+                    "key": "Endogenous Locus Library Method System",
+                    "label": "SaCas9",
+                    "special": False,
+                    "description": "Description",
+                },
+            },
+            {
+                "keyword": {
+                    "key": "Endogenous Locus Library Method Mechanism",
+                    "label": "Base editor",
+                    "special": False,
+                    "description": "Description",
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 200
+
+
+def test_cannot_create_experiment_that_keywords_has_endogenous_without_method_mechanism(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
+    Choose endogenous locus library method in Variant Library Creation Method,
+    but miss the endogenous locus library method mechanism
+    """
+    incomplete_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "label": "Endogenous locus library method",
+                    "special": False,
+                    "description": "Description",
+                },
+            },
+            {
+                "keyword": {
+                    "key": "Endogenous Locus Library Method System",
+                    "label": "SaCas9",
+                    "special": False,
+                    "description": "Description",
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **incomplete_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert (
+        response_data["detail"]
+        == "If 'Variant Library Creation Method' is 'Endogenous locus library method', "
+           "both 'Endogenous Locus Library Method System' and 'Endogenous Locus Library Method Mechanism' "
+           "must be present."
+    )
+
+
+def test_cannot_create_experiment_that_keywords_has_endogenous_without_method_system(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
+    Choose endogenous locus library method in Variant Library Creation Method,
+    but miss the endogenous locus library method system
+    """
+    incomplete_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "label": "Endogenous locus library method",
+                    "special": False,
+                    "description": "Description",
+                },
+            },
+            {
+                "keyword": {
+                    "key": "Endogenous Locus Library Method Mechanism",
+                    "label": "Base editor",
+                    "special": False,
+                    "description": "Description",
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **incomplete_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert (
+        response_data["detail"]
+        == "If 'Variant Library Creation Method' is 'Endogenous locus library method', "
+           "both 'Endogenous Locus Library Method System' and 'Endogenous Locus Library Method Mechanism' "
+           "must be present."
+    )
+
+
+# Test the validator of in vitro keywords
+def test_create_experiment_that_keywords_has_in_vitro(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
+    if users choose in vitro construct library method in Variant Library Creation Method
+    """
+    keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "label": "In vitro construct library method",
+                    "special": False,
+                    "description": "Description",
+                },
+            },
+            {
+                "keyword": {
+                    "key": "In Vitro Construct Library Method System",
+                    "label": "Oligo-directed mutagenic PCR",
+                    "special": False,
+                    "description": "Description",
+                },
+            },
+            {
+                "keyword": {
+                    "key": "In Vitro Construct Library Method Mechanism",
+                    "label": "Native locus replacement",
+                    "special": False,
+                    "description": "Description",
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 200
+
+
+def test_cannot_create_experiment_that_keywords_has_in_vitro_without_method_system(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
+    Choose in vitro construct library method in Variant Library Creation Method,
+    but miss the in vitro construct library method system
+    """
+    incomplete_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "label": "In vitro construct library method",
+                    "special": False,
+                    "description": "Description",
+                },
+            },
+            {
+                "keyword": {
+                    "key": "In Vitro Construct Library Method Mechanism",
+                    "label": "Native locus replacement",
+                    "special": False,
+                    "description": "Description",
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **incomplete_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert (
+        response_data["detail"]
+        == "If 'Variant Library Creation Method' is 'In vitro construct library method', "
+           "both 'In Vitro Construct Library Method System' and 'In Vitro Construct Library Method Mechanism' "
+           "must be present."
+    )
+
+
+def test_cannot_create_experiment_that_keywords_has_in_vitro_without_method_mechanism(client, setup_router_db):
+    """
+    Test src/mavedb/lib/validation/keywords.validate_keyword_keys function
+    Choose in vitro construct library method in Variant Library Creation Method,
+    but miss the in vitro construct library method mechanism
+    """
+    incomplete_keywords = {
+        "keywords": [
+            {
+                "keyword": {
+                    "key": "Variant Library Creation Method",
+                    "label": "In vitro construct library method",
+                    "special": False,
+                    "description": "Description",
+                },
+            },
+            {
+                "keyword": {
+                    "key": "In Vitro Construct Library Method System",
+                    "label": "Oligo-directed mutagenic PCR",
+                    "special": False,
+                    "description": "Description",
+                },
+            },
+        ]
+    }
+    experiment = {**TEST_MINIMAL_EXPERIMENT, **incomplete_keywords}
+    response = client.post("/api/v1/experiments/", json=experiment)
+    assert response.status_code == 422
+    response_data = response.json()
+    assert (
+        response_data["detail"]
+        == "If 'Variant Library Creation Method' is 'In vitro construct library method', "
+           "both 'In Vitro Construct Library Method System' and 'In Vitro Construct Library Method Mechanism' "
+           "must be present."
+    )
+
+
 def test_create_experiment_that_keyword_gene_ontology_has_valid_code(client, setup_router_db):
     valid_keyword = {
         "keywords": [
@@ -422,7 +653,7 @@ def test_cannot_create_experiment_that_keywords_have_duplicate_labels(client, se
         "keywords": [
             {
                 "keyword": {
-                    "key": "Delivery method",
+                    "key": "Delivery Method",
                     "label": "In vitro construct library method",
                     "special": False,
                     "description": "Description",
@@ -462,7 +693,7 @@ def test_create_experiment_that_keywords_have_duplicate_others(client, setup_rou
                 "description": "Description",
             },
             {
-                "keyword": {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
+                "keyword": {"key": "Delivery Method", "label": "Other", "special": False, "description": "Description"},
                 "description": "Description",
             },
         ]
@@ -475,6 +706,54 @@ def test_create_experiment_that_keywords_have_duplicate_others(client, setup_rou
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["urn"]), re.Match)
     assert isinstance(MAVEDB_TMP_URN_RE.fullmatch(response_data["experimentSetUrn"]), re.Match)
     expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE)
+    expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
+    assert sorted(expected_response.keys()) == sorted(response_data.keys())
+    for key in expected_response:
+        assert (key, expected_response[key]) == (key, response_data[key])
+
+
+def test_update_experiment_keywords(session, client, setup_router_db):
+    response = client.post("/api/v1/experiments/", json=TEST_EXPERIMENT_WITH_KEYWORD)
+    assert response.status_code == 200
+    experiment = response.json()
+    experiment_post_payload = experiment.copy()
+    experiment_post_payload.update({"keywords": [
+        {
+            "keyword": {
+                "key": "Phenotypic Assay Profiling Strategy",
+                "label": "Shotgun sequencing",
+                "special": False,
+                "description": "Description"
+            },
+            "description": "Details of phenotypic assay profiling strategy",
+        },
+
+    ]})
+    updated_response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
+    assert updated_response.status_code == 200
+    updated_experiment = updated_response.json()
+    updated_expected_response = deepcopy(TEST_EXPERIMENT_WITH_UPDATE_KEYWORD_RESPONSE)
+    updated_expected_response.update({"urn": updated_experiment["urn"], "experimentSetUrn": updated_experiment["experimentSetUrn"]})
+    assert sorted(updated_expected_response.keys()) == sorted(updated_experiment.keys())
+    for key in updated_experiment:
+        assert (key, updated_expected_response[key]) == (key, updated_experiment[key])
+    for kw in updated_experiment["keywords"]:
+        assert "Delivery Method" not in kw["keyword"]["key"]
+
+
+def test_update_experiment_keywords_case_insensitive(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    experiment_post_payload = experiment.copy()
+    # Test database has Delivery Method. The updating keyword's key is delivery method.
+    experiment_post_payload.update({"keywords": [
+        {
+            "keyword": {"key": "delivery method", "label": "Other", "special": False, "description": "Description"},
+            "description": "Details of delivery method",
+        },
+    ]})
+    response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
+    response_data = response.json()
+    expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE)
     expected_response.update({"urn": response_data["urn"], "experimentSetUrn": response_data["experimentSetUrn"]})
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
@@ -621,7 +900,10 @@ def test_cannot_update_other_users_public_experiment_set(session, data_provider,
     response = client.post("/api/v1/experiments/", json=experiment_post_payload)
     assert response.status_code == 403
     response_data = response.json()
-    assert f"insufficient permissions for URN '{published_experiment_set_urn}'" in response_data["detail"]
+    assert (
+        f"insufficient permissions on experiment set with URN '{published_experiment_set_urn}'"
+        in response_data["detail"]
+    )
 
 
 def test_anonymous_cannot_update_others_user_public_experiment_set(
@@ -1651,10 +1933,12 @@ def test_cannot_delete_own_published_experiment(session, data_provider, client, 
 
     assert del_response.status_code == 403
     del_response_data = del_response.json()
-    assert f"insufficient permissions for URN '{experiment_urn}'" in del_response_data["detail"]
+    assert f"insufficient permissions on experiment with URN '{experiment_urn}'" in del_response_data["detail"]
 
 
-def test_contributor_can_delete_other_users_private_experiment(session, client, setup_router_db, admin_app_overrides):
+def test_contributor_cannot_delete_other_users_private_experiment(
+    session, client, setup_router_db, admin_app_overrides
+):
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
     add_contributor(
@@ -1667,7 +1951,8 @@ def test_contributor_can_delete_other_users_private_experiment(session, client, 
     )
     response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
 
-    assert response.status_code == 200
+    assert response.status_code == 403
+    assert f"insufficient permissions on experiment with URN '{experiment['urn']}'" in response.json()["detail"]
 
 
 def test_admin_can_delete_other_users_private_experiment(session, client, setup_router_db, admin_app_overrides):
@@ -1833,4 +2118,4 @@ def test_cannot_add_experiment_to_others_public_experiment_set(
     response = client.post("/api/v1/experiments/", json=test_experiment)
     assert response.status_code == 403
     response_data = response.json()
-    assert f"insufficient permissions for URN '{experiment_set_urn}'" in response_data["detail"]
+    assert f"insufficient permissions on experiment set with URN '{experiment_set_urn}'" in response_data["detail"]

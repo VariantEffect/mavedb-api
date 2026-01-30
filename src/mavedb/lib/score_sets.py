@@ -23,6 +23,8 @@ from mavedb.lib.mave.constants import (
     VARIANT_SCORE_DATA,
 )
 from mavedb.lib.mave.utils import is_csv_null
+from mavedb.lib.permissions import Action, has_permission
+from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.utilities import is_null as validate_is_null
 from mavedb.lib.variants import get_digest_from_post_mapped, get_hgvs_from_post_mapped, is_hgvs_g, is_hgvs_p
@@ -55,7 +57,6 @@ from mavedb.models.variant import Variant
 from mavedb.view_models.search import ScoreSetsSearch
 
 if TYPE_CHECKING:
-    from mavedb.lib.authentication import UserData
     from mavedb.lib.permissions import Action
 
 VariantData = dict[str, Optional[dict[str, dict]]]
@@ -298,21 +299,40 @@ def score_set_search_filter_options_from_counter(counter: Counter):
     return [{"value": value, "count": count} for value, count in counter.items()]
 
 
-def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Optional[User], search: ScoreSetsSearch):
+def fetch_score_set_search_filter_options(
+    db: Session, requester: Optional[UserData], owner_or_contributor: Optional[User], search: ScoreSetsSearch
+):
     save_to_logging_context({"score_set_search_criteria": search.model_dump()})
 
     query = db.query(ScoreSet)
     query = build_search_score_sets_query_filter(db, query, owner_or_contributor, search)
-
     score_sets: list[ScoreSet] = query.all()
     if not score_sets:
         score_sets = []
 
+    # Target related counters
     target_category_counter: Counter[str] = Counter()
     target_name_counter: Counter[str] = Counter()
     target_organism_name_counter: Counter[str] = Counter()
     target_accession_counter: Counter[str] = Counter()
+    # Publication related counters
+    publication_author_name_counter: Counter[str] = Counter()
+    publication_db_name_counter: Counter[str] = Counter()
+    publication_journal_counter: Counter[str] = Counter()
+
+    # --- PERFORMANCE NOTE ---
+    # The following counter construction loop is a bottleneck for large score set queries.
+    # Practical future optimizations might include:
+    #   - Batch permission checks and attribute access outside the loop if possible
+    #   - Use parallelization (e.g., multiprocessing or concurrent.futures) for large datasets
+    #   - Pre-fetch or denormalize target/publication data in the DB query
+    #   - Profile and refactor nested attribute lookups to minimize Python overhead
     for score_set in score_sets:
+        # Check read permission for each score set, skip if no permission
+        if not has_permission(requester, score_set, Action.READ).permitted:
+            continue
+
+        # Target related options
         for target in getattr(score_set, "target_genes", []):
             category = getattr(target, "category", None)
             if category:
@@ -335,10 +355,7 @@ def fetch_score_set_search_filter_options(db: Session, owner_or_contributor: Opt
             if accession:
                 target_accession_counter[accession] += 1
 
-    publication_author_name_counter: Counter[str] = Counter()
-    publication_db_name_counter: Counter[str] = Counter()
-    publication_journal_counter: Counter[str] = Counter()
-    for score_set in score_sets:
+        # Publication related options
         for publication_association in getattr(score_set, "publication_identifier_associations", []):
             publication = getattr(publication_association, "publication", None)
 
@@ -443,8 +460,6 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
 def find_superseded_score_set_tail(
     score_set: ScoreSet, action: Optional["Action"] = None, user_data: Optional["UserData"] = None
 ) -> Optional[ScoreSet]:
-    from mavedb.lib.permissions import has_permission
-
     while score_set.superseding_score_set is not None:
         next_score_set_in_chain = score_set.superseding_score_set
 
@@ -502,7 +517,7 @@ def find_publish_or_private_superseded_score_set_tail(
 def get_score_set_variants_as_csv(
     db: Session,
     score_set: ScoreSet,
-    namespaces: List[Literal["scores", "counts", "vep", "gnomad"]],
+    namespaces: List[Literal["scores", "counts", "vep", "gnomad", "clingen"]],
     namespaced: Optional[bool] = None,
     start: Optional[int] = None,
     limit: Optional[int] = None,
@@ -519,8 +534,8 @@ def get_score_set_variants_as_csv(
         The database session to use.
     score_set : ScoreSet
         The score set to get the variants from.
-    namespaces : List[Literal["scores", "counts", "vep", "gnomad"]]
-        The namespaces for data. Now there are only scores, counts, VEP, and gnomAD. ClinVar will be added in the future.
+    namespaces : List[Literal["scores", "counts", "vep", "gnomad", "clingen"]]
+        The namespaces for data. Now there are only scores, counts, VEP, gnomAD, and ClinGen. ClinVar will be added in the future.
     namespaced: Optional[bool] = None
         Whether namespace the columns or not.
     start : int, optional
@@ -569,6 +584,8 @@ def get_score_set_variants_as_csv(
         namespaced_score_set_columns["vep"].append("vep_functional_consequence")
     if "gnomad" in namespaced_score_set_columns:
         namespaced_score_set_columns["gnomad"].append("gnomad_af")
+    if "clingen" in namespaced_score_set_columns:
+        namespaced_score_set_columns["clingen"].append("clingen_allele_id")
     variants: Sequence[Variant] = []
     mappings: Optional[list[Optional[MappedVariant]]] = None
     gnomad_data: Optional[list[Optional[GnomADVariant]]] = None
@@ -841,6 +858,15 @@ def variant_to_csv_row(
                 value = na_rep
         key = f"gnomad.{column_key}" if namespaced else column_key
         row[key] = value
+    for column_key in columns.get("clingen", []):
+        if column_key == "clingen_allele_id":
+            clingen_allele_id = mapping.clingen_allele_id if mapping else None
+            if clingen_allele_id is not None:
+                value = str(clingen_allele_id)
+            else:
+                value = na_rep
+        key = f"clingen.{column_key}" if namespaced else column_key
+        row[key] = value
     return row
 
 
@@ -1100,7 +1126,7 @@ def bulk_create_urns(n, score_set, reset_counter=False) -> list[str]:
     return child_urns
 
 
-def csv_data_to_df(file_data: BinaryIO) -> pd.DataFrame:
+def csv_data_to_df(file_data: BinaryIO, induce_hgvs_cols: bool = True) -> pd.DataFrame:
     extra_na_values = list(
         set(
             list(null_values_list)
@@ -1121,9 +1147,10 @@ def csv_data_to_df(file_data: BinaryIO) -> pd.DataFrame:
         dtype={**{col: str for col in HGVSColumns.options()}, "scores": float},
     )
 
-    for c in HGVSColumns.options():
-        if c not in ingested_df.columns:
-            ingested_df[c] = np.NaN
+    if induce_hgvs_cols:
+        for c in HGVSColumns.options():
+            if c not in ingested_df.columns:
+                ingested_df[c] = np.NaN
 
     return ingested_df
 

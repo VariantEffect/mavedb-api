@@ -1,6 +1,5 @@
 import logging
 import os
-from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Optional
@@ -19,6 +18,7 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
 from mavedb.lib.orcid import fetch_orcid_user_email
+from mavedb.lib.types.authentication import UserData
 from mavedb.models.access_key import AccessKey
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.user import User
@@ -43,12 +43,6 @@ logger = logging.getLogger(__name__)
 class AuthenticationMethod(str, Enum):
     api_key = "api_key"
     jwt = "jwt"
-
-
-@dataclass
-class UserData:
-    user: User
-    active_roles: list[UserRole]
 
 
 ####################################################################################################

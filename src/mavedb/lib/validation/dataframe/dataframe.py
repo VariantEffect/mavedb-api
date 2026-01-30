@@ -82,8 +82,8 @@ def validate_and_standardize_dataframe_pair(
     if not targets:
         raise ValueError("Can't validate provided file with no targets.")
 
-    standardized_scores_df = standardize_dataframe(scores_df)
-    standardized_counts_df = standardize_dataframe(counts_df) if counts_df is not None else None
+    standardized_scores_df = standardize_dataframe(scores_df, STANDARD_COLUMNS)
+    standardized_counts_df = standardize_dataframe(counts_df, STANDARD_COLUMNS) if counts_df is not None else None
 
     validate_dataframe(standardized_scores_df, "scores", targets, hdp)
 
@@ -224,7 +224,7 @@ def standardize_dict_keys(d: dict[str, Any]) -> dict[str, Any]:
     return {clean_col_name(k): v for k, v in d.items()}
 
 
-def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+def standardize_dataframe(df: pd.DataFrame, standard_columns: tuple[str, ...]) -> pd.DataFrame:
     """Standardize a dataframe by sorting the columns and changing the standard column names to lowercase.
     Also strips leading and trailing whitespace from column names and removes any quoted strings from column names.
 
@@ -250,7 +250,7 @@ def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     cleaned_columns = {c: clean_col_name(c) for c in df.columns}
     df.rename(columns=cleaned_columns, inplace=True)
 
-    column_mapper = {x: x.lower() for x in df.columns if x.lower() in STANDARD_COLUMNS}
+    column_mapper = {x: x.lower() for x in df.columns if x.lower() in standard_columns}
     df.rename(columns=column_mapper, inplace=True)
 
     return sort_dataframe_columns(df)

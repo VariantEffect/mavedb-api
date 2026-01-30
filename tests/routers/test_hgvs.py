@@ -10,7 +10,9 @@ cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 hgvs = pytest.importorskip("hgvs")
 
-from tests.helpers.constants import TEST_NT_CDOT_TRANSCRIPT, VALID_NT_ACCESSION, VALID_GENE
+from hgvs.dataproviders.uta import UTABase
+
+from tests.helpers.constants import TEST_NT_CDOT_TRANSCRIPT, VALID_GENE, VALID_NT_ACCESSION
 
 VALID_MAJOR_ASSEMBLY = "GRCh38"
 VALID_MINOR_ASSEMBLY = "GRCh38.p3"
@@ -85,9 +87,12 @@ def test_hgvs_accessions_invalid(client, setup_router_db):
 
 
 def test_hgvs_genes(client, setup_router_db):
-    response = client.get("/api/v1/hgvs/genes")
-    assert response.status_code == 200
-    assert VALID_GENE in response.json()
+    with patch.object(UTABase, "_fetchall") as mock_fetchall:
+        mock_fetchall.return_value = (("BRCA1",), ("TP53",), (VALID_GENE,))
+
+        response = client.get("/api/v1/hgvs/genes")
+        assert response.status_code == 200
+        assert VALID_GENE in response.json()
 
 
 def test_hgvs_gene_info_valid(client, setup_router_db):

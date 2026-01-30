@@ -131,7 +131,7 @@ def test_contributor_gets_true_permission_from_others_experiment_update_check(se
     assert response.json()
 
 
-def test_contributor_gets_true_permission_from_others_experiment_delete_check(session, client, setup_router_db):
+def test_contributor_gets_false_permission_from_others_experiment_delete_check(session, client, setup_router_db):
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
     add_contributor(
@@ -145,7 +145,7 @@ def test_contributor_gets_true_permission_from_others_experiment_delete_check(se
     response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{experiment['urn']}/delete")
 
     assert response.status_code == 200
-    assert response.json()
+    assert not response.json()
 
 
 def test_contributor_gets_true_permission_from_others_private_experiment_add_score_set_check(
@@ -282,7 +282,7 @@ def test_contributor_gets_true_permission_from_others_score_set_update_check(ses
     assert response.json()
 
 
-def test_contributor_gets_true_permission_from_others_score_set_delete_check(session, client, setup_router_db):
+def test_contributor_gets_false_permission_from_others_score_set_delete_check(session, client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
@@ -297,10 +297,10 @@ def test_contributor_gets_true_permission_from_others_score_set_delete_check(ses
     response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/{score_set['urn']}/delete")
 
     assert response.status_code == 200
-    assert response.json()
+    assert not response.json()
 
 
-def test_contributor_gets_true_permission_from_others_score_set_publish_check(session, client, setup_router_db):
+def test_contributor_gets_false_permission_from_others_score_set_publish_check(session, client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
@@ -315,7 +315,7 @@ def test_contributor_gets_true_permission_from_others_score_set_publish_check(se
     response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/{score_set['urn']}/publish")
 
     assert response.status_code == 200
-    assert response.json()
+    assert not response.json()
 
 
 def test_get_false_permission_from_others_score_set_delete_check(session, client, setup_router_db):
@@ -423,7 +423,7 @@ def test_contributor_gets_true_permission_from_others_investigator_provided_scor
     assert response.json()
 
 
-def test_contributor_gets_true_permission_from_others_investigator_provided_score_calibration_delete_check(
+def test_contributor_gets_false_permission_from_others_investigator_provided_score_calibration_delete_check(
     session, client, setup_router_db, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
@@ -445,16 +445,35 @@ def test_contributor_gets_true_permission_from_others_investigator_provided_scor
         )
 
     assert response.status_code == 200
-    assert response.json()
+    assert not response.json()
 
 
-def test_get_false_permission_from_others_score_calibration_update_check(session, client, setup_router_db):
+def test_get_true_permission_as_score_set_owner_on_others_investigator_provided_score_calibration_update_check(
+    session, client, setup_router_db
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     score_calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_MINIMAL_CALIBRATION)
     )
     change_ownership(session, score_calibration["urn"], ScoreCalibrationDbModel)
+
+    response = client.get(f"/api/v1/permissions/user-is-permitted/score-calibration/{score_calibration['urn']}/update")
+
+    assert response.status_code == 200
+    assert response.json()
+
+
+def test_get_false_permission_as_score_set_owner_on_others_community_score_calibration_update_check(
+    session, client, setup_router_db, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    with DependencyOverrider(admin_app_overrides):
+        score_calibration = create_test_score_calibration_in_score_set_via_client(
+            client, score_set["urn"], deepcamelize(TEST_MINIMAL_CALIBRATION)
+        )
 
     response = client.get(f"/api/v1/permissions/user-is-permitted/score-calibration/{score_calibration['urn']}/update")
 

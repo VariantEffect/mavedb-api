@@ -2,6 +2,7 @@ from datetime import date, datetime
 
 from humps import camelize
 
+from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassificationOptions
 from mavedb.models.enums.processing_state import ProcessingState
 
 VALID_EXPERIMENT_SET_URN = "urn:mavedb:01234567"
@@ -427,7 +428,7 @@ TEST_DB_KEYWORDS = [
         "special": False,
         "description": "Description",
     },
-    {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
+    {"key": "Delivery Method", "label": "Other", "special": False, "description": "Description"},
     {
         "key": "Phenotypic Assay Mechanism",
         "label": "Other",
@@ -439,6 +440,13 @@ TEST_DB_KEYWORDS = [
         "key": "Phenotypic Assay Mechanism",
         "label": "Label",
         "code": "GO:1234567",
+        "special": False,
+        "description": "Description",
+    },
+    {
+        "key": "Phenotypic Assay Profiling Strategy",
+        "label": "Shotgun sequencing",
+        "code": None,
         "special": False,
         "description": "Description",
     },
@@ -470,7 +478,7 @@ TEST_KEYWORDS = [
         },
     },
     {
-        "keyword": {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
+        "keyword": {"key": "Delivery Method", "label": "Other", "special": False, "description": "Description"},
         "description": "Details of delivery method",
     },
 ]
@@ -492,7 +500,7 @@ TEST_EXPERIMENT_WITH_KEYWORD = {
     "methodText": "Methods",
     "keywords": [
         {
-            "keyword": {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
+            "keyword": {"key": "Delivery Method", "label": "Other", "special": False, "description": "Description"},
             "description": "Details of delivery method",
         },
     ],
@@ -540,6 +548,7 @@ TEST_MINIMAL_EXPERIMENT_RESPONSE = {
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
     "rawReadIdentifiers": [],
+    "externalLinks": {},
     # keys to be set after receiving response
     "urn": None,
     "experimentSetUrn": None,
@@ -572,7 +581,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
     "keywords": [
         {
             "recordType": "ExperimentControlledKeyword",
-            "keyword": {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
+            "keyword": {"key": "Delivery Method", "label": "Other", "special": False, "description": "Description"},
             "description": "Details of delivery method",
         },
     ],
@@ -580,6 +589,53 @@ TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE = {
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
     "rawReadIdentifiers": [],
+    "externalLinks": {},
+    # keys to be set after receiving response
+    "urn": None,
+    "experimentSetUrn": None,
+    "officialCollections": [],
+    "numScoreSets": 0,  # NOTE: This is context-dependent and may need overriding per test
+}
+
+TEST_EXPERIMENT_WITH_UPDATE_KEYWORD_RESPONSE = {
+    "recordType": "Experiment",
+    "title": "Test Experiment Title",
+    "shortDescription": "Test experiment",
+    "abstractText": "Abstract",
+    "methodText": "Methods",
+    "createdBy": {
+        "recordType": "User",
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "modifiedBy": {
+        "recordType": "User",
+        "firstName": TEST_USER["first_name"],
+        "lastName": TEST_USER["last_name"],
+        "orcidId": TEST_USER["username"],
+    },
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
+    "scoreSetUrns": [],
+    "contributors": [],
+    "keywords": [
+        {
+            "recordType": "ExperimentControlledKeyword",
+            "keyword": {
+                "key": "Phenotypic Assay Profiling Strategy",
+                "label": "Shotgun sequencing",
+                "special": False,
+                "description": "Description",
+            },
+            "description": "Details of phenotypic assay profiling strategy",
+        },
+    ],
+    "doiIdentifiers": [],
+    "primaryPublicationIdentifiers": [],
+    "secondaryPublicationIdentifiers": [],
+    "rawReadIdentifiers": [],
+    "externalLinks": {},
     # keys to be set after receiving response
     "urn": None,
     "experimentSetUrn": None,
@@ -622,7 +678,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
         },
         {
             "recordType": "ExperimentControlledKeyword",
-            "keyword": {"key": "Delivery method", "label": "Other", "special": False, "description": "Description"},
+            "keyword": {"key": "Delivery Method", "label": "Other", "special": False, "description": "Description"},
             "description": "Description",
         },
     ],
@@ -630,6 +686,7 @@ TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE = {
     "primaryPublicationIdentifiers": [],
     "secondaryPublicationIdentifiers": [],
     "rawReadIdentifiers": [],
+    "externalLinks": {},
     # keys to be set after receiving response
     "urn": None,
     "experimentSetUrn": None,
@@ -1321,44 +1378,52 @@ TEST_BASELINE_SCORE = 1.0
 
 TEST_ACMG_BS3_STRONG_CLASSIFICATION = {
     "criterion": "BS3",
-    "evidence_strength": "strong",
+    "evidence_strength": "STRONG",
 }
 
 TEST_SAVED_ACMG_BS3_STRONG_CLASSIFICATION = {
     "recordType": "ACMGClassification",
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
     **{camelize(k): v for k, v in TEST_ACMG_BS3_STRONG_CLASSIFICATION.items()},
 }
 
 TEST_ACMG_PS3_STRONG_CLASSIFICATION = {
     "criterion": "PS3",
-    "evidence_strength": "strong",
+    "evidence_strength": "STRONG",
 }
 
 TEST_SAVED_ACMG_PS3_STRONG_CLASSIFICATION = {
     "recordType": "ACMGClassification",
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
     **{camelize(k): v for k, v in TEST_ACMG_PS3_STRONG_CLASSIFICATION.items()},
 }
 
 
 TEST_ACMG_BS3_STRONG_CLASSIFICATION_WITH_POINTS = {
     "criterion": "BS3",
-    "evidence_strength": "strong",
+    "evidence_strength": "STRONG",
     "points": -4,
 }
 
 TEST_SAVED_ACMG_BS3_STRONG_CLASSIFICATION_WITH_POINTS = {
     "recordType": "ACMGClassification",
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
     **{camelize(k): v for k, v in TEST_ACMG_BS3_STRONG_CLASSIFICATION_WITH_POINTS.items()},
 }
 
 TEST_ACMG_PS3_STRONG_CLASSIFICATION_WITH_POINTS = {
     "criterion": "PS3",
-    "evidence_strength": "strong",
+    "evidence_strength": "STRONG",
     "points": 4,
 }
 
 TEST_SAVED_ACMG_PS3_STRONG_CLASSIFICATION_WITH_POINTS = {
     "recordType": "ACMGClassification",
+    "creationDate": date.today().isoformat(),
+    "modificationDate": date.today().isoformat(),
     **{camelize(k): v for k, v in TEST_ACMG_PS3_STRONG_CLASSIFICATION_WITH_POINTS.items()},
 }
 
@@ -1369,7 +1434,7 @@ TEST_PS3_STRONG_ODDS_PATH_RATIO = 18.7
 TEST_FUNCTIONAL_RANGE_NORMAL = {
     "label": "test normal functional range",
     "description": "A normal functional range",
-    "classification": "normal",
+    "functional_classification": FunctionalClassificationOptions.normal.value,
     "range": [1.0, 5.0],
     "acmg_classification": TEST_ACMG_BS3_STRONG_CLASSIFICATION,
     "oddspaths_ratio": TEST_BS3_STRONG_ODDS_PATH_RATIO,
@@ -1379,16 +1444,17 @@ TEST_FUNCTIONAL_RANGE_NORMAL = {
 
 
 TEST_SAVED_FUNCTIONAL_RANGE_NORMAL = {
-    "recordType": "FunctionalRange",
+    "recordType": "FunctionalClassification",
     **{camelize(k): v for k, v in TEST_FUNCTIONAL_RANGE_NORMAL.items() if k not in ("acmg_classification",)},
     "acmgClassification": TEST_SAVED_ACMG_BS3_STRONG_CLASSIFICATION,
+    "variants": [],
 }
 
 
 TEST_FUNCTIONAL_RANGE_ABNORMAL = {
     "label": "test abnormal functional range",
     "description": "An abnormal functional range",
-    "classification": "abnormal",
+    "functional_classification": FunctionalClassificationOptions.abnormal.value,
     "range": [-5.0, -1.0],
     "acmg_classification": TEST_ACMG_PS3_STRONG_CLASSIFICATION,
     "oddspaths_ratio": TEST_PS3_STRONG_ODDS_PATH_RATIO,
@@ -1398,15 +1464,16 @@ TEST_FUNCTIONAL_RANGE_ABNORMAL = {
 
 
 TEST_SAVED_FUNCTIONAL_RANGE_ABNORMAL = {
-    "recordType": "FunctionalRange",
+    "recordType": "FunctionalClassification",
     **{camelize(k): v for k, v in TEST_FUNCTIONAL_RANGE_ABNORMAL.items() if k not in ("acmg_classification",)},
     "acmgClassification": TEST_SAVED_ACMG_PS3_STRONG_CLASSIFICATION,
+    "variants": [],
 }
 
 
 TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED = {
     "label": "test not specified functional range",
-    "classification": "not_specified",
+    "functional_classification": FunctionalClassificationOptions.not_specified.value,
     "range": [-1.0, 1.0],
     "inclusive_lower_bound": True,
     "inclusive_upper_bound": False,
@@ -1414,15 +1481,66 @@ TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED = {
 
 
 TEST_SAVED_FUNCTIONAL_RANGE_NOT_SPECIFIED = {
-    "recordType": "FunctionalRange",
+    "recordType": "FunctionalClassification",
     **{camelize(k): v for k, v in TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED.items()},
+    "variants": [],
+}
+
+
+TEST_FUNCTIONAL_CLASSIFICATION_NORMAL = {
+    "label": "test normal functional class",
+    "description": "A normal functional class",
+    "functional_classification": FunctionalClassificationOptions.normal.value,
+    "class": "normal_class",
+    "acmg_classification": TEST_ACMG_BS3_STRONG_CLASSIFICATION,
+    "oddspaths_ratio": TEST_BS3_STRONG_ODDS_PATH_RATIO,
+}
+
+
+TEST_SAVED_FUNCTIONAL_CLASSIFICATION_NORMAL = {
+    "recordType": "FunctionalClassification",
+    **{camelize(k): v for k, v in TEST_FUNCTIONAL_CLASSIFICATION_NORMAL.items() if k not in ("acmg_classification",)},
+    "acmgClassification": TEST_SAVED_ACMG_BS3_STRONG_CLASSIFICATION,
+    "variants": [],
+}
+
+
+TEST_FUNCTIONAL_CLASSIFICATION_ABNORMAL = {
+    "label": "test abnormal functional class",
+    "description": "An abnormal functional class",
+    "functional_classification": FunctionalClassificationOptions.abnormal.value,
+    "class": "abnormal_class",
+    "acmg_classification": TEST_ACMG_PS3_STRONG_CLASSIFICATION,
+    "oddspaths_ratio": TEST_PS3_STRONG_ODDS_PATH_RATIO,
+}
+
+
+TEST_SAVED_FUNCTIONAL_CLASSIFICATION_ABNORMAL = {
+    "recordType": "FunctionalClassification",
+    **{camelize(k): v for k, v in TEST_FUNCTIONAL_CLASSIFICATION_ABNORMAL.items() if k not in ("acmg_classification",)},
+    "acmgClassification": TEST_SAVED_ACMG_PS3_STRONG_CLASSIFICATION,
+    "variants": [],
+}
+
+
+TEST_FUNCTIONAL_CLASSIFICATION_NOT_SPECIFIED = {
+    "label": "test not specified functional class",
+    "functional_classification": FunctionalClassificationOptions.not_specified.value,
+    "class": "not_specified_class",
+}
+
+
+TEST_SAVED_FUNCTIONAL_CLASSIFICATION_NOT_SPECIFIED = {
+    "recordType": "FunctionalClassification",
+    **{camelize(k): v for k, v in TEST_FUNCTIONAL_CLASSIFICATION_NOT_SPECIFIED.items()},
+    "variants": [],
 }
 
 
 TEST_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY = {
     "label": "test functional range including negative infinity",
     "description": "A functional range including negative infinity",
-    "classification": "not_specified",
+    "functional_classification": FunctionalClassificationOptions.not_specified.value,
     "range": [None, 0.0],
     "inclusive_lower_bound": False,
     "inclusive_upper_bound": False,
@@ -1430,7 +1548,7 @@ TEST_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY = {
 
 
 TEST_SAVED_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY = {
-    "recordType": "FunctionalRange",
+    "recordType": "FunctionalClassification",
     **{camelize(k): v for k, v in TEST_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY.items()},
 }
 
@@ -1438,7 +1556,7 @@ TEST_SAVED_FUNCTIONAL_RANGE_INCLUDING_NEGATIVE_INFINITY = {
 TEST_FUNCTIONAL_RANGE_INCLUDING_POSITIVE_INFINITY = {
     "label": "test functional range including positive infinity",
     "description": "A functional range including positive infinity",
-    "classification": "not_specified",
+    "functional_classification": FunctionalClassificationOptions.not_specified.value,
     "range": [0.0, None],
     "inclusive_lower_bound": False,
     "inclusive_upper_bound": False,
@@ -1449,7 +1567,7 @@ TEST_MINIMAL_CALIBRATION = {
     "title": "Test BRNICH Score Calibration",
     "research_use_only": False,
     "investigator_provided": False,
-    "functional_ranges": [
+    "functional_classifications": [
         TEST_FUNCTIONAL_RANGE_NORMAL,
         TEST_FUNCTIONAL_RANGE_ABNORMAL,
         TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED,
@@ -1461,12 +1579,12 @@ TEST_MINIMAL_CALIBRATION = {
 }
 
 
-TEST_BRNICH_SCORE_CALIBRATION = {
+TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED = {
     "title": "Test BRNICH Score Calibration",
     "research_use_only": False,
     "baseline_score": TEST_BASELINE_SCORE,
     "baseline_score_description": "Test baseline score description",
-    "functional_ranges": [
+    "functional_classifications": [
         TEST_FUNCTIONAL_RANGE_NORMAL,
         TEST_FUNCTIONAL_RANGE_ABNORMAL,
         TEST_FUNCTIONAL_RANGE_NOT_SPECIFIED,
@@ -1480,14 +1598,14 @@ TEST_BRNICH_SCORE_CALIBRATION = {
     "calibration_metadata": {},
 }
 
-TEST_SAVED_BRNICH_SCORE_CALIBRATION = {
+TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED = {
     "recordType": "ScoreCalibration",
     **{
         camelize(k): v
-        for k, v in TEST_BRNICH_SCORE_CALIBRATION.items()
-        if k not in ("functional_ranges", "classification_sources", "threshold_sources", "method_sources")
+        for k, v in TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED.items()
+        if k not in ("functional_classifications", "classification_sources", "threshold_sources", "method_sources")
     },
-    "functionalRanges": [
+    "functionalClassifications": [
         TEST_SAVED_FUNCTIONAL_RANGE_NORMAL,
         TEST_SAVED_FUNCTIONAL_RANGE_ABNORMAL,
         TEST_SAVED_FUNCTIONAL_RANGE_NOT_SPECIFIED,
@@ -1517,18 +1635,37 @@ TEST_SAVED_BRNICH_SCORE_CALIBRATION = {
     "modificationDate": date.today().isoformat(),
 }
 
+
+TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED = {
+    **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+    "functional_classifications": [
+        TEST_FUNCTIONAL_CLASSIFICATION_NORMAL,
+        TEST_FUNCTIONAL_CLASSIFICATION_ABNORMAL,
+        TEST_FUNCTIONAL_CLASSIFICATION_NOT_SPECIFIED,
+    ],
+}
+
+TEST_SAVED_BRNICH_SCORE_CALIBRATION_CLASS_BASED = {
+    **TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+    "functionalClassifications": [
+        TEST_SAVED_FUNCTIONAL_CLASSIFICATION_NORMAL,
+        TEST_SAVED_FUNCTIONAL_CLASSIFICATION_ABNORMAL,
+        TEST_SAVED_FUNCTIONAL_CLASSIFICATION_NOT_SPECIFIED,
+    ],
+}
+
 TEST_PATHOGENICITY_SCORE_CALIBRATION = {
     "title": "Test Pathogenicity Score Calibration",
     "research_use_only": False,
     "baseline_score": TEST_BASELINE_SCORE,
     "baseline_score_description": "Test baseline score description",
-    "functional_ranges": [
+    "functional_classifications": [
         TEST_FUNCTIONAL_RANGE_NORMAL,
         TEST_FUNCTIONAL_RANGE_ABNORMAL,
     ],
     "threshold_sources": [{"identifier": TEST_PUBMED_IDENTIFIER, "db_name": "PubMed"}],
-    "classification_sources": None,
-    "method_sources": None,
+    "classification_sources": [],
+    "method_sources": [],
     "calibration_metadata": {},
 }
 
@@ -1537,15 +1674,15 @@ TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION = {
     **{
         camelize(k): v
         for k, v in TEST_PATHOGENICITY_SCORE_CALIBRATION.items()
-        if k not in ("functional_ranges", "classification_sources", "threshold_sources", "method_sources")
+        if k not in ("functional_classifications", "classification_sources", "threshold_sources", "method_sources")
     },
-    "functionalRanges": [
+    "functionalClassifications": [
         TEST_SAVED_FUNCTIONAL_RANGE_NORMAL,
         TEST_SAVED_FUNCTIONAL_RANGE_ABNORMAL,
     ],
     "thresholdSources": [SAVED_PUBMED_PUBLICATION],
-    "classificationSources": None,
-    "methodSources": None,
+    "classificationSources": [],
+    "methodSources": [],
     "id": 2,
     "investigatorProvided": True,
     "primary": False,

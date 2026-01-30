@@ -1,8 +1,10 @@
 from copy import deepcopy
 
-from mavedb.lib.annotation.annotate import variant_study_result
-from mavedb.lib.annotation.annotate import variant_functional_impact_statement
-from mavedb.lib.annotation.annotate import variant_pathogenicity_evidence
+from mavedb.lib.annotation.annotate import (
+    variant_functional_impact_statement,
+    variant_pathogenicity_evidence,
+    variant_study_result,
+)
 
 # The contents of these results are tested elsewhere. These tests focus on object structure.
 
@@ -81,8 +83,8 @@ def test_variant_pathogenicity_evidence_with_no_acmg_classifications(
     for (
         calibration
     ) in mock_mapped_variant_with_pathogenicity_calibration_score_set.variant.score_set.score_calibrations:
-        calibration.functional_ranges = [
-            {**deepcopy(r), "acmgClassification": None} for r in calibration.functional_ranges
+        calibration.functional_classifications = [
+            {**deepcopy(r), "acmgClassification": None} for r in calibration.functional_classifications
         ]
 
     result = variant_pathogenicity_evidence(mock_mapped_variant_with_pathogenicity_calibration_score_set)
