@@ -18,6 +18,7 @@ from mavedb.worker.jobs.data_management import (
 from mavedb.worker.jobs.external_services import (
     link_gnomad_variants,
     poll_uniprot_mapping_jobs_for_score_set,
+    refresh_clinvar_controls,
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,
     submit_uniprot_mapping_jobs_for_score_set,
@@ -36,6 +37,7 @@ BACKGROUND_FUNCTIONS: List[Callable] = [
     # External service jobs
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,
+    refresh_clinvar_controls,
     submit_uniprot_mapping_jobs_for_score_set,
     poll_uniprot_mapping_jobs_for_score_set,
     link_gnomad_variants,
@@ -93,6 +95,13 @@ STANDALONE_JOB_DEFINITIONS: dict[Callable, JobDefinition] = {
         "params": {"score_set_id": None, "correlation_id": None},
         "function": "submit_score_set_mappings_to_ldh",
         "key": "submit_score_set_mappings_to_ldh",
+        "type": JobType.MAPPED_VARIANT_ANNOTATION,
+    },
+    refresh_clinvar_controls: {
+        "dependencies": [],
+        "params": {"score_set_id": None, "correlation_id": None, "year": None, "month": None},
+        "function": "refresh_clinvar_controls",
+        "key": "refresh_clinvar_controls",
         "type": JobType.MAPPED_VARIANT_ANNOTATION,
     },
     submit_uniprot_mapping_jobs_for_score_set: {
