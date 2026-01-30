@@ -1,7 +1,7 @@
 """add external links property to experiments
 
 Revision ID: 00dab0f5f498
-Revises: b22b450d409c
+Revises: 0520dfa9f2db
 Create Date: 2025-12-16 12:06:15.265947
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "00dab0f5f498"
-down_revision = "b22b450d409c"
+down_revision = "0520dfa9f2db"
 branch_labels = None
 depends_on = None
 

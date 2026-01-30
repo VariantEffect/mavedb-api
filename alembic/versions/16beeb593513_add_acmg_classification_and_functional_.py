@@ -1,7 +1,7 @@
 """add acmg classification and functional classification tables
 
 Revision ID: 16beeb593513
-Revises: 00dab0f5f498
+Revises: b22b450d409c
 Create Date: 2025-11-17 11:46:38.276980
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "16beeb593513"
-down_revision = "00dab0f5f498"
+down_revision = "b22b450d409c"
 branch_labels = None
 depends_on = None
 
@@ -126,7 +126,7 @@ def upgrade():
     op.create_index(
         op.f("ix_score_calibrations_modified_by_id"), "score_calibrations", ["modified_by_id"], unique=False
     )
-    op.create_index(op.f("ix_score_calibrations_urn"), "score_calibrations", ["urn"], unique=True)
+    op.create_index(op.f("ix_score_calibrations_created_by_id"), "score_calibrations", ["created_by_id"], unique=False)
     # ### end Alembic commands ###
 
 
