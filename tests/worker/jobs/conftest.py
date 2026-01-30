@@ -7,6 +7,7 @@ from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
+from tests.helpers.constants import VALID_CAID
 
 try:
     from .conftest_optional import *  # noqa: F403, F401
@@ -84,6 +85,18 @@ def submit_score_set_mappings_to_car_params(with_populated_domain_data, sample_s
     return {
         "correlation_id": "sample-correlation-id",
         "score_set_id": sample_score_set.id,
+    }
+
+
+@pytest.fixture
+def refresh_clinvar_controls_sample_params(with_populated_domain_data, sample_score_set):
+    """Provide sample parameters for refresh_clinvar_controls job."""
+
+    return {
+        "correlation_id": "sample-correlation-id",
+        "score_set_id": sample_score_set.id,
+        "month": 1,
+        "year": 2026,
     }
 
 
@@ -228,13 +241,14 @@ def setup_sample_variants_with_caid(
     session.commit()
     mapped_variant = MappedVariant(
         variant_id=variant.id,
-        clingen_allele_id="CA123",
+        clingen_allele_id=VALID_CAID,
         current=True,
         mapped_date="2024-01-01T00:00:00Z",
         mapping_api_version="1.0.0",
     )
     session.add(mapped_variant)
     session.commit()
+    return variant, mapped_variant
 
 
 ## Uniprot Job Fixtures ##
@@ -798,3 +812,61 @@ def with_full_dummy_pipeline(session, with_dummy_pipeline_start, sample_dummy_pi
     """Fixture to ensure dummy pipeline steps exist in the database."""
     session.add(sample_dummy_pipeline_step)
     session.commit()
+
+
+@pytest.fixture
+def sample_refresh_clinvar_controls_job_run(refresh_clinvar_controls_sample_params):
+    """Create a JobRun instance for refresh_clinvar_controls job."""
+
+    return JobRun(
+        urn="test:refresh_clinvar_controls",
+        job_type="refresh_clinvar_controls",
+        job_function="refresh_clinvar_controls",
+        max_retries=3,
+        retry_count=0,
+        job_params=refresh_clinvar_controls_sample_params,
+    )
+
+
+@pytest.fixture
+def with_refresh_clinvar_controls_job(session, sample_refresh_clinvar_controls_job_run):
+    """Add a refresh_clinvar_controls job run to the session."""
+
+    session.add(sample_refresh_clinvar_controls_job_run)
+    session.commit()
+
+
+@pytest.fixture
+def sample_refresh_clinvar_controls_pipeline():
+    """Create a pipeline instance for refresh_clinvar_controls job."""
+
+    return Pipeline(
+        urn="test:refresh_clinvar_controls_pipeline",
+        name="Refresh ClinVar Controls Pipeline",
+    )
+
+
+@pytest.fixture
+def with_refresh_clinvar_controls_pipeline(
+    session,
+    sample_refresh_clinvar_controls_pipeline,
+):
+    """Add a refresh_clinvar_controls pipeline to the session."""
+
+    session.add(sample_refresh_clinvar_controls_pipeline)
+    session.commit()
+
+
+@pytest.fixture
+def sample_refresh_clinvar_controls_job_in_pipeline(
+    session,
+    with_refresh_clinvar_controls_job,
+    with_refresh_clinvar_controls_pipeline,
+    sample_refresh_clinvar_controls_job_run,
+    sample_refresh_clinvar_controls_pipeline,
+):
+    """Provide a context with a refresh_clinvar_controls job run and pipeline."""
+
+    sample_refresh_clinvar_controls_job_run.pipeline_id = sample_refresh_clinvar_controls_pipeline.id
+    session.commit()
+    return sample_refresh_clinvar_controls_job_run

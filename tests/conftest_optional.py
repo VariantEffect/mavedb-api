@@ -24,7 +24,7 @@ from mavedb.models.user import User
 from mavedb.server_main import app
 from mavedb.worker.jobs import BACKGROUND_CRONJOBS, BACKGROUND_FUNCTIONS
 from mavedb.worker.lib.managers.types import JobResultData
-from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_SEQREPO_INITIAL_STATE, TEST_USER
+from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_SEQREPO_INITIAL_STATE, TEST_USER, VALID_CAID
 
 ####################################################################################################
 # REDIS
@@ -447,7 +447,7 @@ def athena_engine():
                 "locus.contig": "chr1",
                 "locus.position": 12345,
                 "alleles": "[G, A]",
-                "caid": "CA123",
+                "caid": VALID_CAID,
                 "joint.freq.all.ac": 23,
                 "joint.freq.all.an": 32432423,
                 "joint.fafmax.faf95_max_gen_anc": "anc1",
