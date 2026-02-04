@@ -78,7 +78,7 @@ class AnnotationStatusManager:
               is responsible for persisting any changes (e.g., by calling session.commit()).
         """
         logger.debug(
-            f"Adding annotation for variant_id={variant_id}, annotation_type={annotation_type.value}, version={version}"
+            f"Adding annotation for variant_id={variant_id}, annotation_type={annotation_type}, version={version}"
         )
 
         # Find existing current annotations to be replaced
@@ -86,7 +86,7 @@ class AnnotationStatusManager:
             self.session.execute(
                 select(VariantAnnotationStatus).where(
                     VariantAnnotationStatus.variant_id == variant_id,
-                    VariantAnnotationStatus.annotation_type == annotation_type.value,
+                    VariantAnnotationStatus.annotation_type == annotation_type,
                     VariantAnnotationStatus.version == version,
                     VariantAnnotationStatus.current.is_(True),
                 )
@@ -96,7 +96,7 @@ class AnnotationStatusManager:
         )
         for var_ann in existing_current:
             logger.debug(
-                f"Replacing current annotation {var_ann.id} for variant_id={variant_id}, annotation_type={annotation_type.value}, version={version}"
+                f"Replacing current annotation {var_ann.id} for variant_id={variant_id}, annotation_type={annotation_type}, version={version}"
             )
             var_ann.current = False
 
@@ -104,8 +104,8 @@ class AnnotationStatusManager:
 
         new_status = VariantAnnotationStatus(
             variant_id=variant_id,
-            annotation_type=annotation_type.value,
-            status=status.value,
+            annotation_type=annotation_type,
+            status=status,
             version=version,
             current=current,
             **annotation_data,
@@ -115,7 +115,7 @@ class AnnotationStatusManager:
         self.session.flush()
 
         logger.info(
-            f"Successfully added annotation for variant_id={variant_id}, annotation_type={annotation_type.value}, version={version}"
+            f"Successfully added annotation for variant_id={variant_id}, annotation_type={annotation_type}, version={version}"
         )
         return new_status
 
@@ -135,7 +135,7 @@ class AnnotationStatusManager:
         """
         stmt = select(VariantAnnotationStatus).where(
             VariantAnnotationStatus.variant_id == variant_id,
-            VariantAnnotationStatus.annotation_type == annotation_type.value,
+            VariantAnnotationStatus.annotation_type == annotation_type,
             VariantAnnotationStatus.current.is_(True),
         )
 
