@@ -84,8 +84,8 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
         )
         session.commit()
 
-        assert annotation.annotation_type == annotation_type.value
-        assert annotation.status == status.value
+        assert annotation.annotation_type == annotation_type
+        assert annotation.status == status
         assert annotation.version == "v1.0"
 
     def test_add_annotation_persists_annotation_data(
