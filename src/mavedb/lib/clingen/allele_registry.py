@@ -1,4 +1,5 @@
 import logging
+
 import requests
 
 logger = logging.getLogger(__name__)
@@ -43,3 +44,18 @@ def get_matching_registered_ca_ids(clingen_pa_id: str) -> list[str]:
                 ca_ids.extend([allele["@id"].split("/")[-1] for allele in allele["matchingRegisteredTranscripts"]])
 
     return ca_ids
+
+
+def get_associated_clinvar_allele_id(clingen_allele_id: str) -> str | None:
+    """Retrieve the associated ClinVar Allele ID for a given ClinGen Allele ID from the ClinGen API."""
+    response = requests.get(f"{CLINGEN_API_URL}/{clingen_allele_id}")
+    if response.status_code != 200:
+        logger.error(f"Failed to query ClinGen API for {clingen_allele_id}: {response.status_code}")
+        return None
+
+    data = response.json()
+    clinvar_allele_id = data.get("externalRecords", {}).get("ClinVarAlleles", [{}])[0].get("alleleId")
+    if clinvar_allele_id:
+        return str(clinvar_allele_id)
+
+    return None
