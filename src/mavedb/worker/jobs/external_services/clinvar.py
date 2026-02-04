@@ -33,6 +33,11 @@ from mavedb.worker.lib.managers.types import JobResultData
 logger = logging.getLogger(__name__)
 
 
+# TODO#649: This function is currently called multiple times to fill in controls for each month/year.
+#           We should consider caching both fetched TSV data and/or ClinGen API results. This would
+#           significantly speed up large jobs annotating many variants.
+
+
 @with_pipeline_management
 async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManager) -> JobResultData:
     """
