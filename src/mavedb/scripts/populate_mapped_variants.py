@@ -1,8 +1,8 @@
 import logging
-import click
 from datetime import date
-from typing import Sequence, Optional
+from typing import Optional, Sequence, Union
 
+import click
 from sqlalchemy import cast, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
@@ -12,10 +12,9 @@ from mavedb.lib.exceptions import NonexistentMappingReferenceError
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.mapping import ANNOTATION_LAYERS
 from mavedb.models.enums.mapping_state import MappingState
-from mavedb.models.score_set import ScoreSet
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
-
 from mavedb.scripts.environment import script_environment, with_database_session
 
 logger = logging.getLogger(__name__)
@@ -111,10 +110,16 @@ def populate_mapped_variant_data(db: Session, urns: Sequence[Optional[str]], all
                         )
                     # allow for multiple annotation layers
                     pre_mapped_metadata = {}
-                    post_mapped_metadata = {}
+                    post_mapped_metadata: dict[str, Union[Optional[str], dict[str, dict[str, str | list[str]]]]] = {}
                     excluded_pre_mapped_keys = {"sequence"}
-                    for annotation_layer in reference_metadata[target_gene_identifier]:
-                        layer_premapped = reference_metadata[target_gene_identifier][annotation_layer].get(
+
+                    gene_info = reference_metadata[target_gene_identifier].get("gene_info")
+                    if gene_info:
+                        target_gene.mapped_hgnc_name = gene_info.get("hgnc_symbol")
+                        post_mapped_metadata["hgnc_name_selection_method"] = gene_info.get("selection_method")
+
+                    for annotation_layer in reference_metadata[target_gene_identifier]["layers"]:
+                        layer_premapped = reference_metadata[target_gene_identifier]["layers"][annotation_layer].get(
                             "computed_reference_sequence"
                         )
                         if layer_premapped:
@@ -122,7 +127,7 @@ def populate_mapped_variant_data(db: Session, urns: Sequence[Optional[str]], all
                                 k: layer_premapped[k]
                                 for k in set(list(layer_premapped.keys())) - excluded_pre_mapped_keys
                             }
-                        layer_postmapped = reference_metadata[target_gene_identifier][annotation_layer].get(
+                        layer_postmapped = reference_metadata[target_gene_identifier]["layers"][annotation_layer].get(
                             "mapped_reference_sequence"
                         )
                         if layer_postmapped:
