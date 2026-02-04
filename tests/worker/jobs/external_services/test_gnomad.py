@@ -9,8 +9,6 @@ from unittest.mock import MagicMock, call, patch
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
-from mavedb.models.score_set import ScoreSet
-from mavedb.models.variant import Variant
 from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 from mavedb.worker.jobs.external_services.gnomad import link_gnomad_variants
 from mavedb.worker.lib.managers.job_manager import JobManager
@@ -22,33 +20,6 @@ pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 @pytest.mark.unit
 class TestLinkGnomadVariantsUnit:
     """Unit tests for the link_gnomad_variants job."""
-
-    @pytest.fixture
-    def setup_sample_variants_with_caid(
-        self, session, with_populated_domain_data, mock_worker_ctx, sample_link_gnomad_variants_run
-    ):
-        """Setup variants and mapped variants in the database for testing."""
-        score_set = session.get(ScoreSet, sample_link_gnomad_variants_run.job_params["score_set_id"])
-
-        # Add a variant and mapped variant to the database with a CAID
-        variant = Variant(
-            urn="urn:variant:test-variant-with-caid",
-            score_set_id=score_set.id,
-            hgvs_nt="NM_000000.1:c.1A>G",
-            hgvs_pro="NP_000000.1:p.Met1Val",
-            data={"hgvs_c": "NM_000000.1:c.1A>G", "hgvs_p": "NP_000000.1:p.Met1Val"},
-        )
-        session.add(variant)
-        session.commit()
-        mapped_variant = MappedVariant(
-            variant_id=variant.id,
-            clingen_allele_id="CA123",
-            current=True,
-            mapped_date="2024-01-01T00:00:00Z",
-            mapping_api_version="1.0.0",
-        )
-        session.add(mapped_variant)
-        session.commit()
 
     async def test_link_gnomad_variants_no_variants_with_caids(
         self,
