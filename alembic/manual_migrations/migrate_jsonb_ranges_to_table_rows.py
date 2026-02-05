@@ -127,7 +127,7 @@ def migrate_functional_range_to_row(
         calibration_id=calibration.id,
         label=functional_range.get("label", ""),
         description=functional_range.get("description"),
-        classification=FunctionalClassification(functional_range.get("classification", "not_specified")),
+        functional_classification=FunctionalClassification(functional_range.get("classification", "not_specified")),
         range=functional_range.get("range"),
         inclusive_lower_bound=functional_range.get("inclusive_lower_bound"),
         inclusive_upper_bound=functional_range.get("inclusive_upper_bound"),
