@@ -275,7 +275,7 @@ def build_ranges(row: Dict[str, str], infer_strengths: bool = True) -> Tuple[Lis
         ranges.append(
             FunctionalClassificationCreate(
                 label=label,
-                classification=classification,
+                functional_classification=classification,
                 range=(lower, upper),
                 inclusive_lower_bound=incl_lower if lower is not None else False,
                 inclusive_upper_bound=incl_upper if upper is not None else False,
