@@ -4,15 +4,15 @@ from datetime import datetime
 from ga4gh.core.models import Extension
 from ga4gh.va_spec.base.core import Contribution
 
-from mavedb.models.mapped_variant import MappedVariant
-from mavedb.models.user import User
 from mavedb.lib.annotation.agent import (
+    excalibr_calibration_agent,
     mavedb_api_agent,
-    mavedb_vrs_agent,
     mavedb_user_agent,
-    zeiberg_calibration_agent,
+    mavedb_vrs_agent,
 )
 from mavedb.lib.types.annotation import ResourceWithCreationModificationDates
+from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -46,15 +46,15 @@ def mavedb_vrs_contribution(mapped_variant: MappedVariant) -> Contribution:
     )
 
 
-def zeiberg_calibration_contribution() -> Contribution:
+def excalibr_calibration_contribution() -> Contribution:
     """
     Create a [VA Contribution](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/activities/contribution.html#contribution)
-    object for a sofware agent which performs calibrations on an arbitrary data set.
+    object for a software agent which performs calibrations on an arbitrary data set.
     """
     return Contribution(
-        name="Zeiberg Calibration",
-        description="Contribution from the Zeiberg Calibration software",
-        contributor=zeiberg_calibration_agent(),
+        name="ExCALIBR Calibration",
+        description="Contribution from the ExCALIBR Calibration software",
+        contributor=excalibr_calibration_agent(),
         activityType="variant specific calibration software",
     )
 
