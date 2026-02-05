@@ -1,7 +1,7 @@
 """add mapped hgnc name to targets
 
 Revision ID: dcf8572d3a17
-Revises: b22b450d409c
+Revises: 00dab0f5f498
 Create Date: 2025-12-12 17:32:40.147429
 
 """
@@ -12,7 +12,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "dcf8572d3a17"
-down_revision = "b22b450d409c"
+down_revision = "00dab0f5f498"
 branch_labels = None
 depends_on = None
 
