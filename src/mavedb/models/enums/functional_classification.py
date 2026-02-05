@@ -1,7 +1,7 @@
 import enum
 
 
-class FunctionalClassification(enum.Enum):
+class FunctionalClassification(str, enum.Enum):
     normal = "normal"
     abnormal = "abnormal"
     not_specified = "not_specified"
