@@ -1,45 +1,51 @@
-from humps import decamelize
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-import pytest
 from shutil import copytree
 from unittest import mock
 
+import pytest
+from humps import decamelize
+
+from mavedb.models.acmg_classification import ACMGClassification
 from mavedb.models.enums.user_role import UserRole
-from mavedb.models.score_calibration import ScoreCalibration
-from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.experiment import Experiment
+from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.license import License
+from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.publication_identifier import PublicationIdentifier
-from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.role import Role
-from mavedb.models.taxonomy import Taxonomy
+from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
+from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
-from mavedb.models.mapped_variant import MappedVariant
 from tests.helpers.constants import (
     ADMIN_USER,
     EXTRA_USER,
+    TEST_ACMG_BS3_STRONG_CLASSIFICATION,
+    TEST_ACMG_BS3_STRONG_CLASSIFICATION_WITH_POINTS,
+    TEST_ACMG_PS3_STRONG_CLASSIFICATION,
+    TEST_ACMG_PS3_STRONG_CLASSIFICATION_WITH_POINTS,
     TEST_EXPERIMENT,
     TEST_EXPERIMENT_SET,
-    TEST_LICENSE,
     TEST_INACTIVE_LICENSE,
+    TEST_LICENSE,
     TEST_MAVEDB_ATHENA_ROW,
     TEST_MINIMAL_MAPPED_VARIANT,
     TEST_MINIMAL_VARIANT,
+    TEST_PUBMED_IDENTIFIER,
+    TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+    TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION,
     TEST_SAVED_TAXONOMY,
     TEST_SEQ_SCORESET,
     TEST_USER,
-    TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
-    VALID_SCORE_SET_URN,
-    VALID_EXPERIMENT_URN,
+    TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
     VALID_EXPERIMENT_SET_URN,
-    TEST_SAVED_BRNICH_SCORE_CALIBRATION,
-    TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION,
-    TEST_PUBMED_IDENTIFIER,
+    VALID_EXPERIMENT_URN,
+    VALID_SCORE_SET_URN,
 )
 
 
@@ -56,6 +62,10 @@ def setup_lib_db(session):
     db.add(Taxonomy(**TEST_SAVED_TAXONOMY))
     db.add(License(**TEST_LICENSE))
     db.add(License(**TEST_INACTIVE_LICENSE))
+    db.add(ACMGClassification(**TEST_ACMG_PS3_STRONG_CLASSIFICATION))
+    db.add(ACMGClassification(**TEST_ACMG_BS3_STRONG_CLASSIFICATION))
+    db.add(ACMGClassification(**TEST_ACMG_BS3_STRONG_CLASSIFICATION_WITH_POINTS))
+    db.add(ACMGClassification(**TEST_ACMG_PS3_STRONG_CLASSIFICATION_WITH_POINTS))
     db.commit()
 
 
@@ -177,7 +187,7 @@ def mock_experiment():
 def mock_functional_calibration(mock_user):
     calibration = mock.Mock(spec=ScoreCalibration)
 
-    for key, value in TEST_SAVED_BRNICH_SCORE_CALIBRATION.items():
+    for key, value in TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED.items():
         setattr(calibration, decamelize(key), deepcopy(value))
 
     calibration.primary = True  # Ensure functional calibration is primary for tests

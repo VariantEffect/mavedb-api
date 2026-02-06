@@ -1,7 +1,7 @@
 import logging  # noqa: F401
+import sys
 from datetime import datetime
 from unittest import mock
-import sys
 
 import email_validator
 import pytest
@@ -11,35 +11,33 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
 from mavedb.db.base import Base
-from mavedb.models.experiment_set import ExperimentSet
-from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
-from mavedb.models.user import User, UserRole, Role
-from mavedb.models.license import License
-from mavedb.models.taxonomy import Taxonomy
-from mavedb.models.publication_identifier import PublicationIdentifier
-from mavedb.models.experiment import Experiment
-from mavedb.models.variant import Variant
-from mavedb.models.mapped_variant import MappedVariant
-from mavedb.models.score_set import ScoreSet
-
 from mavedb.models import *  # noqa: F403
-
+from mavedb.models.experiment import Experiment
+from mavedb.models.experiment_set import ExperimentSet
+from mavedb.models.license import License
+from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.publication_identifier import PublicationIdentifier
+from mavedb.models.score_set import ScoreSet
+from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
+from mavedb.models.taxonomy import Taxonomy
+from mavedb.models.user import Role, User, UserRole
+from mavedb.models.variant import Variant
 from tests.helpers.constants import (
     ADMIN_USER,
     EXTRA_USER,
-    TEST_LICENSE,
+    TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_INACTIVE_LICENSE,
+    TEST_LICENSE,
+    TEST_PATHOGENICITY_SCORE_CALIBRATION,
+    TEST_PUBMED_IDENTIFIER,
     TEST_SAVED_TAXONOMY,
     TEST_USER,
-    VALID_VARIANT_URN,
-    VALID_SCORE_SET_URN,
-    VALID_EXPERIMENT_URN,
-    VALID_EXPERIMENT_SET_URN,
-    TEST_PUBMED_IDENTIFIER,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
-    TEST_BRNICH_SCORE_CALIBRATION,
-    TEST_PATHOGENICITY_SCORE_CALIBRATION,
+    VALID_EXPERIMENT_SET_URN,
+    VALID_EXPERIMENT_URN,
+    VALID_SCORE_SET_URN,
+    VALID_VARIANT_URN,
 )
 
 sys.path.append(".")
@@ -56,7 +54,7 @@ except ModuleNotFoundError:
 assert pytest_postgresql.factories
 
 # Allow the @test domain name through our email validator.
-email_validator.SPECIAL_USE_DOMAIN_NAMES.remove("test")
+email_validator.TEST_ENVIRONMENT = True
 
 
 @pytest.fixture()
@@ -145,7 +143,7 @@ def mock_experiment():
 def mock_score_set(mock_user, mock_experiment, mock_publication_associations):
     score_set = mock.Mock(spec=ScoreSet)
     score_set.urn = VALID_SCORE_SET_URN
-    score_set.score_calibrations = [TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]
+    score_set.score_calibrations = [TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]
     score_set.license.short_name = "MIT"
     score_set.created_by = mock_user
     score_set.modified_by = mock_user

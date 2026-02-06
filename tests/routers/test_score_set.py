@@ -35,7 +35,8 @@ from tests.helpers.constants import (
     SAVED_PUBMED_PUBLICATION,
     SAVED_SHORT_EXTRA_LICENSE,
     TEST_BIORXIV_IDENTIFIER,
-    TEST_BRNICH_SCORE_CALIBRATION,
+    TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED,
+    TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_CROSSREF_IDENTIFIER,
     TEST_GNOMAD_DATA_VERSION,
     TEST_INACTIVE_LICENSE,
@@ -48,11 +49,12 @@ from tests.helpers.constants import (
     TEST_ORCID_ID,
     TEST_PATHOGENICITY_SCORE_CALIBRATION,
     TEST_PUBMED_IDENTIFIER,
-    TEST_SAVED_BRNICH_SCORE_CALIBRATION,
+    TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_SAVED_CLINVAR_CONTROL,
     TEST_SAVED_GENERIC_CLINICAL_CONTROL,
     TEST_SAVED_GNOMAD_VARIANT,
     TEST_USER,
+    VALID_CLINGEN_CA_ID,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.common import (
@@ -204,7 +206,7 @@ def test_create_score_set_with_score_calibration(client, mock_publication_fetch,
     score_set["experimentUrn"] = experiment["urn"]
     score_set.update(
         {
-            "scoreCalibrations": [deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)],
+            "scoreCalibrations": [deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)],
         }
     )
 
@@ -219,7 +221,7 @@ def test_create_score_set_with_score_calibration(client, mock_publication_fetch,
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
     expected_response["experiment"].update({"numScoreSets": 1})
-    expected_calibration = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION)
+    expected_calibration = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     expected_calibration["urn"] = response_data["scoreCalibrations"][0]["urn"]
     expected_calibration["private"] = True
     expected_calibration["primary"] = False
@@ -232,6 +234,34 @@ def test_create_score_set_with_score_calibration(client, mock_publication_fetch,
 
     response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
     assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        (
+            [
+                {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+                {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+            ]
+        )
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_score_set_with_class_based_calibration(client, mock_publication_fetch, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    score_set.update(
+        {
+            "scoreCalibrations": [deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED)],
+        }
+    )
+
+    response = client.post("/api/v1/score-sets/", json=score_set)
+    assert response.status_code == 409
+    response_data = response.json()
+    assert "Class-based calibrations are not supported on score set creation" in response_data["detail"]
 
 
 @pytest.mark.parametrize(
@@ -815,12 +845,12 @@ def test_extra_user_can_only_view_published_score_calibrations_in_score_set(
         worker_queue.assert_called_once()
 
     create_test_score_calibration_in_score_set_via_client(
-        client, published_score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, published_score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     public_calibration = create_publish_and_promote_score_calibration(
         client,
         published_score_set["urn"],
-        deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+        deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
     )
 
     with DependencyOverrider(extra_user_app_overrides):
@@ -848,12 +878,12 @@ def test_creating_user_can_view_all_score_calibrations_in_score_set(client, setu
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     private_calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     public_calibration = create_publish_and_promote_score_calibration(
         client,
         score_set["urn"],
-        deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+        deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
@@ -1346,7 +1376,7 @@ def test_score_calibrations_remain_private_when_score_set_is_published(
     )
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
@@ -1408,7 +1438,7 @@ def test_anonymous_cannot_publish_user_private_score_set(
     assert "Could not validate credentials" in response_data["detail"]
 
 
-def test_contributor_can_publish_other_users_score_set(session, data_provider, client, setup_router_db, data_files):
+def test_contributor_cannot_publish_other_users_score_set(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
@@ -1423,60 +1453,15 @@ def test_contributor_can_publish_other_users_score_set(session, data_provider, c
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, score_set["urn"])
-        worker_queue.assert_called_once()
+        response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+        assert response.status_code == 403
+        worker_queue.assert_not_called()
+        response_data = response.json()
 
-    assert published_score_set["urn"] == "urn:mavedb:00000001-a-1"
-    assert published_score_set["experiment"]["urn"] == "urn:mavedb:00000001-a"
-
-    expected_response = update_expected_response_for_created_resources(
-        deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), published_score_set["experiment"], published_score_set
-    )
-    expected_response["experiment"].update({"publishedDate": date.today().isoformat(), "numScoreSets": 1})
-    expected_response.update(
-        {
-            "urn": published_score_set["urn"],
-            "publishedDate": date.today().isoformat(),
-            "numVariants": 3,
-            "private": False,
-            "datasetColumns": SAVED_MINIMAL_DATASET_COLUMNS,
-            "processingState": ProcessingState.success.name,
-        }
-    )
-    expected_response["contributors"] = [
-        {
-            "recordType": "Contributor",
-            "orcidId": TEST_USER["username"],
-            "givenName": TEST_USER["first_name"],
-            "familyName": TEST_USER["last_name"],
-        }
-    ]
-    expected_response["createdBy"] = {
-        "recordType": "User",
-        "orcidId": EXTRA_USER["username"],
-        "firstName": EXTRA_USER["first_name"],
-        "lastName": EXTRA_USER["last_name"],
-    }
-    expected_response["modifiedBy"] = {
-        "recordType": "User",
-        "orcidId": EXTRA_USER["username"],
-        "firstName": EXTRA_USER["first_name"],
-        "lastName": EXTRA_USER["last_name"],
-    }
-    assert sorted(expected_response.keys()) == sorted(published_score_set.keys())
-
-    # refresh score set to post worker state
-    score_set = (client.get(f"/api/v1/score-sets/{published_score_set['urn']}")).json()
-    for key in expected_response:
-        assert (key, expected_response[key]) == (key, score_set[key])
-
-    score_set_variants = session.execute(
-        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
-    ).scalars()
-    assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_variants])
+    assert f"insufficient permissions on score set with URN '{score_set['urn']}'" in response_data["detail"]
 
 
-def test_admin_cannot_publish_other_user_private_score_set(
+def test_admin_can_publish_other_user_private_score_set(
     session, data_provider, client, admin_app_overrides, setup_router_db, data_files
 ):
     experiment = create_experiment(client)
@@ -1488,11 +1473,8 @@ def test_admin_cannot_publish_other_user_private_score_set(
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
     ):
         response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
-        assert response.status_code == 404
-        queue.assert_not_called()
-        response_data = response.json()
-
-    assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
+        assert response.status_code == 200
+        queue.assert_called_once()
 
 
 ########################################################################################################################
@@ -2334,7 +2316,9 @@ def test_cannot_delete_own_published_scoreset(session, data_provider, client, se
 
     assert del_response.status_code == 403
     del_response_data = del_response.json()
-    assert f"insufficient permissions for URN '{published_score_set['urn']}'" in del_response_data["detail"]
+    assert (
+        f"insufficient permissions on score set with URN '{published_score_set['urn']}'" in del_response_data["detail"]
+    )
 
 
 def test_contributor_can_delete_other_users_private_scoreset(
@@ -2355,7 +2339,9 @@ def test_contributor_can_delete_other_users_private_scoreset(
 
     response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
 
-    assert response.status_code == 200
+    assert response.status_code == 403
+    response_data = response.json()
+    assert f"insufficient permissions on score set with URN '{score_set['urn']}'" in response_data["detail"]
 
 
 def test_admin_can_delete_other_users_private_scoreset(
@@ -2897,6 +2883,83 @@ def test_download_scores_counts_and_post_mapped_variants_file(
     )
 
 
+# Additional namespace export tests: VEP, ClinGen, gnomAD
+def test_download_vep_file_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    # Create mapped variants with VEP consequence populated
+    create_mapped_variants_for_score_set(session, score_set["urn"], TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=vep&include_post_mapped_hgvs=true&drop_na_columns=true"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    assert "vep.vep_functional_consequence" in reader.fieldnames
+    # At least one row should contain the test consequence value
+    rows = list(reader)
+    assert any(row.get("vep.vep_functional_consequence") == "missense_variant" for row in rows)
+
+
+def test_download_clingen_file_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    # Create mapped variants then set ClinGen allele id for first mapped variant
+    create_mapped_variants_for_score_set(session, score_set["urn"], TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION)
+    db_score_set = session.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set["urn"]).one()
+    first_mapped_variant = db_score_set.variants[0].mapped_variants[0]
+    first_mapped_variant.clingen_allele_id = VALID_CLINGEN_CA_ID
+    session.add(first_mapped_variant)
+    session.commit()
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=clingen&include_post_mapped_hgvs=true&drop_na_columns=true"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    assert "clingen.clingen_allele_id" in reader.fieldnames
+    rows = list(reader)
+    assert rows[0].get("clingen.clingen_allele_id") == VALID_CLINGEN_CA_ID
+
+
+def test_download_gnomad_file_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    # Link a gnomAD variant to the first mapped variant (version may not match export filter)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_gnomad_variants_to_mapped_variants(session, score_set)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=gnomad&drop_na_columns=true"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    assert "gnomad.gnomad_af" in reader.fieldnames
+
+
 ########################################################################################################################
 # Fetching clinical controls and control options for a score set
 ########################################################################################################################
@@ -3098,7 +3161,9 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     # The contents of the annotated variants objects should be tested in more detail elsewhere.
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
@@ -3185,7 +3250,9 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_vari
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
@@ -3225,7 +3292,9 @@ def test_get_annotated_functional_impact_statement_for_score_set(
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
     response_data = parse_ndjson_response(response)
@@ -3255,7 +3324,7 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_calib
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 
@@ -3314,7 +3383,9 @@ def test_get_annotated_functional_impact_statement_for_score_set_when_some_varia
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
@@ -3378,7 +3449,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 
@@ -3410,7 +3481,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_ranges_not_
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 
@@ -3465,7 +3536,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_some_varian
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 

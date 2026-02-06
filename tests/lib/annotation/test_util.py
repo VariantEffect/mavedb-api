@@ -1,17 +1,17 @@
 from copy import deepcopy
+from unittest.mock import patch
+
 import pytest
 
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.annotation.util import (
-    variation_from_mapped_variant,
     _can_annotate_variant_base_assumptions,
     _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation,
     can_annotate_variant_for_functional_statement,
     can_annotate_variant_for_pathogenicity_evidence,
+    variation_from_mapped_variant,
 )
-
-from tests.helpers.constants import TEST_VALID_POST_MAPPED_VRS_ALLELE, TEST_SEQUENCE_LOCATION_ACCESSION
-from unittest.mock import patch
+from tests.helpers.constants import TEST_SEQUENCE_LOCATION_ACCESSION, TEST_VALID_POST_MAPPED_VRS_ALLELE
 
 
 @pytest.mark.parametrize(
@@ -87,7 +87,7 @@ def test_score_range_check_returns_false_when_calibrations_present_with_empty_ra
     mock_mapped_variant = request.getfixturevalue(variant_fixture)
 
     for calibration in mock_mapped_variant.variant.score_set.score_calibrations:
-        calibration.functional_ranges = None
+        calibration.functional_classifications = None
 
     assert (
         _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(mock_mapped_variant, kind)
@@ -101,11 +101,11 @@ def test_pathogenicity_range_check_returns_false_when_no_acmg_calibration(
     for (
         calibration
     ) in mock_mapped_variant_with_pathogenicity_calibration_score_set.variant.score_set.score_calibrations:
-        acmg_classification_removed = [deepcopy(r) for r in calibration.functional_ranges]
+        acmg_classification_removed = [deepcopy(r) for r in calibration.functional_classifications]
         for fr in acmg_classification_removed:
             fr["acmgClassification"] = None
 
-        calibration.functional_ranges = acmg_classification_removed
+        calibration.functional_classifications = acmg_classification_removed
 
     assert (
         _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
@@ -121,10 +121,10 @@ def test_pathogenicity_range_check_returns_true_when_some_acmg_calibration(
     for (
         calibration
     ) in mock_mapped_variant_with_pathogenicity_calibration_score_set.variant.score_set.score_calibrations:
-        acmg_classification_removed = [deepcopy(r) for r in calibration.functional_ranges]
+        acmg_classification_removed = [deepcopy(r) for r in calibration.functional_classifications]
         acmg_classification_removed[0]["acmgClassification"] = None
 
-        calibration.functional_ranges = acmg_classification_removed
+        calibration.functional_classifications = acmg_classification_removed
 
     assert (
         _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
@@ -193,7 +193,7 @@ def test_functional_range_check_returns_false_when_base_assumptions_fail(mock_ma
     assert result is False
 
 
-def test_functional_range_check_returns_false_when_functional_ranges_check_fails(mock_mapped_variant):
+def test_functional_range_check_returns_false_when_functional_classifications_check_fails(mock_mapped_variant):
     with patch(
         "mavedb.lib.annotation.util._variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation",
         return_value=False,

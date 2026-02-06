@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
 
 from mavedb import deps
-from mavedb.lib.authentication import UserData, get_current_user
+from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import require_current_user, require_current_user_with_email
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
@@ -18,6 +18,7 @@ from mavedb.lib.logging.context import (
     save_to_logging_context,
 )
 from mavedb.lib.permissions import Action, assert_permission, has_permission
+from mavedb.lib.types.authentication import UserData
 from mavedb.models.collection import Collection
 from mavedb.models.collection_user_association import CollectionUserAssociation
 from mavedb.models.enums.contribution_role import ContributionRole

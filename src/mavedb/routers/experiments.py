@@ -9,7 +9,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from mavedb import deps
-from mavedb.lib.authentication import UserData, get_current_user
+from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import require_current_user, require_current_user_with_email
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import NonexistentOrcidUserError
@@ -25,6 +25,7 @@ from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_sets import find_superseded_score_set_tail
+from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import validate_keyword_list
 from mavedb.models.contributor import Contributor
@@ -155,7 +156,7 @@ def fetch_experiment(
 
     if not item:
         logger.debug(msg="The requested experiment does not exist.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"Experiment with URN {urn} not found")
+        raise HTTPException(status_code=404, detail=f"experiment with URN {urn} not found")
 
     assert_permission(user_data, item, Action.READ)
     return enrich_experiment_with_num_score_sets(item, user_data)
@@ -459,6 +460,7 @@ async def update_experiment(
     item.raw_read_identifiers = raw_read_identifiers
 
     if item_update.keywords:
+        keywords: list[ExperimentControlledKeywordAssociation] = []
         all_labels_none = all(k.keyword.label is None for k in item_update.keywords)
         if all_labels_none is False:
             # Users may choose part of keywords from dropdown menu. Remove not chosen keywords from the list.
@@ -467,10 +469,18 @@ async def update_experiment(
                 validate_keyword_list(filtered_keywords)
             except ValidationError as e:
                 raise HTTPException(status_code=422, detail=str(e))
-            try:
-                await item.set_keywords(db, filtered_keywords)
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Invalid keywords: {str(e)}")
+            for upload_keyword in filtered_keywords:
+                try:
+                    description = upload_keyword.description
+                    controlled_keyword = search_keyword(db, upload_keyword.keyword.key, upload_keyword.keyword.label)
+                    experiment_controlled_keyword = ExperimentControlledKeywordAssociation(
+                        controlled_keyword=controlled_keyword,
+                        description=description,
+                    )
+                    keywords.append(experiment_controlled_keyword)
+                except ValueError as e:
+                    raise HTTPException(status_code=422, detail=str(e))
+        item.keyword_objs = keywords
 
     item.modified_by = user_data.user
 

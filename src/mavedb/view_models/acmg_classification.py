@@ -4,16 +4,17 @@ Provides validated structures for ACMG criteria, evidence strengths, point-based
 classifications, and associated odds path ratios.
 """
 
+from datetime import date
 from typing import Optional
+
 from pydantic import model_validator
 
-from mavedb.lib.exceptions import ValidationError
 from mavedb.lib.acmg import (
-    StrengthOfEvidenceProvided,
     ACMGCriterion,
+    StrengthOfEvidenceProvided,
     points_evidence_strength_equivalent,
 )
-
+from mavedb.lib.exceptions import ValidationError
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 
@@ -75,6 +76,15 @@ class SavedACMGClassification(ACMGClassificationBase):
 
     record_type: str = None  # type: ignore
     _record_type_factory = record_type_validator()(set_record_type)
+
+    creation_date: date
+    modification_date: date
+
+    class Config:
+        """Pydantic configuration (ORM mode)."""
+
+        from_attributes = True
+        arbitrary_types_allowed = True
 
 
 class ACMGClassification(SavedACMGClassification):

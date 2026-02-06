@@ -13,11 +13,19 @@ ANNOTATION_LAYERS = {
 class VRSMap:
     url: str
 
+    class GeneInfo(TypedDict):
+        hgnc_symbol: str
+        selection_method: str
+
+    class TargetAnnotation(TypedDict):
+        gene_info: "VRSMap.GeneInfo"
+        layers: dict[str, dict[str, dict[str, dict[str, Union[str, list[str]]]]]]
+
     class ScoreSetMappingResults(TypedDict):
         metadata: Optional[dict[str, str]]
         dcd_mapping_version: str
         mapped_date_utc: date
-        reference_sequences: Optional[dict[str, dict[str, dict[str, dict[str, Union[str, list[str]]]]]]]
+        reference_sequences: Optional[dict[str, "VRSMap.TargetAnnotation"]]
         mapped_scores: Optional[list[dict]]
         error_message: Optional[str]
 

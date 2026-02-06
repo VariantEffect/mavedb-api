@@ -1,28 +1,28 @@
 from typing import Optional, Union
 
 from ga4gh.core.models import Coding, MappableConcept, iriReference
-from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import (
     Direction,
     EvidenceLine,
-    StudyResult,
     EvidenceLineType,
     StatementType,
+    StudyResult,
     VariantPathogenicityProposition,
 )
+from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
 
 from mavedb.lib.annotation.classification import pathogenicity_classification_of_variant
 from mavedb.lib.annotation.contribution import (
+    excalibr_calibration_contribution,
     mavedb_api_contribution,
-    mavedb_vrs_contribution,
-    zeiberg_calibration_contribution,
     mavedb_creator_contribution,
     mavedb_modifier_contribution,
+    mavedb_vrs_contribution,
 )
 from mavedb.lib.annotation.document import score_set_to_document
 from mavedb.lib.annotation.method import (
-    zeiberg_calibration_method,
+    excalibr_calibration_method,
     publication_identifiers_to_method,
 )
 from mavedb.models.mapped_variant import MappedVariant
@@ -59,7 +59,7 @@ def acmg_evidence_line(
 
     return VariantPathogenicityEvidenceLine(
         description=f"Pathogenicity evidence line {mapped_variant.variant.urn}.",
-        specifiedBy=zeiberg_calibration_method(evidence_outcome),
+        specifiedBy=excalibr_calibration_method(evidence_outcome),
         evidenceOutcome={
             "primaryCoding": Coding(
                 code=evidence_outcome_code,
@@ -72,7 +72,7 @@ def acmg_evidence_line(
         contributions=[
             mavedb_api_contribution(),
             mavedb_vrs_contribution(mapped_variant),
-            zeiberg_calibration_contribution(),
+            excalibr_calibration_contribution(),
             mavedb_creator_contribution(mapped_variant.variant, mapped_variant.variant.score_set.created_by),
             mavedb_modifier_contribution(mapped_variant.variant, mapped_variant.variant.score_set.modified_by),
         ],

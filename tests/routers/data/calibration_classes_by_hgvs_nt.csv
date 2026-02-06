@@ -1,0 +1,4 @@
+hgvs_nt,class_name
+c.1A>T,normal_class
+c.2C>T,abnormal_class
+c.6T>A,not_specified_class

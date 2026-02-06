@@ -1,0 +1,4 @@
+hgvs_pro,class_name
+p.Thr1Ser,normal_class
+p.Thr1Met,abnormal_class
+p.Phe2Leu,not_specified_class

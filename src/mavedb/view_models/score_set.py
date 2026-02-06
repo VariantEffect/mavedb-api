@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
-from typing import Any, Collection, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Collection, Optional, Sequence, Union
 
 from pydantic import field_validator, model_validator
 from typing_extensions import Self
@@ -19,6 +19,8 @@ from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
+from mavedb.view_models.collection import OfficialCollection
+from mavedb.view_models.components.external_link import ExternalLink
 from mavedb.view_models.contributor import Contributor, ContributorCreate
 from mavedb.view_models.doi_identifier import (
     DoiIdentifier,
@@ -46,21 +48,11 @@ from mavedb.view_models.target_gene import (
 from mavedb.view_models.user import SavedUser, User
 from mavedb.view_models.utils import all_fields_optional_model
 
+if TYPE_CHECKING:
+    from mavedb.view_models.experiment import Experiment
+    from mavedb.view_models.variant import SavedVariantEffectMeasurement
+
 UnboundedRange = tuple[Union[float, None], Union[float, None]]
-
-
-class ExternalLink(BaseModel):
-    url: Optional[str] = None
-
-
-class OfficialCollection(BaseModel):
-    badge_name: str
-    name: str
-    urn: str
-
-    class Config:
-        arbitrary_types_allowed = True
-        from_attributes = True
 
 
 class ScoreSetBase(BaseModel):
@@ -109,7 +101,7 @@ class ScoreSetModify(ScoreSetModifyBase):
                         "Target sequence labels cannot be empty when multiple targets are defined.",
                         custom_loc=[
                             "body",
-                            "targetGene",
+                            "targetGenes",
                             idx,
                             "targetSequence",
                             "label",
@@ -134,7 +126,7 @@ class ScoreSetModify(ScoreSetModifyBase):
                     "Target sequence labels cannot be duplicated.",
                     custom_loc=[
                         "body",
-                        "targetGene",
+                        "targetGenes",
                         dup_indices[-1],
                         "targetSequence",
                         "label",
@@ -161,7 +153,7 @@ class ScoreSetModify(ScoreSetModifyBase):
                     "All target accessions must be of the same base editor type.",
                     custom_loc=[
                         "body",
-                        "targetGene",
+                        "targetGenes",
                         0,
                         "targetAccession",
                         "isBaseEditor",
@@ -311,12 +303,11 @@ class ShortScoreSet(BaseModel):
         arbitrary_types_allowed = True
 
     # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
-    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.
+    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created. Only perform these
+    # transformations if the relevant attributes are present on the input data (i.e., when creating from an ORM object).
     @model_validator(mode="before")
     def generate_primary_and_secondary_publications(cls, data: Any):
-        if not hasattr(data, "primary_publication_identifiers") or not hasattr(
-            data, "secondary_publication_identifiers"
-        ):
+        if hasattr(data, "publication_identifier_associations"):
             try:
                 publication_identifiers = transform_record_publication_identifiers(
                     data.publication_identifier_associations
@@ -327,9 +318,9 @@ class ShortScoreSet(BaseModel):
                 data.__setattr__(
                     "secondary_publication_identifiers", publication_identifiers["secondary_publication_identifiers"]
                 )
-            except AttributeError as exc:
+            except (AttributeError, KeyError) as exc:
                 raise ValidationError(
-                    f"Unable to create {cls.__name__} without attribute: {exc}."  # type: ignore
+                    f"Unable to coerce publication identifier attributes for {cls.__name__}: {exc}."  # type: ignore
                 )
         return data
 
@@ -384,12 +375,11 @@ class SavedScoreSet(ScoreSetBase):
         return list(value)  # Re-cast into proper list-like type
 
     # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
-    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.
+    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created. Only perform these
+    # transformations if the relevant attributes are present on the input data (i.e., when creating from an ORM object).
     @model_validator(mode="before")
     def generate_primary_and_secondary_publications(cls, data: Any):
-        if not hasattr(data, "primary_publication_identifiers") or not hasattr(
-            data, "secondary_publication_identifiers"
-        ):
+        if hasattr(data, "publication_identifier_associations"):
             try:
                 publication_identifiers = transform_record_publication_identifiers(
                     data.publication_identifier_associations
@@ -400,33 +390,35 @@ class SavedScoreSet(ScoreSetBase):
                 data.__setattr__(
                     "secondary_publication_identifiers", publication_identifiers["secondary_publication_identifiers"]
                 )
-            except AttributeError as exc:
-                raise ValidationError(
-                    f"Unable to create {cls.__name__} without attribute: {exc}."  # type: ignore
-                )
+            except (AttributeError, KeyError) as exc:
+                raise ValidationError(f"Unable to coerce publication identifier attributes for {cls.__name__}: {exc}.")
         return data
 
     @model_validator(mode="before")
     def transform_meta_analysis_objects_to_urns(cls, data: Any):
-        if not hasattr(data, "meta_analyzes_score_set_urns"):
+        if hasattr(data, "meta_analyzes_score_sets"):
             try:
                 data.__setattr__(
                     "meta_analyzes_score_set_urns", transform_score_set_list_to_urn_list(data.meta_analyzes_score_sets)
                 )
-            except AttributeError as exc:
-                raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
+            except (AttributeError, KeyError) as exc:
+                raise ValidationError(
+                    f"Unable to coerce meta analyzes score set urn attribute for {cls.__name__}: {exc}."
+                )
         return data
 
     @model_validator(mode="before")
     def transform_meta_analyzed_objects_to_urns(cls, data: Any):
-        if not hasattr(data, "meta_analyzed_by_score_set_urns"):
+        if hasattr(data, "meta_analyzed_by_score_sets"):
             try:
                 data.__setattr__(
                     "meta_analyzed_by_score_set_urns",
                     transform_score_set_list_to_urn_list(data.meta_analyzed_by_score_sets),
                 )
-            except AttributeError as exc:
-                raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
+            except (AttributeError, KeyError) as exc:
+                raise ValidationError(
+                    f"Unable to coerce meta analyzed by score set urn attribute for {cls.__name__}: {exc}."
+                )
         return data
 
 
@@ -456,7 +448,7 @@ class ScoreSetWithVariants(ScoreSet):
     are requested.
     """
 
-    variants: list[SavedVariantEffectMeasurement]
+    variants: list["SavedVariantEffectMeasurement"]
 
 
 class AdminScoreSet(ScoreSet):
@@ -482,13 +474,3 @@ class ScoreSetPublicDump(SavedScoreSet):
     mapping_state: Optional[MappingState] = None
     mapping_errors: Optional[dict] = None
     score_calibrations: Optional[Sequence[ScoreCalibration]] = None  # type: ignore[assignment]
-
-
-# ruff: noqa: E402
-from mavedb.view_models.experiment import Experiment
-from mavedb.view_models.variant import SavedVariantEffectMeasurement
-
-ScoreSetWithVariants.model_rebuild()
-ShortScoreSet.model_rebuild()
-ScoreSet.model_rebuild()
-ScoreSetWithVariants.model_rebuild()
