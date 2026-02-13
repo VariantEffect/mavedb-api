@@ -105,6 +105,10 @@ asyncio_mode = 'strict'
 testpaths = "tests/"
 pythonpath = "."
 norecursedirs = "tests/helpers/"
+markers = [
+    "unit: fast unit tests with isolated dependencies",
+    "integration: tests that exercise multi-component flows and/or database interactions",
+]
 # Uncomment the following lines to include application log output in Pytest logs.
 # log_cli = true
 # log_cli_level = "DEBUG"
