@@ -12,7 +12,7 @@ fastapi = pytest.importorskip("fastapi")
 
 from urllib.parse import quote_plus
 
-from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from sqlalchemy import select
 from sqlalchemy.orm.session import make_transient
@@ -217,7 +217,7 @@ def test_show_mapped_variant_functional_impact_statement(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-impact")
+    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-statement")
     response_data = response.json()
 
     assert response.status_code == 200
@@ -247,7 +247,7 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_multiple_ex
     session.add(item)
     session.commit()
 
-    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-impact")
+    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-statement")
     response_data = response.json()
 
     assert response.status_code == 500
@@ -266,7 +266,7 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_none_exists
         data_files / "scores.csv",
     )
 
-    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-impact")
+    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-statement")
     response_data = response.json()
 
     assert response.status_code == 404
@@ -305,7 +305,7 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_no_mapping_
     session.add(item)
     session.commit()
 
-    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-impact")
+    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-statement")
     response_data = response.json()
 
     assert response.status_code == 404
@@ -329,7 +329,7 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_insufficien
 
     # insufficient evidence = no (primary) calibrations
 
-    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-impact")
+    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-statement")
     response_data = response.json()
 
     assert response.status_code == 404
@@ -364,13 +364,13 @@ def test_show_mapped_variant_clinical_evidence_line(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#2')}/va/clinical-evidence")
+    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#2')}/va/pathogenicity-statement")
     response_data = response.json()
 
     assert response.status_code == 200
-    assert response_data["description"] == f"Pathogenicity evidence line {score_set['urn']}#2."
+    assert f"Variant pathogenicity statement for {score_set['urn']}#2" in response_data["description"]
 
-    VariantPathogenicityEvidenceLine.model_validate_json(json.dumps(response_data))
+    VariantPathogenicityStatement.model_validate_json(json.dumps(response_data))
 
 
 def test_cannot_show_mapped_variant_clinical_evidence_line_when_multiple_exist(
@@ -394,7 +394,7 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_multiple_exist(
     session.add(item)
     session.commit()
 
-    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/clinical-evidence")
+    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/pathogenicity-statement")
     response_data = response.json()
 
     assert response.status_code == 500
@@ -413,7 +413,7 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_none_exists(
         data_files / "scores.csv",
     )
 
-    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/clinical-evidence")
+    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/pathogenicity-statement")
     response_data = response.json()
 
     assert response.status_code == 404
@@ -452,12 +452,12 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_no_mapping_data_
     session.add(item)
     session.commit()
 
-    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/clinical-evidence")
+    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/pathogenicity-statement")
     response_data = response.json()
 
     assert response.status_code == 404
     assert (
-        f"No pathogenicity evidence line exists for mapped variant {score_set['urn']}#1: Variant {score_set['urn']}#1 does not have a post mapped variant."
+        f"No pathogenicity statement exists for mapped variant {score_set['urn']}#1: Variant {score_set['urn']}#1 does not have a post mapped variant."
         in response_data["detail"]
     )
 
@@ -474,12 +474,12 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_insufficient_pat
         data_files / "scores.csv",
     )
 
-    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/clinical-evidence")
+    response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/pathogenicity-statement")
     response_data = response.json()
 
     assert response.status_code == 404
     assert (
-        f"No pathogenicity evidence line exists for mapped variant {score_set['urn']}#1; Variant does not have sufficient evidence to evaluate its pathogenicity"
+        f"No pathogenicity statement exists for mapped variant {score_set['urn']}#1; Variant does not have sufficient evidence to evaluate its pathogenicity"
         in response_data["detail"]
     )
 

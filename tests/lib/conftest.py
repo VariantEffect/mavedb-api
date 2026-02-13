@@ -1,11 +1,9 @@
-from copy import deepcopy
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from shutil import copytree
 from unittest import mock
 
 import pytest
-from humps import decamelize
 
 from mavedb.models.acmg_classification import ACMGClassification
 from mavedb.models.enums.user_role import UserRole
@@ -15,7 +13,6 @@ from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.role import Role
-from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.taxonomy import Taxonomy
@@ -36,16 +33,19 @@ from tests.helpers.constants import (
     TEST_MINIMAL_MAPPED_VARIANT,
     TEST_MINIMAL_VARIANT,
     TEST_PUBMED_IDENTIFIER,
-    TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
-    TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION,
     TEST_SAVED_TAXONOMY,
     TEST_SEQ_SCORESET,
     TEST_USER,
-    TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
-    TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
     VALID_EXPERIMENT_SET_URN,
     VALID_EXPERIMENT_URN,
     VALID_SCORE_SET_URN,
+)
+from tests.helpers.mocks.factories import (
+    create_mock_license,
+    create_mock_mapped_variant,
+    create_mock_score_calibration,
+    create_mock_score_set,
+    create_mock_user,
 )
 
 
@@ -138,11 +138,10 @@ def setup_lib_db_with_mapped_variant(session, setup_lib_db_with_variant):
 
 @pytest.fixture
 def mock_user():
-    mv = mock.Mock(spec=User)
-    mv.username = TEST_USER["username"]
-    mv.first_name = TEST_USER["first_name"]
-    mv.last_name = TEST_USER["last_name"]
-    return mv
+    # Use the properly configured mock user creation function
+    return create_mock_user(
+        username=TEST_USER["username"], first_name=TEST_USER["first_name"], last_name=TEST_USER["last_name"]
+    )
 
 
 @pytest.fixture
@@ -185,51 +184,65 @@ def mock_experiment():
 
 @pytest.fixture
 def mock_functional_calibration(mock_user):
-    calibration = mock.Mock(spec=ScoreCalibration)
+    # Create properly configured mock score calibration with functional classifications
+    calibration = create_mock_score_calibration(
+        urn="test:calibration:functional",
+        title="Test Functional Calibration",
+        created_by=mock_user,
+        functional_classifications=[
+            {"classification": "normal", "lowerBound": -1.0, "upperBound": 0.0, "acmgClassification": None},
+            {"classification": "abnormal", "lowerBound": 0.0, "upperBound": 1.0, "acmgClassification": None},
+        ],
+        primary=True,
+        research_use_only=False,
+        calibrationMetadata={"method": "test"},
+        baselineScoreDescription="Test baseline score description",
+    )
 
-    for key, value in TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED.items():
-        setattr(calibration, decamelize(key), deepcopy(value))
-
-    calibration.primary = True  # Ensure functional calibration is primary for tests
-    calibration.notes = None
-    calibration.publication_identifier_associations = []
-    calibration.created_by = mock_user
-    calibration.modified_by = mock_user
     return calibration
 
 
 @pytest.fixture
 def mock_pathogenicity_calibration(mock_user):
-    calibration = mock.Mock(spec=ScoreCalibration)
+    # Create properly configured mock score calibration with pathogenicity classifications
+    calibration = create_mock_score_calibration(
+        urn="test:calibration:pathogenicity",
+        title="Test Pathogenicity Calibration",
+        created_by=mock_user,
+        functional_classifications=[
+            {"classification": "likely_pathogenic", "lowerBound": 0.5, "upperBound": 1.0, "acmgClassification": "PS3"},
+            {"classification": "likely_benign", "lowerBound": -1.0, "upperBound": -0.5, "acmgClassification": "BS3"},
+        ],
+        primary=True,
+        research_use_only=False,
+        calibrationMetadata={"method": "test"},
+        baselineScoreDescription="Test baseline score description",
+    )
 
-    for key, value in TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION.items():
-        setattr(calibration, decamelize(key), deepcopy(value))
-
-    calibration.primary = True  # Ensure pathogenicity calibration is primary for tests
-    calibration.notes = None
-    calibration.publication_identifier_associations = []
-    calibration.created_by = mock_user
-    calibration.modified_by = mock_user
     return calibration
 
 
 @pytest.fixture
 def mock_score_set(mock_user, mock_experiment, mock_publication_associations):
-    score_set = mock.Mock(spec=ScoreSet)
-    score_set.score_calibrations = []
-    score_set.urn = VALID_SCORE_SET_URN
-    score_set.license.short_name = "MIT"
+    # Create a properly configured mock score set
+    score_set = create_mock_score_set(
+        urn=VALID_SCORE_SET_URN,
+        title="Mock score set",
+        short_description="Short description",
+        published_date=date(2023, 1, 1),
+        license=create_mock_license("MIT", "MIT License", "1.0"),
+    )
+
+    # Override some attributes with the provided fixtures
     score_set.created_by = mock_user
     score_set.modified_by = mock_user
-    score_set.published_date = datetime(2023, 1, 1)
-    score_set.title = "Mock score set"
-    score_set.short_description = "Short description"
+    score_set.experiment = mock_experiment
+    score_set.publication_identifier_associations = mock_publication_associations
     score_set.abstract_text = "Abstract"
     score_set.method_text = "Method"
     score_set.creation_date = datetime(2023, 1, 2)
     score_set.modification_date = datetime(2023, 1, 3)
-    score_set.experiment = mock_experiment
-    score_set.publication_identifier_associations = mock_publication_associations
+
     return score_set
 
 
@@ -247,13 +260,15 @@ def mock_score_set_with_pathogenicity_calibrations(mock_score_set, mock_pathogen
 
 @pytest.fixture
 def mock_variant(mock_score_set):
-    variant = mock.Mock(spec=Variant)
-    variant.urn = f"{VALID_SCORE_SET_URN}#1"
-    variant.score_set = mock_score_set
-    variant.data = {"score_data": {"score": 1.0}}
-    variant.creation_date = datetime(2023, 1, 2)
-    variant.modification_date = datetime(2023, 1, 3)
-    return variant
+    # Create a properly configured variant using the mapped variant helper
+    # then return just the variant part
+    mapped_variant = create_mock_mapped_variant(urn=f"{VALID_SCORE_SET_URN}#1", score=1.0, score_set=mock_score_set)
+
+    # Set proper dates
+    mapped_variant.variant.creation_date = date(2023, 1, 2)
+    mapped_variant.variant.modification_date = date(2023, 1, 3)
+
+    return mapped_variant.variant
 
 
 @pytest.fixture
@@ -270,15 +285,15 @@ def mock_variant_with_pathogenicity_calibration_score_set(mock_variant, mock_sco
 
 @pytest.fixture
 def mock_mapped_variant(mock_variant):
-    mv = mock.Mock(spec=MappedVariant)
-    mv.mapping_api_version = "pytest.mapping.1.0"
-    mv.mapped_date = datetime(2023, 1, 1)
+    # Create a properly configured mapped variant using the helper function
+    mv = create_mock_mapped_variant(
+        mapping_api_version="pytest.mapping.1.0", mapped_date=datetime(2023, 1, 2), clingen_allele_id="CA123456"
+    )
+
+    # Override the variant with the provided mock_variant
     mv.variant = mock_variant
-    mv.pre_mapped = deepcopy(TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X)
-    mv.post_mapped = deepcopy(TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X)
-    mv.mapped_date = datetime(2023, 1, 2)
     mv.modification_date = datetime(2023, 1, 3)
-    mv.clingen_allele_id = "CA123456"
+
     return mv
 
 

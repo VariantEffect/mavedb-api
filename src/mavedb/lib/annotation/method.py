@@ -6,7 +6,9 @@ from ga4gh.va_spec.base.core import Method
 from ga4gh.va_spec.base.core import iriReference as IRI
 
 from mavedb.lib.types.annotation import PublicationIdentifierAssociations
+from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
 from mavedb.models.publication_identifier import PublicationIdentifier
+from mavedb.models.score_calibration import ScoreCalibration
 
 logger = logging.getLogger(__name__)
 
@@ -87,22 +89,74 @@ def mavedb_vrs_as_method() -> Method:
     return Method(name="Software version", reportedIn=mavedb_vrs_releases_as_iri())
 
 
-def excalibr_calibrations_as_iri() -> IRI:
+def _calibration_publication_for_publication_relationship(
+    score_calibration: ScoreCalibration, publication_relation: ScoreCalibrationRelation
+) -> Optional[PublicationIdentifier]:
+    publication_identifiers = score_calibration.publication_identifier_associations
+
+    if not publication_identifiers:
+        return None
+
+    return next(
+        (
+            publication.publication
+            for publication in publication_identifiers
+            if (publication.relation == publication_relation)
+        ),
+        None,
+    )
+
+
+def functional_score_calibration_as_iri(score_calibration: ScoreCalibration) -> Optional[IRI]:
     """
-    Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for the software used to generate pillar project calibrations. Within
+    Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for a generic calibration. Within
     the context of VA-Spec, this IRI can be used interchangeably with an equivalent method object for brevity.
     """
-    return IRI("https://github.com/Dzeiberg/mave_calibration")
+    publication = _calibration_publication_for_publication_relationship(
+        score_calibration, ScoreCalibrationRelation.threshold
+    )
+    return publication_as_iri(publication) if publication else None
 
 
-def excalibr_calibration_method(method: Optional[VariantPathogenicityEvidenceLine.Criterion]) -> Method:
+def functional_score_calibration_as_method(score_calibration: ScoreCalibration) -> Method:
     """
     Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
-    object for the pillar project calibration software distribution.
+    object for a generic calibration.
     """
+    # TODO#XXX - in a future software version, it will be required that the method is populated with an IRI or equivalent.
+    #            Currently, we populate the method with an IRI if a publication with the appropriate relationship is found,
+    #            but if not, we populate it with a placeholder string and log a warning. In a future version of this software,
+    #            we should require that this method is populated with an IRI and remove the placeholder logic.
     return Method(
-        name="Software version",
-        reportedIn=excalibr_calibrations_as_iri(),
+        name="Calibration method", reportedIn=functional_score_calibration_as_iri(score_calibration) or "Not Provided"
+    )
+
+
+def pathogenicity_score_calibration_as_iri(score_calibration: ScoreCalibration) -> Optional[IRI]:
+    """
+    Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for a generic calibration. Within
+    the context of VA-Spec, this IRI can be used interchangeably with an equivalent method object for brevity.
+    """
+    publication = _calibration_publication_for_publication_relationship(
+        score_calibration, ScoreCalibrationRelation.classification
+    )
+    return publication_as_iri(publication) if publication else None
+
+
+def pathogenicity_score_calibration_as_method(
+    score_calibration: ScoreCalibration, method: Optional[VariantPathogenicityEvidenceLine.Criterion]
+) -> Method:
+    """
+    Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
+    object for a generic calibration.
+    """
+    # TODO#XXX - in a future software version, it will be required that the method is populated with an IRI or equivalent.
+    #            Currently, we populate the method with an IRI if a publication with the appropriate relationship is found,
+    #            but if not, we populate it with a placeholder string and log a warning. In a future version of this software,
+    #            we should require that this method is populated with an IRI and remove the placeholder logic.
+    return Method(
+        name="Calibration method",
+        reportedIn=pathogenicity_score_calibration_as_iri(score_calibration) or "Not Provided",
         methodType=method.value if method else None,
     )
 
@@ -125,4 +179,23 @@ def variant_interpretation_functional_guideline_method() -> Method:
     return Method(
         name="Variant interpretation guideline",
         reportedIn=variant_interpretation_functional_guideline_as_iri(),
+    )
+
+
+def variant_interpretation_pathogenicity_guideline_as_iri() -> IRI:
+    """
+    Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for pathogenicity variant interpretation guidelines. Within
+    the context of VA-Spec, this IRI can be used interchangeably with an equivalent method object for brevity.
+    """
+    return IRI("https://www.acmg.net/docs/standards_guidelines_for_the_interpretation_of_sequence_variants.pdf")
+
+
+def variant_interpretation_pathogenicity_guideline_method() -> Method:
+    """
+    Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
+    object for the pathogenicity variant interpretation guideline.
+    """
+    return Method(
+        name="ACMG standards and guidelines for the interpretation of sequence variants",
+        reportedIn=variant_interpretation_pathogenicity_guideline_as_iri(),
     )

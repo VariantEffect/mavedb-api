@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import StreamingResponse
-from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from pydantic import ValidationError
 from sqlalchemy import or_, select
@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session, contains_eager
 from mavedb import deps
 from mavedb.lib.annotation.annotate import (
     variant_functional_impact_statement,
-    variant_pathogenicity_evidence,
+    variant_pathogenicity_statement,
     variant_study_result,
 )
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
@@ -1015,21 +1015,16 @@ def _stream_generated_annotations(mapped_variants, annotation_function):
     )
 
 
-class VariantPathogenicityEvidenceLineResponseType(TypedDict):
-    variant_urn: str
-    annotation: Optional[VariantPathogenicityEvidenceLine]
-
-
 @router.get(
-    "/score-sets/{urn}/annotated-variants/pathogenicity-evidence-line",
+    "/score-sets/{urn}/annotated-variants/pathogenicity-statement",
     status_code=200,
-    response_model=dict[str, Optional[VariantPathogenicityEvidenceLine]],
+    response_model=dict[str, Optional[VariantPathogenicityStatement]],
     response_model_exclude_none=True,
-    summary="Get pathogenicity evidence line annotations for mapped variants within a score set",
+    summary="Get pathogenicity statement annotations for mapped variants within a score set",
     responses={
         200: {
             "content": {"application/x-ndjson": {}},
-            "description": "Stream pathogenicity evidence line annotations for mapped variants.",
+            "description": "Stream pathogenicity statement annotations for mapped variants.",
         },
         **ACCESS_CONTROL_ERROR_RESPONSES,
     },
@@ -1041,7 +1036,7 @@ def get_score_set_annotated_variants(
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
     """
-    Retrieve annotated variants with pathogenicity evidence for a given score set.
+    Retrieve annotated variants with pathogenicity statements for a given score set.
 
     This endpoint streams pathogenicity evidence lines for all current mapped variants
     associated with a specific score set. The response is returned as newline-delimited
@@ -1082,7 +1077,7 @@ def get_score_set_annotated_variants(
         the response.
     """
     save_to_logging_context(
-        {"requested_resource": urn, "resource_property": "annotated-variants/pathogenicity-evidence-line"}
+        {"requested_resource": urn, "resource_property": "annotated-variants/pathogenicity-statement"}
     )
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
@@ -1122,7 +1117,7 @@ def get_score_set_annotated_variants(
         )
 
     return StreamingResponse(
-        _stream_generated_annotations(mapped_variants, variant_pathogenicity_evidence),
+        _stream_generated_annotations(mapped_variants, variant_pathogenicity_statement),
         media_type="application/x-ndjson",
         headers={
             "X-Total-Count": str(len(mapped_variants)),
@@ -1133,13 +1128,8 @@ def get_score_set_annotated_variants(
     )
 
 
-class FunctionalImpactStatementResponseType(TypedDict):
-    variant_urn: str
-    annotation: Optional[Statement]
-
-
 @router.get(
-    "/score-sets/{urn}/annotated-variants/functional-impact-statement",
+    "/score-sets/{urn}/annotated-variants/functional-statement",
     status_code=200,
     response_model=dict[str, Optional[Statement]],
     response_model_exclude_none=True,
@@ -1197,9 +1187,7 @@ def get_score_set_annotated_variants_functional_statement(
         Only current (non-historical) mapped variants are included in the response.
         The function requires appropriate read permissions on the score set.
     """
-    save_to_logging_context(
-        {"requested_resource": urn, "resource_property": "annotated-variants/functional-impact-statement"}
-    )
+    save_to_logging_context({"requested_resource": urn, "resource_property": "annotated-variants/functional-statement"})
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -1249,13 +1237,8 @@ def get_score_set_annotated_variants_functional_statement(
     )
 
 
-class FunctionalStudyResultResponseType(TypedDict):
-    variant_urn: str
-    annotation: Optional[ExperimentalVariantFunctionalImpactStudyResult]
-
-
 @router.get(
-    "/score-sets/{urn}/annotated-variants/functional-study-result",
+    "/score-sets/{urn}/annotated-variants/study-result",
     status_code=200,
     response_model=dict[str, Optional[ExperimentalVariantFunctionalImpactStudyResult]],
     response_model_exclude_none=True,
@@ -1317,9 +1300,7 @@ def get_score_set_annotated_variants_functional_study_result(
         - Eagerly loads related ScoreSet data including publications, users, license, and experiment
         - Logs requests and errors for monitoring and debugging purposes
     """
-    save_to_logging_context(
-        {"requested_resource": urn, "resource_property": "annotated-variants/functional-study-result"}
-    )
+    save_to_logging_context({"requested_resource": urn, "resource_property": "annotated-variants/study-result"})
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
