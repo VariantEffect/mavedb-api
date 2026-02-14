@@ -5,13 +5,13 @@ from ga4gh.core.models import Extension
 from ga4gh.va_spec.base.core import Contribution
 
 from mavedb.lib.annotation.agent import (
-    excalibr_calibration_agent,
     mavedb_api_agent,
     mavedb_user_agent,
     mavedb_vrs_agent,
 )
 from mavedb.lib.types.annotation import ResourceWithCreationModificationDates
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ def mavedb_api_contribution() -> Contribution:
         name="MaveDB API",
         description="Contribution from the MaveDB API",
         contributor=mavedb_api_agent(),
-        date=datetime.today().strftime("%Y-%m-%d"),
+        date=datetime.today(),
         activityType="software application programming interface",
     )
 
@@ -41,21 +41,23 @@ def mavedb_vrs_contribution(mapped_variant: MappedVariant) -> Contribution:
         description="Contribution from the MaveDB VRS mapping software",
         # Guaranteed to be a str via DB constraints.
         contributor=mavedb_vrs_agent(mapped_variant.mapping_api_version),  # type: ignore
-        date=datetime.strftime(mapped_variant.mapped_date, "%Y-%m-%d"),  # type: ignore
+        date=mapped_variant.mapped_date,  # type: ignore
         activityType="human genome sequence mapping process",
     )
 
 
-def excalibr_calibration_contribution() -> Contribution:
+def mavedb_score_calibration_contribution(score_calibration: ScoreCalibration) -> Contribution:
     """
     Create a [VA Contribution](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/activities/contribution.html#contribution)
-    object for a software agent which performs calibrations on an arbitrary data set.
+    object from the provided score calibration.
     """
     return Contribution(
-        name="ExCALIBR Calibration",
-        description="Contribution from the ExCALIBR Calibration software",
-        contributor=excalibr_calibration_agent(),
-        activityType="variant specific calibration software",
+        id=score_calibration.urn,
+        name=score_calibration.title,
+        description="Contribution from a score calibration.",
+        contributor=mavedb_user_agent(score_calibration.created_by),
+        date=score_calibration.creation_date,  # type: ignore
+        activityType="variant specific calibration",
     )
 
 
@@ -68,8 +70,7 @@ def mavedb_creator_contribution(created_resource: ResourceWithCreationModificati
         name="MaveDB Dataset Creator",
         description="When this resource was first submitted, and by whom.",
         contributor=mavedb_user_agent(creator),
-        # Guaranteed to be a str via DB constraints.
-        date=datetime.strftime(created_resource.creation_date, "%Y-%m-%d"),  # type: ignore
+        date=created_resource.creation_date,  # type: ignore
         activityType="http://purl.obolibrary.org/obo/CRO_0000105",
         extensions=[Extension(name="resourceType", value=created_resource.__class__.__name__)],
     )
@@ -86,8 +87,7 @@ def mavedb_modifier_contribution(
         name="MaveDB Dataset Modifier",
         description="When this resource was last modified, and by whom.",
         contributor=mavedb_user_agent(modifier),
-        # Guaranteed to be a str via DB constraints.
-        date=datetime.strftime(modified_resource.modification_date, "%Y-%m-%d"),  # type: ignore
+        date=modified_resource.modification_date,  # type: ignore
         activityType="http://purl.obolibrary.org/obo/CRO_0000103",
         extensions=[Extension(name="resourceType", value=modified_resource.__class__.__name__)],
     )

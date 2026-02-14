@@ -1,5 +1,5 @@
 [build-system]
-requires = ["poetry-core"]
+requires = ["setuptools", "poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
@@ -33,7 +33,7 @@ eutils = "~0.6.0"
 email_validator = "~2.1.1"
 numpy = "~1.26"
 httpx = "~0.26.0"
-pandas = "~1.4.1"
+pandas = ">=2.2.0,<3.0.0"
 pydantic = "~2.10.0"
 python-dotenv = "~0.20.0"
 python-json-logger = "~2.0.7"
@@ -105,6 +105,10 @@ asyncio_mode = 'strict'
 testpaths = "tests/"
 pythonpath = "."
 norecursedirs = "tests/helpers/"
+markers = [
+    "unit: fast unit tests with isolated dependencies",
+    "integration: tests that exercise multi-component flows and/or database interactions",
+]
 # Uncomment the following lines to include application log output in Pytest logs.
 # log_cli = true
 # log_cli_level = "DEBUG"

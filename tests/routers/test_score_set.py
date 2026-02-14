@@ -3083,9 +3083,7 @@ def test_can_fetch_current_clinical_control_options_for_score_set(
 ########################################################################################################################
 
 
-@pytest.mark.parametrize(
-    "annotation_type", ["pathogenicity-evidence-line", "functional-impact-statement", "functional-study-result"]
-)
+@pytest.mark.parametrize("annotation_type", ["pathogenicity-statement", "functional-statement", "study-result"])
 def test_cannot_get_annotated_variants_for_nonexistent_score_set(client, setup_router_db, annotation_type):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -3097,9 +3095,7 @@ def test_cannot_get_annotated_variants_for_nonexistent_score_set(client, setup_r
     assert f"score set with URN {score_set['urn'] + 'xxx'} not found" in response_data["detail"]
 
 
-@pytest.mark.parametrize(
-    "annotation_type", ["pathogenicity-evidence-line", "functional-impact-statement", "functional-study-result"]
-)
+@pytest.mark.parametrize("annotation_type", ["pathogenicity-statement", "functional-statement", "study-result"])
 def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
     client, session, data_provider, data_files, setup_router_db, annotation_type
 ):
@@ -3166,7 +3162,7 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
     )
 
     # The contents of the annotated variants objects should be tested in more detail elsewhere.
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3175,7 +3171,7 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
     for annotation_response in response_data:
         variant_urn = annotation_response.get("variant_urn")
         annotated_variant = annotation_response.get("annotation")
-        assert f"Pathogenicity evidence line {variant_urn}" in annotated_variant.get("description")
+        assert f"Variant pathogenicity statement for {variant_urn}" in annotated_variant.get("description", "")
 
 
 @pytest.mark.parametrize(
@@ -3195,7 +3191,7 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thre
         data_files / "scores.csv",
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3218,7 +3214,7 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_cali
         data_files / "scores.csv",
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3256,7 +3252,7 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_vari
 
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3268,7 +3264,7 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_vari
         if variant_urn == first_var.urn:
             assert annotated_variant is None
         else:
-            assert f"Pathogenicity evidence line {variant_urn}" in annotated_variant.get("description")
+            assert f"Variant pathogenicity statement for {variant_urn}" in annotated_variant.get("description", "")
 
 
 @pytest.mark.parametrize(
@@ -3296,7 +3292,7 @@ def test_get_annotated_functional_impact_statement_for_score_set(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3328,7 +3324,7 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_calib
         },
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3351,7 +3347,7 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_thres
         data_files / "scores.csv",
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3389,7 +3385,7 @@ def test_get_annotated_functional_impact_statement_for_score_set_when_some_varia
 
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3421,7 +3417,7 @@ def test_get_annotated_functional_study_result_for_score_set(
         data_files / "scores.csv",
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3453,7 +3449,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
         },
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3485,7 +3481,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_ranges_not_
         },
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3508,7 +3504,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
         data_files / "scores.csv",
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3542,7 +3538,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_some_varian
 
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200

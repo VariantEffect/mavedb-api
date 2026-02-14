@@ -1,6 +1,10 @@
 import re
 from typing import Any, Optional
 
+from mavedb.lib.validation.constants.general import hgvs_columns
+from mavedb.models.target_gene import TargetGene
+from mavedb.models.variant import Variant
+
 HGVS_G_REGEX = re.compile(r"(^|:)g\.")
 HGVS_P_REGEX = re.compile(r"(^|:)p\.")
 
@@ -79,3 +83,33 @@ def is_hgvs_p(hgvs: str) -> bool:
     Check if the given HGVS string is a protein HGVS (p.) string.
     """
     return bool(HGVS_P_REGEX.search(hgvs))
+
+
+def target_for_variant(variant: Variant) -> Optional[TargetGene]:
+    """
+    Extract the appropriate target gene which the variant is reported against. In the case of single-target score sets, this
+    is straightforwardly the target gene of the score set. In the case of multi-target score sets, we attempt to extract one of
+    the post-mapped HGVS strings and use that to determine the appropriate target gene. If no post-mapped HGVS string is available, we return None.
+    """
+    score_set_targets = variant.score_set.target_genes
+    if len(score_set_targets) == 1:
+        return score_set_targets[0]
+
+    # In multi-target score sets, hgvs strings are required to be fully qualified with respect to the target gene.
+    # We can use this fact to determine the appropriate target gene for a variant by checking which target gene's
+    # name or accession appears in the post-mapped HGVS string.
+    hgvs_options = [getattr(variant, hgvs_attr) for hgvs_attr in hgvs_columns]
+    for target in score_set_targets:
+        qualifiers = []
+        if getattr(target, "target_sequence", None) is not None and getattr(target.target_sequence, "label", None):
+            qualifiers.append(target.target_sequence.label)
+        if getattr(target, "target_accession", None) is not None and getattr(
+            target.target_accession, "accession", None
+        ):
+            qualifiers.append(target.target_accession.accession)
+        if any(
+            hgvs_option and any(qualifier in hgvs_option for qualifier in qualifiers) for hgvs_option in hgvs_options
+        ):
+            return target
+
+    return None

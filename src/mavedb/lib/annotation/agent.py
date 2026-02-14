@@ -32,6 +32,9 @@ def mavedb_vrs_agent(version: str) -> Agent:
     Create a [VA Agent](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/agent.html)
     object for the passed MaveDB VRS mapping version.
     """
+    if version is None:
+        raise ValueError("Version cannot be None")
+
     version_at_time_of_variant_generation = Extension(
         name="mavedbVrsVersion",
         value=version,
@@ -54,18 +57,4 @@ def mavedb_user_agent(user: User) -> Agent:
         name=user.username,
         agentType="Person",
         description=f"MaveDB ORCid authenticated user {user.username}",
-    )
-
-
-# XXX: Ideally, this becomes versioned software.
-def excalibr_calibration_agent() -> Agent:
-    """
-    Create a [VA Agent](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/agent.html)
-    object for the ExCALIBR calibration software.
-    """
-    return Agent(
-        name="ExCALIBR Variant Calibrator",
-        agentType="Software",
-        # XXX - version?
-        description="ExCALIBR variant calibrator, see https://github.com/Dzeiberg/mave_calibration",
     )

@@ -1,14 +1,14 @@
 import os
+from importlib.resources import files
 
 import yaml
-from pkg_resources import resource_stream
 
 
 def load_stock_config(name="default"):
     """
     Loads a built-in stock logging configuration based on *name*.
     """
-    with resource_stream(__package__, f"configurations/{name}.yaml") as file:
+    with files(__package__).joinpath(f"configurations/{name}.yaml").open("r") as file:
         return load_config(file)
 
 
