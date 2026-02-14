@@ -5,9 +5,13 @@ This module tests the main annotation functions that create statements and study
 for variants, focusing on object structure and validation.
 """
 
+# ruff: noqa: E402
+
 from copy import deepcopy
 
 import pytest
+
+pytest.importorskip("psycopg2")
 
 from mavedb.lib.annotation.annotate import (
     variant_functional_impact_statement,
@@ -247,6 +251,7 @@ class TestVariantPathogenicityStatement:
         from unittest.mock import patch
 
         from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
+
         from mavedb.lib.annotation.classification import ExperimentalVariantFunctionalImpactClassification
 
         mapped_variant = mock_mapped_variant_with_pathogenicity_calibration_score_set

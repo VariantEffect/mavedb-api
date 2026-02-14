@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 """
 Tests for mavedb.lib.annotation.evidence_line module.
 
@@ -8,6 +10,9 @@ evidence lines, including pathogenicity classification and strength handling.
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+pytest.importorskip("psycopg2")
+
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import Direction, EvidenceLine
 from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided

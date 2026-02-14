@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 """
 Tests for mavedb.lib.annotation.method module.
 
@@ -8,6 +10,9 @@ ensuring proper IRI generation and method metadata.
 from unittest.mock import Mock
 
 import pytest
+
+pytest.importorskip("psycopg2")
+
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 
 from mavedb.lib.annotation.method import (

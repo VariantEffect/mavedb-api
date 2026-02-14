@@ -5,9 +5,14 @@ This module tests functions for creating GA4GH VA Contribution objects,
 including API, VRS mapping, score calibration, creator, and modifier contributions.
 """
 
+# ruff: noqa: E402
+
 from datetime import datetime
 
 import pytest
+
+pytest.importorskip("psycopg2")
+
 from ga4gh.core.models import Extension
 from ga4gh.va_spec.base import Contribution
 

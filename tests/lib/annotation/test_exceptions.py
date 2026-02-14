@@ -4,7 +4,11 @@ Tests for mavedb.lib.annotation.exceptions module.
 This module tests custom exception classes used in the annotation system.
 """
 
+# ruff: noqa: E402
+
 import pytest
+
+pytest.importorskip("psycopg2")
 
 from mavedb.lib.annotation.exceptions import (
     MappingDataDoesntExistException,

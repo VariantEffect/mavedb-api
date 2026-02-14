@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 """
 Tests for mavedb.lib.annotation.util module.
 
@@ -11,6 +13,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+
+pytest.importorskip("psycopg2")
 
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.annotation.util import (

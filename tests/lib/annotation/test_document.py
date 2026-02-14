@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 """
 Tests for mavedb.lib.annotation.document module.
 
@@ -8,6 +10,9 @@ and mapped variants, ensuring proper IRI generation and document metadata.
 import urllib.parse
 
 import pytest
+
+pytest.importorskip("psycopg2")
+
 
 from mavedb.lib.annotation.document import (
     experiment_as_iri,

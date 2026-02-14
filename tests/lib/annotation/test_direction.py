@@ -1,6 +1,11 @@
+# ruff: noqa: E402
+
 from unittest.mock import Mock
 
 import pytest
+
+pytest.importorskip("psycopg2")
+
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import Direction, EvidenceLine
 

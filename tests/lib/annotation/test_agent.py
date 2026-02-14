@@ -1,6 +1,10 @@
+# ruff: noqa: E402
+
 from unittest.mock import Mock
 
 import pytest
+
+pytest.importorskip("psycopg2")
 
 from mavedb import __version__
 from mavedb.lib.annotation.agent import mavedb_api_agent, mavedb_user_agent, mavedb_vrs_agent

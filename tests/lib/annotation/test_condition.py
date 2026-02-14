@@ -5,7 +5,12 @@ This module tests functions for creating GA4GH Condition objects and IRIs,
 specifically for generic disease conditions used in variant annotations.
 """
 
+# ruff: noqa: E402
+
 import pytest
+
+pytest.importorskip("psycopg2")
+
 from ga4gh.core.models import Coding, MappableConcept
 from ga4gh.core.models import iriReference as IRI
 from ga4gh.va_spec.base.domain_entities import Condition

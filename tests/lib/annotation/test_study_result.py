@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 """
 Tests for mavedb.lib.annotation.study_result module.
 
@@ -6,6 +8,9 @@ functional impact study results.
 """
 
 import pytest
+
+pytest.importorskip("psycopg2")
+
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult
 from ga4gh.vrs.models import MolecularVariation
 

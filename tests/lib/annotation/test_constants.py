@@ -4,7 +4,11 @@ Tests for mavedb.lib.annotation.constants module.
 This module tests constant values used throughout the annotation system.
 """
 
+# ruff: noqa: E402
+
 import pytest
+
+pytest.importorskip("psycopg2")
 
 from mavedb.lib.annotation.constants import (
     GENERIC_DISEASE_MEDGEN_CODE,

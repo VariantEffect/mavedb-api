@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 """
 Tests for mavedb.lib.annotation.dataset module.
 
@@ -8,6 +10,9 @@ ensuring proper mapping of metadata, licensing, and publication information.
 from datetime import date
 
 import pytest
+
+pytest.importorskip("psycopg2")
+
 from ga4gh.core.models import Coding, MappableConcept
 from ga4gh.core.models import iriReference as IRI
 from ga4gh.va_spec.base import DataSet

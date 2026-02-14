@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 """
 Tests for mavedb.lib.annotation.statement module.
 
@@ -8,6 +10,9 @@ focusing on functional impact statements and their classification.
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+pytest.importorskip("psycopg2")
+
 from ga4gh.va_spec.base.core import Direction, Statement
 
 from mavedb.lib.annotation.annotate import variant_study_result

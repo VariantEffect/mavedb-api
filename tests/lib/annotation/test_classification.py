@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 """
 Tests for mavedb.lib.annotation.classification module.
 
@@ -9,6 +11,9 @@ from enum import StrEnum
 from unittest.mock import MagicMock
 
 import pytest
+
+pytest.importorskip("psycopg2")
+
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided as GA4GHStrengthOfEvidenceProvided
 

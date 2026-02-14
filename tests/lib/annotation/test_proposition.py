@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 """
 Tests for mavedb.lib.annotation.proposition module.
 
@@ -6,6 +8,9 @@ clinical and functional impact propositions.
 """
 
 import pytest
+
+pytest.importorskip("psycopg2")
+
 from ga4gh.va_spec.base.core import (
     ExperimentalVariantFunctionalImpactProposition,
     VariantPathogenicityProposition,
