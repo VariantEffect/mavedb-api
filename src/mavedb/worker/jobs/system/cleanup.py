@@ -16,7 +16,9 @@ The cleanup job acts as a safety net to ensure jobs don't remain in limbo foreve
 import logging
 from datetime import datetime, timedelta, timezone
 
+from arq import ArqRedis
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from mavedb.lib.slack import send_slack_error
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
@@ -38,9 +40,9 @@ PENDING_TIMEOUT_MINUTES = 30  # PENDING jobs in pipelines should be enqueued wit
 async def _handle_stalled_job_retry(
     job: JobRun,
     manager: JobManager,
-    redis: any,
+    redis: ArqRedis,
     stall_reason: str,
-    db,
+    db: Session,
 ) -> bool:
     """Handle retry and enqueue for a stalled job.
 
