@@ -11,7 +11,6 @@ from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 pytest.importorskip("arq")
 
 import gzip
-from asyncio.unix_events import _UnixSelectorEventLoop
 from unittest.mock import call, patch
 
 from mavedb.models.mapped_variant import MappedVariant
@@ -23,7 +22,7 @@ from mavedb.worker.lib.managers.job_manager import JobManager
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
 
-async def mock_fetch_tsv(*args, **kwargs):
+def mock_fetch_tsv(*args, **kwargs):
     data = b"#AlleleID\tClinicalSignificance\tGeneSymbol\tReviewStatus\nVCV000000123\tbenign\tTEST\treviewed by expert panel"
     return gzip.compress(data)
 
@@ -82,10 +81,9 @@ class TestRefreshClinvarControlsUnit:
 
         with (
             pytest.raises(Exception, match="Network error"),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
-                return_value=awaitable_exception(),
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
+                side_effect=awaitable_exception,
             ),
         ):
             await refresh_clinvar_controls(
@@ -107,10 +105,9 @@ class TestRefreshClinvarControlsUnit:
             return {}
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
-                return_value=awaitable_noop(),
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
+                side_effect=awaitable_noop,
             ),
             patch("mavedb.worker.jobs.external_services.clinvar.parse_clinvar_variant_summary"),
         ):
@@ -150,9 +147,8 @@ class TestRefreshClinvarControlsUnit:
         session.add(mapped_variant)
         session.commit()
 
-        with patch.object(
-            _UnixSelectorEventLoop,
-            "run_in_executor",
+        with patch(
+            "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
             return_value=mock_fetch_tsv(),
         ):
             result = await refresh_clinvar_controls(
@@ -185,9 +181,8 @@ class TestRefreshClinvarControlsUnit:
         mapped_variant.clingen_allele_id = "CA-MULTI-001,CA-MULTI-002"
         session.commit()
 
-        with patch.object(
-            _UnixSelectorEventLoop,
-            "run_in_executor",
+        with patch(
+            "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
             return_value=mock_fetch_tsv(),
         ):
             result = await refresh_clinvar_controls(
@@ -227,9 +222,8 @@ class TestRefreshClinvarControlsUnit:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 side_effect=requests.exceptions.RequestException("ClinGen API error"),
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -268,9 +262,8 @@ class TestRefreshClinvarControlsUnit:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 return_value=None,
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -303,7 +296,7 @@ class TestRefreshClinvarControlsUnit:
     ):
         """Test that the job handles no ClinVar data found for the associated ClinVar Allele ID."""
 
-        async def mock_fetch_tsv(*args, **kwargs):
+        def mock_fetch_tsv(*args, **kwargs):
             data = b"#AlleleID\tClinicalSignificance\tGeneSymbol\tReviewStatus\nVCV000000001\tbenign\tTEST\treviewed by expert panel"
             return gzip.compress(data)
 
@@ -313,9 +306,8 @@ class TestRefreshClinvarControlsUnit:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 return_value="VCV000000123",
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -354,9 +346,8 @@ class TestRefreshClinvarControlsUnit:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 return_value="VCV000000123",
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -414,9 +405,8 @@ class TestRefreshClinvarControlsUnit:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 return_value="VCV000000123",
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -454,9 +444,8 @@ class TestRefreshClinvarControlsUnit:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 return_value="VCV000000123",
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 side_effect=[mock_fetch_tsv(), mock_fetch_tsv()],
             ),
         ):
@@ -536,9 +525,8 @@ class TestRefreshClinvarControlsUnit:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 side_effect=side_effect_get_associated_clinvar_allele_id,
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -585,9 +573,8 @@ class TestRefreshClinvarControlsUnit:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 return_value="VCV000000123",
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
             patch.object(JobManager, "update_progress") as mock_update_progress,
@@ -627,9 +614,8 @@ class TestRefreshClinvarControlsIntegration:
         """Integration test: job completes successfully when there are no mapped variants."""
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -679,9 +665,8 @@ class TestRefreshClinvarControlsIntegration:
         session.commit()
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -736,9 +721,8 @@ class TestRefreshClinvarControlsIntegration:
         session.commit()
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -803,9 +787,8 @@ class TestRefreshClinvarControlsIntegration:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 return_value=None,
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -867,9 +850,8 @@ class TestRefreshClinvarControlsIntegration:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 return_value="VCV000000001",
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -944,9 +926,8 @@ class TestRefreshClinvarControlsIntegration:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 return_value="VCV000000123",
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -1010,9 +991,8 @@ class TestRefreshClinvarControlsIntegration:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 return_value="VCV000000123",
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -1077,9 +1057,8 @@ class TestRefreshClinvarControlsIntegration:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 return_value="VCV000000123",
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -1128,9 +1107,8 @@ class TestRefreshClinvarControlsIntegration:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 return_value="VCV000000123",
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 side_effect=[mock_fetch_tsv(), mock_fetch_tsv()],
             ),
         ):
@@ -1209,9 +1187,8 @@ class TestRefreshClinvarControlsIntegration:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 side_effect=side_effect_get_associated_clinvar_allele_id,
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -1269,9 +1246,8 @@ class TestRefreshClinvarControlsIntegration:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 side_effect=ValueError("Unexpected error"),
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -1319,9 +1295,8 @@ class TestRefreshClinvarControlsArqContext:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 return_value="VCV000000123",
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -1361,9 +1336,8 @@ class TestRefreshClinvarControlsArqContext:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 return_value="VCV000000123",
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -1405,9 +1379,8 @@ class TestRefreshClinvarControlsArqContext:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 side_effect=ValueError("Unexpected error"),
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):
@@ -1444,9 +1417,8 @@ class TestRefreshClinvarControlsArqContext:
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
                 side_effect=ValueError("Unexpected error"),
             ),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
                 return_value=mock_fetch_tsv(),
             ),
         ):

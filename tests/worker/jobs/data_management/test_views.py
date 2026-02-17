@@ -31,7 +31,7 @@ class TestRefreshMaterializedViewsUnit:
         """Test that refresh_materialized_views calls the refresh function."""
         with (
             patch("mavedb.worker.jobs.data_management.views.refresh_all_mat_views") as mock_refresh,
-            TransactionSpy.spy(mock_job_manager.db, expect_commit=False, expect_flush=True),
+            TransactionSpy.spy(mock_job_manager.db, expect_commit=True, expect_flush=True),
         ):
             result = await refresh_materialized_views(mock_worker_ctx, 999, job_manager=mock_job_manager)
 
@@ -42,6 +42,7 @@ class TestRefreshMaterializedViewsUnit:
         """Test that refresh_materialized_views updates progress correctly."""
         with (
             patch("mavedb.worker.jobs.data_management.views.refresh_all_mat_views"),
+            # Progress update patch means we skip commits.
             patch.object(mock_job_manager, "update_progress", return_value=None) as mock_update_progress,
             TransactionSpy.spy(mock_job_manager.db, expect_commit=False, expect_flush=True),
         ):
@@ -142,7 +143,7 @@ class TestRefreshPublishedVariantsViewUnit:
         with (
             patch.object(PublishedVariantsMV, "refresh") as mock_refresh,
             patch("mavedb.worker.jobs.data_management.views.validate_job_params"),
-            TransactionSpy.spy(mock_job_manager.db, expect_commit=False, expect_flush=True),
+            TransactionSpy.spy(mock_job_manager.db, expect_commit=True, expect_flush=True),
         ):
             result = await refresh_published_variants_view(mock_worker_ctx, 999, job_manager=mock_job_manager)
 
@@ -158,6 +159,7 @@ class TestRefreshPublishedVariantsViewUnit:
         with (
             patch.object(PublishedVariantsMV, "refresh"),
             patch("mavedb.worker.jobs.data_management.views.validate_job_params"),
+            # Progress update patch means we skip commits.
             patch.object(mock_job_manager, "update_progress", return_value=None) as mock_update_progress,
             TransactionSpy.spy(mock_job_manager.db, expect_commit=False, expect_flush=True),
         ):
