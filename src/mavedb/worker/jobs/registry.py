@@ -24,6 +24,7 @@ from mavedb.worker.jobs.external_services import (
     submit_uniprot_mapping_jobs_for_score_set,
 )
 from mavedb.worker.jobs.pipeline_management import start_pipeline
+from mavedb.worker.jobs.system import cleanup_stalled_jobs
 from mavedb.worker.jobs.variant_processing import (
     create_variants_for_score_set,
     map_variants_for_score_set,
@@ -46,6 +47,8 @@ BACKGROUND_FUNCTIONS: List[Callable] = [
     refresh_published_variants_view,
     # Pipeline management jobs
     start_pipeline,
+    # System maintenance jobs
+    cleanup_stalled_jobs,
 ]
 
 # Cron job definitions for ARQ worker
@@ -56,6 +59,12 @@ BACKGROUND_CRONJOBS: List[CronJob] = [
         hour=20,
         minute=0,
         keep_result=timedelta(minutes=2).total_seconds(),
+    ),
+    cron(
+        cleanup_stalled_jobs,
+        name="cleanup_stalled_jobs",
+        minute={15, 45},  # Run at :15 and :45 past each hour (every 30 minutes)
+        keep_result=timedelta(minutes=25).total_seconds(),
     ),
 ]
 
