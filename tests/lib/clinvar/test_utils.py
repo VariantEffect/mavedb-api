@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import gzip
 import io
@@ -68,7 +69,11 @@ class TestFetchClinvarVariantSummaryTSV:
             if self._raise_exc:
                 raise self._raise_exc
 
-    def test_fetch_clinvar_variant_summary_tsv_top_level_success(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_fetch_clinvar_variant_summary_tsv_top_level_success(self, monkeypatch, tmp_path):
+        # Use temporary directory for cache
+        monkeypatch.setattr("mavedb.lib.clinvar.utils.CLINVAR_CACHE_DIR", tmp_path)
+
         # Simulate successful fetch from top-level URL
         mock_content = b"mock gzipped content"
 
@@ -76,35 +81,111 @@ class TestFetchClinvarVariantSummaryTSV:
             return self.MockResponse(mock_content)
 
         monkeypatch.setattr("requests.get", mock_get)
-        result = fetch_clinvar_variant_summary_tsv(1, 2016)
+        result = await fetch_clinvar_variant_summary_tsv(1, 2016)
         assert result == mock_content
 
-    def test_fetch_clinvar_variant_summary_tsv_archive_success(self, monkeypatch):
-        # Simulate top-level fails, archive succeeds
+    @pytest.mark.asyncio
+    async def test_fetch_clinvar_variant_summary_tsv_archive_success(self, monkeypatch, tmp_path):
+        # Use temporary directory for cache
+        monkeypatch.setattr("mavedb.lib.clinvar.utils.CLINVAR_CACHE_DIR", tmp_path)
+
+        # Simulate top-level fails with HTTPError, archive succeeds
         mock_content = b"archive gzipped content"
+        call_count = {"count": 0}
 
         def mock_get(url, stream=True):
-            if "variant_summary_2015-01.txt.gz" in url and "/2015/" not in url:
-                raise requests.RequestException("Top-level not found")
-            return self.MockResponse(mock_content)
+            call_count["count"] += 1
+            if call_count["count"] == 1:
+                # First call (top-level URL) should fail
+                return self.MockResponse(b"", status_code=404, raise_exc=requests.exceptions.HTTPError("404 Not Found"))
+            else:
+                # Second call (archive URL) should succeed
+                return self.MockResponse(mock_content)
 
         monkeypatch.setattr("requests.get", mock_get)
-        result = fetch_clinvar_variant_summary_tsv(1, 2016)
+        result = await fetch_clinvar_variant_summary_tsv(2, 2017)
         assert result == mock_content
+        assert call_count["count"] == 2  # Verify both URLs were tried
 
-    def test_fetch_clinvar_variant_summary_tsv_both_fail(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_fetch_clinvar_variant_summary_tsv_both_fail(self, monkeypatch, tmp_path):
+        # Use temporary directory for cache
+        monkeypatch.setattr("mavedb.lib.clinvar.utils.CLINVAR_CACHE_DIR", tmp_path)
+
         # Simulate both URLs failing
         def mock_get(url, stream=True):
             raise requests.RequestException("Not found")
 
         monkeypatch.setattr("requests.get", mock_get)
         with pytest.raises(requests.RequestException, match="Not found"):
-            fetch_clinvar_variant_summary_tsv(1, 2016)
+            await fetch_clinvar_variant_summary_tsv(3, 2018)
 
-    def test_fetch_clinvar_variant_summary_tsv_invalid_date(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_fetch_clinvar_variant_summary_tsv_invalid_date(self, monkeypatch, tmp_path):
+        # Use temporary directory for cache
+        monkeypatch.setattr("mavedb.lib.clinvar.utils.CLINVAR_CACHE_DIR", tmp_path)
+
         # Should raise ValueError before any network call
         with pytest.raises(ValueError, match="Month must be an integer between 1 and 12."):
-            fetch_clinvar_variant_summary_tsv(0, 2020)
+            await fetch_clinvar_variant_summary_tsv(0, 2020)
+
+    @pytest.mark.asyncio
+    async def test_fetch_clinvar_variant_summary_tsv_cache_hit(self, monkeypatch, tmp_path):
+        # Use temporary directory for cache
+        monkeypatch.setattr("mavedb.lib.clinvar.utils.CLINVAR_CACHE_DIR", tmp_path)
+
+        # First call - should fetch from network and cache
+        mock_content = b"cached content"
+        call_count = {"count": 0}
+
+        def mock_get(url, stream=True):
+            call_count["count"] += 1
+            return self.MockResponse(mock_content)
+
+        monkeypatch.setattr("requests.get", mock_get)
+
+        result1 = await fetch_clinvar_variant_summary_tsv(5, 2020)
+        assert result1 == mock_content
+        assert call_count["count"] == 1
+
+        # Second call - should use cached file (no network call)
+        result2 = await fetch_clinvar_variant_summary_tsv(5, 2020)
+        assert result2 == mock_content
+        assert call_count["count"] == 1  # Should still be 1, no new network call
+
+    @pytest.mark.asyncio
+    async def test_fetch_clinvar_variant_summary_tsv_cache_expiration(self, monkeypatch, tmp_path):
+        # Use temporary directory for cache
+        monkeypatch.setattr("mavedb.lib.clinvar.utils.CLINVAR_CACHE_DIR", tmp_path)
+
+        # Mock short TTL for testing
+        monkeypatch.setattr("mavedb.lib.clinvar.utils.CLINVAR_TSV_CACHE_TTL", 0.1)  # 0.1 second TTL for test
+
+        # First call - should fetch from network and cache
+        mock_content_1 = b"first fetch"
+        mock_content_2 = b"second fetch after expiry"
+        call_count = {"count": 0}
+
+        def mock_get(url, stream=True):
+            call_count["count"] += 1
+            if call_count["count"] == 1:
+                return self.MockResponse(mock_content_1)
+            else:
+                return self.MockResponse(mock_content_2)
+
+        monkeypatch.setattr("requests.get", mock_get)
+
+        result1 = await fetch_clinvar_variant_summary_tsv(6, 2021)
+        assert result1 == mock_content_1
+        assert call_count["count"] == 1
+
+        # Wait for cache to expire
+        await asyncio.sleep(0.2)  # Wait slightly longer than TTL
+
+        # Second call - should re-fetch from network due to expiration
+        result2 = await fetch_clinvar_variant_summary_tsv(6, 2021)
+        assert result2 == mock_content_2
+        assert call_count["count"] == 2  # Should be 2, cache was expired
 
 
 class TestParseClinvarVariantSummary:

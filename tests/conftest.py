@@ -13,6 +13,10 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
+# Set cache backend to memory for all tests BEFORE any mavedb modules are imported
+# This ensures ClinGen API caching uses in-memory cache instead of Redis during tests
+os.environ.setdefault("CLINGEN_CACHE_BACKEND", "memory")
+
 from mavedb.db.base import Base
 from mavedb.models import *  # noqa: F403
 from mavedb.models.experiment import Experiment

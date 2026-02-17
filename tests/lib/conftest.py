@@ -48,6 +48,13 @@ from tests.helpers.constants import (
     VALID_SCORE_SET_URN,
 )
 
+# Attempt to import optional lib level fixtures. If the modules they depend on are not installed,
+# we won't have access to our full fixture suite and only a limited subset of tests can be run.
+try:
+    from .conftest_optional import *  # noqa: F403, F401
+except ImportError:
+    pass
+
 
 @pytest.fixture
 def setup_lib_db(session):
