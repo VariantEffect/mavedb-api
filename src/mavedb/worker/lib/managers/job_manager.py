@@ -602,35 +602,38 @@ class JobManager(BaseManager):
         self.save_to_context({"job_status": str(job_run.status), "retry_attempt": job_run.retry_count})
         logger.info("Job successfully reset to initial state", extra=self.logging_context())
 
-    def update_progress(self, current: int, total: int = 100, message: Optional[str] = None) -> None:
-        """Update job progress information during execution. This method does
-        not flush or commit the database session; the caller is responsible for persisting changes.
+    def update_progress(
+        self, current: int, total: int = 100, message: Optional[str] = None, *, commit: bool = True
+    ) -> None:
+        """Update job progress information during execution and optionally commit immediately.
 
-        Provides real-time progress updates for long-running jobs. Progress updates
-        are best-effort operations that won't interrupt job execution if they fail.
-        This allows jobs to continue even if progress tracking has issues.
+        Provides real-time progress updates for long-running jobs. By default, commits
+        the progress update immediately to the database for real-time visibility, acting
+        as a checkpoint operation. This commits ALL pending changes in the current session,
+        so progress updates should only be called at safe transaction boundaries.
 
         Args:
             current: Current progress value (e.g., records processed so far)
             total: Total expected progress value (default: 100 for percentage)
             message: Optional human-readable progress description
+            commit: Whether to commit progress immediately to database (default: True).
+                   Set to False for jobs with complex multi-step transactions where
+                   progress should only be committed at job completion.
 
         Examples:
-            Percentage-based progress:
-            >>> manager.update_progress(25, 100, "Validating input data")
-            >>> manager.update_progress(50, 100, "Processing records")
-            >>> manager.update_progress(100, 100, "Finalizing results")
-
-            Count-based progress:
-            >>> total_records = 50000
+            Checkpoint-style progress (default - commits immediately):
             >>> for i, record in enumerate(records):
             ...     process_record(record)
-            ...     if i % 1000 == 0:  # Update every 1000 records
+            ...     if i % 100 == 0:  # Checkpoint every 100 records
             ...         manager.update_progress(
             ...             current=i,
-            ...             total=total_records,
-            ...             message=f"Processed {i}/{total_records} records"
-            ...         )
+            ...             total=len(records),
+            ...             message=f"Processed {i}/{len(records)} records"
+            ...         )  # Commits progress + all pending work
+
+            Progress without commit (complex transactions):
+            >>> manager.update_progress(25, 100, "Validating input", commit=False)
+            >>> # Progress must be committed later by caller after transaction is complete
 
             Handling progress failures:
             >>> try:
@@ -639,10 +642,17 @@ class JobManager(BaseManager):
             ...     logger.debug("Progress update failed, continuing job")
             ...     # Job continues normally
 
+        Important:
+            When commit=True (default), this commits ALL pending changes in the database
+            session, not just the progress update. Only call update_progress() at points
+            where it's safe to commit accumulated work (e.g., after processing a batch
+            of independent records). This checkpoint pattern reduces transaction size and
+            provides real-time visibility into job progress.
+
         Note:
-            Progress updates are non-blocking and failure-tolerant. If a progress
-            update fails, the job may choose to continue execution normally. Failed
-            progress updates are logged at debug level.
+            Progress updates are best-effort operations. If a progress update or commit
+            fails, the job may choose to continue execution normally. Failed progress
+            updates are logged at debug level.
         """
         job_run = self.get_job()
         try:
@@ -657,29 +667,56 @@ class JobManager(BaseManager):
             raise JobStateError(f"Failed to update job progress state: {e}")
 
         self.save_to_context(
-            {"job_progress_current": current, "job_progress_total": total, "job_progress_message": message}
+            {
+                "job_progress_current": current,
+                "job_progress_total": total,
+                "job_progress_message": message,
+                "commit": commit,
+            }
         )
-        logger.debug("Updated progress successfully for job", extra=self.logging_context())
 
-    def update_status_message(self, message: str) -> None:
-        """Update job status message without changing progress. This method does
-        not flush or commit the database session; the caller is responsible for persisting changes.
+        if commit:
+            try:
+                self.db.commit()
+                logger.debug("Updated progress and committed checkpoint for job", extra=self.logging_context())
+            except SQLAlchemyError as e:
+                self.save_to_context(format_raised_exception_info_as_dict(e))
+                logger.error("Failed to commit progress checkpoint", extra=self.logging_context())
+                # Rollback to avoid inconsistent state
+                self.db.rollback()
+                raise JobStateError(f"Failed to commit progress checkpoint: {e}")
+        else:
+            logger.debug("Updated progress successfully for job (no commit)", extra=self.logging_context())
+
+    def update_status_message(self, message: str, *, commit: bool = True) -> None:
+        """Update job status message and optionally commit immediately.
 
         Convenience method for updating the progress message while keeping
         current progress values unchanged. Useful for status updates during
-        long-running operations.
+        long-running operations. By default, commits the update immediately
+        as a checkpoint operation.
 
         Args:
             message: Human-readable status message describing current activity
+            commit: Whether to commit message immediately to database (default: True).
+                   Set to False for jobs with complex multi-step transactions.
 
         Raises:
             DatabaseConnectionError: Cannot fetch job from database
-            JobStateError: Cannot save status message update
+            JobStateError: Cannot save status message update or commit checkpoint
 
-        Example:
+        Examples:
+            Update with checkpoint (default):
             >>> manager.update_status_message("Connecting to external API...")
             >>> # Do API work
             >>> manager.update_status_message("Processing API response...")
+
+            Update without commit:
+            >>> manager.update_status_message("Starting...", commit=False)
+
+        Important:
+            When commit=True (default), this commits ALL pending changes in the database
+            session. Only call at safe transaction boundaries.
         """
         job_run = self.get_job()
         try:
@@ -691,40 +728,61 @@ class JobManager(BaseManager):
             )
             raise JobStateError(f"Failed to update job status message state: {e}")
 
-        self.save_to_context({"job_progress_message": message})
-        logger.debug("Updated status message successfully for job", extra=self.logging_context())
+        self.save_to_context({"job_progress_message": message, "commit": commit})
 
-    def increment_progress(self, amount: int = 1, message: Optional[str] = None) -> None:
-        """Increment job progress by a specified amount. This method does
-        not flush or commit the database session; the caller is responsible for persisting changes.
+        if commit:
+            try:
+                self.db.commit()
+                logger.debug("Updated status message and committed checkpoint for job", extra=self.logging_context())
+            except SQLAlchemyError as e:
+                self.save_to_context(format_raised_exception_info_as_dict(e))
+                logger.error("Failed to commit progress checkpoint", extra=self.logging_context())
+                self.db.rollback()
+                raise JobStateError(f"Failed to commit progress checkpoint: {e}")
+        else:
+            logger.debug("Updated status message successfully for job (no commit)", extra=self.logging_context())
+
+    def increment_progress(self, amount: int = 1, message: Optional[str] = None, *, commit: bool = True) -> None:
+        """Increment job progress by a specified amount and optionally commit immediately.
 
         Convenience method for incrementing progress without needing to track
         the current progress value. Useful for batch processing where you want
-        to increment by 1 for each item processed.
+        to increment by 1 for each item processed. By default, commits the progress
+        update immediately as a checkpoint operation.
 
         Args:
             amount: Amount to increment progress by (default: 1)
             message: Optional message to update along with progress
+            commit: Whether to commit progress immediately to database (default: True).
+                   Set to False for jobs with complex multi-step transactions.
 
         Raises:
             DatabaseConnectionError: Cannot fetch job from database
-            JobStateError: Cannot save progress update
+            JobStateError: Cannot save progress update or commit checkpoint
 
         Examples:
-            >>> # Process items one by one
+            Checkpoint-style increments (default - commits immediately):
             >>> for item in items:
             ...     process_item(item)
-            ...     manager.increment_progress()  # Increment by 1
+            ...     manager.increment_progress()  # Increment and commit checkpoint
 
-            >>> # Process in batches
+            Process in batches with checkpoints:
             >>> for batch in batches:
             ...     process_batch(batch)
             ...     manager.increment_progress(len(batch), f"Processed batch {i}")
+
+            Increment without commit:
+            >>> manager.increment_progress(1, commit=False)  # No commit
+
+        Important:
+            When commit=True (default), this commits ALL pending changes in the database
+            session. Only call at safe transaction boundaries.
         """
         job_run = self.get_job()
         try:
             current = job_run.progress_current or 0
-            job_run.progress_current = current + amount
+            new_current = current + amount
+            job_run.progress_current = new_current
             if message:
                 job_run.progress_message = message
         except (AttributeError, TypeError, KeyError, ValueError) as e:
@@ -736,33 +794,53 @@ class JobManager(BaseManager):
 
         self.save_to_context(
             {
-                "job_progress_current": current,
+                "job_progress_current": new_current,
                 "job_progress_total": job_run.progress_total,
                 "job_progress_message": message or "",
+                "commit": commit,
             }
         )
-        logger.debug("Incremented progress successfully for job", extra=self.logging_context())
 
-    def set_progress_total(self, total: int, message: Optional[str] = None) -> None:
-        """Update the total progress value, useful when total becomes known during execution. This method does
-        not flush or commit the database session; the caller is responsible for persisting changes.
+        if commit:
+            try:
+                self.db.commit()
+                logger.debug("Incremented progress and committed checkpoint for job", extra=self.logging_context())
+            except SQLAlchemyError as e:
+                self.save_to_context(format_raised_exception_info_as_dict(e))
+                logger.error("Failed to commit progress checkpoint", extra=self.logging_context())
+                self.db.rollback()
+                raise JobStateError(f"Failed to commit progress checkpoint: {e}")
+        else:
+            logger.debug("Incremented progress successfully for job (no commit)", extra=self.logging_context())
+
+    def set_progress_total(self, total: int, message: Optional[str] = None, *, commit: bool = True) -> None:
+        """Update the total progress value and optionally commit immediately.
 
         Convenience method for updating progress total when it's discovered during
-        job execution (e.g., after counting records to process).
+        job execution (e.g., after counting records to process). By default, commits
+        the update immediately as a checkpoint operation.
 
         Args:
             total: New total progress value
             message: Optional message to update along with total
+            commit: Whether to commit progress immediately to database (default: True).
+                   Set to False for jobs with complex multi-step transactions.
 
         Raises:
             DatabaseConnectionError: Cannot fetch job from database
-            JobStateError: Cannot save progress total update
+            JobStateError: Cannot save progress total update or commit checkpoint
 
-        Example:
-            >>> # Initially unknown total
-            >>> manager.start_job()
+        Examples:
+            Set total with checkpoint (default):
             >>> records = load_all_records()  # Discovers actual count
             >>> manager.set_progress_total(len(records), f"Processing {len(records)} records")
+
+            Set total without commit:
+            >>> manager.set_progress_total(1000, commit=False)
+
+        Important:
+            When commit=True (default), this commits ALL pending changes in the database
+            session. Only call at safe transaction boundaries.
         """
         job_run = self.get_job()
         try:
@@ -776,8 +854,19 @@ class JobManager(BaseManager):
             )
             raise JobStateError(f"Failed to update job progress total state: {e}")
 
-        self.save_to_context({"job_progress_total": total, "job_progress_message": message})
-        logger.debug("Updated progress total successfully for job", extra=self.logging_context())
+        self.save_to_context({"job_progress_total": total, "job_progress_message": message, "commit": commit})
+
+        if commit:
+            try:
+                self.db.commit()
+                logger.debug("Updated progress total and committed checkpoint for job", extra=self.logging_context())
+            except SQLAlchemyError as e:
+                self.save_to_context(format_raised_exception_info_as_dict(e))
+                logger.error("Failed to commit progress checkpoint", extra=self.logging_context())
+                self.db.rollback()
+                raise JobStateError(f"Failed to commit progress checkpoint: {e}")
+        else:
+            logger.debug("Updated progress total successfully for job (no commit)", extra=self.logging_context())
 
     def is_cancelled(self) -> bool:
         """Check if job has been cancelled or should stop execution. This method does

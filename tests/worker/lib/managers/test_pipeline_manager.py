@@ -909,7 +909,7 @@ class TestEnqueueReadyJobsIntegration:
         sample_job_run.status = JobStatus.CANCELLED
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True):
+        with TransactionSpy.spy(session, expect_commit=True, expect_flush=True):
             await manager.enqueue_ready_jobs()
 
         # Verify that the dependent job is marked as skipped

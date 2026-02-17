@@ -1147,7 +1147,7 @@ class TestJobProgressUpdateUnit:
             ),
         ):
             type(mock_job_run).progress_current = PropertyMock(side_effect=get_or_error)
-            mock_job_manager.update_progress(50, 100, "Halfway done")
+            mock_job_manager.update_progress(50, 100, "Halfway done", commit=False)
 
         # Verify job state on the mocked object remains unchanged.
         assert mock_job_run.progress_current is None
@@ -1159,7 +1159,7 @@ class TestJobProgressUpdateUnit:
 
         # Update progress. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(mock_job_manager.db):
-            mock_job_manager.update_progress(50, 100, "Halfway done")
+            mock_job_manager.update_progress(50, 100, "Halfway done", commit=False)
 
         # Verify job state was updated on our mock object with expected values.
         # These changes would normally be persisted by the caller after this method returns.
@@ -1177,7 +1177,7 @@ class TestJobProgressUpdateUnit:
 
         # Update progress without message. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(mock_job_manager.db):
-            mock_job_manager.update_progress(75, 200)
+            mock_job_manager.update_progress(75, 200, commit=False)
 
         # Verify job state was updated on our mock object with expected values.
         # These changes would normally be persisted by the caller after this method returns.
@@ -1203,7 +1203,7 @@ class TestJobProgressUpdateIntegration:
 
         # Update progress. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(manager.db):
-            manager.update_progress(50, 100, "Halfway done")
+            manager.update_progress(50, 100, "Halfway done", commit=False)
 
         # Commit pending changes made by update progress.
         session.commit()
@@ -1229,7 +1229,7 @@ class TestJobProgressUpdateIntegration:
 
         # Update progress without message. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(manager.db):
-            manager.update_progress(75, 200)
+            manager.update_progress(75, 200, commit=False)
 
         # Commit pending changes made by update progress.
         session.flush()
@@ -1271,7 +1271,7 @@ class TestJobProgressStatusUpdateUnit:
             ),
         ):
             type(mock_job_run).progress_message = PropertyMock(side_effect=get_or_error)
-            mock_job_manager.update_status_message("New status message")
+            mock_job_manager.update_status_message("New status message", commit=False)
 
         # Verify job state on the mocked object remains unchanged.
         assert mock_job_run.progress_message == initial_progress_message
@@ -1281,7 +1281,7 @@ class TestJobProgressStatusUpdateUnit:
 
         # Update status message. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(mock_job_manager.db):
-            mock_job_manager.update_status_message("New status message")
+            mock_job_manager.update_status_message("New status message", commit=False)
 
         # Verify job state was updated on our mock object with expected values.
         # These changes would normally be persisted by the caller after this method returns.
@@ -1303,7 +1303,7 @@ class TestJobProgressStatusUpdate:
 
         # Update status message. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(manager.db):
-            manager.update_status_message("New status message")
+            manager.update_status_message("New status message", commit=False)
 
         # Commit pending changes made by update status message.
         session.commit()
@@ -1343,7 +1343,7 @@ class TestJobProgressIncrementationUnit:
             ),
         ):
             type(mock_job_run).progress_current = PropertyMock(side_effect=get_or_error)
-            mock_job_manager.increment_progress(10, "Incrementing progress")
+            mock_job_manager.increment_progress(10, "Incrementing progress", commit=False)
 
         # Verify job state on the mocked object remains unchanged.
         assert mock_job_run.progress_current is None
@@ -1354,7 +1354,7 @@ class TestJobProgressIncrementationUnit:
 
         # Increment progress. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(mock_job_manager.db):
-            mock_job_manager.increment_progress(10, "Incrementing progress")
+            mock_job_manager.increment_progress(10, "Incrementing progress", commit=False)
 
         # Verify job state was updated on our mock object with expected values.
         # These changes would normally be persisted by the caller after this method returns.
@@ -1371,7 +1371,7 @@ class TestJobProgressIncrementationUnit:
 
         # Increment progress without message. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(mock_job_manager.db):
-            mock_job_manager.increment_progress(15)
+            mock_job_manager.increment_progress(15, commit=False)
 
         # Verify job state was updated on our mock object with expected values.
         # These changes would normally be persisted by the caller after this method returns.
@@ -1400,7 +1400,7 @@ class TestJobProgressIncrementationIntegration:
 
         # Increment progress. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(manager.db):
-            manager.increment_progress(10, msg)
+            manager.increment_progress(10, msg, commit=False)
 
         # Commit pending changes made by increment progress.
         session.commit()
@@ -1427,8 +1427,8 @@ class TestJobProgressIncrementationIntegration:
 
         # Increment progress multiple times. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(manager.db):
-            manager.increment_progress(20)
-            manager.increment_progress(30)
+            manager.increment_progress(20, commit=False)
+            manager.increment_progress(30, commit=False)
 
         # Commit pending changes made by increment progress.
         session.commit()
@@ -1452,7 +1452,7 @@ class TestJobProgressIncrementationIntegration:
 
         # Increment progress exceeding total. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(manager.db):
-            manager.increment_progress(150)
+            manager.increment_progress(150, commit=False)
 
         # Commit pending changes made by increment progress.
         session.commit()
@@ -1492,7 +1492,7 @@ class TestJobProgressTotalUpdateUnit:
             ),
         ):
             type(mock_job_run).progress_total = PropertyMock(side_effect=get_or_error)
-            mock_job_manager.set_progress_total(200)
+            mock_job_manager.set_progress_total(200, commit=False)
 
         # Verify job state on the mocked object remains unchanged.
         assert mock_job_run.progress_total == initial_progress_total
@@ -1502,7 +1502,7 @@ class TestJobProgressTotalUpdateUnit:
 
         # Set progress total. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(mock_job_manager.db):
-            mock_job_manager.set_progress_total(200)
+            mock_job_manager.set_progress_total(200, commit=False)
 
         # Verify job state was updated on our mock object with expected values.
         # These changes would normally be persisted by the caller after this method returns.
@@ -1518,7 +1518,7 @@ class TestJobProgressTotalUpdateUnit:
 
         # Set progress total without message. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(mock_job_manager.db):
-            mock_job_manager.set_progress_total(300)
+            mock_job_manager.set_progress_total(300, commit=False)
 
         # Verify job state was updated on our mock object with expected values.
         # These changes would normally be persisted by the caller after this method returns.
@@ -1542,7 +1542,7 @@ class TestJobProgressTotalUpdateIntegration:
 
         # Set progress total. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(manager.db):
-            manager.set_progress_total(200, message="Updated total progress")
+            manager.set_progress_total(200, message="Updated total progress", commit=False)
 
         # Commit pending changes made by set progress total.
         session.commit()
@@ -1900,7 +1900,7 @@ class TestJobManagerJob:
 
         # Set initial progress
         with TransactionSpy.spy(manager.db):
-            manager.update_progress(0, 100, "Job started")
+            manager.update_progress(0, 100, "Job started", commit=False)
         session.flush()
 
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -1910,7 +1910,7 @@ class TestJobManagerJob:
 
         # Update status message
         with TransactionSpy.spy(manager.db):
-            manager.update_status_message("Began processing data")
+            manager.update_status_message("Began processing data", commit=False)
         session.flush()
 
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -1918,7 +1918,7 @@ class TestJobManagerJob:
 
         # Set progress total
         with TransactionSpy.spy(manager.db):
-            manager.set_progress_total(200, "Set total work units")
+            manager.set_progress_total(200, "Set total work units", commit=False)
         session.flush()
 
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -1927,7 +1927,7 @@ class TestJobManagerJob:
 
         # Increment progress
         with TransactionSpy.spy(manager.db):
-            manager.increment_progress(100, "Halfway done")
+            manager.increment_progress(100, "Halfway done", commit=False)
         session.flush()
 
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -1936,7 +1936,7 @@ class TestJobManagerJob:
 
         # Increment progress again
         with TransactionSpy.spy(manager.db):
-            manager.increment_progress(100, "All done")
+            manager.increment_progress(100, "All done", commit=False)
         session.flush()
 
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
