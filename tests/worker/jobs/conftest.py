@@ -870,3 +870,27 @@ def sample_refresh_clinvar_controls_job_in_pipeline(
     sample_refresh_clinvar_controls_job_run.pipeline_id = sample_refresh_clinvar_controls_pipeline.id
     session.commit()
     return sample_refresh_clinvar_controls_job_run
+
+
+## Janitor job fixtures
+
+
+@pytest.fixture
+def sample_cleanup_job_run():
+    """Create a JobRun instance for a cleanup job."""
+
+    return JobRun(
+        urn="test:cleanup_job",
+        job_type="cleanup_job",
+        job_function="cleanup_function",
+        max_retries=3,
+        retry_count=0,
+    )
+
+
+@pytest.fixture
+def with_cleanup_job(session, sample_cleanup_job_run):
+    """Add a cleanup job run to the session."""
+
+    session.add(sample_cleanup_job_run)
+    session.commit()
