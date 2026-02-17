@@ -3,10 +3,16 @@
 This module contains job definitions and utility functions for integrating ClinVar
 variant data into MaveDB. It includes functions to fetch and parse ClinVar variant
 summary data, and update MaveDB records with the latest ClinVar annotations.
+
+Both ClinGen API calls and ClinVar TSV data fetches are automatically cached using
+aiocache with Redis backend:
+- ClinGen API calls: 24-hour TTL
+- ClinVar TSV files: 90-day TTL (archival data doesn't change)
+
+This significantly reduces redundant network requests when refreshing ClinVar
+controls across multiple months/years.
 """
 
-import asyncio
-import functools
 import logging
 
 import requests
@@ -31,11 +37,6 @@ from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.managers.types import JobResultData
 
 logger = logging.getLogger(__name__)
-
-
-# TODO#649: This function is currently called multiple times to fill in controls for each month/year.
-#           We should consider caching both fetched TSV data and/or ClinGen API results. This would
-#           significantly speed up large jobs annotating many variants.
 
 
 @with_pipeline_management
@@ -87,10 +88,8 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
     job_manager.update_progress(1, 100, "Fetching ClinVar variant summary TSV data.")
     logger.debug("Fetching ClinVar variant summary TSV data.", extra=job_manager.logging_context())
 
-    # Fetch and parse ClinVar variant summary TSV data
-    blocking = functools.partial(fetch_clinvar_variant_summary_tsv, month, year)
-    loop = asyncio.get_running_loop()
-    tsv_content = await loop.run_in_executor(ctx["pool"], blocking)
+    # Fetch and parse ClinVar variant summary TSV data (with automatic caching)
+    tsv_content = await fetch_clinvar_variant_summary_tsv(month, year)
     tsv_data = parse_clinvar_variant_summary(tsv_content)
 
     job_manager.update_progress(10, 100, "Fetched and parsed ClinVar variant summary TSV data.")
@@ -155,10 +154,10 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
             logger.debug("Detected a multi-variant ClinGen allele ID, skipping.", extra=job_manager.logging_context())
             continue
 
-        # Fetch associated ClinVar Allele ID from ClinGen API
+        # Fetch associated ClinVar Allele ID from ClinGen API (with automatic caching)
         try:
             # Guaranteed based on our query filters.
-            clinvar_allele_id = get_associated_clinvar_allele_id(clingen_id)  # type: ignore
+            clinvar_allele_id = await get_associated_clinvar_allele_id(clingen_id)  # type: ignore
         except requests.exceptions.RequestException as exc:
             annotation_manager.add_annotation(
                 variant_id=mapped_variant.variant_id,  # type: ignore
@@ -180,7 +179,9 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
 
         job_manager.save_to_context({"clinvar_allele_id": clinvar_allele_id})
 
-        if clinvar_allele_id is None:
+        # Check for empty string (no ClinVar association found)
+        # Note: API errors now raise HTTPError and are caught by the exception handler above
+        if not clinvar_allele_id:
             annotation_manager.add_annotation(
                 variant_id=mapped_variant.variant_id,  # type: ignore
                 annotation_type=AnnotationType.CLINVAR_CONTROL,

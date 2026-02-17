@@ -1,18 +1,17 @@
 import logging
-from typing import Sequence, Optional
+from typing import Optional, Sequence
 
-import click
+import asyncclick as click
+import requests
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.clingen.allele_registry import get_canonical_pa_ids, get_matching_registered_ca_ids
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
-
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.models.variant_translation import VariantTranslation
-
 from mavedb.scripts.environment import script_environment, with_database_session
 
 logger = logging.getLogger(__name__)
@@ -23,7 +22,7 @@ logger.setLevel(logging.DEBUG)
 @with_database_session
 @click.argument("urns", nargs=-1)
 @click.option("--all", help="Populate mapped variants for every score set in MaveDB.", is_flag=True)
-def populate_variant_translations(db: Session, urns: Sequence[Optional[str]], all: bool):
+async def populate_variant_translations(db: Session, urns: Sequence[Optional[str]], all: bool):
     # TODO keep track of what has been processed.
     # I think this makes sense to track on the mapped variant level in order to allow
     # for individual variant translation failure, and also so that we don't have to reset the
@@ -75,8 +74,16 @@ def populate_variant_translations(db: Session, urns: Sequence[Optional[str]], al
         for allele_id in set(expanded_allele_ids):
             try:
                 if allele_id.startswith("CA"):
-                    # Get the canonical PA ID(s) from the ClinGen API
-                    canonical_pa_ids = get_canonical_pa_ids(allele_id)
+                    # Get the canonical PA ID(s) from the ClinGen API (with automatic caching)
+                    try:
+                        canonical_pa_ids = await get_canonical_pa_ids(allele_id)
+                    except requests.exceptions.RequestException as exc:
+                        logger.error(
+                            f"Error fetching canonical PA IDs for {allele_id} from ClinGen API: {exc}. Skipping.",
+                            exc_info=True,
+                        )
+                        continue
+
                     if not canonical_pa_ids:
                         logger.warning(
                             f"No canonical PA IDs found for {allele_id}. This may be expected if the query is noncoding."
@@ -98,8 +105,16 @@ def populate_variant_translations(db: Session, urns: Sequence[Optional[str]], al
                             # commit after each addition in order to query the database for existing variant translations
                             db.commit()
 
-                        # For each canonical PA ID, get the matching registered transcript CA IDs
-                        ca_ids = get_matching_registered_ca_ids(pa_id)
+                        # For each canonical PA ID, get the matching registered transcript CA IDs (with automatic caching)
+                        try:
+                            ca_ids = await get_matching_registered_ca_ids(pa_id)
+                        except requests.exceptions.RequestException as exc:
+                            logger.error(
+                                f"Error fetching matching registered CA IDs for {pa_id} from ClinGen API: {exc}. Skipping.",
+                                exc_info=True,
+                            )
+                            continue
+
                         if not ca_ids:
                             logger.warning(f"No matching registered transcript CA IDs found for {pa_id}.")
                             continue
@@ -119,8 +134,16 @@ def populate_variant_translations(db: Session, urns: Sequence[Optional[str]], al
                                 db.commit()
 
                 elif allele_id.startswith("PA"):
-                    # Get the matching registered transcript CA IDs from the ClinGen API
-                    ca_ids = get_matching_registered_ca_ids(allele_id)
+                    # Get the matching registered transcript CA IDs from the ClinGen API (with automatic caching)
+                    try:
+                        ca_ids = await get_matching_registered_ca_ids(allele_id)
+                    except requests.exceptions.RequestException as exc:
+                        logger.error(
+                            f"Error fetching matching registered CA IDs for {allele_id} from ClinGen API: {exc}. Skipping.",
+                            exc_info=True,
+                        )
+                        continue
+
                     if not ca_ids:
                         logger.warning(
                             f"No matching registered transcript CA IDs found for {allele_id}. This is unexpected."
