@@ -5,7 +5,14 @@ import pytest
 pytest.importorskip("arq")
 
 from mavedb.models.enums.job_pipeline import DependencyType, JobStatus
-from mavedb.worker.lib.managers.constants import COMPLETED_JOB_STATUSES
+from mavedb.worker.lib.managers.constants import (
+    ACTIVE_JOB_STATUSES,
+    COMPLETED_JOB_STATUSES,
+    RETRYABLE_JOB_STATUSES,
+    STARTABLE_JOB_STATUSES,
+    TERMINAL_JOB_STATUSES,
+)
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from mavedb.worker.lib.managers.utils import (
     construct_bulk_cancellation_result,
     job_dependency_is_met,
@@ -19,10 +26,30 @@ class TestConstructBulkCancellationResultUnit:
         reason = "Test cancellation reason"
         result = construct_bulk_cancellation_result(reason)
 
-        assert result["status"] == "cancelled"
-        assert result["data"]["reason"] == reason
-        assert "timestamp" in result["data"]
-        assert result["exception"] is None
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.CANCELLED
+        assert result.data["reason"] == reason
+        assert "timestamp" in result.data
+        assert result.exception is None
+        assert result.error == reason
+
+
+@pytest.mark.unit
+class TestJobStatusConstantsUnit:
+    def test_errored_in_completed_statuses(self):
+        assert JobStatus.ERRORED in COMPLETED_JOB_STATUSES
+
+    def test_errored_in_terminal_statuses(self):
+        assert JobStatus.ERRORED in TERMINAL_JOB_STATUSES
+
+    def test_errored_in_retryable_statuses(self):
+        assert JobStatus.ERRORED in RETRYABLE_JOB_STATUSES
+
+    def test_errored_not_in_startable_statuses(self):
+        assert JobStatus.ERRORED not in STARTABLE_JOB_STATUSES
+
+    def test_errored_not_in_active_statuses(self):
+        assert JobStatus.ERRORED not in ACTIVE_JOB_STATUSES
 
 
 @pytest.mark.unit
@@ -67,7 +94,8 @@ class TestJobShouldBeSkippedDueToUnfulfillableDependencyUnit:
                 (
                     DependencyType.SUCCESS_REQUIRED,
                     dependent_job_status,
-                    dependent_job_status in (JobStatus.FAILED, JobStatus.SKIPPED, JobStatus.CANCELLED),
+                    dependent_job_status
+                    in (JobStatus.FAILED, JobStatus.ERRORED, JobStatus.SKIPPED, JobStatus.CANCELLED),
                 )
                 for dependent_job_status in JobStatus._member_map_.values()
             ],

@@ -32,7 +32,7 @@ from mavedb import __version__
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.decorators.utils import ensure_ctx, ensure_session_ctx, is_test_mode
-from mavedb.worker.lib.managers.types import JobResultData
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
 
@@ -78,7 +78,9 @@ def with_guaranteed_job_run_record(job_type: str) -> Callable[[F], F]:
     return decorator
 
 
-def _create_job_run(job_type: str, func: Callable[..., Awaitable[JobResultData]], args: tuple, kwargs: dict) -> JobRun:
+def _create_job_run(
+    job_type: str, func: Callable[..., Awaitable[JobExecutionOutcome]], args: tuple, kwargs: dict
+) -> JobRun:
     """
     Creates and persists a JobRun record for a function before job execution.
     """

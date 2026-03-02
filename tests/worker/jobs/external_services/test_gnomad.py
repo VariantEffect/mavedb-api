@@ -12,6 +12,7 @@ from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 from mavedb.worker.jobs.external_services.gnomad import link_gnomad_variants
 from mavedb.worker.lib.managers.job_manager import JobManager
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
@@ -37,7 +38,8 @@ class TestLinkGnomadVariantsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
         mock_update_progress.assert_any_call(
             100, 100, "No variants with CAIDs found to link to gnomAD variants. Nothing to do."
         )
@@ -68,7 +70,8 @@ class TestLinkGnomadVariantsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
         mock_update_progress.assert_any_call(100, 100, "Linked 0 mapped variants to gnomAD variants.")
 
     async def test_link_gnomad_variants_call_linking_method(
@@ -101,7 +104,8 @@ class TestLinkGnomadVariantsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
         mock_linking_method.assert_called_once()
         mock_update_progress.assert_any_call(100, 100, "Linked 1 mapped variants to gnomAD variants.")
 
@@ -135,7 +139,8 @@ class TestLinkGnomadVariantsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
         mock_update_progress.assert_has_calls(
             [
                 call(0, 100, "Starting gnomAD mapped resource linkage."),
@@ -189,7 +194,8 @@ class TestLinkGnomadVariantsIntegration:
         """Test the end-to-end functionality of the link_gnomad_variants job when no variants have CAIDs."""
 
         result = await link_gnomad_variants(mock_worker_ctx, sample_link_gnomad_variants_run.id)
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify that no gnomAD variants were linked
         gnomad_variants = session.query(GnomADVariant).all()
@@ -223,7 +229,8 @@ class TestLinkGnomadVariantsIntegration:
         with patch("mavedb.worker.jobs.external_services.gnomad.athena.engine", athena_engine):
             result = await link_gnomad_variants(mock_worker_ctx, sample_link_gnomad_variants_run.id)
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify that no gnomAD variants were linked
         gnomad_variants = session.query(GnomADVariant).all()
@@ -255,7 +262,8 @@ class TestLinkGnomadVariantsIntegration:
         with patch("mavedb.worker.jobs.external_services.gnomad.athena.engine", athena_engine):
             result = await link_gnomad_variants(mock_worker_ctx, sample_link_gnomad_variants_run.id)
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify that gnomAD variants were linked
         gnomad_variants = session.query(GnomADVariant).all()
@@ -287,7 +295,8 @@ class TestLinkGnomadVariantsIntegration:
         with patch("mavedb.worker.jobs.external_services.gnomad.athena.engine", athena_engine):
             result = await link_gnomad_variants(mock_worker_ctx, sample_link_gnomad_variants_run_pipeline.id)
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify that gnomAD variants were linked
         gnomad_variants = session.query(GnomADVariant).all()
@@ -334,12 +343,13 @@ class TestLinkGnomadVariantsIntegration:
             )
 
         mock_send_slack_error.assert_called_once()
-        assert result["status"] == "exception"
-        assert isinstance(result["exception"], Exception)
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.ERRORED
+        assert isinstance(result.exception, Exception)
 
         # Verify job status updates
         session.refresh(sample_link_gnomad_variants_run)
-        assert sample_link_gnomad_variants_run.status == JobStatus.FAILED
+        assert sample_link_gnomad_variants_run.status == JobStatus.ERRORED
 
 
 @pytest.mark.asyncio
@@ -453,9 +463,9 @@ class TestLinkGnomadVariantsArqContext:
         annotation_statuses = session.query(VariantAnnotationStatus).all()
         assert len(annotation_statuses) == 0
 
-        # Verify that the job failed
+        # Verify that the job errored
         session.refresh(sample_link_gnomad_variants_run)
-        assert sample_link_gnomad_variants_run.status == JobStatus.FAILED
+        assert sample_link_gnomad_variants_run.status == JobStatus.ERRORED
 
     async def test_link_gnomad_variants_with_arq_context_exception_handling_pipeline(
         self,
@@ -491,9 +501,9 @@ class TestLinkGnomadVariantsArqContext:
         annotation_statuses = session.query(VariantAnnotationStatus).all()
         assert len(annotation_statuses) == 0
 
-        # Verify that the job failed
+        # Verify that the job errored
         session.refresh(sample_link_gnomad_variants_run_pipeline)
-        assert sample_link_gnomad_variants_run_pipeline.status == JobStatus.FAILED
+        assert sample_link_gnomad_variants_run_pipeline.status == JobStatus.ERRORED
 
         # Verify that the pipeline failed
         session.refresh(sample_link_gnomad_variants_pipeline)

@@ -11,16 +11,22 @@ from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus, Pipelin
 STARTABLE_JOB_STATUSES = [JobStatus.QUEUED, JobStatus.PENDING]
 """Job statuses that can be transitioned to RUNNING state."""
 
-COMPLETED_JOB_STATUSES = [JobStatus.SUCCEEDED, JobStatus.FAILED]
+COMPLETED_JOB_STATUSES = [JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.ERRORED]
 """Job statuses indicating finished execution (completed states)."""
 
-TERMINAL_JOB_STATUSES = [JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.SKIPPED]
+TERMINAL_JOB_STATUSES = [
+    JobStatus.SUCCEEDED,
+    JobStatus.FAILED,
+    JobStatus.ERRORED,
+    JobStatus.CANCELLED,
+    JobStatus.SKIPPED,
+]
 """Job statuses indicating finished execution (terminal states)."""
 
-CANCELLED_JOB_STATUSES = [JobStatus.CANCELLED, JobStatus.SKIPPED, JobStatus.FAILED]
+CANCELLED_JOB_STATUSES = [JobStatus.CANCELLED, JobStatus.SKIPPED, JobStatus.FAILED, JobStatus.ERRORED]
 """Job statuses that should stop execution (termination conditions)."""
 
-RETRYABLE_JOB_STATUSES = [JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.SKIPPED]
+RETRYABLE_JOB_STATUSES = [JobStatus.FAILED, JobStatus.ERRORED, JobStatus.CANCELLED, JobStatus.SKIPPED]
 """Job statuses that can be retried."""
 
 ACTIVE_JOB_STATUSES = [JobStatus.PENDING, JobStatus.QUEUED, JobStatus.RUNNING]

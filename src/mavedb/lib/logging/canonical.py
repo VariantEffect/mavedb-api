@@ -9,6 +9,7 @@ from starlette.responses import Response
 from mavedb import __version__
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.logging.models import LogType, Source
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,10 @@ async def log_job(ctx: dict) -> None:
     if not result:
         logger.warning(msg=f"Job finished, but could not retrieve a job result for job {job_id}.", extra=log_context)
     else:
+        job_result = result.result
+        if isinstance(job_result, JobExecutionOutcome):
+            job_result = job_result.to_dict()
+
         log_context = {
             **log_context,
             **{
@@ -36,7 +41,7 @@ async def log_job(ctx: dict) -> None:
                 "job_name": result.function,
                 "job_attempt": result.job_try,
                 "arq_success": result.success,
-                "job_result": result.result,
+                "job_result": job_result,
             },
         }
 

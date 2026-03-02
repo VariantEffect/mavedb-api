@@ -23,7 +23,7 @@ from mavedb.lib.gnomad import gnomad_table_name
 from mavedb.models.user import User
 from mavedb.server_main import app
 from mavedb.worker.jobs import BACKGROUND_CRONJOBS, BACKGROUND_FUNCTIONS
-from mavedb.worker.lib.managers.types import JobResultData
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_SEQREPO_INITIAL_STATE, TEST_USER, VALID_CAID
 
 ####################################################################################################
@@ -81,8 +81,8 @@ async def arq_redis():
         await redis_.aclose(close_connection_pool=True)
 
 
-async def dummy_arq_function(ctx, *args, **kwargs) -> JobResultData:
-    return {"status": "ok", "data": {}, "exception_details": None}
+async def dummy_arq_function(ctx, *args, **kwargs) -> JobExecutionOutcome:
+    return JobExecutionOutcome.succeeded()
 
 
 @pytest_asyncio.fixture()

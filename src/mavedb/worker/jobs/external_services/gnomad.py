@@ -26,13 +26,13 @@ from mavedb.models.variant import Variant
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobResultData
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 
 
 @with_pipeline_management
-async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) -> JobResultData:
+async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutionOutcome:
     """
     Link mapped variants to gnomAD variants based on ClinGen Allele IDs (CAIDs).
     This job fetches mapped variants associated with a given score set that have CAIDs,
@@ -97,7 +97,7 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
             msg="No current mapped variants with CAIDs were found for this score set. Skipping gnomAD linkage (nothing to do).",
             extra=job_manager.logging_context(),
         )
-        return {"status": "ok", "data": {}, "exception": None}
+        return JobExecutionOutcome.succeeded(data={"linked_count": 0, "skipped_count": 0})
 
     job_manager.update_progress(10, 100, f"Found {num_variant_caids} variants with CAIDs to link to gnomAD variants.")
     logger.info(
@@ -152,4 +152,9 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
     job_manager.save_to_context({"num_mapped_variants_linked_to_gnomad_variants": num_linked_gnomad_variants})
     job_manager.update_progress(100, 100, f"Linked {num_linked_gnomad_variants} mapped variants to gnomAD variants.")
     logger.info(msg="Done linking gnomAD variants to mapped variants.", extra=job_manager.logging_context())
-    return {"status": "ok", "data": {}, "exception": None}
+    return JobExecutionOutcome.succeeded(
+        data={
+            "linked_count": num_linked_gnomad_variants,
+            "skipped_count": num_variant_caids - num_linked_gnomad_variants,
+        }
+    )

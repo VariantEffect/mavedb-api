@@ -79,7 +79,7 @@ def upgrade():
         sa.Column("metadata", postgresql.JSONB(astext_type=sa.Text()), server_default="{}", nullable=False),
         sa.Column("mavedb_version", sa.String(length=50), nullable=True),
         sa.CheckConstraint(
-            "status IN ('pending', 'queued', 'running', 'succeeded', 'failed', 'cancelled', 'skipped')",
+            "status IN ('pending', 'queued', 'running', 'succeeded', 'failed', 'errored', 'cancelled', 'skipped')",
             name="ck_job_runs_status_valid",
         ),
         sa.CheckConstraint("max_retries >= 0", name="ck_job_runs_max_retries_positive"),

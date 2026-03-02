@@ -10,6 +10,7 @@ from mavedb.worker.jobs import (
     create_variants_for_score_set,
     map_variants_for_score_set,
 )
+from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.worker.lib.managers.job_manager import JobManager
 from tests.helpers.constants import (
     TEST_CODING_LAYER,
@@ -47,7 +48,7 @@ async def create_variants_in_score_set(
                 JobManager(session, mock_worker_ctx["redis"], variant_creation_run.id),
             )
 
-    assert result["status"] == "ok"
+    assert result.status == JobStatus.SUCCEEDED
     session.commit()
 
 
@@ -83,7 +84,7 @@ async def create_mappings_in_score_set(
                 JobManager(session, mock_worker_ctx["redis"], variant_mapping_run.id),
             )
 
-    assert result["status"] == "ok"
+    assert result.status == JobStatus.SUCCEEDED
     session.commit()
 
 

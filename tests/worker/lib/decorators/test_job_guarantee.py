@@ -14,6 +14,7 @@ from mavedb import __version__
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.decorators.job_guarantee import with_guaranteed_job_run_record
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.transaction_spy import TransactionSpy
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
@@ -30,7 +31,7 @@ async def sample_job(ctx: dict, job_id: int):
         ctx (dict): Worker context dictionary.
         job_id (int): ID of the JobRun record created by the decorator.
     """
-    return {"status": "ok"}
+    return JobExecutionOutcome.succeeded()
 
 
 @pytest.mark.asyncio
@@ -44,7 +45,8 @@ class TestJobGuaranteeDecoratorUnit:
 
     async def test_decorator_calls_wrapped_function(self, mock_worker_ctx):
         result = await sample_job(mock_worker_ctx)
-        assert result == {"status": "ok"}
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
     async def test_decorator_creates_job_run(self, mock_worker_ctx, session):
         with (
@@ -68,7 +70,8 @@ class TestJobGuaranteeDecoratorIntegration:
         with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
             job_task = await sample_job(standalone_worker_context)
 
-        assert job_task == {"status": "ok"}
+        assert isinstance(job_task, JobExecutionOutcome)
+        assert job_task.status == JobStatus.SUCCEEDED
 
         job_run = session.execute(select(JobRun).order_by(JobRun.id.desc())).scalars().first()
         assert job_run.status == JobStatus.PENDING

@@ -17,7 +17,6 @@ from sqlalchemy.dialects.postgresql import JSONB
 from mavedb.data_providers.services import vrs_mapper
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.exceptions import (
-    NoMappedVariantsError,
     NonexistentMappingReferenceError,
     NonexistentMappingResultsError,
     NonexistentMappingScoresError,
@@ -36,13 +35,13 @@ from mavedb.models.variant import Variant
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobResultData
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 
 
 @with_pipeline_management
-async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobManager) -> JobResultData:
+async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutionOutcome:
     """Map variants for a given score set using VRS."""
     # Handle everything prior to score set fetch in an outer layer. Any issues prior to
     # fetching the score set should fail the job outright and we will be unable to set
@@ -281,7 +280,10 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         score_set.mapping_state = MappingState.failed
         # These exceptions have already set mapping_errors appropriately
 
-        return {"status": "exception", "data": {}, "exception": e}
+        return JobExecutionOutcome.failed(
+            reason=str(e),
+            data={"score_set_id": score_set.id, "mapped_count": 0, "total_count": 0},
+        )
 
     except Exception as e:
         send_slack_error(e)
@@ -297,7 +299,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             }
         job_manager.update_progress(100, 100, "Variant mapping failed due to an unexpected error.")
 
-        return {"status": "exception", "data": {}, "exception": e}
+        raise
 
     finally:
         job_manager.db.add(score_set)
@@ -308,11 +310,22 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
     if successful_mapped_variants == 0:
         logger.error(msg="No variants were successfully mapped.", extra=job_manager.logging_context())
-        return {
-            "status": "failed",
-            "data": {},
-            "exception": NoMappedVariantsError("No variants were successfully mapped."),
-        }
+        return JobExecutionOutcome.failed(
+            reason="No variants were successfully mapped.",
+            data={
+                "score_set_id": score_set.id,
+                "mapped_count": 0,
+                "unmapped_count": total_variants,
+                "total_count": total_variants,
+            },
+        )
 
     logger.info(msg="Variant mapping job completed successfully.", extra=job_manager.logging_context())
-    return {"status": "ok", "data": {}, "exception": None}
+    return JobExecutionOutcome.succeeded(
+        data={
+            "score_set_id": score_set.id,
+            "mapped_count": successful_mapped_variants,
+            "unmapped_count": total_variants - successful_mapped_variants,
+            "total_count": total_variants,
+        }
+    )

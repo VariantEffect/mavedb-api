@@ -104,16 +104,15 @@ class TestCreateVariantsForScoreSetUnit:
                 side_effect=Exception("The specified key does not exist."),
             ),
             patch.object(JobManager, "update_progress") as mock_update_progress,
+            pytest.raises(Exception, match="The specified key does not exist."),
         ):
-            result = await create_variants_for_score_set(
+            await create_variants_for_score_set(
                 mock_worker_ctx,
                 sample_independent_variant_creation_run.id,
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
 
         mock_update_progress.assert_any_call(100, 100, "Variant creation job failed due to an internal error.")
-        assert result["status"] == "exception"
-        assert isinstance(result["exception"], Exception)
         session.refresh(sample_score_set)
         assert sample_score_set.processing_state == ProcessingState.failed
         assert sample_score_set.mapping_state == MappingState.not_attempted
@@ -190,16 +189,15 @@ class TestCreateVariantsForScoreSetUnit:
                 side_effect=[sample_score_dataframe, sample_count_dataframe],
             ),
             patch.object(JobManager, "update_progress") as mock_update_progress,
+            pytest.raises(ValueError, match="Can't create variants when score set has no targets."),
         ):
-            result = await create_variants_for_score_set(
+            await create_variants_for_score_set(
                 mock_worker_ctx,
                 sample_independent_variant_creation_run.id,
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
 
         mock_update_progress.assert_any_call(100, 100, "Score set has no targets; cannot create variants.")
-        assert result["status"] == "exception"
-        assert isinstance(result["exception"], ValueError)
 
     async def test_create_variants_for_score_set_calls_validate_standardize_dataframe_with_correct_parameters(
         self,
@@ -560,15 +558,13 @@ class TestCreateVariantsForScoreSetUnit:
                 "mavedb.worker.jobs.variant_processing.creation.validate_and_standardize_dataframe_pair",
                 side_effect=Exception("Test exception during data validation"),
             ),
+            pytest.raises(Exception, match="Test exception during data validation"),
         ):
-            result = await create_variants_for_score_set(
+            await create_variants_for_score_set(
                 mock_worker_ctx,
                 sample_independent_variant_creation_run.id,
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
-
-        assert result["status"] == "exception"
-        assert isinstance(result["exception"], Exception)
 
         # Verify that existing variants are still present
         remaining_variants = session.query(Variant).filter(Variant.score_set_id == sample_score_set.id).all()
@@ -601,15 +597,13 @@ class TestCreateVariantsForScoreSetUnit:
                 side_effect=Exception("Test exception during data validation"),
             ),
             patch.object(JobManager, "update_progress") as mock_update_progress,
+            pytest.raises(Exception, match="Test exception during data validation"),
         ):
-            result = await create_variants_for_score_set(
+            await create_variants_for_score_set(
                 mock_worker_ctx,
                 sample_independent_variant_creation_run.id,
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
-
-        assert result["status"] == "exception"
-        assert isinstance(result["exception"], Exception)
 
         # Verify that the score set's processing state is updated to failed
         session.refresh(sample_score_set)
@@ -1010,7 +1004,7 @@ class TestCreateVariantsForScoreSetIntegration:
             .one()
         )
         assert job_run.progress_current == 100
-        assert job_run.status == JobStatus.FAILED
+        assert job_run.status == JobStatus.ERRORED
 
     async def test_create_variants_for_score_set_generic_exception_handling_during_replacement(
         self,
@@ -1075,7 +1069,7 @@ class TestCreateVariantsForScoreSetIntegration:
             .one()
         )
         assert job_run.progress_current == 100
-        assert job_run.status == JobStatus.FAILED
+        assert job_run.status == JobStatus.ERRORED
 
     ## Pipeline failure workflow
 
@@ -1122,7 +1116,7 @@ class TestCreateVariantsForScoreSetIntegration:
             .one()
         )
         assert job_run.progress_current == 100
-        assert job_run.status == JobStatus.FAILED
+        assert job_run.status == JobStatus.ERRORED
 
         # Verify that pipeline status is updated.
         session.refresh(sample_variant_creation_pipeline)
@@ -1333,7 +1327,7 @@ class TestCreateVariantsForScoreSetArqContext:
             .one()
         )
         assert job_run.progress_current == 100
-        assert job_run.status == JobStatus.FAILED
+        assert job_run.status == JobStatus.ERRORED
 
     async def test_create_variants_for_score_set_with_arq_context_generic_exception_handling_pipeline_ctx(
         self,
@@ -1381,7 +1375,7 @@ class TestCreateVariantsForScoreSetArqContext:
             .one()
         )
         assert job_run.progress_current == 100
-        assert job_run.status == JobStatus.FAILED
+        assert job_run.status == JobStatus.ERRORED
 
         # Verify that pipeline status is updated.
         session.refresh(sample_variant_creation_pipeline)

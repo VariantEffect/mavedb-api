@@ -9,7 +9,6 @@ from unittest.mock import call, patch
 
 from sqlalchemy import select
 
-from mavedb.lib.exceptions import LDHSubmissionFailureError
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.mapped_variant import MappedVariant
@@ -20,6 +19,7 @@ from mavedb.worker.jobs.external_services.clingen import (
     submit_score_set_mappings_to_ldh,
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.constants import TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST
 from tests.helpers.util.setup.worker import create_mappings_in_score_set
 
@@ -50,7 +50,8 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             )
 
         mock_update_progress.assert_called_with(100, 100, "ClinGen submission is disabled. Skipping CAR submission.")
-        assert result["status"] == "skipped"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SKIPPED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -76,7 +77,8 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             )
 
         mock_update_progress.assert_called_with(100, 100, "No mapped variants to submit to CAR. Skipped submission.")
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -104,8 +106,8 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         mock_update_progress.assert_called_with(
             100, 100, "CAR submission endpoint not configured. Can't complete submission."
         )
-        assert result["status"] == "failed"
-        assert isinstance(result["exception"], ValueError)
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.FAILED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -152,7 +154,8 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             )
 
         mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -213,7 +216,8 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             )
 
         mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -283,7 +287,8 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             )
 
         mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -359,7 +364,8 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             )
 
         mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -473,7 +479,8 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             )
 
         mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -610,7 +617,8 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -678,7 +686,8 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run_in_pipeline.id
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -723,7 +732,8 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
-        assert result["status"] == "skipped"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SKIPPED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -761,8 +771,8 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             )
 
         mock_send_slack_error.assert_called_once()
-        assert result["status"] == "failed"
-        assert isinstance(result["exception"], ValueError)
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.FAILED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -792,7 +802,8 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -843,7 +854,8 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -901,7 +913,8 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -956,13 +969,14 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             )
 
         mock_send_slack_error.assert_called_once()
-        assert result["status"] == "exception"
-        assert isinstance(result["exception"], Exception)
-        assert str(result["exception"]) == "ClinGen service error"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.ERRORED
+        assert isinstance(result.exception, Exception)
+        assert str(result.exception) == "ClinGen service error"
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
-        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.FAILED
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.ERRORED
 
 
 @pytest.mark.integration
@@ -1158,7 +1172,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
         mock_send_slack_error.assert_called_once()
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
-        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.FAILED
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.ERRORED
         assert submit_score_set_mappings_to_car_sample_job_run.error_message == "ClinGen service error"
 
         # Verify no variants have CAIDs assigned
@@ -1217,7 +1231,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
         mock_send_slack_error.assert_called_once()
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run_in_pipeline)
-        assert submit_score_set_mappings_to_car_sample_job_run_in_pipeline.status == JobStatus.FAILED
+        assert submit_score_set_mappings_to_car_sample_job_run_in_pipeline.status == JobStatus.ERRORED
         assert submit_score_set_mappings_to_car_sample_job_run_in_pipeline.error_message == "ClinGen service error"
 
         # Verify the pipeline status is updated in the database
@@ -1265,7 +1279,8 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
             )
 
         mock_update_progress.assert_called_with(100, 100, "No mapped variants to submit to LDH. Skipping submission.")
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
     async def test_submit_score_set_mappings_to_ldh_all_submissions_failed(
         self,
@@ -1311,8 +1326,8 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id),
             )
 
-        assert result["status"] == "failed"
-        assert isinstance(result["exception"], LDHSubmissionFailureError)
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.FAILED
         mock_update_progress.assert_called_with(100, 100, "All mapped variant submissions to LDH failed.")
 
     async def test_submit_score_set_mappings_to_ldh_hgvs_not_found(
@@ -1355,7 +1370,8 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
         mock_update_progress.assert_called_with(
             100, 100, "No valid mapped variants to submit to LDH. Skipping submission."
         )
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
     async def test_submit_score_set_mappings_to_ldh_propagates_exception(
         self,
@@ -1459,7 +1475,8 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
         mock_update_progress.assert_called_with(
             100, 100, "Finalized LDH mapped resource submission (2 successes, 2 failures)."
         )
@@ -1523,7 +1540,8 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
         mock_update_progress.assert_called_with(
             100, 100, "Finalized LDH mapped resource submission (4 successes, 0 failures)."
         )
@@ -1589,7 +1607,8 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify annotation statuses were created
         annotation_statuses = session.scalars(
@@ -1659,7 +1678,8 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline.id
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify annotation statuses were created
         annotation_statuses = session.scalars(
@@ -1716,13 +1736,14 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
             )
 
         mock_send_slack_error.assert_called_once()
-        assert result["status"] == "exception"
-        assert isinstance(result["exception"], Exception)
-        assert str(result["exception"]) == "LDH service error"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.ERRORED
+        assert isinstance(result.exception, Exception)
+        assert str(result.exception) == "LDH service error"
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
-        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.FAILED
+        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.ERRORED
 
     async def test_submit_score_set_mappings_to_ldh_no_linked_alleles(
         self,
@@ -1764,7 +1785,8 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify annotation statuses were created with failures
         annotation_statuses = session.scalars(
@@ -1811,7 +1833,8 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify no annotation statuses were created
         annotation_statuses = session.scalars(
@@ -1865,8 +1888,8 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
             )
 
         mock_send_slack_error.assert_called_once()
-        assert result["status"] == "failed"
-        assert isinstance(result["exception"], LDHSubmissionFailureError)
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.FAILED
 
         # Verify annotation statuses were created with failures
         annotation_statuses = session.scalars(
@@ -1935,7 +1958,8 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify annotation statuses were created
         annotation_statuses = session.scalars(
@@ -2012,7 +2036,8 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify annotation statuses were created
         annotation_statuses = session.scalars(
@@ -2230,7 +2255,7 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
-        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.FAILED
+        assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.ERRORED
         assert submit_score_set_mappings_to_ldh_sample_job_run.error_message == "LDH service error"
 
     async def test_submit_score_set_mappings_to_ldh_with_arq_context_exception_handling_pipeline_ctx(
@@ -2285,7 +2310,7 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline)
-        assert submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline.status == JobStatus.FAILED
+        assert submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline.status == JobStatus.ERRORED
         assert submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline.error_message == "LDH service error"
 
         # Verify the pipeline status is updated in the database

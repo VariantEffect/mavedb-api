@@ -38,6 +38,7 @@ from mavedb.worker.lib.managers.exceptions import (
     PipelineTransitionError,
 )
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.transaction_spy import TransactionSpy
 
 HANDLED_EXCEPTIONS_DURING_OBJECT_MANIPULATION = (
@@ -992,15 +993,20 @@ class TestCancelRemainingJobsUnit:
         mock_cancel_job.assert_not_called()
 
     @pytest.mark.parametrize(
-        "job_status, expected_status",
-        [(JobStatus.QUEUED, JobStatus.CANCELLED), (JobStatus.RUNNING, JobStatus.CANCELLED)],
+        "job_status",
+        [JobStatus.QUEUED, JobStatus.RUNNING],
     )
     def test_cancel_remaining_jobs_cancels_queued_and_running_jobs(
-        self, mock_pipeline_manager, mock_job_manager, mock_job_run, job_status, expected_status
+        self, mock_pipeline_manager, mock_job_manager, mock_job_run, job_status
     ):
         """Test successful cancellation of remaining jobs."""
         mock_job_run.status = job_status
-        cancellation_result = {"status": expected_status, "reason": "Pipeline cancelled"}
+        cancellation_result = JobExecutionOutcome(
+            status=JobStatus.CANCELLED,
+            data={"reason": "Pipeline cancelled"},
+            error="Pipeline cancelled",
+            exception=None,
+        )
 
         with (
             patch.object(
@@ -1020,17 +1026,15 @@ class TestCancelRemainingJobsUnit:
         mock_cancel_job.assert_called_once_with(result=cancellation_result)
 
     @pytest.mark.parametrize(
-        "job_status, expected_status",
-        [
-            (JobStatus.PENDING, JobStatus.SKIPPED),
-        ],
+        "job_status",
+        [JobStatus.PENDING],
     )
     def test_cancel_remaining_jobs_skips_pending_jobs(
-        self, mock_pipeline_manager, mock_job_manager, mock_job_run, job_status, expected_status
+        self, mock_pipeline_manager, mock_job_manager, mock_job_run, job_status
     ):
         """Test successful cancellation of remaining jobs."""
         mock_job_run.status = job_status
-        cancellation_result = {"status": expected_status, "reason": "Pipeline cancelled"}
+        cancellation_result = JobExecutionOutcome.skipped(data={"reason": "Pipeline cancelled"})
 
         with (
             patch.object(
@@ -2608,7 +2612,9 @@ class TestGetUnsuccessfulJobsUnit:
             TransactionSpy.spy(mock_pipeline_manager.db),
         ):
             mock_pipeline_manager.get_unsuccessful_jobs()
-        mock_get_jobs_by_status.assert_called_once_with([JobStatus.CANCELLED, JobStatus.SKIPPED, JobStatus.FAILED])
+        mock_get_jobs_by_status.assert_called_once_with(
+            [JobStatus.CANCELLED, JobStatus.SKIPPED, JobStatus.FAILED, JobStatus.ERRORED]
+        )
 
 
 @pytest.mark.integration
@@ -3401,7 +3407,7 @@ class TestPipelineManagerLifecycle:
         await arq_redis.flushdb()
 
         # exit job manager decorator: set job to SUCCEEDED
-        job_manager.succeed_job({"status": "ok", "data": {}, "exception": None})
+        job_manager.succeed_job(JobExecutionOutcome.succeeded())
         session.commit()
 
         # exit pipeline manager decorator: enqueue newly queueable jobs or terminate pipeline
@@ -3441,7 +3447,7 @@ class TestPipelineManagerLifecycle:
         await arq_redis.flushdb()
 
         # exit job manager decorator: set dependent job to SUCCEEDED
-        job_manager.succeed_job({"status": "ok", "data": {}, "exception": None})
+        job_manager.succeed_job(JobExecutionOutcome.succeeded())
         session.commit()
 
         # exit pipeline manager decorator: enqueue newly queueable jobs or terminate pipeline
@@ -3495,7 +3501,7 @@ class TestPipelineManagerLifecycle:
         await arq_redis.flushdb()
 
         # Simulate job completion
-        job_manager.succeed_job({"status": "ok", "data": {}, "exception": None})
+        job_manager.succeed_job(JobExecutionOutcome.succeeded())
         session.commit()
 
         # Coordinate the pipeline
@@ -3538,7 +3544,7 @@ class TestPipelineManagerLifecycle:
         await arq_redis.flushdb()
 
         # Simulate dependent job completion
-        dependent_job_manager.succeed_job({"status": "ok", "data": {}, "exception": None})
+        dependent_job_manager.succeed_job(JobExecutionOutcome.succeeded())
         session.commit()
 
         # Coordinate the pipeline
@@ -3645,7 +3651,7 @@ class TestPipelineManagerLifecycle:
         await arq_redis.flushdb()
 
         exc = Exception("Simulated job failure")
-        job_manager.fail_job(error=exc, result={"status": "error", "data": {}, "exception": exc})
+        job_manager.fail_job(result=JobExecutionOutcome.failed(reason=str(exc)))
         session.commit()
 
         # Coordinate the pipeline
@@ -3723,7 +3729,7 @@ class TestPipelineManagerLifecycle:
         await arq_redis.flushdb()
 
         exc = Exception("Simulated job failure")
-        job_manager.fail_job(error=exc, result={"status": "error", "data": {}, "exception": exc})
+        job_manager.fail_job(result=JobExecutionOutcome.failed(reason=str(exc)))
         session.commit()
 
         # Coordinate the pipeline

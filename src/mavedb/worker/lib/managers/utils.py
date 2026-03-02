@@ -11,28 +11,29 @@ from typing import Literal, Optional, Union
 
 from mavedb.models.enums.job_pipeline import DependencyType, JobStatus
 from mavedb.worker.lib.managers.constants import COMPLETED_JOB_STATUSES
-from mavedb.worker.lib.managers.types import JobResultData
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 
 
-def construct_bulk_cancellation_result(reason: str) -> JobResultData:
-    """Construct a standardized JobResultData structure for bulk job cancellations.
+def construct_bulk_cancellation_result(reason: str) -> JobExecutionOutcome:
+    """Construct a standardized JobExecutionOutcome for bulk job cancellations.
 
     Args:
         reason: Human-readable reason for the cancellation
 
     Returns:
-        JobResultData: Standardized result data with cancellation metadata
+        JobExecutionOutcome with cancellation metadata
     """
-    return {
-        "status": "cancelled",
-        "data": {
+    return JobExecutionOutcome(
+        status=JobStatus.CANCELLED,
+        data={
             "reason": reason,
             "timestamp": datetime.now().isoformat(),
         },
-        "exception": None,
-    }
+        error=reason,
+        exception=None,
+    )
 
 
 def job_dependency_is_met(dependency_type: Optional[DependencyType], dependent_job_status: JobStatus) -> bool:
@@ -88,7 +89,7 @@ def job_should_be_skipped_due_to_unfulfillable_dependency(
 
     # If dependency must have SUCCEEDED but is in a terminal non-success state, skip.
     if dependency_type == DependencyType.SUCCESS_REQUIRED:
-        if dependent_job_status in (JobStatus.FAILED, JobStatus.SKIPPED, JobStatus.CANCELLED):
+        if dependent_job_status in (JobStatus.FAILED, JobStatus.ERRORED, JobStatus.SKIPPED, JobStatus.CANCELLED):
             logger.debug(
                 f"Job should be skipped due to unfulfillable 'success_required' dependency "
                 f"({dependent_job_status})."

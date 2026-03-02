@@ -20,7 +20,7 @@ from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.decorators import with_job_management
 from mavedb.worker.lib.decorators.utils import ensure_ctx, ensure_job_id, ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers import PipelineManager
-from mavedb.worker.lib.managers.types import JobResultData
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,9 @@ def with_pipeline_management(func: F) -> F:
     return cast(F, async_wrapper)
 
 
-async def _execute_managed_pipeline(func: Callable[..., Awaitable[JobResultData]], args: tuple, kwargs: dict) -> Any:
+async def _execute_managed_pipeline(
+    func: Callable[..., Awaitable[JobExecutionOutcome]], args: tuple, kwargs: dict
+) -> Any:
     """
     Execute the managed pipeline function with lifecycle management.
 
@@ -178,8 +180,8 @@ async def _execute_managed_pipeline(func: Callable[..., Awaitable[JobResultData]
         finally:
             logger.error(f"Pipeline {pipeline_id} associated with job {job_id} failed to coordinate: {e}")
 
-            # Build job result data for failure
-            result = {"status": "failed", "data": {}, "exception": e}
+            # Build errored result for the unhandled exception
+            result = JobExecutionOutcome.errored(exception=e)
 
             # Notify about the original failure
             send_slack_error(e)
