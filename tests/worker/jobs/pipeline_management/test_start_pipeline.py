@@ -8,12 +8,12 @@ from unittest.mock import call, patch
 
 from sqlalchemy import select
 
-from mavedb.lib.exceptions import PipelineNotFoundError
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.jobs.pipeline_management.start_pipeline import start_pipeline
 from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
@@ -54,8 +54,10 @@ class TestStartPipelineUnit:
             JobManager(session, mock_worker_ctx["redis"], setup_start_pipeline_job_run.id),
         )
 
-        assert result["status"] == "exception"
-        assert isinstance(result["exception"], PipelineNotFoundError)
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.FAILED
+        assert result.error == "No pipeline associated with this job."
+        assert result.exception is None
 
     async def test_start_pipeline_starts_pipeline_successfully(
         self,
@@ -78,7 +80,8 @@ class TestStartPipelineUnit:
                 JobManager(session, mock_worker_ctx["redis"], setup_start_pipeline_job_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
         mock_coordinate_pipeline.assert_called_once()
 
     async def test_start_pipeline_updates_progress(
@@ -107,7 +110,8 @@ class TestStartPipelineUnit:
                 JobManager(session, mock_worker_ctx["redis"], setup_start_pipeline_job_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         mock_update_progress.assert_has_calls(
             [
@@ -162,7 +166,8 @@ class TestStartPipelineIntegration:
 
         with patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error:
             result = await start_pipeline(mock_worker_ctx, sample_dummy_pipeline_start.id)
-            assert result["status"] == "exception"
+            assert isinstance(result, JobExecutionOutcome)
+            assert result.status == JobStatus.FAILED
             mock_send_slack_error.assert_called_once()
 
         # Verify the start job run status
@@ -175,7 +180,8 @@ class TestStartPipelineIntegration:
         """Test that starting a pipeline on a valid job succeeds and coordinates the pipeline."""
 
         result = await start_pipeline(mock_worker_ctx, sample_dummy_pipeline_start.id)
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify the start job run status
         session.refresh(sample_dummy_pipeline_start)
@@ -217,14 +223,15 @@ class TestStartPipelineIntegration:
             patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await start_pipeline(mock_worker_ctx, sample_dummy_pipeline_start.id)
-            assert result["status"] == "exception"
+            assert isinstance(result, JobExecutionOutcome)
+            assert result.status == JobStatus.ERRORED
             mock_send_slack_error.assert_called_once()
 
         # Verify the start job run status
         session.refresh(sample_dummy_pipeline_start)
-        assert sample_dummy_pipeline_start.status == JobStatus.FAILED
+        assert sample_dummy_pipeline_start.status == JobStatus.ERRORED
 
-        # Verify that the pipeline state is updated to CANCELLED
+        # Verify that the pipeline state is updated to FAILED
         session.refresh(sample_dummy_pipeline)
         assert sample_dummy_pipeline.status == PipelineStatus.FAILED
 
@@ -239,7 +246,8 @@ class TestStartPipelineIntegration:
         """Test starting a pipeline that has no jobs defined."""
 
         result = await start_pipeline(mock_worker_ctx, sample_dummy_pipeline_start.id)
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify that a JobRun was created for the start_pipeline job and it succeeded
         session.refresh(sample_dummy_pipeline_start)

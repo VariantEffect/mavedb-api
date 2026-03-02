@@ -15,7 +15,7 @@ from mavedb.worker.lib.decorators.job_guarantee import with_guaranteed_job_run_r
 from mavedb.worker.lib.decorators.job_management import with_job_management
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobResultData
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # TODO#405: Refresh materialized views within an executor.
 @with_guaranteed_job_run_record("cron_job")
 @with_job_management
-async def refresh_materialized_views(ctx: dict, job_id: int, job_manager: JobManager) -> JobResultData:
+async def refresh_materialized_views(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutionOutcome:
     """Refresh all materialized views in the database.
 
     This job refreshes all materialized views to ensure that they are up-to-date
@@ -61,11 +61,11 @@ async def refresh_materialized_views(ctx: dict, job_id: int, job_manager: JobMan
     job_manager.update_progress(100, 100, "Completed refresh of all materialized views.")
     logger.debug(msg="Done refreshing materialized views.", extra=job_manager.logging_context())
 
-    return {"status": "ok", "data": {}, "exception": None}
+    return JobExecutionOutcome.succeeded(data={"views_refreshed": ["all_materialized_views"]})
 
 
 @with_pipeline_management
-async def refresh_published_variants_view(ctx: dict, job_id: int, job_manager: JobManager) -> JobResultData:
+async def refresh_published_variants_view(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutionOutcome:
     """Refresh the published variants materialized view.
 
     This job refreshes the PublishedVariantsMV materialized view to ensure that it
@@ -111,4 +111,4 @@ async def refresh_published_variants_view(ctx: dict, job_id: int, job_manager: J
     job_manager.update_progress(100, 100, "Completed refresh of published variants materialized view.")
     logger.debug(msg="Done refreshing published variants materialized view.", extra=job_manager.logging_context())
 
-    return {"status": "ok", "data": {}, "exception": None}
+    return JobExecutionOutcome.succeeded()

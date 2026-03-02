@@ -10,7 +10,6 @@ from mavedb.lib.exceptions import (
     NonExistentTargetGeneError,
     UniprotAmbiguousMappingResultError,
     UniprotMappingResultNotFoundError,
-    UniProtPollingEnqueueError,
 )
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.target_gene import TargetGene
@@ -20,6 +19,7 @@ from mavedb.worker.jobs.external_services.uniprot import (
     submit_uniprot_mapping_jobs_for_score_set,
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.constants import (
     TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE,
     TEST_UNIPROT_SWISS_PROT_TYPE,
@@ -66,7 +66,8 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
         mock_update_progress.assert_called_with(
             100, 100, "No target genes found. Skipped UniProt mapping job submission."
         )
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify that the job metadata contains no submitted jobs
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -98,7 +99,8 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
             )
 
         mock_update_progress.assert_called_with(100, 100, "No UniProt mapping jobs were submitted.")
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify that the job metadata contains no submitted jobs
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -135,7 +137,8 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
             )
 
         mock_update_progress.assert_called_with(100, 100, "No UniProt mapping jobs were submitted.")
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify that the job metadata contains no submitted jobs
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -176,7 +179,8 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
             )
 
         mock_update_progress.assert_called_with(100, 100, "No UniProt mapping jobs were submitted.")
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify that the job metadata contains no submitted jobs
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -257,8 +261,8 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
             )
 
         mock_update_progress.assert_called_with(100, 100, "Failed to submit UniProt mapping jobs.")
-        assert result["status"] == "failed"
-        assert isinstance(result["exception"], UniProtPollingEnqueueError)
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.FAILED
 
         # Verify that the job metadata contains the submitted jobs (which were submitted before the error)
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -301,7 +305,8 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 ),
             )
 
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         expected_submitted_jobs = {"1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION}}
 
@@ -360,7 +365,8 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 ),
             )
 
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         expected_submitted_jobs = {
             "1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION},
@@ -409,7 +415,8 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 ),
             )
 
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify that progress updates were made
         mock_update_progress.assert_has_calls(
@@ -457,7 +464,8 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
             )
 
         mock_submit_id_mapping.assert_called_once()
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         expected_submitted_jobs = {"1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION}}
 
@@ -507,7 +515,8 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
             )
 
         mock_submit_id_mapping.assert_called_once()
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         expected_submitted_jobs = {"1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION}}
 
@@ -562,7 +571,8 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
             )
 
         mock_submit_id_mapping.assert_not_called()
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify that the job metadata contains no submitted jobs
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -600,7 +610,8 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
             )
 
         mock_submit_id_mapping.assert_not_called()
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify that the job metadata contains no submitted jobs
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -638,7 +649,8 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
             )
 
         mock_submit_id_mapping.assert_not_called()
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify that the job metadata contains no submitted jobs
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -682,16 +694,17 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
             )
 
         mock_send_slack_error.assert_called_once()
-        assert result["status"] == "exception"
-        assert isinstance(result["exception"], Exception)
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.ERRORED
+        assert isinstance(result.exception, Exception)
 
         # Verify that the job metadata contains no submitted jobs
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
         assert sample_submit_uniprot_mapping_jobs_run.metadata_.get("submitted_jobs") is None
 
-        # Verify that the submission job failed
+        # Verify that the submission job errored
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
-        assert sample_submit_uniprot_mapping_jobs_run.status == JobStatus.FAILED
+        assert sample_submit_uniprot_mapping_jobs_run.status == JobStatus.ERRORED
 
         # Verify that the dependent polling job is still pending and no param changes were made
         assert sample_dummy_polling_job_for_submission_run.status == JobStatus.PENDING
@@ -725,7 +738,8 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
                 mock_worker_ctx, sample_submit_uniprot_mapping_jobs_run.id
             )
 
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify that the job metadata contains no submitted jobs
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -779,7 +793,8 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
                 mock_worker_ctx, sample_submit_uniprot_mapping_jobs_run.id
             )
 
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         expected_submitted_jobs = {
             "1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION + "00000"},
@@ -826,8 +841,8 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
             )
 
         mock_send_slack_error.assert_called_once()
-        assert result["status"] == "failed"
-        assert isinstance(result["exception"], UniProtPollingEnqueueError)
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.FAILED
 
         # Verify that the job metadata contains the job we submitted before the error
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -989,9 +1004,9 @@ class TestSubmitUniprotMappingJobsArqContext:
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
         assert sample_submit_uniprot_mapping_jobs_run.metadata_.get("submitted_jobs") is None
 
-        # Verify that the submission job failed
+        # Verify that the submission job errored
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
-        assert sample_submit_uniprot_mapping_jobs_run.status == JobStatus.FAILED
+        assert sample_submit_uniprot_mapping_jobs_run.status == JobStatus.ERRORED
 
         # Verify that the dependent polling job is still pending and no param changes were made
         assert sample_dummy_polling_job_for_submission_run.status == JobStatus.PENDING
@@ -1036,9 +1051,9 @@ class TestSubmitUniprotMappingJobsArqContext:
         session.refresh(sample_submit_uniprot_mapping_jobs_run_in_pipeline)
         assert sample_submit_uniprot_mapping_jobs_run_in_pipeline.metadata_.get("submitted_jobs") is None
 
-        # Verify that the submission job failed
+        # Verify that the submission job errored
         session.refresh(sample_submit_uniprot_mapping_jobs_run_in_pipeline)
-        assert sample_submit_uniprot_mapping_jobs_run_in_pipeline.status == JobStatus.FAILED
+        assert sample_submit_uniprot_mapping_jobs_run_in_pipeline.status == JobStatus.ERRORED
 
         # Verify that the dependent polling job is now cancelled and no param changes were made
         assert sample_dummy_polling_job_for_submission_run_in_pipeline.status == JobStatus.SKIPPED
@@ -1080,7 +1095,8 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
             )
 
         mock_update_progress.assert_called_with(100, 100, "No mapping jobs found to poll.")
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
@@ -1121,7 +1137,8 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 ),
             )
 
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify that progress updates were made
         mock_update_progress.assert_called_with(100, 100, "Completed polling of UniProt mapping jobs.")
@@ -1310,7 +1327,8 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 ),
             )
 
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify that progress updates were made
         mock_update_progress.assert_called_with(100, 100, "Completed polling of UniProt mapping jobs.")
@@ -1369,7 +1387,8 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 ),
             )
 
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify that progress updates were made
         mock_update_progress.assert_called_with(100, 100, "Completed polling of UniProt mapping jobs.")
@@ -1416,7 +1435,8 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 ),
             )
 
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify that progress updates were made incrementally
         mock_update_progress.assert_has_calls(
@@ -1506,7 +1526,8 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
                 mock_worker_ctx, sample_polling_job_for_submission_run.id
             )
 
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify the target gene uniprot id has been updated
         session.refresh(sample_score_set)
@@ -1551,7 +1572,8 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
                 mock_worker_ctx, sample_poll_uniprot_mapping_jobs_run_in_pipeline.id
             )
 
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify the target gene uniprot id has been updated
         session.refresh(sample_score_set)
@@ -1582,7 +1604,8 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
             mock_worker_ctx, sample_polling_job_for_submission_run.id
         )
 
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
@@ -1632,7 +1655,8 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
                 mock_worker_ctx, sample_polling_job_for_submission_run.id
             )
 
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify the target gene uniprot id has been updated for the successful mapping and
         # remains None for the mapping with no job id
@@ -1667,7 +1691,8 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
                 mock_worker_ctx, sample_polling_job_for_submission_run.id
             )
 
-        assert job_result["status"] == "ok"
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.SUCCEEDED
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
@@ -1710,16 +1735,17 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
             )
 
         mock_send_slack_error.assert_called_once()
-        assert result["status"] == "exception"
-        assert isinstance(result["exception"], UniprotMappingResultNotFoundError)
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.ERRORED
+        assert isinstance(result.exception, UniprotMappingResultNotFoundError)
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
         assert sample_score_set.target_genes[0].uniprot_id_from_mapped_metadata is None
 
-        # Verify that the polling job failed
+        # Verify that the polling job errored
         session.refresh(sample_polling_job_for_submission_run)
-        assert sample_polling_job_for_submission_run.status == JobStatus.FAILED
+        assert sample_polling_job_for_submission_run.status == JobStatus.ERRORED
 
     async def test_poll_uniprot_mapping_jobs_ambiguous_results(
         self,
@@ -1769,16 +1795,17 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
             )
 
         mock_send_slack_error.assert_called_once()
-        assert result["status"] == "exception"
-        assert isinstance(result["exception"], UniprotAmbiguousMappingResultError)
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.ERRORED
+        assert isinstance(result.exception, UniprotAmbiguousMappingResultError)
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
         assert sample_score_set.target_genes[0].uniprot_id_from_mapped_metadata is None
 
-        # Verify that the polling job failed
+        # Verify that the polling job errored
         session.refresh(sample_polling_job_for_submission_run)
-        assert sample_polling_job_for_submission_run.status == JobStatus.FAILED
+        assert sample_polling_job_for_submission_run.status == JobStatus.ERRORED
 
     async def test_poll_uniprot_mapping_jobs_nonexistent_target(
         self,
@@ -1811,16 +1838,17 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
             )
 
         mock_send_slack_error.assert_called_once()
-        assert result["status"] == "exception"
-        assert isinstance(result["exception"], NonExistentTargetGeneError)
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.ERRORED
+        assert isinstance(result.exception, NonExistentTargetGeneError)
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
         assert sample_score_set.target_genes[0].uniprot_id_from_mapped_metadata is None
 
-        # Verify that the polling job failed
+        # Verify that the polling job errored
         session.refresh(sample_polling_job_for_submission_run)
-        assert sample_polling_job_for_submission_run.status == JobStatus.FAILED
+        assert sample_polling_job_for_submission_run.status == JobStatus.ERRORED
 
     async def test_poll_uniprot_mapping_jobs_propagates_exceptions_to_decorator(
         self,
@@ -1849,16 +1877,17 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
             )
 
         mock_send_slack_error.assert_called_once()
-        assert result["status"] == "exception"
-        assert isinstance(result["exception"], Exception)
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.ERRORED
+        assert isinstance(result.exception, Exception)
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
         assert sample_score_set.target_genes[0].uniprot_id_from_mapped_metadata is None
 
-        # Verify that the polling job failed
+        # Verify that the polling job errored
         session.refresh(sample_polling_job_for_submission_run)
-        assert sample_polling_job_for_submission_run.status == JobStatus.FAILED
+        assert sample_polling_job_for_submission_run.status == JobStatus.ERRORED
 
 
 @pytest.mark.integration
@@ -1994,9 +2023,9 @@ class TestPollUniprotMappingJobsForScoreSetArqContext:
             await arq_worker.run_check()
 
         mock_send_slack_error.assert_called_once()
-        # Verify that the polling job failed
+        # Verify that the polling job errored
         session.refresh(sample_polling_job_for_submission_run)
-        assert sample_polling_job_for_submission_run.status == JobStatus.FAILED
+        assert sample_polling_job_for_submission_run.status == JobStatus.ERRORED
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
@@ -2035,9 +2064,9 @@ class TestPollUniprotMappingJobsForScoreSetArqContext:
             await arq_worker.run_check()
 
         mock_send_slack_error.assert_called_once()
-        # Verify that the polling job failed
+        # Verify that the polling job errored
         session.refresh(sample_poll_uniprot_mapping_jobs_run_in_pipeline)
-        assert sample_poll_uniprot_mapping_jobs_run_in_pipeline.status == JobStatus.FAILED
+        assert sample_poll_uniprot_mapping_jobs_run_in_pipeline.status == JobStatus.ERRORED
 
         # Verify that the pipeline run status is failed
         session.refresh(sample_poll_uniprot_mapping_jobs_pipeline)

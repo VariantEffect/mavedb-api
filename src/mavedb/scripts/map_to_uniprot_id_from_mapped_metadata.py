@@ -14,7 +14,7 @@ from mavedb.worker.jobs.external_services.uniprot import (
 )
 from mavedb.worker.jobs.registry import STANDALONE_JOB_DEFINITIONS
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobResultData
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from mavedb.worker.settings.lifecycle import standalone_ctx
 
 logger = logging.getLogger(__name__)
@@ -109,7 +109,7 @@ async def main(
         # Despite accepting a third argument for the job manager and MyPy expecting it, this
         # argument will be injected automatically by the decorator. We only need to pass
         # the ctx and job_run.id here for the decorator to generate the job manager.
-        polling_result: JobResultData = await poll_uniprot_mapping_jobs_for_score_set(ctx, polling_run.id)  # type: ignore[call-arg]
+        polling_result: JobExecutionOutcome = await poll_uniprot_mapping_jobs_for_score_set(ctx, polling_run.id)  # type: ignore[call-arg]
         db.refresh(polling_run)
 
         if polling_run.status == JobStatus.SUCCEEDED:
@@ -117,7 +117,7 @@ async def main(
             break
 
         logger.info(
-            f"Polling job for score set URN {score_set_urn} failed on attempt {i + 1} with error: {polling_result.get('exception')}"
+            f"Polling job for score set URN {score_set_urn} failed on attempt {i + 1} with error: {polling_result.error}"
         )
         db.refresh(polling_run)
         job_manager.prepare_retry(f"Polling job failed. Attempting retry in {polling_interval} seconds.")

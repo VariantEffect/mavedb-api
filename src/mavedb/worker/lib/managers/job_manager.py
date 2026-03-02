@@ -58,7 +58,7 @@ from mavedb.worker.lib.managers.exceptions import (
     JobStateError,
     JobTransitionError,
 )
-from mavedb.worker.lib.managers.types import JobResultData, RetryHistoryEntry
+from mavedb.worker.lib.managers.types import JobExecutionOutcome, RetryHistoryEntry
 
 logger = logging.getLogger(__name__)
 
@@ -219,81 +219,52 @@ class JobManager(BaseManager):
         self.save_to_context({"job_status": str(job_run.status)})
         logger.info("Job marked as started", extra=self.logging_context())
 
-    def complete_job(self, status: JobStatus, result: JobResultData, error: Optional[Exception] = None) -> None:
+    def complete_job(self, status: JobStatus, result: JobExecutionOutcome) -> None:
         """Mark job as completed with the specified final status. This method does
         not flush or commit the database session; the caller is responsible for persisting changes.
 
-        Transitions job to the passed terminal status (SUCCEEDED, FAILED, CANCELLED, SKIPPED),
+        Transitions job to a terminal status (SUCCEEDED, FAILED, ERRORED, CANCELLED, SKIPPED),
         recording the finished_at timestamp, result data, and error details if applicable.
 
         Args:
-            status: Final job status - must be a terminal status
-                   (SUCCEEDED, FAILED, CANCELLED, SKIPPED)
-            result: JobResultData to store in metadata. Should be JSON-serializable
-                   dictionary containing any outputs, metrics, or artifacts produced.
-            error: Exception that caused job failure, if applicable. Error details
-                  will be logged and stored for debugging.
-
-        State Changes:
-        - Sets status to the specified terminal status
-        - Sets finished_at timestamp
-        - Stores result in job metadata
-        - Records error details if provided and status is FAILED
+            status: Final job status - must be a terminal status.
+            result: JobExecutionOutcome containing status, data, error, and exception.
 
         Raises:
             DatabaseConnectionError: Cannot fetch job or connect to database
             JobStateError: Cannot save job completion state - critical error
             JobTransitionError: Invalid terminal status provided
-
-        Examples:
-            Successful completion:
-            >>> result_data = {"records_processed": 1500, "errors": 0}
-            >>> manager.complete_job(
-            ...     status=JobStatus.SUCCEEDED,
-            ...     result=result_data
-            ... )
-
-            Failed completion with error:
-            >>> try:
-            ...     process_data()
-            ... except ValidationError as e:
-            ...     manager.complete_job(
-            ...         status=JobStatus.FAILED,
-            ...         result={"partial_results": data},
-            ...         error=e
-            ...     )
-
-        Note:
-            Job completion state is saved independently of any pipeline
-            coordination. Use PipelineManager for coordinating dependent jobs.
         """
         # Validate terminal status
         if status not in TERMINAL_JOB_STATUSES:
             self.save_to_context({"job_status": str(status)})
             logger.error("Invalid job completion status: not in TERMINAL_JOB_STATUSES", extra=self.logging_context())
             raise JobTransitionError(
-                f"Cannot commplete job to status: {status}. Must complete to a terminal status: {TERMINAL_JOB_STATUSES}"
+                f"Cannot complete job to status: {status}. Must complete to a terminal status: {TERMINAL_JOB_STATUSES}"
             )
 
         job_run = self.get_job()
         try:
             job_run.status = status
             job_run.metadata_["result"] = {
-                "status": result["status"],
-                "data": result["data"],
-                "exception_details": format_raised_exception_info_as_dict(result["exception"])  # type: ignore
-                if result.get("exception")
+                "status": result.status.value,
+                "data": result.data,
+                "error": result.error,
+                "exception_details": format_raised_exception_info_as_dict(result.exception)
+                if result.exception
                 else None,
             }
             job_run.finished_at = datetime.now()
 
-            if status == JobStatus.FAILED:
+            if status in (JobStatus.FAILED, JobStatus.ERRORED):
                 job_run.failure_category = FailureCategory.UNKNOWN
 
-            if error:
-                job_run.error_message = str(error)
+            if result.error:
+                job_run.error_message = result.error
+
+            if result.exception:
+                job_run.error_message = str(result.exception)
                 job_run.error_traceback = traceback.format_exc()
-                # TODO: Classify failure category based on error type
                 job_run.failure_category = FailureCategory.UNKNOWN
 
                 self.save_to_context({"failure_category": str(job_run.failure_category)})
@@ -308,135 +279,69 @@ class JobManager(BaseManager):
         self.save_to_context({"job_status": str(job_run.status)})
         logger.info("Job marked as completed", extra=self.logging_context())
 
-    def fail_job(self, error: Exception, result: JobResultData) -> None:
-        """Mark job as failed and record error details. This method does
-        not flush or commit the database session; the caller is responsible for persisting changes.
+    def fail_job(self, result: JobExecutionOutcome) -> None:
+        """Mark job as failed (controlled business logic failure).
 
-        Convenience method for marking job execution as failed. This is equivalent
-        to calling complete_job(status=JobStatus.FAILED, error=error, result=result) but
-        provides clearer intent and a more focused API for failure scenarios.
+        Use this for failures where the job determined the outcome was unsuccessful
+        but no unhandled exception occurred (e.g., validation errors, missing data).
 
         Args:
-            error: Exception that caused job failure. Error details will be logged
-                  and stored for debugging. Used to populate error message and traceback.
-            result: Partial results to store in metadata. Should be
-                   JSON-serializable dictionary containing any partial outputs,
-                   metrics, or debugging information produced before failure.
+            result: JobExecutionOutcome with status=FAILED and a reason string.
 
         Raises:
             DatabaseConnectionError: Cannot fetch job or connect to database
             JobStateError: Cannot save job completion state - critical error
-
-        Examples:
-            Basic failure with exception:
-            >>> try:
-            ...     validate_data(input_data)
-            ... except ValidationError as e:
-            ...     manager.fail_job(error=e, result={})
-
-            Failure with partial results:
-            >>> try:
-            ...     results = process_batch(records)
-            ... except ProcessingError as e:
-            ...     partial_results = {"processed": len(results), "failed_at": e.record_id}
-            ...     manager.fail_job(error=e, result=partial_results)
-
-        Note:
-            This method is equivalent to complete_job(status=JobStatus.FAILED, error=error, result=result).
-            Use this method when job failure is the primary outcome to make intent clearer.
         """
-        self.complete_job(status=JobStatus.FAILED, result=result, error=error)
+        self.complete_job(status=JobStatus.FAILED, result=result)
 
-    def succeed_job(self, result: JobResultData) -> None:
-        """Mark job as succeeded and record results. This method does
-        not flush or commit the database session; the caller is responsible for persisting changes.
+    def error_job(self, result: JobExecutionOutcome) -> None:
+        """Mark job as errored (unhandled exception / system crash).
 
-        Convenience method for marking job execution as successful. This is equivalent
-        to calling complete_job(status=JobStatus.SUCCEEDED, result=result) but provides clearer
-        intent and a more focused API for success scenarios.
+        Use this for failures caused by unhandled exceptions where the job crashed
+        rather than gracefully determining failure (e.g., DB connection lost, unexpected TypeError).
 
         Args:
-            result: Job result data to store in metadata. Should be JSON-serializable
-                   dictionary containing any outputs, metrics, or artifacts produced.
+            result: JobExecutionOutcome with status=ERRORED, an exception, and an error string.
 
         Raises:
             DatabaseConnectionError: Cannot fetch job or connect to database
             JobStateError: Cannot save job completion state - critical error
+        """
+        self.complete_job(status=JobStatus.ERRORED, result=result)
 
-        Examples:
-            Successful completion:
-            >>> result_data = {"records_processed": 1500, "errors": 0, "duration": 45.2}
-            >>> manager.succeed_job(result=result_data)
+    def succeed_job(self, result: JobExecutionOutcome) -> None:
+        """Mark job as succeeded and record results.
 
-            Success with metrics:
-            >>> metrics = {
-            ...     "input_count": 10000,
-            ...     "output_count": 9847,
-            ...     "skipped": 153,
-            ...     "processing_time": 120.5,
-            ...     "memory_peak": "2.1GB"
-            ... }
-            >>> manager.succeed_job(result=metrics)
+        Args:
+            result: JobExecutionOutcome with status=SUCCEEDED and optional data payload.
 
-        Note:
-            This method is equivalent to complete_job(status=JobStatus.SUCCEEDED, result=result).
-            Use this method when job success is the primary outcome to make intent clearer.
+        Raises:
+            DatabaseConnectionError: Cannot fetch job or connect to database
+            JobStateError: Cannot save job completion state - critical error
         """
         self.complete_job(status=JobStatus.SUCCEEDED, result=result)
 
-    def cancel_job(self, result: JobResultData) -> None:
-        """Mark job as cancelled. This method does
-        not flush or commit the database session; the caller is responsible for persisting changes.
-
-        Convenience method for marking job execution as cancelled. This is equivalent
-        to calling complete_job(status=JobStatus.CANCELLED, result=result) but provides
-        clearer intent and a more focused API for cancellation scenarios.
+    def cancel_job(self, result: JobExecutionOutcome) -> None:
+        """Mark job as cancelled.
 
         Args:
-            reason: Human-readable reason for cancellation (e.g., "user_requested",
-                   "pipeline_cancelled", "timeout"). Used for debugging and audit trails.
-            result: Partial results to store in metadata. Should be JSON-serializable
-                   dictionary containing any partial outputs or cancellation details.
-                   If None, defaults to cancellation metadata.
+            result: JobExecutionOutcome with cancellation details.
 
         Raises:
             DatabaseConnectionError: Cannot fetch job or connect to database
             JobStateError: Cannot save job completion state - critical error
-
-        Examples:
-            Basic cancellation:
-            >>> manager.cancel_job({"reason": "user_requested"})
-
-        Note:
-            This method is equivalent to complete_job(status=JobStatus.CANCELLED, result=result).
-            Use this method when job cancellation is the primary outcome to make intent clearer.
         """
         self.complete_job(status=JobStatus.CANCELLED, result=result)
 
-    def skip_job(self, result: JobResultData) -> None:
-        """Mark job as skipped. This method does
-        not flush or commit the database session; the caller is responsible for persisting changes.
-
-        Convenience method for marking job as skipped (not executed). This is equivalent
-        to calling complete_job(status=JobStatus.SKIPPED, result=result) but provides
-        clearer intent and a more focused API for skip scenarios.
+    def skip_job(self, result: JobExecutionOutcome) -> None:
+        """Mark job as skipped (intentionally not executed).
 
         Args:
-            result: Skip details to store in metadata. Should be JSON-serializable
-                   dictionary containing skip reason and context.
-                   If None, defaults to skip metadata.
+            result: JobExecutionOutcome with status=SKIPPED and optional reason in data.
 
         Raises:
             DatabaseConnectionError: Cannot fetch job or connect to database
             JobStateError: Cannot save job completion state - critical error
-
-        Examples:
-            Basic skip:
-            >>> manager.skip_job({"reason": "No work to perform"})
-
-        Note:
-            This method is equivalent to complete_job(status=JobStatus.SKIPPED, result=result).
-            Use this method when job skipping is the primary outcome to make intent clearer.
         """
         self.complete_job(status=JobStatus.SKIPPED, result=result)
 
@@ -497,8 +402,11 @@ class JobManager(BaseManager):
             raise JobTransitionError(f"Cannot retry job {self.job_id} due to invalid state ({job_run.status})")
 
         try:
+            # Snapshot error state before clearing for retry history
+            current_result: dict = job_run.metadata_.get("result", {})
+            previous_error_message = job_run.error_message or ""
+
             job_run.status = JobStatus.PENDING
-            current_result: JobResultData = job_run.metadata_.get("result", {})
             job_run.retry_count = (job_run.retry_count or 0) + 1
             job_run.progress_message = "Job retry prepared"
             job_run.error_message = None
@@ -507,13 +415,14 @@ class JobManager(BaseManager):
             job_run.finished_at = None
             job_run.started_at = None
 
-            # Add retry history - metadata manipulation (risky)
+            # Add summary-only retry history entry.
             retry_history: list[RetryHistoryEntry] = job_run.metadata_.setdefault("retry_history", [])
             retry_history.append(
                 {
                     "attempt": job_run.retry_count,
                     "timestamp": datetime.now().isoformat(),
-                    "result": current_result,
+                    "status": current_result.get("status", "unknown"),
+                    "error_message": previous_error_message,
                     "reason": reason,
                 }
             )
@@ -925,9 +834,9 @@ class JobManager(BaseManager):
                 }
             )
 
-            # Check if job is in FAILED state
-            if job_run.status != JobStatus.FAILED:
-                logger.debug("Job cannot be retried: not in FAILED state", extra=self.logging_context())
+            # Check if job is in a failure state (FAILED or ERRORED)
+            if job_run.status not in (JobStatus.FAILED, JobStatus.ERRORED):
+                logger.debug("Job cannot be retried: not in a failure state", extra=self.logging_context())
                 return False
 
             # Check retry count

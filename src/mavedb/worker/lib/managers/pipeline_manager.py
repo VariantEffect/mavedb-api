@@ -61,6 +61,7 @@ from mavedb.worker.lib.managers.exceptions import (
     PipelineStateError,
     PipelineTransitionError,
 )
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from mavedb.worker.lib.managers.utils import (
     construct_bulk_cancellation_result,
     job_dependency_is_met,
@@ -246,7 +247,7 @@ class PipelineManager(BaseManager):
             JobStateError: Cannot update pipeline status or corrupted job data
 
         Status Logic:
-        - FAILED: Any job has FAILED status
+        - FAILED: Any job has FAILED or ERRORED status
         - RUNNING: Any job is RUNNING or QUEUED
         - SUCCEEDED: All jobs are SUCCEEDED
         - PARTIAL: Mix of SUCCEEDED/SKIPPED/CANCELLED with no FAILED/RUNNING
@@ -284,7 +285,7 @@ class PipelineManager(BaseManager):
 
         # The pipeline is not in a terminal state and has jobs - determine new status
         try:
-            if status_counts.get(JobStatus.FAILED, 0) > 0:
+            if status_counts.get(JobStatus.FAILED, 0) > 0 or status_counts.get(JobStatus.ERRORED, 0) > 0:
                 new_status = PipelineStatus.FAILED
             elif status_counts.get(JobStatus.RUNNING, 0) > 0 or status_counts.get(JobStatus.QUEUED, 0) > 0:
                 new_status = PipelineStatus.RUNNING
@@ -396,11 +397,7 @@ class PipelineManager(BaseManager):
             if should_skip:
                 job_manager.update_status_message(f"Job skipped: {reason}")
                 job_manager.skip_job(
-                    {
-                        "status": "skipped",
-                        "exception": None,
-                        "data": {"result": reason, "timestamp": datetime.now().isoformat()},
-                    }
+                    result=JobExecutionOutcome.skipped(data={"reason": reason, "timestamp": datetime.now().isoformat()})
                 )
                 logger.info(f"Skipped job {job.urn} due to unreachable dependencies: {reason}")
                 continue

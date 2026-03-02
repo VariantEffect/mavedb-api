@@ -20,6 +20,7 @@ from mavedb.models.pipeline import Pipeline
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.transaction_spy import TransactionSpy
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
@@ -45,7 +46,7 @@ async def sample_job(ctx=None, job_id=None):
 
         @with_pipeline_management
         async def patched_sample_job(ctx: dict, job_id: int):
-            return {"status": "ok"}
+            return JobExecutionOutcome.succeeded()
 
         return await patched_sample_job(ctx, job_id)
 
@@ -147,7 +148,8 @@ class TestPipelineManagementDecoratorUnit:
             mock_pipeline_manager_class.return_value = mock_pipeline_manager
             result = await sample_job(mock_worker_ctx, sample_job_run.id)
 
-        assert result == {"status": "ok"}
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
     async def test_decorator_skips_coordination_and_start_when_no_pipeline_exists(
         self, session, mock_pipeline_manager, mock_worker_ctx, sample_independent_job_run, with_populated_job_data
@@ -164,7 +166,8 @@ class TestPipelineManagementDecoratorUnit:
 
         mock_coordinate_pipeline.assert_not_called()
         mock_start_pipeline.assert_not_called()
-        assert result == {"status": "ok"}
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
     async def test_decorator_starts_pipeline_when_in_created_state(
         self, session, mock_pipeline_manager, mock_worker_ctx, sample_job_run, with_populated_job_data
@@ -180,7 +183,8 @@ class TestPipelineManagementDecoratorUnit:
             result = await sample_job(mock_worker_ctx, sample_job_run.id)
 
         mock_start_pipeline.assert_called_once()
-        assert result == {"status": "ok"}
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
     @pytest.mark.parametrize(
         "pipeline_state",
@@ -200,7 +204,8 @@ class TestPipelineManagementDecoratorUnit:
             result = await sample_job(mock_worker_ctx, sample_job_run.id)
 
         mock_start_pipeline.assert_not_called()
-        assert result == {"status": "ok"}
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
     async def test_decorator_calls_pipeline_manager_coordinate_pipeline_after_wrapped_function(
         self, session, mock_pipeline_manager, mock_worker_ctx, sample_job_run, with_populated_job_data
@@ -279,7 +284,7 @@ class TestPipelineManagementDecoratorUnit:
 
             @with_pipeline_management
             async def sample_job(ctx: dict, job_id: int, pipeline_manager: PipelineManager):
-                return {"status": "ok"}
+                return JobExecutionOutcome.succeeded()
 
             await sample_job(mock_worker_ctx, sample_job_run.id, pipeline_manager=mock_pipeline_manager)
 
@@ -316,12 +321,12 @@ class TestPipelineManagementDecoratorIntegration:
         @with_pipeline_management
         async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
             await event.wait()  # Simulate async work, block until test signals
-            return {"status": "ok", "data": {}, "exception": None}
+            return JobExecutionOutcome.succeeded()
 
         @with_pipeline_management
         async def sample_dependent_job(ctx: dict, job_id: int, job_manager: JobManager):
             await dep_event.wait()  # Simulate async work, block until test signals
-            return {"status": "ok", "data": {}, "exception": None}
+            return JobExecutionOutcome.succeeded()
 
         # Start the job (it will block at event.wait())
         job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))
@@ -407,12 +412,12 @@ class TestPipelineManagementDecoratorIntegration:
         @with_pipeline_management
         async def sample_retried_job(ctx: dict, job_id: int, job_manager: JobManager):
             await retry_event.wait()  # Simulate async work, block until test signals
-            return {"status": "ok", "data": {}, "exception": None}
+            return JobExecutionOutcome.succeeded()
 
         @with_pipeline_management
         async def sample_dependent_job(ctx: dict, job_id: int, job_manager: JobManager):
             await dep_event.wait()  # Simulate async work, block until test signals
-            return {"status": "ok", "data": {}, "exception": None}
+            return JobExecutionOutcome.succeeded()
 
         # job management handles slack alerting in this context
         with patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error:
@@ -535,9 +540,9 @@ class TestPipelineManagementDecoratorIntegration:
 
             mock_send_slack_error.assert_called_once()
 
-        # After failure with no retry, status should be FAILED
+        # After failure with no retry, status should be ERRORED (unhandled exception)
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
-        assert job.status == JobStatus.FAILED
+        assert job.status == JobStatus.ERRORED
 
         pipeline = session.execute(select(Pipeline).where(Pipeline.id == sample_pipeline.id)).scalar_one()
 

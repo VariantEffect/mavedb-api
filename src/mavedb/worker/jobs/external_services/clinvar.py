@@ -34,13 +34,13 @@ from mavedb.models.variant import Variant
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobResultData
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 
 
 @with_pipeline_management
-async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManager) -> JobResultData:
+async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutionOutcome:
     """
     Job to refresh ClinVar clinical control data in MaveDB.
 
@@ -53,7 +53,7 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
         job_manager (JobManager): The job manager instance for managing job state.
 
     Returns:
-        JobResultData: The result of the job execution.
+        JobExecutionOutcome: The result of the job execution.
     """
     # Get the job definition we are working on
     job = job_manager.get_job()
@@ -269,4 +269,4 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
     )
     job_manager.update_progress(100, 100, "Completed ClinVar clinical control refresh.")
 
-    return {"status": "ok", "data": {}, "exception": None}
+    return JobExecutionOutcome.succeeded(data={"variants_refreshed": total_variants_to_refresh})

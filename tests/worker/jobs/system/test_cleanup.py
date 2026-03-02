@@ -29,6 +29,7 @@ from mavedb.worker.jobs.system.cleanup import (
     cleanup_stalled_jobs,
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.transaction_spy import TransactionSpy
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
@@ -55,11 +56,12 @@ class TestCleanupStalledJobsUnit:
                 mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
             )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 0
-        assert result["data"]["queued_jobs"] == []
-        assert result["data"]["running_jobs"] == []
-        assert result["data"]["pending_jobs"] == []
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 0
+        assert result.data["queued_jobs"] == []
+        assert result.data["running_jobs"] == []
+        assert result.data["pending_jobs"] == []
 
         # Verify progress updates
         assert mock_update_progress.call_count >= 4  # Start, QUEUED, RUNNING, PENDING
@@ -107,9 +109,10 @@ class TestCleanupStalledJobsUnit:
         )
         mock_worker_ctx["redis"].enqueue_job.assert_called_once()  # Verify a retry job was enqueued
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
-        assert stalled_job.urn in result["data"]["queued_jobs"]
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
+        assert stalled_job.urn in result.data["queued_jobs"]
 
         # Verify job state was updated correctly
         session.refresh(stalled_job)
@@ -140,9 +143,10 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
-        assert stalled_job.urn in result["data"]["queued_jobs"]
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
+        assert stalled_job.urn in result.data["queued_jobs"]
 
         # Verify job was marked as FAILED
         session.refresh(stalled_job)
@@ -174,9 +178,10 @@ class TestCleanupStalledJobsUnit:
         )
         mock_worker_ctx["redis"].enqueue_job.assert_called_once()  # Verify a retry job was enqueued
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
-        assert stalled_job.urn in result["data"]["running_jobs"]
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
+        assert stalled_job.urn in result.data["running_jobs"]
 
         # Verify job state was updated correctly
         session.refresh(stalled_job)
@@ -208,9 +213,10 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
-        assert stalled_job.urn in result["data"]["running_jobs"]
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
+        assert stalled_job.urn in result.data["running_jobs"]
 
         # Verify job was marked as FAILED
         session.refresh(stalled_job)
@@ -246,8 +252,9 @@ class TestCleanupStalledJobsUnit:
             )
 
         # Job should be skipped (not cleaned up)
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 0
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 0
 
         # Slack error should have been sent
         mock_slack.assert_called_once()
@@ -281,9 +288,10 @@ class TestCleanupStalledJobsUnit:
         )
         mock_worker_ctx["redis"].enqueue_job.assert_called_once()  # Verify a retry job was enqueued
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
-        assert stalled_job.urn in result["data"]["pending_jobs"]
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
+        assert stalled_job.urn in result.data["pending_jobs"]
 
         # Verify job state was updated correctly
         session.refresh(stalled_job)
@@ -315,9 +323,10 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
-        assert stalled_job.urn in result["data"]["pending_jobs"]
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
+        assert stalled_job.urn in result.data["pending_jobs"]
 
         # Verify job was marked as FAILED
         session.refresh(stalled_job)
@@ -351,8 +360,9 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Verify job was marked as FAILED due to enqueue failure
         session.refresh(stalled_job)
@@ -417,11 +427,12 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 3
-        assert stalled_queued.urn in result["data"]["queued_jobs"]
-        assert stalled_running.urn in result["data"]["running_jobs"]
-        assert stalled_pending.urn in result["data"]["pending_jobs"]
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 3
+        assert stalled_queued.urn in result.data["queued_jobs"]
+        assert stalled_running.urn in result.data["running_jobs"]
+        assert stalled_pending.urn in result.data["pending_jobs"]
 
         # Verify all jobs were updated correctly
         session.refresh(stalled_queued)
@@ -462,8 +473,9 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Verify job was marked as FAILED due to enqueue failure
         session.refresh(stalled_job)
@@ -499,8 +511,9 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Verify job was marked as FAILED due to enqueue failure
         session.refresh(stalled_job)
@@ -542,8 +555,9 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Verify job was enqueued (dependencies were satisfied)
         mock_worker_ctx["redis"].enqueue_job.assert_called_once()
@@ -586,8 +600,9 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Verify job was enqueued (dependencies were satisfied)
         mock_worker_ctx["redis"].enqueue_job.assert_called_once()
@@ -651,8 +666,9 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Verify job was NOT enqueued (dependencies failed - should be skipped)
         # Job should remain in PENDING state for pipeline manager to handle skipping
@@ -716,8 +732,9 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Verify job was NOT enqueued (dependencies not ready)
         # Job should remain in PENDING state waiting for dependencies
@@ -783,8 +800,9 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Verify job was NOT enqueued (dependencies failed)
         session.refresh(stalled_job)
@@ -847,8 +865,9 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Verify job was NOT enqueued (dependencies failed)
         session.refresh(stalled_job)
@@ -912,8 +931,9 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Verify job was NOT enqueued (dependencies not ready)
         session.refresh(stalled_job)
@@ -976,8 +996,9 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Verify job was NOT enqueued (dependencies not ready)
         session.refresh(stalled_job)
@@ -1046,8 +1067,9 @@ class TestCleanupStalledJobsUnit:
             mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
         )
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 0
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 0
 
         # Verify the valid job was not altered
         session.refresh(valid_running_job)
@@ -1083,8 +1105,9 @@ class TestCleanupStalledJobsIntegration:
         assert cleanup_job.job_type == "cron_job"
 
         # Verify no jobs were cleaned
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 0
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 0
 
     async def test_cleanup_integration_stalled_queued_job_gets_retried(self, standalone_worker_context, session):
         """Integration test: stalled QUEUED job is retried."""
@@ -1106,8 +1129,9 @@ class TestCleanupStalledJobsIntegration:
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
         # Verify cleanup succeeded
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Verify the stalled job was reset to PENDING for retry
         session.refresh(stalled_job)
@@ -1135,8 +1159,9 @@ class TestCleanupStalledJobsIntegration:
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
         # Verify cleanup succeeded
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Verify the stalled job was reset to PENDING for retry
         session.refresh(stalled_job)
@@ -1165,8 +1190,9 @@ class TestCleanupStalledJobsIntegration:
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
         # Verify cleanup succeeded
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Verify the stalled job was marked as FAILED
         session.refresh(stalled_job)
@@ -1205,8 +1231,9 @@ class TestCleanupStalledJobsIntegration:
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
         # Verify cleanup succeeded
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Verify the stalled job was reset for retry
         session.refresh(stalled_job)
@@ -1246,8 +1273,9 @@ class TestCleanupStalledJobsIntegration:
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
         # Verify no jobs were cleaned
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 0
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 0
 
         # Verify jobs remain unchanged
         session.refresh(recent_queued)
@@ -1288,18 +1316,19 @@ class TestCleanupStalledJobsIntegration:
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
         # Verify cleanup succeeded with progress through all states
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 2
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 2
 
         # Verify result structure contains detailed breakdown
-        assert "queued_jobs" in result["data"]
-        assert "running_jobs" in result["data"]
-        assert "pending_jobs" in result["data"]
+        assert "queued_jobs" in result.data
+        assert "running_jobs" in result.data
+        assert "pending_jobs" in result.data
 
         # Verify both jobs were processed
-        assert len(result["data"]["queued_jobs"]) == 1
-        assert len(result["data"]["running_jobs"]) == 1
-        assert len(result["data"]["pending_jobs"]) == 0
+        assert len(result.data["queued_jobs"]) == 1
+        assert len(result.data["running_jobs"]) == 1
+        assert len(result.data["pending_jobs"]) == 0
 
     async def test_cleanup_integration_stalled_running_job_max_retries_reached(
         self, standalone_worker_context, session
@@ -1322,8 +1351,9 @@ class TestCleanupStalledJobsIntegration:
         with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         session.refresh(stalled_job)
         assert stalled_job.status == JobStatus.FAILED
@@ -1350,8 +1380,9 @@ class TestCleanupStalledJobsIntegration:
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
         # Job is skipped (not cleaned) when started_at is missing
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 0
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 0
 
         # Job remains unchanged
         session.refresh(stalled_job)
@@ -1376,8 +1407,9 @@ class TestCleanupStalledJobsIntegration:
         with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         session.refresh(stalled_job)
         assert stalled_job.status == JobStatus.QUEUED
@@ -1403,8 +1435,9 @@ class TestCleanupStalledJobsIntegration:
         with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         session.refresh(stalled_job)
         assert stalled_job.status == JobStatus.FAILED
@@ -1453,8 +1486,9 @@ class TestCleanupStalledJobsIntegration:
         with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 3
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 3
 
         session.refresh(queued_job)
         session.refresh(running_job)
@@ -1521,8 +1555,9 @@ class TestCleanupStalledJobsIntegration:
         with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         session.refresh(stalled_job)
         assert stalled_job.status == JobStatus.QUEUED
@@ -1582,8 +1617,9 @@ class TestCleanupStalledJobsIntegration:
         with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Job should be in PENDING, not enqueued
         session.refresh(stalled_job)
@@ -1644,8 +1680,9 @@ class TestCleanupStalledJobsIntegration:
         with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Job should be in PENDING, waiting for dependencies
         session.refresh(stalled_job)
@@ -1707,8 +1744,9 @@ class TestCleanupStalledJobsIntegration:
         with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Job should be in PENDING, not enqueued
         session.refresh(stalled_job)
@@ -1769,8 +1807,9 @@ class TestCleanupStalledJobsIntegration:
         with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Job should remain in PENDING, not enqueued
         session.refresh(stalled_job)
@@ -1832,8 +1871,9 @@ class TestCleanupStalledJobsIntegration:
         with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Job should be in PENDING, waiting for dependencies
         session.refresh(stalled_job)
@@ -1894,8 +1934,9 @@ class TestCleanupStalledJobsIntegration:
         with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
             result = await cleanup_stalled_jobs(standalone_worker_context)
 
-        assert result["status"] == "ok"
-        assert result["data"]["total_cleaned"] == 1
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
 
         # Job should remain in PENDING, waiting for dependencies
         session.refresh(stalled_job)

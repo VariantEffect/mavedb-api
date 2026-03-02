@@ -100,7 +100,7 @@ class JobRun(Base):
         Index("ix_job_runs_correlation_id", "correlation_id"),
         Index("ix_job_runs_status_scheduled", "status", "scheduled_at"),
         CheckConstraint(
-            "status IN ('pending', 'queued', 'running', 'succeeded', 'failed', 'cancelled', 'skipped')",
+            "status IN ('pending', 'queued', 'running', 'succeeded', 'failed', 'errored', 'cancelled', 'skipped')",
             name="ck_job_runs_status_valid",
         ),
         CheckConstraint("priority >= 0", name="ck_job_runs_priority_positive"),

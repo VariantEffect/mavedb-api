@@ -25,13 +25,13 @@ from mavedb.models.variant import Variant
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobResultData
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 
 
 @with_pipeline_management
-async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobManager) -> JobResultData:
+async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutionOutcome:
     """
     Create variants for a given ScoreSet based on uploaded score and count data.
 
@@ -227,7 +227,9 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
             msg="Encountered an internal exception while processing variants.", extra=job_manager.logging_context()
         )
 
-        return {"status": "failed" if isinstance(e, ValidationError) else "exception", "data": {}, "exception": e}
+        if isinstance(e, ValidationError):
+            return JobExecutionOutcome.failed(reason=str(e), data={"score_set_id": score_set.id})
+        raise
 
     else:
         score_set.processing_state = ProcessingState.success
@@ -249,4 +251,4 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
 
     job_manager.update_progress(100, 100, "Completed variant creation job.")
     logger.info(msg="Added new variants to score set.", extra=job_manager.logging_context())
-    return {"status": "ok", "data": {}, "exception": None}
+    return JobExecutionOutcome.succeeded(data={"score_set_id": score_set.id, "variant_count": score_set.num_variants})

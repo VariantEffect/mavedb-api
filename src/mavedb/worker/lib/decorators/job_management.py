@@ -1,7 +1,7 @@
 """
 Managed Job Decorator - Unified decorator for complete job lifecycle management.
 
-Provides automatic job lifecycle tracking with support for both sync and async functions.
+Provides automatic job lifecycle tracking with support for async functions.
 Includes JobManager injection for advanced operations and robust error handling.
 """
 
@@ -17,7 +17,7 @@ from mavedb.lib.slack import send_slack_error
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.worker.lib.decorators.utils import ensure_ctx, ensure_job_id, ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers import JobManager
-from mavedb.worker.lib.managers.types import JobResultData
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -35,24 +35,6 @@ def with_job_management(func: F) -> F:
 
     The decorator injects a 'job_manager' parameter into the function that provides
     access to progress updates and the underlying JobManager.
-
-    Example:
-    ```
-        @with_job_management
-        async def my_job_function(ctx, param1, param2, job_manager: JobManager):
-            job_manager.update_progress(10, message="Starting work")
-
-            # Access JobManager for advanced operations
-            job_info = job_manager.get_job_info()
-
-            # Do work...
-            job_manager.update_progress(50, message="Halfway done")
-
-            # More work...
-            job_manager.update_progress(100, message="Complete")
-
-            return {"result": "success"}
-    ```
 
     Args:
         func: The async function to decorate
@@ -75,29 +57,8 @@ def with_job_management(func: F) -> F:
     return cast(F, async_wrapper)
 
 
-async def _execute_managed_job(func: Callable[..., Awaitable[JobResultData]], args: tuple, kwargs: dict) -> Any:
-    """
-    Execute a managed ARQ job with full lifecycle tracking.
-
-    This function handles the complete job lifecycle including:
-    - JobManager initialization from context
-    - Job start tracking
-    - ProgressTracker injection
-    - Async function execution
-    - Job completion tracking
-    - Error handling and cleanup
-
-    Args:
-        func: Async function to execute
-        args: Function arguments
-        kwargs: Function keyword arguments
-
-    Returns:
-        Function result
-
-    Raises:
-        Exception: Re-raises any exception after proper job failure tracking
-    """
+async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome]], args: tuple, kwargs: dict) -> Any:
+    """Execute a managed ARQ job with full lifecycle tracking."""
     try:
         ctx = ensure_ctx(args)
         db_session: Session = ctx["db"]
@@ -125,13 +86,17 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobResultData]], ar
         # Execute the async function
         result = await func(*args, **kwargs)
 
-        # Move job to final state based on result
-        if result.get("status") == "failed" or result.get("exception"):
-            # Exception info should always be present for failed jobs
-            job_manager.fail_job(result=result, error=result["exception"])  # type: ignore[arg-type]
-            send_slack_error(result["exception"])
+        # Move job to final state based on result status
+        if result.status == JobStatus.FAILED:
+            job_manager.fail_job(result=result)
+            if result.error:
+                send_slack_error(result.error)
 
-        elif result.get("status") == "skipped":
+        elif result.status == JobStatus.ERRORED:
+            job_manager.error_job(result=result)
+            send_slack_error(result.exception or result.error)
+
+        elif result.status == JobStatus.SKIPPED:
             job_manager.skip_job(result=result)
         else:
             job_manager.succeed_job(result=result)
@@ -149,25 +114,24 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobResultData]], ar
         try:
             db_session.rollback()
 
-            # Build failure result data
-            result = {"status": "exception", "data": {}, "exception": e}
+            # Build errored result — this is an unhandled exception
+            result = JobExecutionOutcome.errored(exception=e)
 
-            # Mark job as failed
-            job_manager.fail_job(result=result, error=e)
+            # Mark job as errored
+            job_manager.error_job(result=result)
             db_session.commit()
 
-            # TODO: Decide on retry logic based on exception type and result.
             if job_manager.should_retry():
                 # Prepare job for retry and persist state
                 job_manager.prepare_retry(reason=str(e))
                 db_session.commit()
 
-                # short circuit raising the exception. We indicate to the caller
+                # Short circuit raising the exception. We indicate to the caller
                 # we did encounter a terminal failure and coordination should proceed.
                 return result
 
         except Exception as inner_e:
-            logger.critical(f"Failed to mark job {job_id} as failed: {inner_e}")
+            logger.critical(f"Failed to mark job {job_id} as errored: {inner_e}")
 
             # Notify separately about inner failure, which affects job persistence
             send_slack_error(inner_e)

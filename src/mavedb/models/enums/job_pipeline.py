@@ -10,6 +10,7 @@ class JobStatus(str, Enum):
 
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    ERRORED = "errored"
     PENDING = "pending"
     QUEUED = "queued"
     RUNNING = "running"

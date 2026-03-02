@@ -18,6 +18,7 @@ from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.worker.jobs.external_services.clinvar import refresh_clinvar_controls
 from mavedb.worker.lib.managers.job_manager import JobManager
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
@@ -117,7 +118,8 @@ class TestRefreshClinvarControlsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
     async def test_refresh_clinvar_controls_no_variants_have_caids(
         self,
@@ -157,7 +159,8 @@ class TestRefreshClinvarControlsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify an annotation status was created for the variant without a CAID
         variant_no_caid = (
@@ -191,7 +194,8 @@ class TestRefreshClinvarControlsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify an annotation status was created for the multi-variant CAID
         variant_with_multicid = (
@@ -233,7 +237,8 @@ class TestRefreshClinvarControlsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify an annotation status was created for the variant due to ClinGen API failure
         mapped_variant = session.query(MappedVariant).first()
@@ -273,7 +278,8 @@ class TestRefreshClinvarControlsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify an annotation status was created for the variant due to no associated ClinVar Allele ID
         mapped_variant = session.query(MappedVariant).first()
@@ -317,7 +323,8 @@ class TestRefreshClinvarControlsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify an annotation status was created for the variant due to no ClinVar data found
         mapped_variant = session.query(MappedVariant).first()
@@ -357,7 +364,8 @@ class TestRefreshClinvarControlsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify an annotation status was created for the variant with successful annotation
         mapped_variant = session.query(MappedVariant).first()
@@ -416,7 +424,8 @@ class TestRefreshClinvarControlsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify an annotation status was created for the variant with successful annotation
         annotated_variant = (
@@ -465,8 +474,10 @@ class TestRefreshClinvarControlsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
             )
 
-        assert result1["status"] == "ok"
-        assert result2["status"] == "ok"
+        assert isinstance(result1, JobExecutionOutcome)
+        assert result1.status == JobStatus.SUCCEEDED
+        assert isinstance(result2, JobExecutionOutcome)
+        assert result2.status == JobStatus.SUCCEEDED
 
         # Verify only one clinical control annotation exists for the variant
         clinical_controls = session.query(ClinicalControl).all()
@@ -536,7 +547,8 @@ class TestRefreshClinvarControlsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify annotation statuses for both variants
         variant_with_api_failure = (
@@ -585,7 +597,8 @@ class TestRefreshClinvarControlsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
             )
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         mock_update_progress.assert_has_calls(
             [
@@ -621,7 +634,8 @@ class TestRefreshClinvarControlsIntegration:
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify no controls were added
         clinical_controls = session.query(ClinicalControl).all()
@@ -672,7 +686,8 @@ class TestRefreshClinvarControlsIntegration:
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify an annotation status was created for the variant without a CAID
         variant_no_caid = (
@@ -728,7 +743,8 @@ class TestRefreshClinvarControlsIntegration:
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify an annotation status was created for the multi-variant CAID
         variant_with_multicid = (
@@ -794,7 +810,8 @@ class TestRefreshClinvarControlsIntegration:
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify an annotation status was created for the variant due to no associated ClinVar Allele ID
         variant_no_clinvar_allele = (
@@ -857,7 +874,8 @@ class TestRefreshClinvarControlsIntegration:
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify an annotation status was created for the variant due to no ClinVar data found
         variant_no_clinvar_data = (
@@ -933,7 +951,8 @@ class TestRefreshClinvarControlsIntegration:
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify an annotation status was created for the variant with successful annotation
         annotated_variant = (
@@ -998,7 +1017,8 @@ class TestRefreshClinvarControlsIntegration:
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify an annotation status was created for the variant with successful annotation
         annotated_variant = (
@@ -1064,7 +1084,8 @@ class TestRefreshClinvarControlsIntegration:
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_in_pipeline.id)
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify an annotation status was created for the variant with successful annotation
         annotated_variant = (
@@ -1123,8 +1144,10 @@ class TestRefreshClinvarControlsIntegration:
             # Second run
             result2 = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
 
-        assert result1["status"] == "ok"
-        assert result2["status"] == "ok"
+        assert isinstance(result1, JobExecutionOutcome)
+        assert result1.status == JobStatus.SUCCEEDED
+        assert isinstance(result2, JobExecutionOutcome)
+        assert result2.status == JobStatus.SUCCEEDED
 
         # Verify only one clinical control annotation exists for the variant
         clinical_controls = session.query(ClinicalControl).all()
@@ -1194,7 +1217,8 @@ class TestRefreshClinvarControlsIntegration:
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
 
-        assert result["status"] == "ok"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
 
         # Verify annotation statuses for both variants
         variant_with_api_failure = (
@@ -1257,7 +1281,8 @@ class TestRefreshClinvarControlsIntegration:
                 JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
             )
 
-        assert result["status"] == "exception"
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.ERRORED
 
         # Verify no annotation statuses were created
         annotation_statuses = session.query(VariantAnnotationStatus).all()
@@ -1267,9 +1292,9 @@ class TestRefreshClinvarControlsIntegration:
         clinical_controls = session.query(ClinicalControl).all()
         assert len(clinical_controls) == 0
 
-        # Verify job run status is marked as failed
+        # Verify job run status is marked as errored (unhandled exception caught by decorator)
         session.refresh(sample_refresh_clinvar_controls_job_run)
-        assert sample_refresh_clinvar_controls_job_run.status == JobStatus.FAILED
+        assert sample_refresh_clinvar_controls_job_run.status == JobStatus.ERRORED
 
 
 @pytest.mark.asyncio
@@ -1396,9 +1421,9 @@ class TestRefreshClinvarControlsArqContext:
         clinical_controls = session.query(ClinicalControl).all()
         assert len(clinical_controls) == 0
 
-        # Verify job run status is marked as failed
+        # Verify job run status is marked as errored (unhandled exception caught by decorator)
         session.refresh(sample_refresh_clinvar_controls_job_run)
-        assert sample_refresh_clinvar_controls_job_run.status == JobStatus.FAILED
+        assert sample_refresh_clinvar_controls_job_run.status == JobStatus.ERRORED
 
     async def test_refresh_clinvar_controls_with_arq_context_exception_handling_pipeline(
         self,
@@ -1434,9 +1459,9 @@ class TestRefreshClinvarControlsArqContext:
         clinical_controls = session.query(ClinicalControl).all()
         assert len(clinical_controls) == 0
 
-        # Verify job run status is marked as failed
+        # Verify job run status is marked as errored (unhandled exception caught by decorator)
         session.refresh(sample_refresh_clinvar_controls_job_run)
-        assert sample_refresh_clinvar_controls_job_run.status == JobStatus.FAILED
+        assert sample_refresh_clinvar_controls_job_run.status == JobStatus.ERRORED
 
         # Verify the pipeline is marked as failed
         pass

@@ -33,6 +33,7 @@ from mavedb.worker.lib.managers.exceptions import (
     JobTransitionError,
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.transaction_spy import TransactionSpy
 
 HANDLED_EXCEPTIONS_DURING_OBJECT_MANIPULATION = (
@@ -235,12 +236,12 @@ class TestJobCompletionUnit:
             pytest.raises(
                 JobTransitionError,
                 match=re.escape(
-                    f"Cannot commplete job to status: {invalid_status}. Must complete to a terminal status: {TERMINAL_JOB_STATUSES}"
+                    f"Cannot complete job to status: {invalid_status}. Must complete to a terminal status: {TERMINAL_JOB_STATUSES}"
                 ),
             ),
             TransactionSpy.spy(mock_job_manager.db),
         ):
-            mock_job_manager.complete_job(status=invalid_status, result={})
+            mock_job_manager.complete_job(status=invalid_status, result=JobExecutionOutcome.succeeded())
 
         # Verify job state on the mocked object remains unchanged.
         assert mock_job_run.status == invalid_status
@@ -279,7 +280,7 @@ class TestJobCompletionUnit:
             TransactionSpy.spy(mock_job_manager.db),
         ):
             type(mock_job_run).status = PropertyMock(side_effect=get_or_error)
-            mock_job_manager.complete_job(status=valid_status, result={})
+            mock_job_manager.complete_job(status=valid_status, result=JobExecutionOutcome.succeeded())
 
         # Verify job state on the mocked object remains unchanged. Although it's theoretically
         # possible some job state is manipulated prior to an error being raised, our specific
@@ -298,7 +299,7 @@ class TestJobCompletionUnit:
         # Complete job. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(mock_job_manager.db):
             mock_job_manager.complete_job(
-                status=JobStatus.FAILED, result={"status": "failed", "data": {}, "exception": Exception()}
+                status=JobStatus.FAILED, result=JobExecutionOutcome.failed(reason="test failure")
             )
 
         # Verify job state was updated on our mock object with expected values.
@@ -308,10 +309,11 @@ class TestJobCompletionUnit:
             "result": {
                 "status": "failed",
                 "data": {},
-                "exception_details": format_raised_exception_info_as_dict(Exception()),
+                "error": "test failure",
+                "exception_details": None,
             }
         }
-        assert mock_job_run.error_message is None
+        assert mock_job_run.error_message == "test failure"
         assert mock_job_run.error_traceback is None
         assert mock_job_run.failure_category == FailureCategory.UNKNOWN
 
@@ -326,20 +328,23 @@ class TestJobCompletionUnit:
     def test_complete_job_success(self, mock_job_manager, valid_status, exception, mock_job_run):
         """Test successful job completion."""
 
+        # Build the appropriate JobExecutionOutcome based on whether an exception is present.
+        if exception:
+            outcome = JobExecutionOutcome.errored(exception=exception, data={"output": "test"})
+        else:
+            outcome = JobExecutionOutcome.succeeded(data={"output": "test"})
+
         # Complete job. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(mock_job_manager.db):
-            mock_job_manager.complete_job(
-                status=valid_status,
-                result={"status": "ok", "data": {"output": "test"}, "exception": exception},
-                error=exception,
-            )
+            mock_job_manager.complete_job(status=valid_status, result=outcome)
 
         # Verify job state was updated on our mock object with expected values.
         assert mock_job_run.status == valid_status
         assert mock_job_run.finished_at is not None
         assert mock_job_run.metadata_["result"] == {
-            "status": "ok",
+            "status": outcome.status.value,
             "data": {"output": "test"},
+            "error": outcome.error,
             "exception_details": format_raised_exception_info_as_dict(exception) if exception else None,
         }
 
@@ -380,11 +385,11 @@ class TestJobCompletionIntegration:
             pytest.raises(
                 JobTransitionError,
                 match=re.escape(
-                    f"Cannot commplete job to status: {invalid_status}. Must complete to a terminal status: {TERMINAL_JOB_STATUSES}"
+                    f"Cannot complete job to status: {invalid_status}. Must complete to a terminal status: {TERMINAL_JOB_STATUSES}"
                 ),
             ),
         ):
-            manager.complete_job(status=invalid_status, result={"output": "test"})
+            manager.complete_job(status=invalid_status, result=JobExecutionOutcome.succeeded(data={"output": "test"}))
 
     @pytest.mark.parametrize(
         "valid_status",
@@ -398,9 +403,7 @@ class TestJobCompletionIntegration:
 
         # Complete job. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(manager.db):
-            manager.complete_job(
-                status=valid_status, result={"status": "ok", "data": {"output": "test"}, "exception": None}
-            )
+            manager.complete_job(status=valid_status, result=JobExecutionOutcome.succeeded(data={"output": "test"}))
 
         # Commit pending changes made by start job.
         session.flush()
@@ -410,13 +413,15 @@ class TestJobCompletionIntegration:
 
         assert job.status == valid_status
         assert job.finished_at is not None
-        assert job.metadata_ == {"result": {"status": "ok", "data": {"output": "test"}, "exception_details": None}}
+        assert job.metadata_ == {
+            "result": {"status": "succeeded", "data": {"output": "test"}, "error": None, "exception_details": None}
+        }
         assert job.error_message is None
         assert job.error_traceback is None
 
         # For cases where no error is provided, verify failure category is set appropriately based
-        # on status. We automatically set UNKNOWN for FAILED status if no error is given.
-        if valid_status == JobStatus.FAILED:
+        # on status. We automatically set UNKNOWN for FAILED/ERRORED status if no error is given.
+        if valid_status in (JobStatus.FAILED, JobStatus.ERRORED):
             assert job.failure_category == FailureCategory.UNKNOWN
         else:
             assert job.failure_category is None
@@ -432,15 +437,11 @@ class TestJobCompletionIntegration:
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
         # Complete job. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
+        test_exception = ValueError("Test error")
         with TransactionSpy.spy(manager.db):
             manager.complete_job(
                 status=valid_status,
-                result={
-                    "status": "ok",
-                    "data": {"output": "test"},
-                    "exception": ValueError("Test error"),
-                },
-                error=ValueError("Test error"),
+                result=JobExecutionOutcome.errored(exception=test_exception, data={"output": "test"}),
             )
 
         # Commit pending changes made by start job.
@@ -453,9 +454,10 @@ class TestJobCompletionIntegration:
         assert job.finished_at is not None
         assert job.metadata_ == {
             "result": {
-                "status": "ok",
+                "status": "errored",
                 "data": {"output": "test"},
-                "exception_details": format_raised_exception_info_as_dict(ValueError("Test error")),
+                "error": "Test error",
+                "exception_details": format_raised_exception_info_as_dict(test_exception),
             }
         }
         assert job.error_message == "Test error"
@@ -470,23 +472,19 @@ class TestJobFailureUnit:
     def test_fail_job_success(self, mock_job_manager, mock_job_run):
         """Test that fail_job calls complete_job with status=JobStatus.FAILED."""
 
-        # Fail job with a test exception. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
-        # This convenience expects an exception to be provided. To fail a job without an exception, callers should use complete_job directly.
-        test_exception = Exception("Test exception")
+        # Fail job with a controlled failure reason. Spy on transaction to ensure nothing is
+        # flushed/rolled back/committed prematurely.
+        result = JobExecutionOutcome.failed(reason="Test exception", data={"output": "test"})
         with (
             patch.object(mock_job_manager, "complete_job", wraps=mock_job_manager.complete_job) as mock_complete_job,
             TransactionSpy.spy(mock_job_manager.db),
         ):
-            mock_job_manager.fail_job(
-                error=test_exception,
-                result={"status": "failed", "data": {"output": "test"}, "exception": test_exception},
-            )
+            mock_job_manager.fail_job(result=result)
 
         # Verify this function is a thin wrapper around complete_job with expected parameters.
         mock_complete_job.assert_called_once_with(
             status=JobStatus.FAILED,
-            result={"status": "failed", "data": {"output": "test"}, "exception": test_exception},
-            error=test_exception,
+            result=result,
         )
 
         # Verify job state was updated on our mock object with expected values.
@@ -496,11 +494,12 @@ class TestJobFailureUnit:
             "result": {
                 "status": "failed",
                 "data": {"output": "test"},
-                "exception_details": format_raised_exception_info_as_dict(test_exception),
+                "error": "Test exception",
+                "exception_details": None,
             }
         }
-        assert mock_job_run.error_message == str(test_exception)
-        assert mock_job_run.error_traceback is not None
+        assert mock_job_run.error_message == "Test exception"
+        assert mock_job_run.error_traceback is None
         assert mock_job_run.failure_category == FailureCategory.UNKNOWN
 
 
@@ -512,9 +511,8 @@ class TestJobFailureIntegration:
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
         # Fail job. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
-        exc = ValueError("Test error")
         with TransactionSpy.spy(manager.db):
-            manager.fail_job(result={"status": "failed", "data": {}, "exception": exc}, error=exc)
+            manager.fail_job(result=JobExecutionOutcome.failed(reason="Test error"))
 
         # Commit pending changes made by fail job.
         session.flush()
@@ -525,10 +523,10 @@ class TestJobFailureIntegration:
         assert job.status == JobStatus.FAILED
         assert job.finished_at is not None
         assert job.metadata_ == {
-            "result": {"status": "failed", "data": {}, "exception_details": format_raised_exception_info_as_dict(exc)}
+            "result": {"status": "failed", "data": {}, "error": "Test error", "exception_details": None}
         }
         assert job.error_message == "Test error"
-        assert job.error_traceback is not None
+        assert job.error_traceback is None
         assert job.failure_category == FailureCategory.UNKNOWN
 
 
@@ -540,22 +538,21 @@ class TestJobSuccessUnit:
         """Test that succeed_job calls complete_job with status=JobStatus.SUCCEEDED."""
 
         # Succeed job. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
+        result = JobExecutionOutcome.succeeded(data={"output": "test"})
         with (
             patch.object(mock_job_manager, "complete_job", wraps=mock_job_manager.complete_job) as mock_complete_job,
             TransactionSpy.spy(mock_job_manager.db),
         ):
-            mock_job_manager.succeed_job(result={"status": "ok", "data": {"output": "test"}, "exception": None})
+            mock_job_manager.succeed_job(result=result)
 
         # Verify this function is a thin wrapper around complete_job with expected parameters.
-        mock_complete_job.assert_called_once_with(
-            status=JobStatus.SUCCEEDED, result={"status": "ok", "data": {"output": "test"}, "exception": None}
-        )
+        mock_complete_job.assert_called_once_with(status=JobStatus.SUCCEEDED, result=result)
 
         # Verify job state was updated on our mock object with expected values.
         assert mock_job_run.status == JobStatus.SUCCEEDED
         assert mock_job_run.finished_at is not None
         assert mock_job_run.metadata_ == {
-            "result": {"status": "ok", "data": {"output": "test"}, "exception_details": None}
+            "result": {"status": "succeeded", "data": {"output": "test"}, "error": None, "exception_details": None}
         }
         assert mock_job_run.error_message is None
         assert mock_job_run.error_traceback is None
@@ -571,7 +568,7 @@ class TestJobSuccessIntegration:
 
         # Complete job. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(manager.db):
-            manager.succeed_job(result={"status": "ok", "data": {"output": "test"}, "exception": None})
+            manager.succeed_job(result=JobExecutionOutcome.succeeded(data={"output": "test"}))
 
         # Commit pending changes made by start job.
         session.flush()
@@ -581,7 +578,9 @@ class TestJobSuccessIntegration:
 
         assert job.status == JobStatus.SUCCEEDED
         assert job.finished_at is not None
-        assert job.metadata_ == {"result": {"status": "ok", "data": {"output": "test"}, "exception_details": None}}
+        assert job.metadata_ == {
+            "result": {"status": "succeeded", "data": {"output": "test"}, "error": None, "exception_details": None}
+        }
         assert job.error_message is None
         assert job.error_traceback is None
         assert job.failure_category is None
@@ -595,22 +594,21 @@ class TestJobCancellationUnit:
         """Test that cancel_job calls complete_job with status=JobStatus.CANCELLED."""
 
         # Cancel job. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
+        result = JobExecutionOutcome(status=JobStatus.CANCELLED, data={"output": "test"}, error=None, exception=None)
         with (
             patch.object(mock_job_manager, "complete_job", wraps=mock_job_manager.complete_job) as mock_complete_job,
             TransactionSpy.spy(mock_job_manager.db),
         ):
-            mock_job_manager.cancel_job(result={"status": "ok", "data": {"output": "test"}, "exception": None})
+            mock_job_manager.cancel_job(result=result)
 
         # Verify this function is a thin wrapper around complete_job with expected parameters.
-        mock_complete_job.assert_called_once_with(
-            status=JobStatus.CANCELLED, result={"status": "ok", "data": {"output": "test"}, "exception": None}
-        )
+        mock_complete_job.assert_called_once_with(status=JobStatus.CANCELLED, result=result)
 
         # Verify job state was updated on our mock object with expected values.
         assert mock_job_run.status == JobStatus.CANCELLED
         assert mock_job_run.finished_at is not None
         assert mock_job_run.metadata_ == {
-            "result": {"status": "ok", "data": {"output": "test"}, "exception_details": None}
+            "result": {"status": "cancelled", "data": {"output": "test"}, "error": None, "exception_details": None}
         }
         assert mock_job_run.error_message is None
         assert mock_job_run.error_traceback is None
@@ -626,7 +624,11 @@ class TestJobCancellationIntegration:
 
         # Complete job. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(manager.db):
-            manager.cancel_job(result={"status": "ok", "data": {"output": "test"}, "exception": None})
+            manager.cancel_job(
+                result=JobExecutionOutcome(
+                    status=JobStatus.CANCELLED, data={"output": "test"}, error=None, exception=None
+                )
+            )
 
         # Commit pending changes made by start job.
         session.flush()
@@ -636,7 +638,9 @@ class TestJobCancellationIntegration:
 
         assert job.status == JobStatus.CANCELLED
         assert job.finished_at is not None
-        assert job.metadata_ == {"result": {"status": "ok", "data": {"output": "test"}, "exception_details": None}}
+        assert job.metadata_ == {
+            "result": {"status": "cancelled", "data": {"output": "test"}, "error": None, "exception_details": None}
+        }
         assert job.error_message is None
         assert job.error_traceback is None
         assert job.failure_category is None
@@ -650,22 +654,21 @@ class TestJobSkipUnit:
         """Test that skip_job calls complete_job with status=JobStatus.SKIPPED."""
 
         # Skip job. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
+        result = JobExecutionOutcome.skipped(data={"output": "test"})
         with (
             patch.object(mock_job_manager, "complete_job", wraps=mock_job_manager.complete_job) as mock_complete_job,
             TransactionSpy.spy(mock_job_manager.db),
         ):
-            mock_job_manager.skip_job(result={"status": "ok", "data": {"output": "test"}, "exception": None})
+            mock_job_manager.skip_job(result=result)
 
         # Verify this function is a thin wrapper around complete_job with expected parameters.
-        mock_complete_job.assert_called_once_with(
-            status=JobStatus.SKIPPED, result={"status": "ok", "data": {"output": "test"}, "exception": None}
-        )
+        mock_complete_job.assert_called_once_with(status=JobStatus.SKIPPED, result=result)
 
         # Verify job state was updated on our mock object with expected values.
         assert mock_job_run.status == JobStatus.SKIPPED
         assert mock_job_run.finished_at is not None
         assert mock_job_run.metadata_ == {
-            "result": {"status": "ok", "data": {"output": "test"}, "exception_details": None}
+            "result": {"status": "skipped", "data": {"output": "test"}, "error": None, "exception_details": None}
         }
         assert mock_job_run.error_message is None
         assert mock_job_run.error_traceback is None
@@ -682,7 +685,7 @@ class TestJobSkipIntegration:
 
         # Skip job. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(manager.db):
-            manager.skip_job(result={"status": "ok", "data": {"output": "test"}, "exception": None})
+            manager.skip_job(result=JobExecutionOutcome.skipped(data={"output": "test"}))
 
         # Commit pending changes made by start job.
         session.flush()
@@ -692,7 +695,9 @@ class TestJobSkipIntegration:
 
         assert job.status == JobStatus.SKIPPED
         assert job.finished_at is not None
-        assert job.metadata_ == {"result": {"status": "ok", "data": {"output": "test"}, "exception_details": None}}
+        assert job.metadata_ == {
+            "result": {"status": "skipped", "data": {"output": "test"}, "error": None, "exception_details": None}
+        }
         assert job.error_message is None
         assert job.error_traceback is None
         assert job.failure_category is None
@@ -1741,12 +1746,12 @@ class TestJobShouldRetryIntegration:
 
     @pytest.mark.parametrize(
         "job_status",
-        [status for status in JobStatus._member_map_.values() if status != JobStatus.FAILED],
+        [status for status in JobStatus._member_map_.values() if status not in (JobStatus.FAILED, JobStatus.ERRORED)],
     )
     def test_should_retry_success_non_failed_jobs_should_not_retry(
         self, session, arq_redis, with_populated_job_data, sample_job_run, job_status
     ):
-        """Test successful should_retry check (only jobs in failed states may retry)."""
+        """Test successful should_retry check (only jobs in failure states may retry)."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
         # Update job to non-failed state
@@ -1945,7 +1950,7 @@ class TestJobManagerJob:
 
         # Complete job
         with TransactionSpy.spy(manager.db):
-            manager.succeed_job(result={"status": "ok", "data": {"output": "test"}, "exception": None})
+            manager.succeed_job(result=JobExecutionOutcome.succeeded(data={"output": "test"}))
         session.flush()
 
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -1988,7 +1993,14 @@ class TestJobManagerJob:
 
         # Cancel job
         with TransactionSpy.spy(manager.db):
-            manager.cancel_job({"status": "ok", "data": {"reason": "User requested cancellation"}, "exception": None})
+            manager.cancel_job(
+                result=JobExecutionOutcome(
+                    status=JobStatus.CANCELLED,
+                    data={"reason": "User requested cancellation"},
+                    error="User requested cancellation",
+                    exception=None,
+                )
+            )
         session.flush()
 
         # Verify job is cancelled
@@ -2008,7 +2020,7 @@ class TestJobManagerJob:
 
         # Skip job
         with TransactionSpy.spy(manager.db):
-            manager.skip_job(result={"status": "ok", "data": {"reason": "Job not needed"}, "exception": None})
+            manager.skip_job(result=JobExecutionOutcome.skipped(data={"reason": "Job not needed"}))
         session.flush()
 
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -2040,16 +2052,15 @@ class TestJobManagerJob:
         assert job.status == JobStatus.RUNNING
 
         # Fail job
-        exc = Exception("An error occurred")
         with TransactionSpy.spy(manager.db):
-            manager.fail_job(error=exc, result={"status": "failed", "data": {}, "exception": exc})
+            manager.fail_job(result=JobExecutionOutcome.failed(reason="An error occurred"))
         session.flush()
 
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
         assert job.status == JobStatus.FAILED
         assert job.finished_at is not None
         assert job.error_message == "An error occurred"
-        assert job.error_traceback is not None
+        assert job.error_traceback is None
 
     def test_full_retried_job_lifecycle(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test full job lifecycle for a retried job."""
@@ -2076,12 +2087,8 @@ class TestJobManagerJob:
         assert job.status == JobStatus.RUNNING
 
         # Fail job
-        exc = Exception("Temporary error")
         with TransactionSpy.spy(manager.db):
-            manager.fail_job(
-                error=exc,
-                result={"status": "failed", "data": {}, "exception": exc},
-            )
+            manager.fail_job(result=JobExecutionOutcome.failed(reason="Temporary error"))
         session.flush()
 
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -2129,12 +2136,8 @@ class TestJobManagerJob:
         assert job.status == JobStatus.RUNNING
 
         # Fail job
-        exc = Exception("Some error")
         with TransactionSpy.spy(manager.db):
-            manager.fail_job(
-                error=exc,
-                result={"status": "failed", "data": {}, "exception": exc},
-            )
+            manager.fail_job(result=JobExecutionOutcome.failed(reason="Some error"))
         session.flush()
 
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -2166,12 +2169,8 @@ class TestJobManagerJob:
         assert job.status == JobStatus.RUNNING
 
         # Fail job again
-        exc = Exception("Another error")
         with TransactionSpy.spy(manager.db):
-            manager.fail_job(
-                error=exc,
-                result={"status": "failed", "data": {}, "exception": exc},
-            )
+            manager.fail_job(result=JobExecutionOutcome.failed(reason="Another error"))
         session.flush()
 
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
