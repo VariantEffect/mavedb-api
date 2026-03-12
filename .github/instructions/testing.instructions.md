@@ -1,121 +1,88 @@
 ---
-description: 'MaveDB testing conventions — fixtures, mocking, test data patterns'
+description: 'Testing philosophy and conventions for the MaveDB API'
 applyTo: 'tests/**/*.py'
 ---
 
-# Testing Conventions for MaveDB
+# Testing Conventions
 
-## Test Infrastructure
+## Outcome-Based Testing
 
-### Database
-- **pytest-postgresql** provides ephemeral PostgreSQL instances per test session
-- Database schema is created from SQLAlchemy models via `Base.metadata.create_all()`
-- Each test gets a clean transaction that rolls back after completion
-- Core fixtures live in `tests/conftest.py`
+Test what code does (return values, DB state, external boundary calls), not how it does it (internal method calls, message strings, call sequences). Tests should survive internal refactoring without changes.
 
-### Network Isolation
-- **pytest-socket** blocks real network calls in tests
-- External services (HGVS, SeqRepo, DCD Mapping, ClinGen) must be mocked
+**Assert on:**
+- Return values and response objects
+- DB state changes (query for created/updated/deleted records)
+- External boundary calls (see Mocking Boundaries below)
 
-## Fixtures
+**Do not assert on:**
+- Internal function invocations (e.g., that a helper was called with specific args)
+- Call counts or call sequences on internal methods
+- Log or progress message strings
 
-### Two-Tier conftest
-- `tests/conftest.py` — Core fixtures: database session, auth overrides, user contexts, API client
-- `tests/<module>/conftest.py` — Module-specific fixtures for that test directory
+## Mocking Boundaries
 
-### Auth Fixtures
-Four pre-configured user contexts:
-- **Default user** — standard authenticated user (test ORCID)
-- **Anonymous user** — unauthenticated
-- **Extra user** — second authenticated user (for permission tests)
-- **Admin user** — user with admin role
+Only mock at system boundaries — the edges where your code talks to something external:
+- External services (APIs, third-party clients)
+- Infrastructure (Redis/ARQ, Slack, email)
+- Network I/O (`run_in_executor`, HTTP clients)
+- File I/O (S3, local filesystem in tests)
 
-### DependencyOverrider
-Switch auth context mid-test using the `DependencyOverrider` context manager:
-```python
-with DependencyOverrider(app, {get_current_user: lambda: admin_user}):
-    response = client.get("/api/v1/score-sets/private-urn")
-    assert response.status_code == 200
-```
+Do NOT mock internal helpers, validators, or data transforms. Test through them.
 
-## Test Data Constants
+## Unit vs Integration Test Responsibilities
 
-All test constants live in `tests/helpers/constants.py` with naming conventions:
+**Unit tests:** Edge cases, error paths, invalid inputs, boundary conditions. Use mocked external services.
 
-| Prefix | Purpose | Example |
-|--------|---------|---------|
-| `VALID_*` | Valid input values | `VALID_ACCESSION`, `VALID_GENE_NAME` |
-| `TEST_*` | Complete test objects (dicts) | `TEST_SCORE_SET`, `TEST_EXPERIMENT` |
-| `TEST_MINIMAL_*` | Minimal valid objects | `TEST_MINIMAL_SCORE_SET` |
-| `SAVED_*` | Expected shapes after save | `SAVED_SCORE_SET` |
-| `*_RESPONSE` | Expected API response shapes | `SCORE_SET_RESPONSE` |
+**Integration tests:** Happy paths, end-to-end workflows, DB state verification. Use real DB with test fixtures.
+
+## Assertion Best Practices
+
+- Use `session.refresh()` before asserting on modified ORM objects
+- Add custom assertion messages to complex assertions where the failure message wouldn't immediately clarify what went wrong
+- Include negative assertions where appropriate (verify unwanted records don't exist)
+- Don't add messages to trivially clear assertions like `assert len(variants) == 0`
 
 ## Test Naming
 
-Use descriptive names that reflect the operation and expected outcome:
-```python
-def test_cannot_publish_score_set_without_variants(): ...
-def test_admin_can_view_private_score_set(): ...
-def test_create_experiment_with_invalid_urn_returns_422(): ...
-```
+Use the pattern: `test_<function_name>_<condition>_<expected_outcome>`
 
-## Mocking External Services
+Examples:
+- `test_submit_to_car_when_disabled_skips_submission`
+- `test_create_score_set_returns_422_when_missing_target`
 
-Always mock external bioinformatics services:
-```python
-from unittest.mock import patch
+Apply to tests being modified; don't rename all tests at once.
 
-@patch("mavedb.data_providers.services.cdot_rest")
-@patch("mavedb.worker.jobs.map_variants_for_score_set")
-def test_publish_enqueues_mapping(mock_map, mock_cdot, client, db):
-    ...
-```
+## Parametrization
 
-Common mock targets:
-- `mavedb.data_providers.services.cdot_rest`
-- `mavedb.worker.jobs.*` (individual job functions)
-- `mavedb.lib.authentication.get_current_user`
-- HGVS/SeqRepo data providers
+Use `@pytest.mark.parametrize` with descriptive `ids` when the same logic is tested across multiple states. Prefer parametrization over copy-pasting near-identical tests.
 
-## Helper Factories
+## Fixtures
 
-Use factory functions in test helpers to create test objects:
-```python
-from tests.helpers.constants import TEST_SCORE_SET
+- Keep fixtures minimal and composable
+- Define fixtures in the most specific `conftest.py` where they're needed
+- Don't duplicate fixtures across test classes — lift shared ones to the nearest common conftest
+- Use factory fixtures when tests need variants of the same object
 
-def create_score_set(client, payload=TEST_SCORE_SET):
-    response = client.post("/api/v1/score-sets/", json=payload)
-    assert response.status_code == 201
-    return response.json()
-```
+---
 
-## Testing Patterns
+# Worker-Specific Conventions
 
-### Permission Testing
-Test both allowed and denied access for each role:
-```python
-def test_owner_can_update_draft(client, db):
-    ...
+The following conventions apply specifically to `tests/worker/`.
 
-def test_non_owner_cannot_update_draft(client, db):
-    with DependencyOverrider(app, {get_current_user: lambda: other_user}):
-        response = client.put(f"/api/v1/score-sets/{urn}", json=update_data)
-        assert response.status_code == 404  # 404, not 403
-```
+## Job Test Assertions
 
-### Worker Job Testing
-Test job logic directly, not through the API:
-```python
-async def test_create_variants_processes_csv(db, score_set):
-    ctx = {"db": db}
-    await create_variants_for_score_set(ctx, score_set.id, "test-correlation-id")
-    assert score_set.num_variants > 0
-```
+- Assert on `JobExecutionOutcome.status` and `.data` for every job test
+- Assert on DB state changes for the domain objects the job modifies
+- For external service jobs: assert boundary calls (ClinGen CAR/LDH, UniProt, gnomAD/Athena, S3, ClinVar)
 
-### Schema Validation
-Verify that response shapes match view models:
-```python
-def test_score_set_response_has_record_type(client):
-    response = client.get(f"/api/v1/score-sets/{urn}")
-    assert response.json()["recordType"] == "score_set"
-```
+## Let `update_progress` Run Unpatched
+
+`update_progress()` calls `session.commit()` as a checkpoint. This is production behavior and should execute in tests. Letting it run means tests verify that checkpoint commits don't break state or interfere with final outcomes. Don't patch it, don't mock it, don't assert on its messages.
+
+## TransactionSpy Usage
+
+**USE in manager/decorator tests** (e.g., `test_job_manager.py`, `test_pipeline_manager.py`): The commit/rollback boundary IS the contract here. If someone removes a commit, data silently won't persist in production. DB state checks alone can't catch this because the test session may auto-commit on teardown.
+
+**USE `mock_database_flush_failure` / `mock_database_rollback_failure`**: These simulate DB errors that are genuinely hard to reproduce otherwise. Valuable for testing error recovery paths in infrastructure code.
+
+**DO NOT USE in job-level tests** (e.g., `test_clingen.py`, `test_cleanup.py`, `test_creation.py`): The job's contract is "variants were created" or "stalled jobs were retried," not "session.commit() was called." Use DB state queries instead.
