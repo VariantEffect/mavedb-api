@@ -166,11 +166,11 @@ alembic revision --autogenerate -m "Description"
 - **Bioinformatics data flow**: Structure code to clearly show genomic data transformations
 
 ### Testing Conventions
-*For general Python testing standards, see `.github/instructions/python.instructions.md`. The following are MaveDB-specific patterns:*
+*For testing philosophy, mocking boundaries, and conventions see `.github/instructions/testing.instructions.md`. For general Python testing standards, see `.github/instructions/python.instructions.md`. The following are MaveDB-specific patterns:*
 
 - **Test function naming**: Use descriptive names that reflect bioinformatics operations (e.g., `test_cannot_publish_score_set_without_variants`)
 - **Fixtures**: Use `conftest.py` for shared fixtures, especially database and worker setup
-- **Mocking**: Use `unittest.mock.patch` for external bioinformatics services and worker jobs
+- **Mocking**: Mock only at system boundaries (external services, Redis/ARQ, Slack). Do not mock internal helpers or `update_progress`
 - **Constants**: Define test data including genomic sequences and variants in `tests/helpers/constants.py`
 - **Integration testing**: Test full bioinformatics workflows including external service interactions
 
