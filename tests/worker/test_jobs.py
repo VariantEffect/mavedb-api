@@ -33,6 +33,7 @@ from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant
+from mavedb.models.variant_translation import VariantTranslation
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from mavedb.worker.jobs import (
@@ -71,6 +72,7 @@ from tests.helpers.constants import (
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
     VALID_CHR_ACCESSION,
     VALID_CLINGEN_CA_ID,
+    VALID_CLINGEN_PA_ID,
     VALID_NT_ACCESSION,
     VALID_UNIPROT_ACCESSION,
 )
@@ -3345,6 +3347,52 @@ async def test_link_score_set_mappings_to_gnomad_variants_success(
     assert result["success"]
     assert not result["retried"]
     assert not result["enqueued_job"]
+
+    for variant in session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
+    ):
+        assert variant.gnomad_variants
+
+
+@pytest.mark.asyncio
+async def test_link_score_set_paid_mappings_to_gnomad_variants_success(
+    setup_worker_db,
+    standalone_worker_context,
+    session,
+    async_client,
+    data_files,
+    arq_worker,
+    arq_redis,
+    mocked_gnomad_variant_row,
+):
+    score_set = await setup_records_files_and_variants_with_mapping(
+        session,
+        async_client,
+        data_files,
+        TEST_MINIMAL_SEQ_SCORESET,
+        standalone_worker_context,
+    )
+
+    mapped_variants = session.scalars(
+        select(MappedVariant).join(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
+    ).all()
+
+    for mapped_variant in mapped_variants:
+        mapped_variant.clingen_allele_id = VALID_CLINGEN_PA_ID
+
+    session.add(VariantTranslation(aa_clingen_id=VALID_CLINGEN_PA_ID, nt_clingen_id=VALID_CLINGEN_CA_ID))
+    session.commit()
+
+    with (
+        patch("mavedb.worker.jobs.gnomad_variant_data_for_caids", return_value=[mocked_gnomad_variant_row]) as mocked_fetch,
+        patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION),
+    ):
+        result = await link_gnomad_variants(standalone_worker_context, uuid4().hex, score_set.id)
+
+    assert result["success"]
+    assert not result["retried"]
+    assert not result["enqueued_job"]
+    mocked_fetch.assert_called_once_with([VALID_CLINGEN_CA_ID])
 
     for variant in session.scalars(
         select(MappedVariant).join(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)

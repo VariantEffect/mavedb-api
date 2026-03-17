@@ -5,7 +5,11 @@ import click
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from mavedb.lib.gnomad import gnomad_variant_data_for_caids, link_gnomad_variants_to_mapped_variants
+from mavedb.lib.gnomad import (
+    gnomad_queryable_caids_for_clingen_allele_ids,
+    gnomad_variant_data_for_caids,
+    link_gnomad_variants_to_mapped_variants,
+)
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
@@ -24,9 +28,9 @@ logger = logging.getLogger(__name__)
 @click.option("--only-current", is_flag=True, help="Only process current mapped variants.", default=True)
 def link_gnomad_variants(db: Session, score_set_urn: list[str], all_score_sets: bool, only_current: bool) -> None:
     """
-    Query AWS Athena for gnomAD variants matching mapped variant CAIDs for one or more score sets.
+    Query AWS Athena for gnomAD variants matching mapped variant ClinGen allele IDs for one or more score sets.
     """
-    # 1. Collect all CAIDs for mapped variants in the selected score sets
+    # 1. Collect all ClinGen allele IDs for mapped variants in the selected score sets
     if all_score_sets:
         score_sets = db.query(ScoreSet.id).all()
         score_set_ids = [s.id for s in score_sets]
@@ -44,22 +48,27 @@ def link_gnomad_variants(db: Session, score_set_urn: list[str], all_score_sets: 
         logger.error("No score sets found.")
         return
 
-    caid_query = (
+    clingen_allele_id_query = (
         select(MappedVariant.clingen_allele_id)
         .join(Variant)
         .where(Variant.score_set_id.in_(score_set_ids), MappedVariant.clingen_allele_id.is_not(None))
     )
 
     if only_current:
-        caid_query = caid_query.where(MappedVariant.current.is_(True))
+        clingen_allele_id_query = clingen_allele_id_query.where(MappedVariant.current.is_(True))
 
-    # We filter out Nonetype CAIDs to avoid issues with Athena queries, so we can type this as Sequence[str] and ignore MyPy warnings
-    caids: Sequence[str] = db.scalars(caid_query.distinct()).all()  # type: ignore
-    if not caids:
-        logger.error("No CAIDs found for the selected score sets.")
+    # We filter out None values in the query above, so this can be safely typed as Sequence[str].
+    clingen_allele_ids: Sequence[str] = db.scalars(clingen_allele_id_query.distinct()).all()  # type: ignore
+    if not clingen_allele_ids:
+        logger.error("No ClinGen allele IDs found for the selected score sets.")
         return
 
-    logger.info(f"Found {len(caids)} CAIDs for the selected score sets to link to gnomAD variants.")
+    caids = gnomad_queryable_caids_for_clingen_allele_ids(db, clingen_allele_ids)
+    if not caids:
+        logger.error("No queryable CAIDs found for the selected score sets.")
+        return
+
+    logger.info(f"Found {len(caids)} queryable CAIDs for the selected score sets to link to gnomAD variants.")
 
     # 2. Query Athena for gnomAD variants matching the CAIDs
     gnomad_variant_data = gnomad_variant_data_for_caids(caids)

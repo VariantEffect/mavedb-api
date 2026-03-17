@@ -2,7 +2,7 @@
 
 import pytest
 import importlib
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 pyathena = pytest.importorskip("pyathena")
 fastapi = pytest.importorskip("fastapi")
@@ -10,16 +10,21 @@ fastapi = pytest.importorskip("fastapi")
 from mavedb.lib.gnomad import (
     gnomad_identifier,
     allele_list_from_list_like_string,
+    gnomad_queryable_caids_for_clingen_allele_ids,
     link_gnomad_variants_to_mapped_variants,
 )
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.gnomad_variant import GnomADVariant
+from mavedb.models.variant_translation import VariantTranslation
 
 from tests.helpers.constants import (
     TEST_GNOMAD_ALLELE_NUMBER,
     TEST_GNOMAD_VARIANT,
+    TEST_MAVEDB_ATHENA_ROW,
     TEST_MINIMAL_MAPPED_VARIANT,
     TEST_GNOMAD_DATA_VERSION,
+    VALID_CLINGEN_CA_ID,
+    VALID_CLINGEN_PA_ID,
 )
 
 ### Tests for gnomad_identifier function ###
@@ -120,6 +125,18 @@ def test_allele_list_from_list_like_string_invalid_format_not_list():
 # This function is intentionally omitted from testing.
 # It's a simple wrapper around an athena query that's more trouble than it's worth to mock.
 # If the package is working correctly, this function should work as expected.
+
+
+### Tests for gnomad_queryable_caids_for_clingen_allele_ids function ###
+
+
+def test_expands_paids_to_queryable_caids(session):
+    session.add(VariantTranslation(aa_clingen_id=VALID_CLINGEN_PA_ID, nt_clingen_id=VALID_CLINGEN_CA_ID))
+    session.commit()
+
+    result = gnomad_queryable_caids_for_clingen_allele_ids(session, [VALID_CLINGEN_PA_ID, "CA999999999"])
+
+    assert result == [VALID_CLINGEN_CA_ID, "CA999999999"]
 
 
 ### Tests for link_gnomad_variants_to_mapped_variants function ###
@@ -255,6 +272,59 @@ def test_links_multiple_rows_and_variants(session, mocked_gnomad_variant_row, se
     for mv in [mapped_variant1, mapped_variant2]:
         for attr in gnomad_variant_comparator:
             assert getattr(mv.gnomad_variants[0], attr) == gnomad_variant_comparator[attr]
+
+
+def test_links_gnomad_variant_to_paid_mapped_variant_via_variant_translation(
+    session, mocked_gnomad_variant_row, setup_lib_db_with_mapped_variant
+):
+    mapped_variant = setup_lib_db_with_mapped_variant
+    mapped_variant.clingen_allele_id = VALID_CLINGEN_PA_ID
+    session.add(mapped_variant)
+    session.add(VariantTranslation(aa_clingen_id=VALID_CLINGEN_PA_ID, nt_clingen_id=mocked_gnomad_variant_row.caid))
+    session.commit()
+
+    with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
+        result = link_gnomad_variants_to_mapped_variants(session, [mocked_gnomad_variant_row])
+        assert result == 1
+        session.commit()
+
+    session.refresh(mapped_variant)
+
+    assert len(mapped_variant.gnomad_variants) == 1
+    assert mapped_variant.gnomad_variants[0].db_identifier == TEST_GNOMAD_VARIANT["db_identifier"]
+
+
+def test_links_multiple_gnomad_variants_to_paid_mapped_variant(
+    session, mocked_gnomad_variant_row, setup_lib_db_with_mapped_variant
+):
+    mapped_variant = setup_lib_db_with_mapped_variant
+    mapped_variant.clingen_allele_id = VALID_CLINGEN_PA_ID
+    session.add(mapped_variant)
+    session.add(VariantTranslation(aa_clingen_id=VALID_CLINGEN_PA_ID, nt_clingen_id=mocked_gnomad_variant_row.caid))
+    session.add(VariantTranslation(aa_clingen_id=VALID_CLINGEN_PA_ID, nt_clingen_id="CA999999999"))
+    session.commit()
+
+    second_gnomad_variant_row = Mock()
+    for key, value in TEST_MAVEDB_ATHENA_ROW.items():
+        setattr(second_gnomad_variant_row, key, value)
+    setattr(second_gnomad_variant_row, "caid", "CA999999999")
+    setattr(second_gnomad_variant_row, "locus.position", "99999")
+
+    with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
+        result = link_gnomad_variants_to_mapped_variants(
+            session,
+            [mocked_gnomad_variant_row, second_gnomad_variant_row],
+        )
+        assert result == 2
+        session.commit()
+
+    session.refresh(mapped_variant)
+
+    assert len(mapped_variant.gnomad_variants) == 2
+    assert {gnomad_variant.db_identifier for gnomad_variant in mapped_variant.gnomad_variants} == {
+        TEST_GNOMAD_VARIANT["db_identifier"],
+        "10-99999-A-G",
+    }
 
 
 def test_returns_zero_when_no_mapped_variants(session, mocked_gnomad_variant_row):

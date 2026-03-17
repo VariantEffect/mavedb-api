@@ -1,6 +1,7 @@
 import os
 import re
 import logging
+from collections import defaultdict
 from typing import Any, Sequence, Union
 
 from sqlalchemy import text, select, Row
@@ -11,6 +12,7 @@ from mavedb.lib.utils import batched
 from mavedb.db.athena import engine as athena_engine
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.variant_translation import VariantTranslation
 
 GNOMAD_DB_NAME = "gnomAD"
 GNOMAD_DATA_VERSION = os.getenv("GNOMAD_DATA_VERSION")
@@ -64,6 +66,98 @@ def allele_list_from_list_like_string(alleles_string: str) -> list[str]:
     alleles = [allele.strip() for allele in alleles_string.split(",")]
 
     return alleles
+
+
+def gnomad_queryable_caids_for_clingen_allele_ids(db: Session, clingen_allele_ids: Sequence[str]) -> list[str]:
+    """
+    Expand a sequence of ClinGen allele IDs into the CAIDs that can be queried in gnomAD.
+
+    CAIDs are returned directly. PAIDs are translated to one or more CAIDs through the
+    `variant_translations` table.
+    """
+    direct_caids = {allele_id for allele_id in clingen_allele_ids if allele_id.startswith("CA")}
+    paids = {allele_id for allele_id in clingen_allele_ids if allele_id.startswith("PA")}
+
+    translated_caids: set[str] = set()
+    if paids:
+        translated_caids.update(
+            db.scalars(select(VariantTranslation.nt_clingen_id).where(VariantTranslation.aa_clingen_id.in_(paids))).all()
+        )
+
+    queryable_caids = sorted(direct_caids | translated_caids)
+    save_to_logging_context(
+        {
+            "num_direct_caids": len(direct_caids),
+            "num_paids": len(paids),
+            "num_translated_caids": len(translated_caids),
+            "num_queryable_caids": len(queryable_caids),
+        }
+    )
+    return queryable_caids
+
+
+def mapped_variants_by_gnomad_caid(
+    db: Session, caids: Sequence[str], only_current: bool = True
+) -> dict[str, list[MappedVariant]]:
+    """
+    Build a mapping from gnomAD CAIDs to mapped variants.
+
+    This includes both direct CAID-matched mapped variants and PAID-matched mapped variants
+    resolved through the `variant_translations` table.
+    """
+    unique_caids = tuple(dict.fromkeys(caid for caid in caids if caid))
+    if not unique_caids:
+        return {}
+
+    translations = db.execute(
+        select(VariantTranslation.nt_clingen_id, VariantTranslation.aa_clingen_id).where(
+            VariantTranslation.nt_clingen_id.in_(unique_caids)
+        )
+    ).all()
+
+    paids_by_caid: dict[str, list[str]] = defaultdict(list)
+    queryable_allele_ids = set(unique_caids)
+    for translation in translations:
+        paids_by_caid[translation.nt_clingen_id].append(translation.aa_clingen_id)
+        queryable_allele_ids.add(translation.aa_clingen_id)
+
+    mapped_variants_query = select(MappedVariant).where(MappedVariant.clingen_allele_id.in_(queryable_allele_ids))
+    if only_current:
+        mapped_variants_query = mapped_variants_query.where(MappedVariant.current.is_(True))
+
+    mapped_variants = db.scalars(mapped_variants_query).all()
+    mapped_variants_by_allele_id: dict[str, list[MappedVariant]] = defaultdict(list)
+    for mapped_variant in mapped_variants:
+        if mapped_variant.clingen_allele_id is not None:
+            mapped_variants_by_allele_id[mapped_variant.clingen_allele_id].append(mapped_variant)
+
+    mapped_variants_for_caids: dict[str, list[MappedVariant]] = {}
+    for caid in unique_caids:
+        seen_mapped_variant_ids: set[int] = set()
+        mapped_variants_for_caid: list[MappedVariant] = []
+
+        for allele_id in [caid, *paids_by_caid.get(caid, [])]:
+            for mapped_variant in mapped_variants_by_allele_id.get(allele_id, []):
+                if mapped_variant.id not in seen_mapped_variant_ids:
+                    mapped_variants_for_caid.append(mapped_variant)
+                    seen_mapped_variant_ids.add(mapped_variant.id)
+
+        mapped_variants_for_caids[caid] = mapped_variants_for_caid
+
+    return mapped_variants_for_caids
+
+
+def remove_existing_gnomad_variants_for_current_version(mapped_variant: MappedVariant) -> None:
+    """
+    Remove any existing gnomAD links for the current gnomAD data version from a mapped variant.
+    """
+    for linked_gnomad_variant in list(mapped_variant.gnomad_variants):
+        if linked_gnomad_variant.db_version == GNOMAD_DATA_VERSION:
+            logger.debug(
+                msg=f"Removing existing gnomAD variant {linked_gnomad_variant.db_identifier} from mapped variant {mapped_variant.id} ({mapped_variant.clingen_allele_id})",
+                extra=logging_context(),
+            )
+            mapped_variant.gnomad_variants.remove(linked_gnomad_variant)
 
 
 def gnomad_variant_data_for_caids(caids: Sequence[str]) -> Sequence[Row[Any]]:  # pragma: no cover
@@ -135,15 +229,32 @@ def link_gnomad_variants_to_mapped_variants(
     db: Session, gnomad_variant_data: Sequence[Row[Any]], only_current: bool = True
 ) -> int:
     """
-    Links gnomAD variants to mapped variants in the database based on CAIDs. Note that this function does
-    not commit this data to the database; it only prepares the relationships.
+    Link gnomAD variants to mapped variants in the database.
+
+    Direct CAID-matched mapped variants are linked as before. PAID-matched mapped variants are linked
+    indirectly through `variant_translations`, which allows a single protein-level mapped variant to be
+    linked to multiple gnomAD variants.
 
     Args:
-        caids (list[str]): A list of CAIDs to link with gnomAD variants.
+        gnomad_variant_data: The gnomAD rows to link.
+        only_current: Whether to restrict linkage to current mapped variants.
     """
     save_to_logging_context({"num_gnomad_variant_rows": len(gnomad_variant_data)})
     save_to_logging_context({"only_current": only_current})
     logger.debug(msg="Linking gnomAD variants to mapped variants", extra=logging_context())
+
+    mapped_variants_for_caids = mapped_variants_by_gnomad_caid(
+        db,
+        [row.caid for row in gnomad_variant_data],
+        only_current=only_current,
+    )
+
+    prepared_mapped_variant_ids: set[int] = set()
+    for mapped_variants in mapped_variants_for_caids.values():
+        for mapped_variant in mapped_variants:
+            if mapped_variant.id not in prepared_mapped_variant_ids:
+                remove_existing_gnomad_variants_for_current_version(mapped_variant)
+                prepared_mapped_variant_ids.add(mapped_variant.id)
 
     linked_gnomad_variants = 0
     for index, row in enumerate(gnomad_variant_data, start=1):
@@ -151,10 +262,7 @@ def link_gnomad_variants_to_mapped_variants(
             msg=f"Processing gnomAD variant row {index}/{len(gnomad_variant_data)}: {row.caid}", extra=logging_context()
         )
 
-        mapped_variants_with_caids_query = select(MappedVariant).where(MappedVariant.clingen_allele_id == row.caid)
-        if only_current:
-            mapped_variants_with_caids_query = mapped_variants_with_caids_query.where(MappedVariant.current.is_(True))
-        mapped_variants_with_caids = db.scalars(mapped_variants_with_caids_query).all()
+        mapped_variants_with_caids = mapped_variants_for_caids.get(row.caid, [])
 
         gnomad_identifier_for_variant = gnomad_identifier(
             row.__getattribute__("locus.contig"),
@@ -171,17 +279,6 @@ def link_gnomad_variants_to_mapped_variants(
             faf95_max = float(faf95_max)
 
         for mapped_variant in mapped_variants_with_caids:
-            # Remove any existing gnomAD variants for this mapped variant that match the current gnomAD data version to avoid data duplication.
-            # There should only be one gnomAD variant per mapped variant per gnomAD data version, since each gnomAD variant can only match to one
-            # CAID.
-            for linked_gnomad_variant in mapped_variant.gnomad_variants:
-                if linked_gnomad_variant.db_version == GNOMAD_DATA_VERSION:
-                    logger.debug(
-                        msg=f"Removing existing gnomAD variant {linked_gnomad_variant.db_identifier} from mapped variant {mapped_variant.id} ({mapped_variant.clingen_allele_id})",
-                        extra=logging_context(),
-                    )
-                    mapped_variant.gnomad_variants.remove(linked_gnomad_variant)
-
             existing_gnomad_variant = db.scalar(
                 select(GnomADVariant).where(
                     GnomADVariant.db_name == "gnomAD",
@@ -211,6 +308,11 @@ def link_gnomad_variants_to_mapped_variants(
                     extra=logging_context(),
                 )
                 gnomad_variant = existing_gnomad_variant
+                gnomad_variant.allele_count = allele_count
+                gnomad_variant.allele_number = allele_number
+                gnomad_variant.allele_frequency = allele_frequency  # type: ignore
+                gnomad_variant.faf95_max_ancestry = faf95_max_ancestry
+                gnomad_variant.faf95_max = faf95_max  # type: ignore
 
             if gnomad_variant not in mapped_variant.gnomad_variants:
                 mapped_variant.gnomad_variants.append(gnomad_variant)
@@ -224,7 +326,7 @@ def link_gnomad_variants_to_mapped_variants(
             )
 
         logger.info(
-            f"Linked {len(mapped_variants_with_caids)} mapped variants with CAID {row.caid} to gnomAD variant {gnomad_identifier_for_variant}. ({index}/{len(gnomad_variant_data)})"
+            f"Linked {len(mapped_variants_with_caids)} mapped variants for CAID {row.caid} to gnomAD variant {gnomad_identifier_for_variant}. ({index}/{len(gnomad_variant_data)})"
         )
 
     save_to_logging_context({"linked_gnomad_variants": linked_gnomad_variants})

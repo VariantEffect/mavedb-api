@@ -39,7 +39,11 @@ from mavedb.lib.exceptions import (
     UniProtIDMappingEnqueueError,
     UniProtPollingEnqueueError,
 )
-from mavedb.lib.gnomad import gnomad_variant_data_for_caids, link_gnomad_variants_to_mapped_variants
+from mavedb.lib.gnomad import (
+    gnomad_queryable_caids_for_clingen_allele_ids,
+    gnomad_variant_data_for_caids,
+    link_gnomad_variants_to_mapped_variants,
+)
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.mapping import ANNOTATION_LAYERS, extract_ids_from_post_mapped_metadata
 from mavedb.lib.score_sets import (
@@ -1682,8 +1686,8 @@ async def link_gnomad_variants(ctx: dict, correlation_id: str, score_set_id: int
         return {"success": False, "retried": False, "enqueued_job": None}
 
     try:
-        # We filter out mapped variants that do not have a CAID, so this query is typed # as a Sequence[str]. Ignore MyPy's type checking here.
-        variant_caids: Sequence[str] = db.scalars(
+        # We filter out mapped variants that do not have a ClinGen allele ID, so this query is typed as a Sequence[str].
+        variant_clingen_allele_ids: Sequence[str] = db.scalars(
             select(MappedVariant.clingen_allele_id)
             .join(Variant)
             .join(ScoreSet)
@@ -1693,20 +1697,21 @@ async def link_gnomad_variants(ctx: dict, correlation_id: str, score_set_id: int
                 MappedVariant.clingen_allele_id.is_not(None),
             )
         ).all()  # type: ignore
+        variant_caids = gnomad_queryable_caids_for_clingen_allele_ids(db, variant_clingen_allele_ids)
         num_variant_caids = len(variant_caids)
 
         logging_context["num_variants_to_link_gnomad"] = num_variant_caids
 
         if not variant_caids:
             logger.warning(
-                msg="No current mapped variants with CAIDs were found for this score set. Skipping gnomAD linkage (nothing to do).",
+                msg="No current mapped variants with queryable CAIDs were found for this score set. Skipping gnomAD linkage (nothing to do).",
                 extra=logging_context,
             )
 
             return {"success": True, "retried": False, "enqueued_job": None}
 
         logger.info(
-            msg="Found current mapped variants with CAIDs for this score set. Attempting to link them to gnomAD variants.",
+            msg="Found current mapped variants with queryable CAIDs for this score set. Attempting to link them to gnomAD variants.",
             extra=logging_context,
         )
 
