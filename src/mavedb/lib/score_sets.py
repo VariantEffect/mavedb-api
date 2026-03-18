@@ -37,6 +37,8 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
+from mavedb.models.clinical_control import ClinicalControl
+from mavedb.models.clinical_control_mapped_variant import mapped_variants_clinical_controls_association_table
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.publication_identifier import PublicationIdentifier
@@ -62,6 +64,10 @@ if TYPE_CHECKING:
 VariantData = dict[str, Optional[dict[str, dict]]]
 
 logger = logging.getLogger(__name__)
+
+# Pattern for ClinVar-versioned namespaces of the form "clinvar.YEAR_MONTH",
+# e.g. "clinvar.2024_01" for January 2024.
+CLINVAR_NS_PATTERN = re.compile(r"^clinvar\.(\d+)_(0[1-9]|1[0-2])$")
 
 
 class HGVSColumns:
@@ -531,7 +537,7 @@ def find_publish_or_private_superseded_score_set_tail(
 def get_score_set_variants_as_csv(
     db: Session,
     score_set: ScoreSet,
-    namespaces: List[Literal["scores", "counts", "vep", "gnomad", "clingen"]],
+    namespaces: List[str],
     namespaced: Optional[bool] = None,
     start: Optional[int] = None,
     limit: Optional[int] = None,
@@ -548,8 +554,10 @@ def get_score_set_variants_as_csv(
         The database session to use.
     score_set : ScoreSet
         The score set to get the variants from.
-    namespaces : List[Literal["scores", "counts", "vep", "gnomad", "clingen"]]
-        The namespaces for data. Now there are only scores, counts, VEP, gnomAD, and ClinGen. ClinVar will be added in the future.
+    namespaces : List[str]
+        The namespaces for data: "scores", "counts", "vep", "gnomad", "clingen", and/or
+        ClinVar-versioned namespaces of the form "clinvar.YEAR_MONTH" (e.g. "clinvar.2024_01"
+        for January 2024, which joins on db_name="ClinVar" and db_version="01_2024").
     namespaced: Optional[bool] = None
         Whether namespace the columns or not.
     start : int, optional
@@ -600,11 +608,26 @@ def get_score_set_variants_as_csv(
         namespaced_score_set_columns["gnomad"].append("gnomad_af")
     if "clingen" in namespaced_score_set_columns:
         namespaced_score_set_columns["clingen"].append("clingen_allele_id")
+
+    # Parse ClinVar-versioned namespaces of the form "clinvar.YEAR_MONTH".
+    # The corresponding db_version stored in clinical_controls is "MONTH_YEAR".
+    clinvar_namespaces: dict[str, str] = {}  # namespace -> db_version (MONTH_YEAR)
+    for ns in namespaces:
+        m = CLINVAR_NS_PATTERN.match(ns)
+        if m:
+            year, month = m.group(1), m.group(2)
+            db_version = f"{month}_{year}"
+            clinvar_namespaces[ns] = db_version
+            namespaced_score_set_columns[ns] = ["clinical_significance", "clinical_review_status"]
+
     variants: Sequence[Variant] = []
     mappings: Optional[list[Optional[MappedVariant]]] = None
     gnomad_data: Optional[list[Optional[GnomADVariant]]] = None
 
-    if "gnomad" in namespaces and include_post_mapped_hgvs:
+    # Mappings are needed whenever post-mapped HGVS or any ClinVar namespace is requested.
+    need_mappings = bool(include_post_mapped_hgvs or clinvar_namespaces)
+
+    if "gnomad" in namespaces and need_mappings:
         variants_mappings_and_gnomad_query = (
             select(Variant, MappedVariant, GnomADVariant)
             .join(
@@ -640,7 +663,7 @@ def get_score_set_variants_as_csv(
             variants.append(variant)
             mappings.append(mapping)
             gnomad_data.append(gnomad)
-    elif include_post_mapped_hgvs:
+    elif need_mappings:
         variants_and_mappings_query = (
             select(Variant, MappedVariant)
             .join(
@@ -707,22 +730,68 @@ def get_score_set_variants_as_csv(
         if limit:
             variants_query = variants_query.limit(limit)
         variants = db.scalars(variants_query).all()
+
+    # For each ClinVar namespace, fetch a mapping from mapped_variant_id to ClinicalControl.
+    clinvar_data_map: dict[str, dict[int, Optional[ClinicalControl]]] = {}
+    if clinvar_namespaces and mappings is not None:
+        mv_ids = [m.id for m in mappings if m is not None]
+        for ns, db_version in clinvar_namespaces.items():
+            mv_to_cc: dict[int, Optional[ClinicalControl]] = {}
+            if mv_ids:
+                aliased_cc = aliased(ClinicalControl)
+                cc_query = (
+                    select(
+                        mapped_variants_clinical_controls_association_table.c.mapped_variant_id,
+                        aliased_cc,
+                    )
+                    .join(
+                        aliased_cc,
+                        mapped_variants_clinical_controls_association_table.c.clinical_control_id == aliased_cc.id,
+                    )
+                    .where(
+                        and_(
+                            mapped_variants_clinical_controls_association_table.c.mapped_variant_id.in_(mv_ids),
+                            aliased_cc.db_name == "ClinVar",
+                            aliased_cc.db_version == db_version,
+                        )
+                    )
+                )
+                for mv_id, cc in db.execute(cc_query).all():
+                    mv_to_cc[mv_id] = cc
+            clinvar_data_map[ns] = mv_to_cc
+
+    # Build per-variant ClinVar lookup (list indexed in parallel with variants).
+    clinvar_per_variant: Optional[list[Optional[dict[str, Optional[ClinicalControl]]]]] = None
+    if clinvar_namespaces and mappings is not None:
+        clinvar_per_variant = []
+        for mapping in mappings:
+            row_clinvar: dict[str, Optional[ClinicalControl]] = {}
+            for ns, mv_to_cc in clinvar_data_map.items():
+                row_clinvar[ns] = mv_to_cc.get(mapping.id) if mapping is not None else None
+            clinvar_per_variant.append(row_clinvar)
+
     rows_data = variants_to_csv_rows(
         variants,
         columns=namespaced_score_set_columns,
         namespaced=namespaced,
         mappings=mappings,
         gnomad_data=gnomad_data,
+        clinvar_data_by_ns=clinvar_per_variant,
     )  # type: ignore
-    rows_columns = [
-        (
-            f"{namespace}.{col}"
-            if (namespaced and namespace not in ["core", "mavedb"])
-            else (f"mavedb.{col}" if namespaced and namespace == "mavedb" else col)
-        )
-        for namespace, cols in namespaced_score_set_columns.items()
-        for col in cols
-    ]
+
+    rows_columns = []
+    for namespace, cols in namespaced_score_set_columns.items():
+        for col in cols:
+            if CLINVAR_NS_PATTERN.match(namespace):
+                # ClinVar versioned namespaces always include the full namespace prefix
+                # to avoid column-name collisions when multiple versions are requested.
+                rows_columns.append(f"{namespace}.{col}")
+            elif namespaced and namespace not in ["core", "mavedb"]:
+                rows_columns.append(f"{namespace}.{col}")
+            elif namespaced and namespace == "mavedb":
+                rows_columns.append(f"mavedb.{col}")
+            else:
+                rows_columns.append(col)
 
     if drop_na_columns:
         rows_data, rows_columns = drop_na_columns_from_csv_file_rows(rows_data, rows_columns)
@@ -769,6 +838,7 @@ def variant_to_csv_row(
     columns: dict[str, list[str]],
     mapping: Optional[MappedVariant] = None,
     gnomad_data: Optional[GnomADVariant] = None,
+    clinvar_data_by_ns: Optional[dict[str, Optional[ClinicalControl]]] = None,
     namespaced: Optional[bool] = None,
     na_rep="NA",
 ) -> dict[str, Any]:
@@ -787,6 +857,8 @@ def variant_to_csv_row(
         Mapped variant corresponding to the variant.
     gnomad_data : variant.models.GnomADVariant, optional
         gnomAD variant data corresponding to the variant.
+    clinvar_data_by_ns : dict[str, Optional[ClinicalControl]], optional
+        Per-variant ClinVar data keyed by namespace (e.g. "clinvar.2024_01").
     na_rep : str
         String to represent null values.
 
@@ -885,6 +957,23 @@ def variant_to_csv_row(
                 value = na_rep
         key = f"clingen.{column_key}" if namespaced else column_key
         row[key] = value
+    # Handle ClinVar-versioned namespaces (e.g. "clinvar.2024_01").
+    # These always use the full "namespace.column" key regardless of the namespaced flag
+    # to avoid collisions when multiple versions are requested.
+    for namespace_key, namespace_cols in columns.items():
+        if not CLINVAR_NS_PATTERN.match(namespace_key):
+            continue
+        clinvar_entry = (clinvar_data_by_ns or {}).get(namespace_key)
+        for column_key in namespace_cols:
+            if column_key == "clinical_significance":
+                value = str(clinvar_entry.clinical_significance) if clinvar_entry else na_rep
+            elif column_key == "clinical_review_status":
+                value = str(clinvar_entry.clinical_review_status) if clinvar_entry else na_rep
+            else:
+                value = na_rep
+            if is_null(value):
+                value = na_rep
+            row[f"{namespace_key}.{column_key}"] = value
     return row
 
 
@@ -893,6 +982,7 @@ def variants_to_csv_rows(
     columns: dict[str, list[str]],
     mappings: Optional[Sequence[Optional[MappedVariant]]] = None,
     gnomad_data: Optional[Sequence[Optional[GnomADVariant]]] = None,
+    clinvar_data_by_ns: Optional[Sequence[Optional[dict[str, Optional[ClinicalControl]]]]] = None,
     namespaced: Optional[bool] = None,
     na_rep="NA",
 ) -> Iterable[dict[str, Any]]:
@@ -911,6 +1001,8 @@ def variants_to_csv_rows(
         List of mapped variants corresponding to the variants.
     gnomad_data : list[Optional[variant.models.GnomADVariant]], optional
         List of gnomAD variant data corresponding to the variants.
+    clinvar_data_by_ns : list[Optional[dict[str, Optional[ClinicalControl]]]], optional
+        Per-variant ClinVar data keyed by namespace (e.g. "clinvar.2024_01").
     na_rep : str
         String to represent null values.
 
@@ -918,26 +1010,24 @@ def variants_to_csv_rows(
     -------
     list[dict[str, Any]]
     """
-    if mappings is not None and gnomad_data is not None:
-        return map(
-            lambda zipped: variant_to_csv_row(
-                zipped[0], columns, mapping=zipped[1], gnomad_data=zipped[2], namespaced=namespaced, na_rep=na_rep
-            ),
-            zip(variants, mappings, gnomad_data),
-        )
-    elif mappings is not None:
-        return map(
-            lambda pair: variant_to_csv_row(pair[0], columns, mapping=pair[1], namespaced=namespaced, na_rep=na_rep),
-            zip(variants, mappings),
-        )
-    elif gnomad_data is not None:
-        return map(
-            lambda pair: variant_to_csv_row(
-                pair[0], columns, gnomad_data=pair[1], namespaced=namespaced, na_rep=na_rep
-            ),
-            zip(variants, gnomad_data),
-        )
-    return map(lambda v: variant_to_csv_row(v, columns, namespaced=namespaced, na_rep=na_rep), variants)
+    n = len(variants)
+    _mappings: Sequence[Optional[MappedVariant]] = mappings if mappings is not None else [None] * n
+    _gnomad: Sequence[Optional[GnomADVariant]] = gnomad_data if gnomad_data is not None else [None] * n
+    _clinvar: Sequence[Optional[dict[str, Optional[ClinicalControl]]]] = (
+        clinvar_data_by_ns if clinvar_data_by_ns is not None else [None] * n
+    )
+    return map(
+        lambda t: variant_to_csv_row(
+            t[0],
+            columns,
+            mapping=t[1],
+            gnomad_data=t[2],
+            clinvar_data_by_ns=t[3],
+            namespaced=namespaced,
+            na_rep=na_rep,
+        ),
+        zip(variants, _mappings, _gnomad, _clinvar),
+    )
 
 
 def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[ScoreSet]:
