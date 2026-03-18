@@ -3261,9 +3261,7 @@ def test_invalid_clinvar_namespace_returns_422(client, setup_router_db, data_fil
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
 
-    response = client.get(
-        f"/api/v1/score-sets/{score_set['urn']}/variants/data?namespaces=clinvar.2024_13"
-    )
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants/data?namespaces=clinvar.2024_13")
     assert response.status_code == 422
 
 
@@ -3272,9 +3270,7 @@ def test_unrecognized_namespace_returns_422(client, setup_router_db, data_files)
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
 
-    response = client.get(
-        f"/api/v1/score-sets/{score_set['urn']}/variants/data?namespaces=unknown_namespace"
-    )
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants/data?namespaces=unknown_namespace")
     assert response.status_code == 422
 
 

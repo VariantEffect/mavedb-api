@@ -363,10 +363,9 @@ def test_cannot_create_experiment_that_keywords_has_endogenous_without_method_me
     assert response.status_code == 422
     response_data = response.json()
     assert (
-        response_data["detail"]
-        == "If 'Variant Library Creation Method' is 'Endogenous locus library method', "
-           "both 'Endogenous Locus Library Method System' and 'Endogenous Locus Library Method Mechanism' "
-           "must be present."
+        response_data["detail"] == "If 'Variant Library Creation Method' is 'Endogenous locus library method', "
+        "both 'Endogenous Locus Library Method System' and 'Endogenous Locus Library Method Mechanism' "
+        "must be present."
     )
 
 
@@ -401,10 +400,9 @@ def test_cannot_create_experiment_that_keywords_has_endogenous_without_method_sy
     assert response.status_code == 422
     response_data = response.json()
     assert (
-        response_data["detail"]
-        == "If 'Variant Library Creation Method' is 'Endogenous locus library method', "
-           "both 'Endogenous Locus Library Method System' and 'Endogenous Locus Library Method Mechanism' "
-           "must be present."
+        response_data["detail"] == "If 'Variant Library Creation Method' is 'Endogenous locus library method', "
+        "both 'Endogenous Locus Library Method System' and 'Endogenous Locus Library Method Mechanism' "
+        "must be present."
     )
 
 
@@ -478,10 +476,9 @@ def test_cannot_create_experiment_that_keywords_has_in_vitro_without_method_syst
     assert response.status_code == 422
     response_data = response.json()
     assert (
-        response_data["detail"]
-        == "If 'Variant Library Creation Method' is 'In vitro construct library method', "
-           "both 'In Vitro Construct Library Method System' and 'In Vitro Construct Library Method Mechanism' "
-           "must be present."
+        response_data["detail"] == "If 'Variant Library Creation Method' is 'In vitro construct library method', "
+        "both 'In Vitro Construct Library Method System' and 'In Vitro Construct Library Method Mechanism' "
+        "must be present."
     )
 
 
@@ -516,10 +513,9 @@ def test_cannot_create_experiment_that_keywords_has_in_vitro_without_method_mech
     assert response.status_code == 422
     response_data = response.json()
     assert (
-        response_data["detail"]
-        == "If 'Variant Library Creation Method' is 'In vitro construct library method', "
-           "both 'In Vitro Construct Library Method System' and 'In Vitro Construct Library Method Mechanism' "
-           "must be present."
+        response_data["detail"] == "If 'Variant Library Creation Method' is 'In vitro construct library method', "
+        "both 'In Vitro Construct Library Method System' and 'In Vitro Construct Library Method Mechanism' "
+        "must be present."
     )
 
 
@@ -717,23 +713,28 @@ def test_update_experiment_keywords(session, client, setup_router_db):
     assert response.status_code == 200
     experiment = response.json()
     experiment_post_payload = experiment.copy()
-    experiment_post_payload.update({"keywords": [
+    experiment_post_payload.update(
         {
-            "keyword": {
-                "key": "Phenotypic Assay Profiling Strategy",
-                "label": "Shotgun sequencing",
-                "special": False,
-                "description": "Description"
-            },
-            "description": "Details of phenotypic assay profiling strategy",
-        },
-
-    ]})
+            "keywords": [
+                {
+                    "keyword": {
+                        "key": "Phenotypic Assay Profiling Strategy",
+                        "label": "Shotgun sequencing",
+                        "special": False,
+                        "description": "Description",
+                    },
+                    "description": "Details of phenotypic assay profiling strategy",
+                },
+            ]
+        }
+    )
     updated_response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
     assert updated_response.status_code == 200
     updated_experiment = updated_response.json()
     updated_expected_response = deepcopy(TEST_EXPERIMENT_WITH_UPDATE_KEYWORD_RESPONSE)
-    updated_expected_response.update({"urn": updated_experiment["urn"], "experimentSetUrn": updated_experiment["experimentSetUrn"]})
+    updated_expected_response.update(
+        {"urn": updated_experiment["urn"], "experimentSetUrn": updated_experiment["experimentSetUrn"]}
+    )
     assert sorted(updated_expected_response.keys()) == sorted(updated_experiment.keys())
     for key in updated_experiment:
         assert (key, updated_expected_response[key]) == (key, updated_experiment[key])
@@ -745,12 +746,21 @@ def test_update_experiment_keywords_case_insensitive(session, client, setup_rout
     experiment = create_experiment(client)
     experiment_post_payload = experiment.copy()
     # Test database has Delivery Method. The updating keyword's key is delivery method.
-    experiment_post_payload.update({"keywords": [
+    experiment_post_payload.update(
         {
-            "keyword": {"key": "delivery method", "label": "Other", "special": False, "description": "Description"},
-            "description": "Details of delivery method",
-        },
-    ]})
+            "keywords": [
+                {
+                    "keyword": {
+                        "key": "delivery method",
+                        "label": "Other",
+                        "special": False,
+                        "description": "Description",
+                    },
+                    "description": "Details of delivery method",
+                },
+            ]
+        }
+    )
     response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
     response_data = response.json()
     expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE)

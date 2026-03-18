@@ -4,7 +4,7 @@ import logging
 import re
 from collections import Counter
 from operator import attrgetter
-from typing import TYPE_CHECKING, Any, BinaryIO, Iterable, List, Literal, Optional, Sequence
+from typing import TYPE_CHECKING, Any, BinaryIO, Iterable, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd

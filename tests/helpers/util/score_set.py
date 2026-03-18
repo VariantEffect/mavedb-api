@@ -165,9 +165,9 @@ def create_seq_score_set_with_variants(
         count_columns_metadata_json_path,
     )
 
-    assert score_set["numVariants"] == 3, (
-        f"Could not create sequence based score set with variants within experiment {experiment_urn}"
-    )
+    assert (
+        score_set["numVariants"] == 3
+    ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
 
     jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
@@ -196,9 +196,9 @@ def create_acc_score_set_with_variants(
         count_columns_metadata_json_path,
     )
 
-    assert score_set["numVariants"] == 3, (
-        f"Could not create sequence based score set with variants within experiment {experiment_urn}"
-    )
+    assert (
+        score_set["numVariants"] == 3
+    ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
 
     jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set

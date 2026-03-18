@@ -2,7 +2,7 @@ import json
 import logging
 import time
 from datetime import date, datetime
-from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
+from typing import Any, List, Optional, Sequence, TypedDict, Union
 
 import numpy as np
 import pandas as pd
