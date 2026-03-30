@@ -27,12 +27,17 @@ def validate_duplicates(keywords: list):
     keys = []
     labels = []
     for k in keywords:
-        key = k.keyword.key.lower()
-        label = k.keyword.label.lower()
-        if key not in multi_value_keys:
-            keys.append(key)
-        if label != "other":
-            labels.append(label)
+        keys.append(k.keyword.key.lower())  # k: ExperimentControlledKeywordCreate object
+        if k.keyword.label.lower() != "other":
+            labels.append(k.keyword.label.lower())
+        # TODO: When molecular mechanism assessed has one GO with one key, we'll available this validator.
+        # Currently molecular mechanism assessed has combined GO terms in value.
+        # key = k.keyword.key.lower()
+        # label = k.keyword.label.lower()
+        # if key not in multi_value_keys:
+        #     keys.append(key)
+        # if label != "other":
+        #     labels.append(label)
 
     keys_set = set(keys)
     labels_set = set(labels)
