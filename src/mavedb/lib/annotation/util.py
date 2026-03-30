@@ -1,16 +1,18 @@
 from typing import Literal
+
 from ga4gh.core.models import Extension
 from ga4gh.vrs.models import (
-    MolecularVariation,
     Allele,
     CisPhasedBlock,
-    SequenceLocation,
-    SequenceReference,
     Expression,
     LiteralSequenceExpression,
+    MolecularVariation,
+    SequenceLocation,
+    SequenceReference,
 )
-from mavedb.models.mapped_variant import MappedVariant
+
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
+from mavedb.models.mapped_variant import MappedVariant
 from mavedb.view_models.score_calibration import SavedScoreCalibration
 
 
@@ -190,13 +192,16 @@ def _variant_score_calibrations_have_required_calibrations_and_ranges_for_annota
     saved_calibration = SavedScoreCalibration.model_validate(primary_calibration)
     if annotation_type == "pathogenicity":
         return (
-            saved_calibration.functional_ranges is not None
-            and len(saved_calibration.functional_ranges) > 0
-            and any(fr.acmg_classification is not None for fr in saved_calibration.functional_ranges)
+            saved_calibration.functional_classifications is not None
+            and len(saved_calibration.functional_classifications) > 0
+            and any(fr.acmg_classification is not None for fr in saved_calibration.functional_classifications)
         )
 
     if annotation_type == "functional":
-        return saved_calibration.functional_ranges is not None and len(saved_calibration.functional_ranges) > 0
+        return (
+            saved_calibration.functional_classifications is not None
+            and len(saved_calibration.functional_classifications) > 0
+        )
 
     return True
 

@@ -6,16 +6,19 @@ from mavedb.lib.score_calibrations import create_score_calibration_in_score_set
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.user import User
 from mavedb.view_models.score_calibration import ScoreCalibrationCreate, ScoreCalibrationWithScoreSetUrn
-
-from tests.helpers.constants import TEST_BRNICH_SCORE_CALIBRATION
+from tests.helpers.constants import TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED
 
 if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
     from fastapi.testclient import TestClient
+    from sqlalchemy.orm import Session
 
 
-async def create_test_score_calibration_in_score_set(db: "Session", score_set_urn: str, user: User) -> ScoreCalibration:
-    calibration_create = ScoreCalibrationCreate(**TEST_BRNICH_SCORE_CALIBRATION, score_set_urn=score_set_urn)
+async def create_test_range_based_score_calibration_in_score_set(
+    db: "Session", score_set_urn: str, user: User
+) -> ScoreCalibration:
+    calibration_create = ScoreCalibrationCreate(
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, score_set_urn=score_set_urn
+    )
     created_score_calibration = await create_score_calibration_in_score_set(db, calibration_create, user)
     assert created_score_calibration is not None
 

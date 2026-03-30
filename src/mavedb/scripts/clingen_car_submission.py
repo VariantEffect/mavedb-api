@@ -1,16 +1,17 @@
-import click
 import logging
 from typing import Sequence
+
+import click
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from mavedb.lib.clingen.constants import CAR_SUBMISSION_ENDPOINT
+from mavedb.lib.clingen.services import ClinGenAlleleRegistryService, get_allele_registry_associations
+from mavedb.lib.variants import get_hgvs_from_post_mapped
+from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
-from mavedb.models.mapped_variant import MappedVariant
 from mavedb.scripts.environment import with_database_session
-from mavedb.lib.clingen.services import ClinGenAlleleRegistryService, get_allele_registry_associations
-from mavedb.lib.clingen.constants import CAR_SUBMISSION_ENDPOINT
-from mavedb.lib.variants import get_hgvs_from_post_mapped
 
 logger = logging.getLogger(__name__)
 

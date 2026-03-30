@@ -1,13 +1,13 @@
 import logging
 from typing import Optional
 
-from sqlalchemy import func, or_, not_
+from sqlalchemy import func, not_, or_
 from sqlalchemy.orm import Session
 
-from mavedb.lib.authentication import UserData
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action
 from mavedb.lib.score_sets import find_superseded_score_set_tail
+from mavedb.lib.types.authentication import UserData
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.experiment import Experiment

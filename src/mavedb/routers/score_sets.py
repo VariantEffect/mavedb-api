@@ -26,7 +26,6 @@ from mavedb.lib.annotation.annotate import (
     variant_study_result,
 )
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
-from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import (
     get_current_user,
     require_current_user,
@@ -61,6 +60,7 @@ from mavedb.lib.score_sets import (
 )
 from mavedb.lib.target_genes import find_or_create_target_gene_by_accession, find_or_create_target_gene_by_sequence
 from mavedb.lib.taxonomies import find_or_create_taxonomy
+from mavedb.lib.types.authentication import UserData
 from mavedb.lib.urns import (
     generate_experiment_set_urn,
     generate_experiment_urn,
@@ -598,8 +598,16 @@ def search_score_sets(
 def get_filter_options_for_search(
     search: ScoreSetsSearch,
     db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
-    return fetch_score_set_search_filter_options(db, None, search)
+    # Disallow searches for unpublished score sets via this endpoint, consistent with the main search endpoint.
+    if search.published is False:
+        raise HTTPException(
+            status_code=422,
+            detail="Cannot search for private score sets options except in the context of the current user's data.",
+        )
+    search.published = True
+    return fetch_score_set_search_filter_options(db, user_data, None, search)
 
 
 @router.get(
@@ -664,6 +672,86 @@ def search_my_score_sets(
     return {"score_sets": enriched_score_sets, "num_score_sets": num_score_sets}
 
 
+RECENTLY_PUBLISHED_SCORE_SETS_MAX_LIMIT = 20
+
+
+@router.get(
+    "/score-sets/recently-published",
+    status_code=200,
+    response_model=list[score_set.ScoreSet],
+    response_model_exclude_none=True,
+    summary="List recently published score sets",
+)
+def list_recently_published_score_sets(
+    limit: int = Query(
+        default=10,
+        ge=1,
+        le=RECENTLY_PUBLISHED_SCORE_SETS_MAX_LIMIT,
+        description=f"Number of score sets to return (maximum {RECENTLY_PUBLISHED_SCORE_SETS_MAX_LIMIT}).",
+    ),
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+) -> Any:
+    """
+    Return the most recently published score sets, ordered by publication date descending.
+    """
+    save_to_logging_context({"requested_resource": "recently-published", "limit": limit})
+
+    items = (
+        db.query(ScoreSet)
+        .filter(ScoreSet.published_date.isnot(None), ScoreSet.private.is_(False))
+        .order_by(ScoreSet.published_date.desc(), ScoreSet.urn.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for item in items:
+        if not has_permission(user_data, item, Action.READ).permitted:
+            continue
+        if (
+            item.superseding_score_set
+            and not has_permission(user_data, item.superseding_score_set, Action.READ).permitted
+        ):
+            item.superseding_score_set = None
+        enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+        result.append(score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment}))
+
+    return result
+
+
+@router.get(
+    "/score-sets/",
+    status_code=200,
+    response_model=list[score_set.ScoreSet],
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    response_model_exclude_none=True,
+    summary="Fetch score sets by URN list",
+)
+async def show_score_sets(
+    *,
+    urns: str = Query(..., description="Comma-separated list of score set URNs"),
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(get_current_user),
+) -> Any:
+    """
+    Fetch score sets identified by a list of URNs.
+    """
+    urn_list = [urn.strip() for urn in urns.split(",") if urn.strip()]
+    if not urn_list:
+        raise HTTPException(status_code=422, detail="At least one URN is required")
+
+    save_to_logging_context({"requested_resource": urn_list})
+    response_items: list[score_set.ScoreSet] = []
+    for urn in urn_list:
+        item = await fetch_score_set_by_urn(db, urn, user_data, None, False)
+        enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+        response_item = score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
+        response_items.append(response_item)
+
+    return response_items
+
+
 @router.get(
     "/score-sets/{urn}",
     status_code=200,
@@ -706,8 +794,8 @@ def get_score_set_variants_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Maximum number of variants to return"),
-    namespaces: List[Literal["scores", "counts", "vep", "gnomad"]] = Query(
-        default=["scores"], description="One or more data types to include: scores, counts, clinVar, gnomAD, VEP"
+    namespaces: List[Literal["scores", "counts", "vep", "gnomad", "clingen"]] = Query(
+        default=["scores"], description="One or more data types to include: scores, counts, ClinGen, gnomAD, VEP"
     ),
     drop_na_columns: Optional[bool] = None,
     include_custom_columns: Optional[bool] = None,
@@ -732,7 +820,7 @@ def get_score_set_variants_csv(
         The index to start from. If None, starts from the beginning.
     limit : Optional[int]
         The maximum number of variants to return. If None, returns all variants.
-    namespaces: List[Literal["scores", "counts", "vep", "gnomad"]]
+    namespaces: List[Literal["scores", "counts", "vep", "gnomad", "clingen"]]
         The namespaces of all columns except for accession, hgvs_nt, hgvs_pro, and hgvs_splice.
         We may add ClinVar in the future.
     drop_na_columns : bool, optional
@@ -1551,7 +1639,20 @@ async def create_score_set(
     score_calibrations: list[ScoreCalibration] = []
     if item_create.score_calibrations:
         for calibration_create in item_create.score_calibrations:
-            created_calibration_item = await create_score_calibration(db, calibration_create, user_data.user)
+            # TODO#592: Support for class-based calibrations on score set creation
+            if calibration_create.class_based:
+                logger.info(
+                    msg="Failed to create score set; Class-based calibrations are not supported on score set creation.",
+                    extra=logging_context(),
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail="Class-based calibrations are not supported on score set creation. Please create class-based calibrations after creating the score set.",
+                )
+
+            created_calibration_item = await create_score_calibration(
+                db, calibration_create, user_data.user, variant_classes=None
+            )
             created_calibration_item.investigator_provided = True  # necessarily true on score set creation
             score_calibrations.append(created_calibration_item)
 
@@ -1691,6 +1792,41 @@ async def create_score_set(
     response_model_exclude_none=True,
     responses={**BASE_400_RESPONSE, **ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Upload score and variant count files for a score set",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "multipart/form-data": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "scores_file": {
+                                "type": "string",
+                                "format": "binary",
+                                "description": "CSV file containing variant scores. This file is required, and should have at least one score column.",
+                            },
+                            "counts_file": {
+                                "type": "string",
+                                "format": "binary",
+                                "description": "CSV file containing variant counts. If provided, this file should have the same index and variant columns as the scores file.",
+                            },
+                            "score_columns_metadata": {
+                                "type": "string",
+                                "format": "binary",
+                                "description": "JSON file containing metadata for score columns. If provided, this file should have metadata for one or more score columns in the scores file. This JSON file should provide a dictionary mapping column names to metadata objects. Metadata objects should follow the DatasetColumnMetadata schema: `{'description': string, 'details': string}`.",
+                            },
+                            "count_columns_metadata": {
+                                "type": "string",
+                                "format": "binary",
+                                "description": "JSON file containing metadata for count columns. If provided, this file should have metadata for one or more count columns in the counts file. This JSON file should provide a dictionary mapping column names to metadata objects. Metadata objects should follow the DatasetColumnMetadata schema: `{'description': string, 'details': string}`.",
+                            },
+                        },
+                        "required": ["scores_file"],
+                    }
+                },
+            },
+            "description": "Score files, to be uploaded as multipart form data. The `scores_file` is required, while the `counts_file`, `score_columns_metadata`, and `count_columns_metadata` are optional.",
+        }
+    },
 )
 async def upload_score_set_variant_data(
     *,
@@ -1763,6 +1899,41 @@ async def upload_score_set_variant_data(
     response_model_exclude_none=True,
     responses={**BASE_400_RESPONSE, **ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Update score ranges / calibrations for a score set",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "multipart/form-data": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            **score_set.ScoreSetUpdateAllOptional.model_json_schema(by_alias=False)["properties"],
+                            "scores_file": {
+                                "type": "string",
+                                "format": "binary",
+                                "description": "CSV file containing variant scores. If provided, this file should have at least one score column.",
+                            },
+                            "counts_file": {
+                                "type": "string",
+                                "format": "binary",
+                                "description": "CSV file containing variant counts. If provided, this file should have the same index and variant columns as the scores file.",
+                            },
+                            "score_columns_metadata": {
+                                "type": "string",
+                                "format": "binary",
+                                "description": "JSON file containing metadata for score columns. If provided, this file should have metadata for one or more score columns in the scores file. This JSON file should provide a dictionary mapping column names to metadata objects. Metadata objects should follow the DatasetColumnMetadata schema: `{'description': string, 'details': string}`.",
+                            },
+                            "count_columns_metadata": {
+                                "type": "string",
+                                "format": "binary",
+                                "description": "JSON file containing metadata for count columns. If provided, this file should have metadata for one or more count columns in the counts file. This JSON file should provide a dictionary mapping column names to metadata objects. Metadata objects should follow the DatasetColumnMetadata schema: `{'description': string, 'details': string}`.",
+                            },
+                        },
+                    }
+                },
+            },
+            "description": "Score set properties and score files, to be uploaded as multipart form data. All fields here are optional, and only those provided will be updated.",
+        }
+    },
 )
 async def update_score_set_with_variants(
     *,
@@ -1780,6 +1951,13 @@ async def update_score_set_with_variants(
     """
     logger.info(msg="Began score set with variants update.", extra=logging_context())
 
+    # TODO#629: Use `flexible_model_loader` utility here to support both form data and JSON body.
+    #           See: https://github.com/VariantEffect/mavedb-api/pull/589/changes/d1641de7e4bee43e8a0c9f9283e022c5b56830ff
+    #           Currently, only form data is supported but this would allow us to also support JSON bodies
+    #           in cases where no files are being uploaded. My view is accepting score set calibration
+    #           information via a single form field is also more straightforward than handling all the score
+    #           set update fields as separate form fields and parsing them into an object. Doing so will also
+    #           simplify the OpenAPI schema for this endpoint.
     try:
         # Get all form data from the request
         form_data = await request.form()

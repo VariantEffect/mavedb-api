@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 from pydantic import model_validator
 
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
+
+if TYPE_CHECKING:
+    from mavedb.view_models.clinical_control import ClinicalControl, ClinicalControlBase, SavedClinicalControl
+    from mavedb.view_models.gnomad_variant import GnomADVariant, GnomADVariantBase, SavedGnomADVariant
 
 
 class MappedVariantBase(BaseModel):
@@ -55,13 +59,16 @@ class SavedMappedVariant(MappedVariantBase):
     class Config:
         from_attributes = True
 
+    # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
+    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created. Only perform these
+    # transformations if the relevant attributes are present on the input data (i.e., when creating from an ORM object).
     @model_validator(mode="before")
     def generate_score_set_urn_list(cls, data: Any):
-        if not hasattr(data, "variant_urn") and hasattr(data, "variant"):
+        if hasattr(data, "variant"):
             try:
                 data.__setattr__("variant_urn", None if not data.variant else data.variant.urn)
-            except AttributeError as exc:
-                raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
+            except (AttributeError, KeyError) as exc:
+                raise ValidationError(f"Unable to coerce variant urn for {cls.__name__}: {exc}.")  # type: ignore
         return data
 
 
@@ -97,8 +104,8 @@ class MappedVariantForClinicalControl(BaseModel):
 
 
 # ruff: noqa: E402
-from mavedb.view_models.clinical_control import ClinicalControlBase, ClinicalControl, SavedClinicalControl
-from mavedb.view_models.gnomad_variant import GnomADVariantBase, GnomADVariant, SavedGnomADVariant
+from mavedb.view_models.clinical_control import ClinicalControl, ClinicalControlBase, SavedClinicalControl
+from mavedb.view_models.gnomad_variant import GnomADVariant, GnomADVariantBase, SavedGnomADVariant
 
 MappedVariantUpdate.model_rebuild()
 SavedMappedVariantWithControls.model_rebuild()

@@ -36,6 +36,7 @@ SCORE_CALIBRATION_UNSUPPORTED_ACTIONS: List[Action] = [
     Action.LOOKUP,
     Action.ADD_BADGE,
     Action.SET_SCORES,
+    Action.ADD_CALIBRATION,
 ]
 
 
@@ -446,43 +447,33 @@ class TestScoreCalibrationChangeRankActionHandler:
             PermissionTest(
                 "ScoreCalibration", "published", "admin", Action.CHANGE_RANK, True, investigator_provided=False
             ),
-            # Owners: Can change rank of their own ScoreCalibrations regardless of state or investigator_provided flag
+            # Owners: Can change rank of their own investigator-provided ScoreCalibrations, but NOT community-provided ones
+            # (community calibrations should be promoted by the score set team, not the calibration creator)
             PermissionTest(
                 "ScoreCalibration", "private", "owner", Action.CHANGE_RANK, True, investigator_provided=True
             ),
             PermissionTest(
-                "ScoreCalibration", "private", "owner", Action.CHANGE_RANK, True, investigator_provided=False
+                "ScoreCalibration", "private", "owner", Action.CHANGE_RANK, False, 403, investigator_provided=False
             ),
             PermissionTest(
                 "ScoreCalibration", "published", "owner", Action.CHANGE_RANK, True, investigator_provided=True
             ),
             PermissionTest(
-                "ScoreCalibration", "published", "owner", Action.CHANGE_RANK, True, investigator_provided=False
+                "ScoreCalibration", "published", "owner", Action.CHANGE_RANK, False, 403, investigator_provided=False
             ),
-            # Contributors to associated ScoreSet: Can change rank of investigator-provided ScoreCalibrations (private or published), but cannot change rank of community-provided ones
+            # Contributors to associated ScoreSet: Can change rank of both investigator-provided and community-provided
+            # ScoreCalibrations (the score set team controls which calibration becomes primary)
             PermissionTest(
                 "ScoreCalibration", "private", "contributor", Action.CHANGE_RANK, True, investigator_provided=True
             ),
             PermissionTest(
-                "ScoreCalibration",
-                "private",
-                "contributor",
-                Action.CHANGE_RANK,
-                False,
-                404,
-                investigator_provided=False,
+                "ScoreCalibration", "private", "contributor", Action.CHANGE_RANK, True, investigator_provided=False
             ),
             PermissionTest(
                 "ScoreCalibration", "published", "contributor", Action.CHANGE_RANK, True, investigator_provided=True
             ),
             PermissionTest(
-                "ScoreCalibration",
-                "published",
-                "contributor",
-                Action.CHANGE_RANK,
-                False,
-                403,
-                investigator_provided=False,
+                "ScoreCalibration", "published", "contributor", Action.CHANGE_RANK, True, investigator_provided=False
             ),
             # Other users: Cannot change rank of any ScoreCalibrations
             PermissionTest(
@@ -508,6 +499,19 @@ class TestScoreCalibrationChangeRankActionHandler:
                 False,
                 403,
                 investigator_provided=False,
+            ),
+            # Mappers: Cannot change rank of any ScoreCalibrations
+            PermissionTest(
+                "ScoreCalibration", "private", "mapper", Action.CHANGE_RANK, False, 404, investigator_provided=True
+            ),
+            PermissionTest(
+                "ScoreCalibration", "private", "mapper", Action.CHANGE_RANK, False, 404, investigator_provided=False
+            ),
+            PermissionTest(
+                "ScoreCalibration", "published", "mapper", Action.CHANGE_RANK, False, 403, investigator_provided=True
+            ),
+            PermissionTest(
+                "ScoreCalibration", "published", "mapper", Action.CHANGE_RANK, False, 403, investigator_provided=False
             ),
             # Anonymous users: Cannot change rank of any ScoreCalibrations
             PermissionTest(

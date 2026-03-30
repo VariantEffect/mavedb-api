@@ -9,7 +9,6 @@ from sqlalchemy.schema import Table
 
 import mavedb.models.score_set_publication_identifier
 from mavedb.db.base import Base
-from mavedb.models.collection_association import collection_score_sets_association_table
 from mavedb.models.contributor import Contributor
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.enums.mapping_state import MappingState
@@ -22,9 +21,9 @@ from mavedb.models.user import User
 
 if TYPE_CHECKING:
     from mavedb.models.collection import Collection
+    from mavedb.models.score_calibration import ScoreCalibration
     from mavedb.models.target_gene import TargetGene
     from mavedb.models.variant import Variant
-    from mavedb.models.score_calibration import ScoreCalibration
 
 # from .raw_read_identifier import SraIdentifier
 from mavedb.lib.temp_urns import generate_temp_urn
@@ -188,16 +187,17 @@ class ScoreSet(Base):
         "ScoreCalibration", back_populates="score_set", cascade="all, delete-orphan"
     )
 
+    # View-only back-references to collections (actual relationship managed on Collection side)
     collections: Mapped[list["Collection"]] = relationship(
         "Collection",
-        secondary=collection_score_sets_association_table,
-        back_populates="score_sets",
+        secondary="collection_score_sets",
+        viewonly=True,
     )
     official_collections: Mapped[list["Collection"]] = relationship(
         "Collection",
-        secondary=collection_score_sets_association_table,
+        secondary="collection_score_sets",
+        primaryjoin="ScoreSet.id == collection_score_sets.c.score_set_id",
         secondaryjoin="and_(collection_score_sets.c.collection_id == Collection.id, Collection.badge_name != None)",
-        back_populates="score_sets",
         viewonly=True,
     )
 

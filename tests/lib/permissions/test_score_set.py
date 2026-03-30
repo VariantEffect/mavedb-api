@@ -11,6 +11,7 @@ from unittest import mock
 
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.score_set import (
+    _handle_add_calibration_action,
     _handle_delete_action,
     _handle_publish_action,
     _handle_read_action,
@@ -27,6 +28,7 @@ SCORE_SET_SUPPORTED_ACTIONS: dict[Action, Callable] = {
     Action.DELETE: _handle_delete_action,
     Action.SET_SCORES: _handle_set_scores_action,
     Action.PUBLISH: _handle_publish_action,
+    Action.ADD_CALIBRATION: _handle_add_calibration_action,
 }
 
 SCORE_SET_UNSUPPORTED_ACTIONS: List[Action] = [
@@ -320,6 +322,53 @@ class TestScoreSetPublishActionHandler:
         active_roles = user_data.active_roles if user_data else []
 
         result = _handle_publish_action(user_data, score_set, private, user_is_owner, user_is_contributor, active_roles)
+
+        assert result.permitted == test_case.should_be_permitted
+        if not test_case.should_be_permitted and test_case.expected_code:
+            assert result.http_code == test_case.expected_code
+
+
+class TestScoreSetAddCalibrationActionHandler:
+    """Test the _handle_add_calibration_action helper function directly."""
+
+    @pytest.mark.parametrize(
+        "test_case",
+        [
+            # Admins can add calibrations to any ScoreSet
+            PermissionTest("ScoreSet", "private", "admin", Action.ADD_CALIBRATION, True),
+            PermissionTest("ScoreSet", "published", "admin", Action.ADD_CALIBRATION, True),
+            # Owners can add calibrations to any ScoreSet they own
+            PermissionTest("ScoreSet", "private", "owner", Action.ADD_CALIBRATION, True),
+            PermissionTest("ScoreSet", "published", "owner", Action.ADD_CALIBRATION, True),
+            # Contributors can add calibrations to any ScoreSet they contribute to
+            PermissionTest("ScoreSet", "private", "contributor", Action.ADD_CALIBRATION, True),
+            PermissionTest("ScoreSet", "published", "contributor", Action.ADD_CALIBRATION, True),
+            # Mappers cannot add calibrations to private ScoreSets, but can to published
+            PermissionTest("ScoreSet", "private", "mapper", Action.ADD_CALIBRATION, False, 404),
+            PermissionTest("ScoreSet", "published", "mapper", Action.ADD_CALIBRATION, True),
+            # Other users cannot add calibrations to private ScoreSets, but can to published
+            PermissionTest("ScoreSet", "private", "other_user", Action.ADD_CALIBRATION, False, 404),
+            PermissionTest("ScoreSet", "published", "other_user", Action.ADD_CALIBRATION, True),
+            # Anonymous users cannot add calibrations to any ScoreSet
+            PermissionTest("ScoreSet", "private", "anonymous", Action.ADD_CALIBRATION, False, 404),
+            PermissionTest("ScoreSet", "published", "anonymous", Action.ADD_CALIBRATION, False, 401),
+        ],
+        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+    )
+    def test_handle_add_calibration_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
+        """Test _handle_add_calibration_action helper function directly."""
+        assert test_case.entity_state is not None, "ScoreSet tests must have entity_state"
+        score_set = entity_helper.create_score_set(test_case.entity_state)
+        user_data = entity_helper.create_user_data(test_case.user_type)
+
+        private = test_case.entity_state == "private"
+        user_is_owner = test_case.user_type == "owner"
+        user_is_contributor = test_case.user_type == "contributor"
+        active_roles = user_data.active_roles if user_data else []
+
+        result = _handle_add_calibration_action(
+            user_data, score_set, private, user_is_owner, user_is_contributor, active_roles
+        )
 
         assert result.permitted == test_case.should_be_permitted
         if not test_case.should_be_permitted and test_case.expected_code:

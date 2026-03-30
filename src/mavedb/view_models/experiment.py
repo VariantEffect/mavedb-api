@@ -1,18 +1,20 @@
 from datetime import date
-from typing import Any, Collection, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Collection, Optional, Sequence
 
-from pydantic import field_validator, model_validator, ValidationInfo
+from pydantic import ValidationInfo, field_validator, model_validator
 
+from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.transform import (
     transform_experiment_set_to_urn,
-    transform_score_set_list_to_urn_list,
     transform_record_publication_identifiers,
+    transform_score_set_list_to_urn_list,
 )
-from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.utilities import is_null
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
+from mavedb.view_models.collection import OfficialCollection
+from mavedb.view_models.components.external_link import ExternalLink
 from mavedb.view_models.contributor import Contributor, ContributorCreate
 from mavedb.view_models.doi_identifier import (
     DoiIdentifier,
@@ -36,15 +38,8 @@ from mavedb.view_models.raw_read_identifier import (
 )
 from mavedb.view_models.user import SavedUser, User
 
-
-class OfficialCollection(BaseModel):
-    badge_name: str
-    name: str
-    urn: str
-
-    class Config:
-        arbitrary_types_allowed = True
-        from_attributes = True
+if TYPE_CHECKING:
+    from mavedb.view_models.score_set import ScoreSetPublicDump
 
 
 class ExperimentBase(BaseModel):
@@ -115,6 +110,7 @@ class SavedExperiment(ExperimentBase):
     contributors: list[Contributor]
     keywords: Sequence[SavedExperimentControlledKeyword]
     score_set_urns: list[str]
+    external_links: dict[str, ExternalLink]
 
     _record_type_factory = record_type_validator()(set_record_type)
 
@@ -129,12 +125,11 @@ class SavedExperiment(ExperimentBase):
         return list(v)  # Re-cast into proper list-like type
 
     # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
-    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created.
+    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created. Only perform these
+    # transformations if the relevant attributes are present on the input data (i.e., when creating from an ORM object).
     @model_validator(mode="before")
     def generate_primary_and_secondary_publications(cls, data: Any):
-        if not hasattr(data, "primary_publication_identifiers") or not hasattr(
-            data, "secondary_publication_identifiers"
-        ):
+        if hasattr(data, "publication_identifier_associations"):
             try:
                 publication_identifiers = transform_record_publication_identifiers(
                     data.publication_identifier_associations
@@ -145,28 +140,30 @@ class SavedExperiment(ExperimentBase):
                 data.__setattr__(
                     "secondary_publication_identifiers", publication_identifiers["secondary_publication_identifiers"]
                 )
-            except AttributeError as exc:
+            except (KeyError, AttributeError) as exc:
                 raise ValidationError(
-                    f"Unable to create {cls.__name__} without attribute: {exc}."  # type: ignore
+                    f"Unable to coerce publication identifier attributes from ORM for {cls.__name__}: {exc}."  # type: ignore
                 )
         return data
 
     @model_validator(mode="before")
     def generate_score_set_urn_list(cls, data: Any):
-        if not hasattr(data, "score_set_urns"):
+        if hasattr(data, "score_sets"):
             try:
                 data.__setattr__("score_set_urns", transform_score_set_list_to_urn_list(data.score_sets))
-            except AttributeError as exc:
-                raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
+            except (KeyError, AttributeError) as exc:
+                raise ValidationError(f"Unable to coerce associated score set URNs from ORM for {cls.__name__}: {exc}.")  # type: ignore
         return data
 
     @model_validator(mode="before")
     def generate_experiment_set_urn(cls, data: Any):
-        if not hasattr(data, "experiment_set_urn"):
+        if hasattr(data, "experiment_set"):
             try:
                 data.__setattr__("experiment_set_urn", transform_experiment_set_to_urn(data.experiment_set))
-            except AttributeError as exc:
-                raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
+            except (KeyError, AttributeError) as exc:
+                raise ValidationError(
+                    f"Unable to coerce associated experiment set URN from ORM for {cls.__name__}: {exc}."
+                )  # type: ignore
         return data
 
 
@@ -198,9 +195,3 @@ class AdminExperiment(Experiment):
 # Properties to include in a dump of all published data.
 class ExperimentPublicDump(SavedExperiment):
     score_sets: "Sequence[ScoreSetPublicDump]"
-
-
-# ruff: noqa: E402
-from mavedb.view_models.score_set import ScoreSetPublicDump
-
-ExperimentPublicDump.model_rebuild()

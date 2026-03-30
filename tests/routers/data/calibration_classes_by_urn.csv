@@ -1,0 +1,4 @@
+variant_urn,class_name
+urn:mavedb:00000001-a-1#1,normal_class
+urn:mavedb:00000001-a-1#2,abnormal_class
+urn:mavedb:00000001-a-1#3,not_specified_class

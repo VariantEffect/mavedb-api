@@ -35,8 +35,10 @@ from tests.helpers.constants import (
     SAVED_PUBMED_PUBLICATION,
     SAVED_SHORT_EXTRA_LICENSE,
     TEST_BIORXIV_IDENTIFIER,
-    TEST_BRNICH_SCORE_CALIBRATION,
+    TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED,
+    TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_CROSSREF_IDENTIFIER,
+    TEST_EXPERIMENT_WITH_KEYWORD,
     TEST_GNOMAD_DATA_VERSION,
     TEST_INACTIVE_LICENSE,
     TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION,
@@ -48,11 +50,13 @@ from tests.helpers.constants import (
     TEST_ORCID_ID,
     TEST_PATHOGENICITY_SCORE_CALIBRATION,
     TEST_PUBMED_IDENTIFIER,
-    TEST_SAVED_BRNICH_SCORE_CALIBRATION,
+    TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_SAVED_CLINVAR_CONTROL,
     TEST_SAVED_GENERIC_CLINICAL_CONTROL,
     TEST_SAVED_GNOMAD_VARIANT,
+    TEST_SAVED_TAXONOMY,
     TEST_USER,
+    VALID_CLINGEN_CA_ID,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.common import (
@@ -204,7 +208,7 @@ def test_create_score_set_with_score_calibration(client, mock_publication_fetch,
     score_set["experimentUrn"] = experiment["urn"]
     score_set.update(
         {
-            "scoreCalibrations": [deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)],
+            "scoreCalibrations": [deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)],
         }
     )
 
@@ -219,11 +223,20 @@ def test_create_score_set_with_score_calibration(client, mock_publication_fetch,
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, response_data
     )
     expected_response["experiment"].update({"numScoreSets": 1})
-    expected_calibration = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION)
+    expected_calibration = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     expected_calibration["urn"] = response_data["scoreCalibrations"][0]["urn"]
     expected_calibration["private"] = True
     expected_calibration["primary"] = False
     expected_calibration["investigatorProvided"] = True
+    # Match functional classifications by a stable identifier (label).
+    response_fcs_by_label = {
+        fc["label"]: fc for fc in response_data["scoreCalibrations"][0]["functionalClassifications"]
+    }
+    for expected_fc in expected_calibration["functionalClassifications"]:
+        label = expected_fc["label"]
+        if label in response_fcs_by_label:
+            expected_fc["id"] = response_fcs_by_label[label]["id"]
+
     expected_response["scoreCalibrations"] = [expected_calibration]
 
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
@@ -232,6 +245,34 @@ def test_create_score_set_with_score_calibration(client, mock_publication_fetch,
 
     response = client.get(f"/api/v1/score-sets/{response_data['urn']}")
     assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        (
+            [
+                {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+                {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+            ]
+        )
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_score_set_with_class_based_calibration(client, mock_publication_fetch, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    score_set.update(
+        {
+            "scoreCalibrations": [deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED)],
+        }
+    )
+
+    response = client.post("/api/v1/score-sets/", json=score_set)
+    assert response.status_code == 409
+    response_data = response.json()
+    assert "Class-based calibrations are not supported on score set creation" in response_data["detail"]
 
 
 @pytest.mark.parametrize(
@@ -694,39 +735,6 @@ def test_anonymous_user_cannot_get_user_private_score_set(session, client, setup
     assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
 
 
-def test_can_add_contributor_in_both_experiment_and_score_set(session, client, setup_router_db):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    change_ownership(session, score_set["urn"], ScoreSetDbModel)
-    change_ownership(session, experiment["urn"], ExperimentDbModel)
-    add_contributor(
-        session,
-        score_set["urn"],
-        ScoreSetDbModel,
-        TEST_USER["username"],
-        TEST_USER["first_name"],
-        TEST_USER["last_name"],
-    )
-    add_contributor(
-        session,
-        experiment["urn"],
-        ExperimentDbModel,
-        TEST_USER["username"],
-        TEST_USER["first_name"],
-        TEST_USER["last_name"],
-    )
-    score_set_response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
-    assert score_set_response.status_code == 200
-    ss_response_data = score_set_response.json()
-    assert len(ss_response_data["contributors"]) == 1
-    assert any(c["orcidId"] == TEST_USER["username"] for c in ss_response_data["contributors"])
-    experiment_response = client.get(f"/api/v1/experiments/{experiment['urn']}")
-    assert experiment_response.status_code == 200
-    exp_response_data = experiment_response.json()
-    assert len(exp_response_data["contributors"]) == 1
-    assert any(c["orcidId"] == TEST_USER["username"] for c in exp_response_data["contributors"])
-
-
 def test_contributor_can_get_other_users_private_score_set(session, client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -791,6 +799,184 @@ def test_admin_can_get_other_user_private_score_set(session, client, admin_app_o
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
+########################################################################################################################
+# Multiple score set fetching
+########################################################################################################################
+
+
+def test_get_score_sets_by_comma_separated_urns(client, setup_router_db):
+    experiment = create_experiment(client)
+    first_score_set = create_seq_score_set(client, experiment["urn"])
+    second_score_set = create_seq_score_set(client, experiment["urn"])
+
+    response = client.get(
+        "/api/v1/score-sets/",
+        params={"urns": f"{first_score_set['urn']}, {second_score_set['urn']}"},
+    )
+    assert response.status_code == 200
+
+    response_data = response.json()
+    assert [item["urn"] for item in response_data] == [first_score_set["urn"], second_score_set["urn"]]
+
+    for item in response_data:
+        jsonschema.validate(instance=item, schema=ScoreSet.model_json_schema())
+
+
+def test_get_score_sets_requires_at_least_one_urn(client, setup_router_db):
+    response = client.get("/api/v1/score-sets/", params={"urns": " , "})
+    assert response.status_code == 422
+    assert response.json()["detail"] == "At least one URN is required"
+
+
+def test_get_score_sets_with_mixed_valid_and_invalid_urns_returns_404(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    missing_urn = "urn:mavedb:99999999-z-9"
+
+    response = client.get(
+        "/api/v1/score-sets/",
+        params={"urns": f"{score_set['urn']},{missing_urn}"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == f"score set with URN '{missing_urn}' not found"
+
+
+def test_get_score_sets_with_whitespace_around_urns_in_mixed_list_returns_404(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    missing_urn = "urn:mavedb:99999999-z-9"
+
+    response = client.get(
+        "/api/v1/score-sets/",
+        params={"urns": f"  {score_set['urn']}  ,   {missing_urn}   "},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == f"score set with URN '{missing_urn}' not found"
+
+
+def test_show_score_sets_anonymous_can_fetch_public_score_sets(
+    session, client, setup_router_db, anonymous_app_overrides, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(
+            "/api/v1/score-sets/",
+            params={"urns": published_score_set["urn"]},
+        )
+
+    assert response.status_code == 200
+    response_data = response.json()
+    assert len(response_data) == 1
+    assert response_data[0]["urn"] == published_score_set["urn"]
+
+
+def test_show_score_sets_anonymous_cannot_fetch_private_score_sets(session, client, setup_router_db, anonymous_app_overrides):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    # Score set is private (not published); change ownership so it belongs to another user
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(
+            "/api/v1/score-sets/",
+            params={"urns": score_set["urn"]},
+        )
+
+    assert response.status_code == 404
+    assert f"score set with URN '{score_set['urn']}' not found" in response.json()["detail"]
+
+
+def test_show_score_sets_authenticated_user_can_fetch_own_private_score_sets(client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    response = client.get(
+        "/api/v1/score-sets/",
+        params={"urns": score_set["urn"]},
+    )
+
+    assert response.status_code == 200
+    response_data = response.json()
+    assert len(response_data) == 1
+    assert response_data[0]["urn"] == score_set["urn"]
+
+
+def test_show_score_sets_authenticated_user_cannot_fetch_other_users_private_score_sets(
+    session, client, setup_router_db
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+
+    response = client.get(
+        "/api/v1/score-sets/",
+        params={"urns": score_set["urn"]},
+    )
+
+    assert response.status_code == 404
+    assert f"score set with URN '{score_set['urn']}' not found" in response.json()["detail"]
+
+
+def test_show_score_sets_mixed_public_and_private_returns_404(
+    session, client, setup_router_db, anonymous_app_overrides, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    public_score_set = create_seq_score_set(client, experiment["urn"])
+    public_score_set = mock_worker_variant_insertion(client, session, data_provider, public_score_set, data_files / "scores.csv")
+    private_score_set = create_seq_score_set(client, experiment["urn"])
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, public_score_set["urn"])
+    # Make private_score_set belong to a different user to make it inaccessible anonymously
+    change_ownership(session, private_score_set["urn"], ScoreSetDbModel)
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(
+            "/api/v1/score-sets/",
+            params={"urns": f"{published_score_set['urn']},{private_score_set['urn']}"},
+        )
+
+    assert response.status_code == 404
+    assert f"score set with URN '{private_score_set['urn']}' not found" in response.json()["detail"]
+
+
+def test_can_add_contributor_in_both_experiment_and_score_set(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    add_contributor(
+        session,
+        experiment["urn"],
+        ExperimentDbModel,
+        TEST_USER["username"],
+        TEST_USER["first_name"],
+        TEST_USER["last_name"],
+    )
+    score_set_response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+    assert score_set_response.status_code == 200
+    ss_response_data = score_set_response.json()
+    assert len(ss_response_data["contributors"]) == 1
+    assert any(c["orcidId"] == TEST_USER["username"] for c in ss_response_data["contributors"])
+    experiment_response = client.get(f"/api/v1/experiments/{experiment['urn']}")
+    assert experiment_response.status_code == 200
+    exp_response_data = experiment_response.json()
+    assert len(exp_response_data["contributors"]) == 1
+    assert any(c["orcidId"] == TEST_USER["username"] for c in exp_response_data["contributors"])
+
+
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -815,12 +1001,12 @@ def test_extra_user_can_only_view_published_score_calibrations_in_score_set(
         worker_queue.assert_called_once()
 
     create_test_score_calibration_in_score_set_via_client(
-        client, published_score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, published_score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     public_calibration = create_publish_and_promote_score_calibration(
         client,
         published_score_set["urn"],
-        deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+        deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
     )
 
     with DependencyOverrider(extra_user_app_overrides):
@@ -848,12 +1034,12 @@ def test_creating_user_can_view_all_score_calibrations_in_score_set(client, setu
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     private_calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     public_calibration = create_publish_and_promote_score_calibration(
         client,
         score_set["urn"],
-        deepcamelize(TEST_BRNICH_SCORE_CALIBRATION),
+        deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
     )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
@@ -1346,7 +1532,7 @@ def test_score_calibrations_remain_private_when_score_set_is_published(
     )
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION)
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
@@ -1371,6 +1557,96 @@ def test_cannot_publish_score_set_without_variants(client, setup_router_db):
         response_data = response.json()
 
     assert "cannot publish score set without variant scores" in response_data["detail"]
+
+
+########################################################################################################################
+# Recently published score sets
+########################################################################################################################
+
+
+def test_recently_published_returns_empty_list_when_no_score_sets_published(client, setup_router_db):
+    response = client.get("/api/v1/score-sets/recently-published")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_recently_published_returns_published_score_sets(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set_1 = create_seq_score_set(client, experiment["urn"])
+    score_set_1 = mock_worker_variant_insertion(client, session, data_provider, score_set_1, data_files / "scores.csv")
+    score_set_2 = create_seq_score_set(client, experiment["urn"])
+    score_set_2 = mock_worker_variant_insertion(client, session, data_provider, score_set_2, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_1 = publish_score_set(client, score_set_1["urn"])
+        published_2 = publish_score_set(client, score_set_2["urn"])
+
+    response = client.get("/api/v1/score-sets/recently-published")
+    assert response.status_code == 200
+    response_data = response.json()
+
+    returned_urns = [ss["urn"] for ss in response_data]
+    assert published_1["urn"] in returned_urns
+    assert published_2["urn"] in returned_urns
+
+
+def test_recently_published_does_not_return_unpublished_score_sets(client, setup_router_db):
+    experiment = create_experiment(client)
+    create_seq_score_set(client, experiment["urn"])
+
+    response = client.get("/api/v1/score-sets/recently-published")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_recently_published_respects_limit_parameter(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    # Create and upload variants for all score sets before publishing any, because publishing
+    # changes the experiment URN from a tmp URN to a permanent URN.
+    score_sets = []
+    for _ in range(3):
+        score_set = create_seq_score_set(client, experiment["urn"])
+        score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+        score_sets.append(score_set)
+
+    published_urns = []
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        for score_set in score_sets:
+            published = publish_score_set(client, score_set["urn"])
+            published_urns.append(published["urn"])
+
+    response = client.get("/api/v1/score-sets/recently-published?limit=2")
+    assert response.status_code == 200
+    response_data = response.json()
+    assert len(response_data) == 2
+
+
+def test_recently_published_rejects_limit_exceeding_maximum(client, setup_router_db):
+    response = client.get("/api/v1/score-sets/recently-published?limit=21")
+    assert response.status_code == 422
+
+
+def test_recently_published_rejects_limit_of_zero(client, setup_router_db):
+    response = client.get("/api/v1/score-sets/recently-published?limit=0")
+    assert response.status_code == 422
+
+
+def test_recently_published_accessible_to_anonymous_user(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get("/api/v1/score-sets/recently-published")
+
+    assert response.status_code == 200
+    returned_urns = [ss["urn"] for ss in response.json()]
+    assert published["urn"] in returned_urns
 
 
 def test_cannot_publish_other_user_private_score_set(session, data_provider, client, setup_router_db, data_files):
@@ -1895,8 +2171,10 @@ def test_search_private_score_sets_urn_match(session, data_provider, client, set
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 1"})
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    decoy = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 2"})
+    decoy = mock_worker_variant_insertion(client, session, data_provider, decoy, data_files / "scores.csv")
 
-    search_payload = {"urn": score_set["urn"]}
+    search_payload = {"text": score_set["urn"]}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
     assert response.json()["numScoreSets"] == 1
@@ -1904,14 +2182,15 @@ def test_search_private_score_sets_urn_match(session, data_provider, client, set
     assert response.json()["scoreSets"][0]["urn"] == score_set["urn"]
 
 
-# There is space in the end of test urn. The search result returned nothing before.
 def test_search_private_score_sets_urn_with_space_match(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 1"})
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    decoy = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 2"})
+    decoy = mock_worker_variant_insertion(client, session, data_provider, decoy, data_files / "scores.csv")
 
     urn_with_space = score_set["urn"] + "   "
-    search_payload = {"urn": urn_with_space}
+    search_payload = {"text": urn_with_space}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
     assert response.json()["numScoreSets"] == 1
@@ -1949,26 +2228,29 @@ def test_search_others_private_score_sets_urn_match(session, data_provider, clie
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 1"})
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    decoy = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 2"})
+    decoy = mock_worker_variant_insertion(client, session, data_provider, decoy, data_files / "scores.csv")
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
 
-    search_payload = {"urn": score_set["urn"]}
+    search_payload = {"text": score_set["urn"]}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
     assert response.json()["numScoreSets"] == 0
     assert len(response.json()["scoreSets"]) == 0
 
 
-# There is space in the end of test urn. The search result returned nothing before.
 def test_search_others_private_score_sets_urn_with_space_match(
     session, data_provider, client, setup_router_db, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 1"})
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    decoy = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 2"})
+    decoy = mock_worker_variant_insertion(client, session, data_provider, decoy, data_files / "scores.csv")
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
 
     urn_with_space = score_set["urn"] + "   "
-    search_payload = {"urn": urn_with_space}
+    search_payload = {"text": urn_with_space}
     response = client.post("/api/v1/me/score-sets/search", json=search_payload)
     assert response.status_code == 200
     assert response.json()["numScoreSets"] == 0
@@ -2091,13 +2373,16 @@ def test_search_public_score_sets_urn_with_space_match(session, data_provider, c
     experiment = create_experiment(client, {"title": "Experiment 1"})
     score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 1"})
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    decoy = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 2"})
+    decoy = mock_worker_variant_insertion(client, session, data_provider, decoy, data_files / "scores.csv")
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         published_score_set = publish_score_set(client, score_set["urn"])
-        worker_queue.assert_called_once()
+        publish_score_set(client, decoy["urn"])
+        assert worker_queue.call_count == 2
 
     urn_with_space = published_score_set["urn"] + "   "
-    search_payload = {"urn": urn_with_space}
+    search_payload = {"text": urn_with_space}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
     assert response.json()["numScoreSets"] == 1
@@ -2147,13 +2432,16 @@ def test_search_others_public_score_sets_urn_match(session, data_provider, clien
     experiment = create_experiment(client, {"title": "Experiment 1"})
     score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 1"})
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    decoy = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 2"})
+    decoy = mock_worker_variant_insertion(client, session, data_provider, decoy, data_files / "scores.csv")
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         published_score_set = publish_score_set(client, score_set["urn"])
-        worker_queue.assert_called_once()
+        publish_score_set(client, decoy["urn"])
+        assert worker_queue.call_count == 2
 
     change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
-    search_payload = {"urn": score_set["urn"]}
+    search_payload = {"text": published_score_set["urn"]}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
     assert response.json()["numScoreSets"] == 1
@@ -2167,14 +2455,17 @@ def test_search_others_public_score_sets_urn_with_space_match(
     experiment = create_experiment(client, {"title": "Experiment 1"})
     score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 1"})
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    decoy = create_seq_score_set(client, experiment["urn"], update={"title": "Score Set 2"})
+    decoy = mock_worker_variant_insertion(client, session, data_provider, decoy, data_files / "scores.csv")
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         published_score_set = publish_score_set(client, score_set["urn"])
-        worker_queue.assert_called_once()
+        publish_score_set(client, decoy["urn"])
+        assert worker_queue.call_count == 2
 
     change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
     urn_with_space = published_score_set["urn"] + "   "
-    search_payload = {"urn": urn_with_space}
+    search_payload = {"text": urn_with_space}
     response = client.post("/api/v1/score-sets/search", json=search_payload)
     assert response.status_code == 200
     assert response.json()["numScoreSets"] == 1
@@ -2223,6 +2514,189 @@ def test_search_public_score_sets_not_showing_private_score_set(
     assert response.json()["numScoreSets"] == 1
     assert len(response.json()["scoreSets"]) == 1
     assert response.json()["scoreSets"][0]["urn"] == published_score_set_1["urn"]
+
+
+def test_search_published_score_set_not_hidden_by_unpublished_superseding_version(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """A published score set should still appear in search results when its superseding version is unpublished."""
+    experiment = create_experiment(client, {"title": "Experiment 1"})
+    score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Test Fnord Score Set"})
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    # Create an unpublished superseding score set — this should NOT hide the published precursor.
+    create_seq_score_set(
+        client,
+        published_score_set["experiment"]["urn"],
+        update={"supersededScoreSetUrn": published_score_set["urn"]},
+    )
+
+    search_payload = {"text": "fnord"}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert response.json()["numScoreSets"] == 1
+    assert response.json()["scoreSets"][0]["urn"] == published_score_set["urn"]
+
+
+def test_search_published_score_set_hidden_by_published_superseding_version(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """A published score set should be hidden from search results when its superseding version is also published."""
+    experiment = create_experiment(client, {"title": "Experiment 1"})
+    score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Test Fnord Score Set"})
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    # Create and publish a superseding score set — this SHOULD hide the precursor.
+    superseding = create_seq_score_set(
+        client,
+        published_score_set["experiment"]["urn"],
+        update={"title": "Test Fnord Score Set v2", "supersededScoreSetUrn": published_score_set["urn"]},
+    )
+    superseding = mock_worker_variant_insertion(client, session, data_provider, superseding, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_superseding = publish_score_set(client, superseding["urn"])
+        worker_queue.assert_called_once()
+
+    search_payload = {"text": "fnord"}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    # Only the superseding version should appear; the precursor should be hidden.
+    assert response.json()["numScoreSets"] == 1
+    assert response.json()["scoreSets"][0]["urn"] == published_superseding["urn"]
+
+
+def test_search_filter_options_not_hidden_by_unpublished_superseding_version(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """Filter options should include targets from published score sets even when superseded by unpublished versions."""
+    experiment = create_experiment(client, {"title": "Experiment 1"})
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    target_name = published_score_set["targetGenes"][0]["name"]
+
+    # Create an unpublished superseding version.
+    create_seq_score_set(
+        client,
+        published_score_set["experiment"]["urn"],
+        update={"supersededScoreSetUrn": published_score_set["urn"]},
+    )
+
+    response = client.post("/api/v1/score-sets/search/filter-options", json={})
+    assert response.status_code == 200
+    target_names = [opt["value"] for opt in response.json()["targetGeneNames"]]
+    assert target_name in target_names
+
+
+def test_search_filter_options_hidden_by_published_superseding_version(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """Filter options should NOT include targets from published score sets when superseded by published versions."""
+    experiment = create_experiment(client, {"title": "Experiment 1"})
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    target_name = published_score_set["targetGenes"][0]["name"]
+
+    # Create and publish a superseding version.
+    superseding = create_seq_score_set(
+        client,
+        published_score_set["experiment"]["urn"],
+        update={
+            "supersededScoreSetUrn": published_score_set["urn"],
+            "targetGenes": [
+                {
+                    "name": "TEST2",
+                    "category": "protein_coding",
+                    "externalIdentifiers": [],
+                    "targetSequence": {
+                        "sequenceType": "dna",
+                        "sequence": "ACGTTT",
+                        "taxonomy": {
+                            "code": TEST_SAVED_TAXONOMY["code"],
+                            "organismName": TEST_SAVED_TAXONOMY["organism_name"],
+                            "commonName": TEST_SAVED_TAXONOMY["common_name"],
+                            "rank": TEST_SAVED_TAXONOMY["rank"],
+                            "hasDescribedSpeciesName": TEST_SAVED_TAXONOMY["has_described_species_name"],
+                            "articleReference": TEST_SAVED_TAXONOMY["article_reference"],
+                            "id": TEST_SAVED_TAXONOMY["id"],
+                            "url": TEST_SAVED_TAXONOMY["url"],
+                        },
+                    },
+                }
+            ],
+        },
+    )
+    superseding = mock_worker_variant_insertion(client, session, data_provider, superseding, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        publish_score_set(client, superseding["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.post("/api/v1/score-sets/search/filter-options", json={})
+    assert response.status_code == 200
+    target_names = [opt["value"] for opt in response.json()["targetGeneNames"]]
+    assert target_name not in target_names
+
+
+def test_search_score_sets_reports_correct_total_count_with_limit(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """When more published score sets exist than the search limit, num_score_sets should reflect the true total."""
+    num_score_sets = 3
+    for i in range(num_score_sets):
+        experiment = create_experiment(client, {"title": f"Experiment {i}"})
+        score_set = create_seq_score_set(client, experiment["urn"], update={"title": f"Score Set {i}"})
+        score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+        with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+            publish_score_set(client, score_set["urn"])
+
+    search_payload = {"limit": 2}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()["scoreSets"]) == 2
+    assert response.json()["numScoreSets"] == num_score_sets
+
+
+def test_search_score_sets_not_affected_by_experiment_metadata(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """Experiments with multiple keywords should not reduce the number of score sets returned by search.
+
+    This is a regression test for a bug where joinedload on one-to-many experiment relationships caused row
+    multiplication in the main SQL query. The LIMIT clause was applied to the multiplied rows rather than unique
+    score sets, resulting in fewer results than expected.
+    """
+    num_score_sets = 3
+    for i in range(num_score_sets):
+        experiment = create_experiment(client, {**TEST_EXPERIMENT_WITH_KEYWORD, "title": f"Experiment {i}"})
+        score_set = create_seq_score_set(client, experiment["urn"], update={"title": f"Score Set {i}"})
+        score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+        with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+            publish_score_set(client, score_set["urn"])
+
+    search_payload = {"limit": 2}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()["scoreSets"]) == 2
+    assert response.json()["numScoreSets"] == num_score_sets
 
 
 ########################################################################################################################
@@ -2853,6 +3327,83 @@ def test_download_scores_counts_and_post_mapped_variants_file(
     )
 
 
+# Additional namespace export tests: VEP, ClinGen, gnomAD
+def test_download_vep_file_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    # Create mapped variants with VEP consequence populated
+    create_mapped_variants_for_score_set(session, score_set["urn"], TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=vep&include_post_mapped_hgvs=true&drop_na_columns=true"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    assert "vep.vep_functional_consequence" in reader.fieldnames
+    # At least one row should contain the test consequence value
+    rows = list(reader)
+    assert any(row.get("vep.vep_functional_consequence") == "missense_variant" for row in rows)
+
+
+def test_download_clingen_file_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    # Create mapped variants then set ClinGen allele id for first mapped variant
+    create_mapped_variants_for_score_set(session, score_set["urn"], TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION)
+    db_score_set = session.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set["urn"]).one()
+    first_mapped_variant = db_score_set.variants[0].mapped_variants[0]
+    first_mapped_variant.clingen_allele_id = VALID_CLINGEN_CA_ID
+    session.add(first_mapped_variant)
+    session.commit()
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=clingen&include_post_mapped_hgvs=true&drop_na_columns=true"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    assert "clingen.clingen_allele_id" in reader.fieldnames
+    rows = list(reader)
+    assert rows[0].get("clingen.clingen_allele_id") == VALID_CLINGEN_CA_ID
+
+
+def test_download_gnomad_file_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    # Link a gnomAD variant to the first mapped variant (version may not match export filter)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_gnomad_variants_to_mapped_variants(session, score_set)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=gnomad&drop_na_columns=true"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    assert "gnomad.gnomad_af" in reader.fieldnames
+
+
 ########################################################################################################################
 # Fetching clinical controls and control options for a score set
 ########################################################################################################################
@@ -3054,7 +3605,9 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     # The contents of the annotated variants objects should be tested in more detail elsewhere.
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
@@ -3141,7 +3694,9 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_vari
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
@@ -3181,7 +3736,9 @@ def test_get_annotated_functional_impact_statement_for_score_set(
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
     response_data = parse_ndjson_response(response)
@@ -3211,7 +3768,7 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_calib
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 
@@ -3270,7 +3827,9 @@ def test_get_annotated_functional_impact_statement_for_score_set_when_some_varia
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
@@ -3334,7 +3893,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 
@@ -3366,7 +3925,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_ranges_not_
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 
@@ -3421,7 +3980,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_some_varian
         data_files / "scores.csv",
         update={
             "secondaryPublicationIdentifiers": [{"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"}],
-            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
+            "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
 

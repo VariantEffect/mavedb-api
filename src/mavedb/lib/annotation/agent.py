@@ -58,14 +58,14 @@ def mavedb_user_agent(user: User) -> Agent:
 
 
 # XXX: Ideally, this becomes versioned software.
-def zeiberg_calibration_agent() -> Agent:
+def excalibr_calibration_agent() -> Agent:
     """
     Create a [VA Agent](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/agent.html)
-    object for the Zeiberg calibration software.
+    object for the ExCALIBR calibration software.
     """
     return Agent(
-        name="Zeiberg Variant Calibrator",
+        name="ExCALIBR Variant Calibrator",
         agentType="Software",
         # XXX - version?
-        description="Zeiberg variant calibrator, see https://github.com/Dzeiberg/mave_calibration",
+        description="ExCALIBR variant calibrator, see https://github.com/Dzeiberg/mave_calibration",
     )

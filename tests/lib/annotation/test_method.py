@@ -1,21 +1,22 @@
 from unittest.mock import Mock
-from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
-import pytest
 
-from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
+import pytest
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
+
 from mavedb.lib.annotation.method import (
+    excalibr_calibration_method,
+    excalibr_calibrations_as_iri,
+    mavedb_api_as_method,
+    mavedb_api_releases_as_iri,
+    mavedb_vrs_as_method,
+    mavedb_vrs_releases_as_iri,
     publication_as_iri,
     publication_identifier_to_method,
     publication_identifiers_to_method,
-    mavedb_api_releases_as_iri,
-    mavedb_api_as_method,
-    mavedb_vrs_releases_as_iri,
-    mavedb_vrs_as_method,
-    zeiberg_calibrations_as_iri,
-    zeiberg_calibration_method,
     variant_interpretation_functional_guideline_as_iri,
     variant_interpretation_functional_guideline_method,
 )
+from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 
 MAVEDB_API_RELEASES_URL = "https://github.com/VariantEffect/mavedb-api/releases"
 MAVEDB_MAPPER_RELEASES_URL = "https://github.com/VariantEffect/dcd_mapping2/releases"
@@ -93,15 +94,15 @@ def test_mavedb_vrs_as_method():
     assert method.reportedIn.root == MAVEDB_MAPPER_RELEASES_URL
 
 
-def test_zeiberg_calibrations_as_iri():
-    assert zeiberg_calibrations_as_iri().root == MAVEDB_CALIBRATION_URL
+def test_excalibr_calibrations_as_iri():
+    assert excalibr_calibrations_as_iri().root == MAVEDB_CALIBRATION_URL
 
 
 @pytest.mark.parametrize(
     "evidence_outcome", [VariantPathogenicityEvidenceLine.Criterion.BS3, VariantPathogenicityEvidenceLine.Criterion.PS3]
 )
-def test_zeiberg_calibration_method(evidence_outcome):
-    method = zeiberg_calibration_method(evidence_outcome)
+def test_excalibr_calibration_method(evidence_outcome):
+    method = excalibr_calibration_method(evidence_outcome)
     assert method.name == "Software version"
     assert method.reportedIn.root == MAVEDB_CALIBRATION_URL
     assert method.methodType == evidence_outcome.value

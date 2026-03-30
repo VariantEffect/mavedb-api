@@ -1,12 +1,12 @@
 import pytest
 
-from mavedb.view_models.target_gene import TargetGeneCreate, SavedTargetGene
+from mavedb.view_models.target_gene import SavedTargetGene, TargetGene, TargetGeneCreate, TargetGeneWithScoreSetUrn
 from tests.helpers.constants import (
     SEQUENCE,
-    TEST_POPULATED_TAXONOMY,
-    TEST_SAVED_TAXONOMY,
-    TEST_REFSEQ_EXTERNAL_IDENTIFIER,
     TEST_ENSEMBLE_EXTERNAL_IDENTIFIER,
+    TEST_POPULATED_TAXONOMY,
+    TEST_REFSEQ_EXTERNAL_IDENTIFIER,
+    TEST_SAVED_TAXONOMY,
     TEST_UNIPROT_EXTERNAL_IDENTIFIER,
 )
 from tests.helpers.util.common import dummy_attributed_object_from_dict
@@ -200,3 +200,107 @@ def test_cannot_create_saved_target_without_seq_or_acc():
         SavedTargetGene.model_validate(target_gene)
 
     assert "Either a `target_sequence` or `target_accession` is required" in str(exc_info.value)
+
+
+def test_saved_target_gene_can_be_created_from_orm():
+    orm_obj = dummy_attributed_object_from_dict(
+        {
+            "id": 1,
+            "name": "UBE2I",
+            "category": "regulatory",
+            "ensembl_offset": dummy_attributed_object_from_dict(
+                {"offset": 1, "identifier": dummy_attributed_object_from_dict(TEST_ENSEMBLE_EXTERNAL_IDENTIFIER)}
+            ),
+            "refseq_offset": None,
+            "uniprot_offset": None,
+            "target_sequence": dummy_attributed_object_from_dict(
+                {
+                    "sequenceType": "dna",
+                    "sequence": SEQUENCE,
+                    "taxonomy": TEST_SAVED_TAXONOMY,
+                }
+            ),
+            "target_accession": None,
+            "record_type": "target_gene",
+            "uniprot_id_from_mapped_metadata": None,
+        }
+    )
+    model = SavedTargetGene.model_validate(orm_obj)
+    assert model.name == "UBE2I"
+    assert model.external_identifiers[0].identifier.identifier == "ENSG00000103275"
+
+
+def test_target_gene_with_score_set_urn_can_be_created_from_orm():
+    orm_obj = dummy_attributed_object_from_dict(
+        {
+            "id": 1,
+            "name": "UBE2I",
+            "category": "regulatory",
+            "ensembl_offset": dummy_attributed_object_from_dict(
+                {
+                    "offset": 1,
+                    "identifier": dummy_attributed_object_from_dict(TEST_ENSEMBLE_EXTERNAL_IDENTIFIER),
+                }
+            ),
+            "refseq_offset": None,
+            "uniprot_offset": None,
+            "target_sequence": dummy_attributed_object_from_dict(
+                {
+                    "sequenceType": "dna",
+                    "sequence": SEQUENCE,
+                    "taxonomy": TEST_SAVED_TAXONOMY,
+                }
+            ),
+            "target_accession": None,
+            "record_type": "target_gene",
+            "uniprot_id_from_mapped_metadata": None,
+            "score_set": dummy_attributed_object_from_dict({"urn": "urn:mavedb:01234567-a-1"}),
+        }
+    )
+    model = TargetGeneWithScoreSetUrn.model_validate(orm_obj)
+    assert model.name == "UBE2I"
+    assert model.score_set_urn == "urn:mavedb:01234567-a-1"
+
+
+def test_target_gene_can_be_created_from_non_orm_context():
+    # Minimal valid dict for TargetGene (must have target_sequence or target_accession)
+    data = {
+        "id": 1,
+        "name": "UBE2I",
+        "category": "regulatory",
+        "external_identifiers": [{"identifier": TEST_ENSEMBLE_EXTERNAL_IDENTIFIER, "offset": 1}],
+        "target_sequence": {
+            "sequenceType": "dna",
+            "sequence": SEQUENCE,
+            "taxonomy": TEST_SAVED_TAXONOMY,
+        },
+        "target_accession": None,
+        "record_type": "target_gene",
+        "uniprot_id_from_mapped_metadata": None,
+    }
+    model = TargetGene.model_validate(data)
+    assert model.name == data["name"]
+    assert model.category == data["category"]
+    assert model.external_identifiers[0].identifier.identifier == "ENSG00000103275"
+
+
+def test_target_gene_with_score_set_urn_can_be_created_from_dict():
+    # Minimal valid dict for TargetGeneWithScoreSetUrn (must have target_sequence or target_accession)
+    data = {
+        "id": 1,
+        "name": "UBE2I",
+        "category": "regulatory",
+        "external_identifiers": [{"identifier": TEST_ENSEMBLE_EXTERNAL_IDENTIFIER, "offset": 1}],
+        "target_sequence": {
+            "sequenceType": "dna",
+            "sequence": SEQUENCE,
+            "taxonomy": TEST_SAVED_TAXONOMY,
+        },
+        "target_accession": None,
+        "record_type": "target_gene",
+        "uniprot_id_from_mapped_metadata": None,
+        "score_set_urn": "urn:mavedb:01234567-a-1",
+    }
+    model = TargetGeneWithScoreSetUrn.model_validate(data)
+    assert model.name == data["name"]
+    assert model.score_set_urn == data["score_set_urn"]

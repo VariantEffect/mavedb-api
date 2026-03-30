@@ -47,6 +47,7 @@ class TargetGene(Base):
 
     pre_mapped_metadata: Mapped[JSONB] = Column("pre_mapped_metadata", JSONB, nullable=True)
     post_mapped_metadata: Mapped[JSONB] = Column("post_mapped_metadata", JSONB, nullable=True)
+    mapped_hgnc_name = Column(String, nullable=True)
     uniprot_id_from_mapped_metadata = Column(String, nullable=True)
 
     creation_date = Column(Date, nullable=False, default=date.today)

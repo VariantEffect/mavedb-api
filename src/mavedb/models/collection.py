@@ -7,10 +7,8 @@ from sqlalchemy.orm import Mapped, relationship
 import mavedb.models.collection_user_association
 from mavedb.db.base import Base
 from mavedb.lib.urns import generate_collection_urn
-from mavedb.models.collection_association import (
-    collection_experiments_association_table,
-    collection_score_sets_association_table,
-)
+from mavedb.models.collection_experiment_association import CollectionExperimentAssociation
+from mavedb.models.collection_score_set_association import CollectionScoreSetAssociation
 
 from .experiment import Experiment
 from .score_set import ScoreSet
@@ -55,13 +53,26 @@ class Collection(Base):
         ),
     )
 
-    experiments: Mapped[list[Experiment]] = relationship(
-        "Experiment",
-        secondary=collection_experiments_association_table,
-        back_populates="collections",
+    # Ordered association relationships
+    score_set_associations: Mapped[list[CollectionScoreSetAssociation]] = relationship(
+        "CollectionScoreSetAssociation",
+        back_populates="collection",
+        cascade="all, delete-orphan",
+        order_by="CollectionScoreSetAssociation.position",
     )
-    score_sets: Mapped[list[ScoreSet]] = relationship(
-        "ScoreSet",
-        secondary=collection_score_sets_association_table,
-        back_populates="collections",
+    experiment_associations: Mapped[list[CollectionExperimentAssociation]] = relationship(
+        "CollectionExperimentAssociation",
+        back_populates="collection",
+        cascade="all, delete-orphan",
+        order_by="CollectionExperimentAssociation.position",
+    )
+
+    # Convenient proxies for direct access to ordered score sets and experiments
+    experiments: AssociationProxy[list[Experiment]] = association_proxy(
+        "experiment_associations",
+        "experiment",
+    )
+    score_sets: AssociationProxy[list[ScoreSet]] = association_proxy(
+        "score_set_associations",
+        "score_set",
     )

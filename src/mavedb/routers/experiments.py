@@ -9,7 +9,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from mavedb import deps
-from mavedb.lib.authentication import UserData, get_current_user
+from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import require_current_user, require_current_user_with_email
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import NonexistentOrcidUserError
@@ -25,6 +25,7 @@ from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_sets import find_superseded_score_set_tail
+from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import validate_keyword_list
 from mavedb.models.contributor import Contributor
@@ -194,10 +195,18 @@ def get_experiment_score_sets(
         .all()
     )
 
-    filter_superseded_score_set_tails = [
-        find_superseded_score_set_tail(score_set, Action.READ, user_data) for score_set in score_set_result
-    ]
-    filtered_score_sets = [score_set for score_set in filter_superseded_score_set_tails if score_set is not None]
+    # Multiple chain heads can resolve to the same visible ancestor via find_superseded_score_set_tail
+    # (e.g. when several private superseding score sets all trace back to the same published score set).
+    # Deduplicate by ID to avoid returning the same score set more than once.
+    seen_ids: set[int] = set()
+    filtered_score_sets: list[ScoreSet] = []
+    for ss in score_set_result:
+        tail = find_superseded_score_set_tail(ss, Action.READ, user_data)
+        tail_id = tail.id if tail is not None else None
+        if tail is not None and tail_id is not None and tail_id not in seen_ids:
+            seen_ids.add(tail_id)
+            filtered_score_sets.append(tail)
+
     if not filtered_score_sets:
         save_to_logging_context({"associated_resources": []})
         logger.info(msg="No score sets are associated with the requested experiment.", extra=logging_context())

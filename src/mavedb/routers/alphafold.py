@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
-import httpx
-import xml.etree.ElementTree as ET
 import re
+import xml.etree.ElementTree as ET
+
+import httpx
+from fastapi import APIRouter
 
 from mavedb.lib.logging.logged_route import LoggedRoute
 
@@ -14,15 +15,18 @@ router = APIRouter(
     route_class=LoggedRoute,
 )
 
+
 @router.get("/alphafold-files/version")
 async def proxy_alphafold_index():
     """
     Proxy the AlphaFold files index (XML document).
     """
+    DEFAULT_RESPONSE = {"version": "v6"}
+
     async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
         resp = await client.get(ALPHAFOLD_BASE, headers={"Accept": "application/xml"})
     if resp.status_code != 200:
-        raise HTTPException(status_code=resp.status_code, detail="Upstream error fetching AlphaFold files index")
+        return DEFAULT_RESPONSE
 
     # parse XML response
     try:
@@ -42,9 +46,9 @@ async def proxy_alphafold_index():
 
         match = re.search(r"model_(v\d+)\.pdb$", next_marker, re.IGNORECASE)
         if not match:
-            raise HTTPException(status_code=500, detail="Malformed AlphaFold PDB ID in XML")
+            return DEFAULT_RESPONSE
         version = match.group(1)
         return {"version": version.lower()}
 
-    except ET.ParseError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to parse upstream XML: {e}")
+    except Exception:
+        return DEFAULT_RESPONSE

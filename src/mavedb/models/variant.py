@@ -34,3 +34,6 @@ class Variant(Base):
     mapped_variants: Mapped[List["MappedVariant"]] = relationship(
         back_populates="variant", cascade="all, delete-orphan"
     )
+
+    # Bidirectional relationship with ScoreCalibrationFunctionalClassification is left
+    # purposefully undefined for performance reasons.

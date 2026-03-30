@@ -3,5 +3,5 @@ import enum
 
 class ScoreCalibrationRelation(enum.Enum):
     threshold = "threshold"
-    classification = "classification"
+    evidence = "evidence"
     method = "method"

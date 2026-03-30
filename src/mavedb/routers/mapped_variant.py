@@ -17,7 +17,6 @@ from mavedb.lib.annotation.annotate import (
     variant_study_result,
 )
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
-from mavedb.lib.authentication import UserData
 from mavedb.lib.authorization import get_current_user
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
@@ -25,6 +24,7 @@ from mavedb.lib.logging.context import (
     save_to_logging_context,
 )
 from mavedb.lib.permissions import Action, assert_permission, has_permission
+from mavedb.lib.types.authentication import UserData
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
 from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX

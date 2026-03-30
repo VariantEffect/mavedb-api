@@ -13,6 +13,7 @@ from mavedb.lib.validation.constants.general import (
     required_score_column,
 )
 from mavedb.lib.validation.dataframe.dataframe import (
+    STANDARD_COLUMNS,
     choose_dataframe_index_column,
     sort_dataframe_columns,
     standardize_dataframe,
@@ -93,32 +94,36 @@ class TestSortDataframeColumns(DfTestCase):
 
 class TestStandardizeDataframe(DfTestCase):
     def test_preserve_standardized(self):
-        standardized_df = standardize_dataframe(self.dataframe)
+        standardized_df = standardize_dataframe(self.dataframe, STANDARD_COLUMNS)
         pd.testing.assert_frame_equal(self.dataframe, standardized_df)
 
     def test_standardize_changes_case_variants(self):
-        standardized_df = standardize_dataframe(self.dataframe.rename(columns={hgvs_nt_column: hgvs_nt_column.upper()}))
+        standardized_df = standardize_dataframe(
+            self.dataframe.rename(columns={hgvs_nt_column: hgvs_nt_column.upper()}), STANDARD_COLUMNS
+        )
         pd.testing.assert_frame_equal(self.dataframe, standardized_df)
 
     def test_standardize_changes_case_scores(self):
         standardized_df = standardize_dataframe(
-            self.dataframe.rename(columns={required_score_column: required_score_column.title()})
+            self.dataframe.rename(columns={required_score_column: required_score_column.title()}), STANDARD_COLUMNS
         )
         pd.testing.assert_frame_equal(self.dataframe, standardized_df)
 
     def test_standardize_preserves_extras_case(self):
-        standardized_df = standardize_dataframe(self.dataframe.rename(columns={"extra": "extra".upper()}))
+        standardized_df = standardize_dataframe(
+            self.dataframe.rename(columns={"extra": "extra".upper()}), STANDARD_COLUMNS
+        )
         pd.testing.assert_frame_equal(self.dataframe.rename(columns={"extra": "extra".upper()}), standardized_df)
 
     def test_standardize_removes_quotes(self):
         standardized_df = standardize_dataframe(
-            self.dataframe.rename(columns={"extra": "'extra'", "extra2": '"extra2"'})
+            self.dataframe.rename(columns={"extra": "'extra'", "extra2": '"extra2"'}), STANDARD_COLUMNS
         )
         pd.testing.assert_frame_equal(self.dataframe, standardized_df)
 
     def test_standardize_removes_whitespace(self):
         standardized_df = standardize_dataframe(
-            self.dataframe.rename(columns={"extra": " extra ", "extra2": "    extra2"})
+            self.dataframe.rename(columns={"extra": " extra ", "extra2": "    extra2"}), STANDARD_COLUMNS
         )
         pd.testing.assert_frame_equal(self.dataframe, standardized_df)
 
@@ -135,7 +140,8 @@ class TestStandardizeDataframe(DfTestCase):
                     "count1",
                     "extra",
                 ],
-            ]
+            ],
+            STANDARD_COLUMNS,
         )
         pd.testing.assert_frame_equal(
             self.dataframe[

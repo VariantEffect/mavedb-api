@@ -4,13 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, selectinload
 
 from mavedb import deps
-from mavedb.lib.authentication import UserData, get_current_user
+from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import require_current_user
 from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.score_sets import find_superseded_score_set_tail
 from mavedb.lib.target_genes import (
     search_target_genes as _search_target_genes,
 )
+from mavedb.lib.types.authentication import UserData
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
 from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX

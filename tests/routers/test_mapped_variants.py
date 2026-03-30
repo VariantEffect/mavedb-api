@@ -21,7 +21,11 @@ from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant
 from mavedb.view_models.mapped_variant import SavedMappedVariant
-from tests.helpers.constants import TEST_BIORXIV_IDENTIFIER, TEST_BRNICH_SCORE_CALIBRATION, TEST_PUBMED_IDENTIFIER
+from tests.helpers.constants import (
+    TEST_BIORXIV_IDENTIFIER,
+    TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+    TEST_PUBMED_IDENTIFIER,
+)
 from tests.helpers.util.common import deepcamelize
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_calibration import create_publish_and_promote_score_calibration
@@ -209,7 +213,9 @@ def test_show_mapped_variant_functional_impact_statement(
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#1')}/va/functional-impact")
     response_data = response.json()
@@ -288,7 +294,9 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_no_mapping_
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
     assert item is not None
@@ -352,7 +360,9 @@ def test_show_mapped_variant_clinical_evidence_line(
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     response = client.get(f"/api/v1/mapped-variants/{quote_plus(score_set['urn'] + '#2')}/va/clinical-evidence")
     response_data = response.json()
@@ -431,7 +441,9 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_no_mapping_data_
         experiment["urn"],
         data_files / "scores.csv",
     )
-    create_publish_and_promote_score_calibration(client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION))
+    create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     item = session.scalar(select(MappedVariant).join(Variant).where(Variant.urn == f'{score_set["urn"]}#1'))
     assert item is not None

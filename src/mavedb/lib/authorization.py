@@ -3,8 +3,9 @@ from typing import Optional
 
 from fastapi import Depends, HTTPException
 
-from mavedb.lib.authentication import UserData, get_current_user
+from mavedb.lib.authentication import get_current_user
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.types.authentication import UserData
 from mavedb.models.enums.user_role import UserRole
 
 logger = logging.getLogger(__name__)

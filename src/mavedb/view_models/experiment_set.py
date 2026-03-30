@@ -1,10 +1,13 @@
 from datetime import date
-from typing import Sequence, Optional
+from typing import TYPE_CHECKING, Optional, Sequence
 
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.contributor import Contributor
 from mavedb.view_models.user import SavedUser, User
+
+if TYPE_CHECKING:
+    from mavedb.view_models.experiment import Experiment, ExperimentPublicDump, SavedExperiment
 
 
 class ExperimentSetBase(BaseModel):
@@ -60,12 +63,3 @@ class ExperimentSetPublicDump(SavedExperimentSet):
     experiments: "Sequence[ExperimentPublicDump]"
     created_by: Optional[User] = None
     modified_by: Optional[User] = None
-
-
-# ruff: noqa: E402
-from mavedb.view_models.experiment import Experiment, ExperimentPublicDump, SavedExperiment
-
-SavedExperimentSet.model_rebuild()
-ExperimentSet.model_rebuild()
-AdminExperimentSet.model_rebuild()
-ExperimentSetPublicDump.model_rebuild()

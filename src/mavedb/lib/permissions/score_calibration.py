@@ -1,10 +1,10 @@
 from typing import Optional
 
-from mavedb.lib.authentication import UserData
 from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.models import PermissionResponse
 from mavedb.lib.permissions.utils import deny_action_for_entity, roles_permitted
+from mavedb.lib.types.authentication import UserData
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.score_calibration import ScoreCalibration
 
@@ -266,11 +266,13 @@ def _handle_change_rank_action(
     # System admins may change the rank of any ScoreCalibration.
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
-    # Owners may change the rank of their own ScoreCalibration.
-    if user_is_owner:
+
+    # Score set contributors may always change the rank of calibrations on their score set.
+    if user_is_contributor_to_score_set:
         return PermissionResponse(True)
-    # If the calibration is investigator provided, contributors to the ScoreSet may change its rank.
-    if entity.investigator_provided and user_is_contributor_to_score_set:
+    # Owners may change the rank of their own investigator-provided calibrations.
+    # Community calibration owners may not — the score set team controls ranking of community contributions.
+    if entity.investigator_provided and user_is_owner:
         return PermissionResponse(True)
 
     user_may_view_private = user_is_owner or (entity.investigator_provided and user_is_contributor_to_score_set)

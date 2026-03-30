@@ -1,10 +1,10 @@
 from typing import Optional
 
-from mavedb.lib.authentication import UserData
 from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.models import PermissionResponse
 from mavedb.lib.permissions.utils import deny_action_for_entity, roles_permitted
+from mavedb.lib.types.authentication import UserData
 from mavedb.models.collection import Collection
 from mavedb.models.enums.contribution_role import ContributionRole
 from mavedb.models.enums.user_role import UserRole

@@ -7,6 +7,10 @@ import pandas as pd
 import pytest
 from sqlalchemy import select
 
+from mavedb.models.enums.target_category import TargetCategory
+from mavedb.models.user import User
+from mavedb.view_models.search import ScoreSetsSearch
+
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
@@ -17,7 +21,10 @@ from mavedb.lib.score_sets import (
     create_variants,
     create_variants_data,
     csv_data_to_df,
+    fetch_score_set_search_filter_options,
+    variant_to_csv_row,
 )
+from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
     hgvs_pro_column,
@@ -33,7 +40,7 @@ from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.variant import Variant
-from tests.helpers.constants import TEST_EXPERIMENT, TEST_ACC_SCORESET, TEST_SEQ_SCORESET
+from tests.helpers.constants import TEST_ACC_SCORESET, TEST_EXPERIMENT, TEST_SEQ_SCORESET, TEST_USER
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import create_seq_score_set
 
@@ -377,3 +384,321 @@ def test_create_null_score_range(setup_lib_db, client, session):
 
     assert not score_set.score_calibrations
     assert score_set is not None
+
+
+def test_fetch_score_set_search_filter_options_no_score_sets(setup_lib_db, session):
+    score_set_search = ScoreSetsSearch()
+    filter_options = fetch_score_set_search_filter_options(session, None, None, score_set_search)
+
+    assert filter_options == {
+        "target_gene_categories": [],
+        "target_gene_names": [],
+        "target_organism_names": [],
+        "target_accessions": [],
+        "publication_author_names": [],
+        "publication_db_names": [],
+        "publication_journals": [],
+    }
+
+
+def test_fetch_score_set_search_filter_options_with_score_set(setup_lib_db, session):
+    requesting_user = session.query(User).filter(User.username == TEST_USER["username"]).first()
+    user_data = UserData(user=requesting_user, active_roles=[])
+
+    experiment = Experiment(**TEST_EXPERIMENT)
+    session.add(experiment)
+    session.commit()
+    session.refresh(experiment)
+
+    target_accessions = [TargetAccession(**seq["target_accession"]) for seq in TEST_ACC_SCORESET["target_genes"]]
+    target_genes = [
+        TargetGene(**{**gene, **{"target_accession": target_accessions[idx]}})
+        for idx, gene in enumerate(TEST_ACC_SCORESET["target_genes"])
+    ]
+
+    score_set = ScoreSet(
+        **{
+            **TEST_ACC_SCORESET,
+            **{
+                "experiment_id": experiment.id,
+                "target_genes": target_genes,
+                "extra_metadata": {},
+                "license": session.scalars(select(License)).first(),
+            },
+            "created_by_id": requesting_user.id,
+            "modified_by_id": requesting_user.id,
+        }
+    )
+    session.add(score_set)
+    session.commit()
+    session.refresh(score_set)
+
+    score_set_search = ScoreSetsSearch()
+    filter_options = fetch_score_set_search_filter_options(session, user_data, None, score_set_search)
+
+    assert filter_options == {
+        "target_gene_categories": [{"value": TargetCategory.protein_coding, "count": 1}],
+        "target_gene_names": [{"value": "TEST2", "count": 1}],
+        "target_organism_names": [],
+        "target_accessions": [{"value": "NM_001637.3", "count": 1}],
+        "publication_author_names": [],
+        "publication_db_names": [],
+        "publication_journals": [],
+    }
+
+
+def test_fetch_score_set_search_filter_options_with_partial_filtered_score_sets(setup_lib_db, session):
+    requesting_user = session.query(User).filter(User.username == TEST_USER["username"]).first()
+    user_data = UserData(user=requesting_user, active_roles=[])
+
+    experiment = Experiment(**TEST_EXPERIMENT)
+    session.add(experiment)
+    session.commit()
+    session.refresh(experiment)
+
+    target_sequences = [
+        TargetSequence(**{**seq["target_sequence"], **{"taxonomy": session.scalars(select(Taxonomy)).first()}})
+        for seq in TEST_SEQ_SCORESET["target_genes"]
+    ]
+    target_genes = [
+        TargetGene(**{**gene, **{"target_sequence": target_sequences[idx]}})
+        for idx, gene in enumerate(TEST_SEQ_SCORESET["target_genes"])
+    ]
+
+    score_set = ScoreSet(
+        **{
+            **TEST_SEQ_SCORESET,
+            **{
+                "experiment_id": experiment.id,
+                "target_genes": target_genes,
+                "extra_metadata": {},
+                "license": session.scalars(select(License)).first(),
+            },
+            "created_by_id": requesting_user.id,
+            "modified_by_id": requesting_user.id,
+        }
+    )
+    session.add(score_set)
+    session.commit()
+    session.refresh(score_set)
+
+    target_accessions = [TargetAccession(**seq["target_accession"]) for seq in TEST_ACC_SCORESET["target_genes"]]
+    target_genes = [
+        TargetGene(**{**gene, **{"target_accession": target_accessions[idx]}})
+        for idx, gene in enumerate(TEST_ACC_SCORESET["target_genes"])
+    ]
+
+    score_set = ScoreSet(
+        **{
+            **TEST_ACC_SCORESET,
+            **{
+                "experiment_id": experiment.id,
+                "target_genes": target_genes,
+                "extra_metadata": {},
+                "license": session.scalars(select(License)).first(),
+            },
+            "created_by_id": requesting_user.id,
+            "modified_by_id": requesting_user.id,
+        }
+    )
+    session.add(score_set)
+    session.commit()
+
+    session.refresh(score_set)
+
+    score_set_search = ScoreSetsSearch(targets=["TEST1"])
+    requesting_user = session.query(User).filter(User.username == TEST_USER["username"]).first()
+    user_data = UserData(user=requesting_user, active_roles=[])
+    filter_options = fetch_score_set_search_filter_options(session, user_data, None, score_set_search)
+    assert filter_options == {
+        "target_gene_categories": [{"value": TargetCategory.protein_coding, "count": 1}],
+        "target_gene_names": [{"value": "TEST1", "count": 1}],
+        "target_organism_names": [{"count": 1, "value": "Organism name"}],
+        "target_accessions": [],
+        "publication_author_names": [],
+        "publication_db_names": [],
+        "publication_journals": [],
+    }
+
+
+def test_fetch_score_set_search_filter_options_with_no_matching_score_sets(setup_lib_db, session):
+    score_set_search = ScoreSetsSearch(publication_journals=["Non Existent Journal"])
+    requesting_user = session.query(User).filter(User.username == TEST_USER["username"]).first()
+    user_data = UserData(user=requesting_user, active_roles=[])
+    filter_options = fetch_score_set_search_filter_options(session, user_data, None, score_set_search)
+
+    assert filter_options == {
+        "target_gene_categories": [],
+        "target_gene_names": [],
+        "target_organism_names": [],
+        "target_accessions": [],
+        "publication_author_names": [],
+        "publication_db_names": [],
+        "publication_journals": [],
+    }
+
+
+def test_fetch_score_set_search_filter_options_with_no_permitted_score_sets(setup_lib_db, session):
+    score_set_search = ScoreSetsSearch()
+    filter_options = fetch_score_set_search_filter_options(session, None, None, score_set_search)
+
+    assert filter_options == {
+        "target_gene_categories": [],
+        "target_gene_names": [],
+        "target_organism_names": [],
+        "target_accessions": [],
+        "publication_author_names": [],
+        "publication_db_names": [],
+        "publication_journals": [],
+    }
+
+
+class MockVariant:
+    """Lightweight mock for Variant used in variant_to_csv_row tests."""
+
+    def __init__(self, urn="urn:mavedb:00000001-a-1#1", hgvs_nt=None, hgvs_splice=None, hgvs_pro=None, data=None):
+        self.urn = urn
+        self.hgvs_nt = hgvs_nt
+        self.hgvs_splice = hgvs_splice
+        self.hgvs_pro = hgvs_pro
+        self.data = data
+
+
+class TestVariantToCsvRowNullHandling:
+    """Tests that variant_to_csv_row represents missing data as na_rep, not 'None'."""
+
+    def test_score_data_with_none_value_uses_na_rep(self):
+        variant = MockVariant(data={"score_data": {"score": None}})
+        columns = {"scores": ["score"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["score"] == "NA"
+
+    def test_score_data_with_missing_key_uses_na_rep(self):
+        variant = MockVariant(data={"score_data": {}})
+        columns = {"scores": ["score"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["score"] == "NA"
+
+    def test_score_data_with_no_score_data_key_uses_na_rep(self):
+        variant = MockVariant(data={})
+        columns = {"scores": ["score"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["score"] == "NA"
+
+    def test_score_data_with_no_data_uses_na_rep(self):
+        variant = MockVariant(data=None)
+        columns = {"scores": ["score"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["score"] == "NA"
+
+    def test_count_data_with_none_value_uses_na_rep(self):
+        variant = MockVariant(data={"count_data": {"count1": None}})
+        columns = {"counts": ["count1"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["count1"] == "NA"
+
+    def test_count_data_with_missing_key_uses_na_rep(self):
+        variant = MockVariant(data={"count_data": {}})
+        columns = {"counts": ["count1"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["count1"] == "NA"
+
+    def test_count_data_with_no_count_data_key_uses_na_rep(self):
+        variant = MockVariant(data={})
+        columns = {"counts": ["count1"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["count1"] == "NA"
+
+    def test_count_data_with_no_data_uses_na_rep(self):
+        variant = MockVariant(data=None)
+        columns = {"counts": ["count1"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["count1"] == "NA"
+
+    def test_score_data_with_valid_value_preserved(self):
+        variant = MockVariant(data={"score_data": {"score": 1.5}})
+        columns = {"scores": ["score"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["score"] == "1.5"
+
+    def test_count_data_with_valid_value_preserved(self):
+        variant = MockVariant(data={"count_data": {"count1": 42}})
+        columns = {"counts": ["count1"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["count1"] == "42"
+
+    def test_score_data_with_custom_na_rep(self):
+        variant = MockVariant(data={"score_data": {"score": None}})
+        columns = {"scores": ["score"]}
+
+        row = variant_to_csv_row(variant, columns, na_rep="N/A")
+
+        assert row["score"] == "N/A"
+
+    def test_namespaced_score_data_with_none_value_uses_na_rep(self):
+        variant = MockVariant(data={"score_data": {"score": None}})
+        columns = {"scores": ["score"]}
+
+        row = variant_to_csv_row(variant, columns, namespaced=True)
+
+        assert row["scores.score"] == "NA"
+
+    def test_namespaced_count_data_with_none_value_uses_na_rep(self):
+        variant = MockVariant(data={"count_data": {"count1": None}})
+        columns = {"counts": ["count1"]}
+
+        row = variant_to_csv_row(variant, columns, namespaced=True)
+
+        assert row["counts.count1"] == "NA"
+
+    def test_core_columns_with_none_hgvs_uses_na_rep(self):
+        variant = MockVariant(hgvs_nt=None, hgvs_pro=None, hgvs_splice=None, urn="urn:mavedb:00000001-a-1#1")
+        columns = {"core": ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["hgvs_nt"] == "NA"
+        assert row["hgvs_pro"] == "NA"
+        assert row["hgvs_splice"] == "NA"
+        assert row["accession"] == "urn:mavedb:00000001-a-1#1"
+
+    def test_mixed_columns_with_missing_data(self):
+        variant = MockVariant(
+            hgvs_nt="g.1A>G",
+            hgvs_pro="p.Met1Val",
+            data={"score_data": {"score": None, "se": 0.1}, "count_data": {"count1": None, "count2": 5}},
+        )
+        columns = {
+            "core": ["hgvs_nt", "hgvs_pro"],
+            "scores": ["score", "se"],
+            "counts": ["count1", "count2"],
+        }
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["hgvs_nt"] == "g.1A>G"
+        assert row["hgvs_pro"] == "p.Met1Val"
+        assert row["score"] == "NA"
+        assert row["se"] == "0.1"
+        assert row["count1"] == "NA"
+        assert row["count2"] == "5"
