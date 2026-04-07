@@ -30,6 +30,8 @@ from mavedb.worker.jobs.variant_processing import (
     map_variants_for_score_set,
 )
 
+# TODO add new jobs here
+
 # All job functions for ARQ worker
 BACKGROUND_FUNCTIONS: List[Callable] = [
     # Variant processing jobs

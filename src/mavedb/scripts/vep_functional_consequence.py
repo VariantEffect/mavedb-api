@@ -16,6 +16,8 @@ from mavedb.scripts.environment import script_environment, with_database_session
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+# TODO model script after populate_mapped_variants.py to use the worker job definition
+
 ENSEMBL_API_URL = "https://rest.ensembl.org"
 
 # List of all possible VEP consequences, in order from most to least severe

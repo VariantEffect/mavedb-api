@@ -1,5 +1,7 @@
 from enum import Enum
 
+# TODO add annotation types for new jobs
+
 
 class AnnotationType(str, Enum):
     VRS_MAPPING = "vrs_mapping"

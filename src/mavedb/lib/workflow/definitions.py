@@ -5,6 +5,9 @@ from mavedb.models.enums.job_pipeline import DependencyType, JobType
 # repeated jobs, a suffix may be added to the key for uniqueness.
 
 
+# TODO add new jobs here
+
+
 def annotation_pipeline_job_definitions() -> list[JobDefinition]:
     return [
         {
