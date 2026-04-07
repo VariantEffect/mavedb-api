@@ -2351,6 +2351,7 @@ async def get_clinical_controls_options_for_score_set(
         select(ClinicalControl.db_name, ClinicalControl.db_version)
         .join(MappedVariant, ClinicalControl.mapped_variants)
         .join(Variant)
+        .where(MappedVariant.current.is_(True))
         .where(Variant.score_set_id == item.id)
     )
 
