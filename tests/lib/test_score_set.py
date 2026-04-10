@@ -391,6 +391,7 @@ def test_fetch_score_set_search_filter_options_no_score_sets(setup_lib_db, sessi
     filter_options = fetch_score_set_search_filter_options(session, None, None, score_set_search)
 
     assert filter_options == {
+        "controlled_keywords": [],
         "target_gene_categories": [],
         "target_gene_names": [],
         "target_organism_names": [],
@@ -437,6 +438,7 @@ def test_fetch_score_set_search_filter_options_with_score_set(setup_lib_db, sess
     filter_options = fetch_score_set_search_filter_options(session, user_data, None, score_set_search)
 
     assert filter_options == {
+        "controlled_keywords": [],
         "target_gene_categories": [{"value": TargetCategory.protein_coding, "count": 1}],
         "target_gene_names": [{"value": "TEST2", "count": 1}],
         "target_organism_names": [],
@@ -511,6 +513,7 @@ def test_fetch_score_set_search_filter_options_with_partial_filtered_score_sets(
     user_data = UserData(user=requesting_user, active_roles=[])
     filter_options = fetch_score_set_search_filter_options(session, user_data, None, score_set_search)
     assert filter_options == {
+        "controlled_keywords": [],
         "target_gene_categories": [{"value": TargetCategory.protein_coding, "count": 1}],
         "target_gene_names": [{"value": "TEST1", "count": 1}],
         "target_organism_names": [{"count": 1, "value": "Organism name"}],
@@ -528,6 +531,7 @@ def test_fetch_score_set_search_filter_options_with_no_matching_score_sets(setup
     filter_options = fetch_score_set_search_filter_options(session, user_data, None, score_set_search)
 
     assert filter_options == {
+        "controlled_keywords": [],
         "target_gene_categories": [],
         "target_gene_names": [],
         "target_organism_names": [],
@@ -543,6 +547,7 @@ def test_fetch_score_set_search_filter_options_with_no_permitted_score_sets(setu
     filter_options = fetch_score_set_search_filter_options(session, None, None, score_set_search)
 
     assert filter_options == {
+        "controlled_keywords": [],
         "target_gene_categories": [],
         "target_gene_names": [],
         "target_organism_names": [],
