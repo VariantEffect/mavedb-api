@@ -216,12 +216,12 @@ def build_search_score_sets_query_filter(
             )
         )
 
-    if search.keywords:
+    if search.controlled_keywords:
         query = query.filter(
             ScoreSet.experiment.has(
                 Experiment.keyword_objs.any(
                     ExperimentControlledKeywordAssociation.controlled_keyword.has(
-                        ControlledKeyword.label.in_(search.keywords)
+                        ControlledKeyword.label.in_(search.controlled_keywords)
                     )
                 )
             )
@@ -334,6 +334,9 @@ def fetch_score_set_search_filter_options(
     publication_author_name_counter: Counter[str] = Counter()
     publication_db_name_counter: Counter[str] = Counter()
     publication_journal_counter: Counter[str] = Counter()
+    # Controlled keywords related counters
+    controlled_keywords_label_counter: Counter[str] = Counter()
+
 
     # --- PERFORMANCE NOTE ---
     # The following counter construction loop is a bottleneck for large score set queries.
@@ -388,6 +391,13 @@ def fetch_score_set_search_filter_options(
             if journal:
                 publication_journal_counter[journal] += 1
 
+        # Controlled keywords related options
+        for controlled_keyword in getattr(score_set.experiment, "keyword_objs", []):
+            keyword = getattr(controlled_keyword, "controlled_keyword", [])
+            label = getattr(keyword, "label", None)
+            if label:
+                controlled_keywords_label_counter[label] += 1
+
     logger.debug(msg="Score set search filter options were fetched.", extra=logging_context())
 
     return {
@@ -398,6 +408,7 @@ def fetch_score_set_search_filter_options(
         "publication_author_names": score_set_search_filter_options_from_counter(publication_author_name_counter),
         "publication_db_names": score_set_search_filter_options_from_counter(publication_db_name_counter),
         "publication_journals": score_set_search_filter_options_from_counter(publication_journal_counter),
+        "controlled_keywords": score_set_search_filter_options_from_counter(controlled_keywords_label_counter),
     }
 
 

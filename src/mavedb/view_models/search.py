@@ -25,7 +25,7 @@ class ScoreSetsSearch(BaseModel):
     databases: Optional[list[str]] = None
     journals: Optional[list[str]] = None
     publication_identifiers: Optional[list[str]] = None
-    keywords: Optional[list[str]] = None
+    controlled_keywords: Optional[list[str]] = None
     text: Optional[str] = None
     include_experiment_score_set_urns_and_count: Optional[bool] = True
     offset: Optional[int] = None
@@ -56,6 +56,7 @@ class ScoreSetsSearchFilterOptionsResponse(BaseModel):
     publication_author_names: list[ScoreSetsSearchFilterOption]
     publication_db_names: list[ScoreSetsSearchFilterOption]
     publication_journals: list[ScoreSetsSearchFilterOption]
+    controlled_keywords: list[ScoreSetsSearchFilterOption]
 
     class Config:
         from_attributes = True
