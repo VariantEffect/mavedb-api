@@ -38,9 +38,9 @@ from tests.helpers.constants import (
     TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED,
     TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_CROSSREF_IDENTIFIER,
-    TEST_EXPERIMENT_WITH_KEYWORD,
     TEST_GNOMAD_DATA_VERSION,
     TEST_INACTIVE_LICENSE,
+    TEST_KEYWORDS,
     TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION,
     TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION,
     TEST_MINIMAL_ACC_SCORESET,
@@ -875,7 +875,9 @@ def test_show_score_sets_anonymous_can_fetch_public_score_sets(
     assert response_data[0]["urn"] == published_score_set["urn"]
 
 
-def test_show_score_sets_anonymous_cannot_fetch_private_score_sets(session, client, setup_router_db, anonymous_app_overrides):
+def test_show_score_sets_anonymous_cannot_fetch_private_score_sets(
+    session, client, setup_router_db, anonymous_app_overrides
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     # Score set is private (not published); change ownership so it belongs to another user
@@ -927,7 +929,9 @@ def test_show_score_sets_mixed_public_and_private_returns_404(
 ):
     experiment = create_experiment(client)
     public_score_set = create_seq_score_set(client, experiment["urn"])
-    public_score_set = mock_worker_variant_insertion(client, session, data_provider, public_score_set, data_files / "scores.csv")
+    public_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, public_score_set, data_files / "scores.csv"
+    )
     private_score_set = create_seq_score_set(client, experiment["urn"])
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
         published_score_set = publish_score_set(client, public_score_set["urn"])
@@ -2677,15 +2681,10 @@ def test_search_score_sets_reports_correct_total_count_with_limit(
 def test_search_score_sets_not_affected_by_experiment_metadata(
     session, data_provider, client, setup_router_db, data_files
 ):
-    """Experiments with multiple keywords should not reduce the number of score sets returned by search.
-
-    This is a regression test for a bug where joinedload on one-to-many experiment relationships caused row
-    multiplication in the main SQL query. The LIMIT clause was applied to the multiplied rows rather than unique
-    score sets, resulting in fewer results than expected.
-    """
+    """Experiments with multiple keywords should not reduce the number of score sets returned by search."""
     num_score_sets = 3
     for i in range(num_score_sets):
-        experiment = create_experiment(client, {**TEST_EXPERIMENT_WITH_KEYWORD, "title": f"Experiment {i}"})
+        experiment = create_experiment(client, {"keywords": TEST_KEYWORDS, "title": f"Experiment {i}"})
         score_set = create_seq_score_set(client, experiment["urn"], update={"title": f"Score Set {i}"})
         score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
 
@@ -2697,6 +2696,44 @@ def test_search_score_sets_not_affected_by_experiment_metadata(
     assert response.status_code == 200
     assert len(response.json()["scoreSets"]) == 2
     assert response.json()["numScoreSets"] == num_score_sets
+
+
+def test_search_score_sets_not_affected_by_multiple_superseding_versions(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """Multiple unpublished superseding versions of the same score set should not reduce search page size.
+
+    Regression test for a bug where the superseding score set filter used a LEFT OUTER JOIN
+    (scoresets LEFT JOIN scoresets AS s ON scoresets.id = s.replaces_id). Since replaces_id has
+    no uniqueness constraint, a score set with N superseding versions produces N rows, all inside
+    the LIMIT boundary. This consumed extra row budget and caused paginated searches to return
+    fewer unique score sets than the requested limit.
+    """
+    num_published = 3
+    published_urns = []
+    for i in range(num_published):
+        experiment = create_experiment(client, {"title": f"Experiment {i}"})
+        score_set = create_seq_score_set(client, experiment["urn"], update={"title": f"Score Set {i}"})
+        score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+        with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+            published = publish_score_set(client, score_set["urn"])
+        published_urns.append(published["urn"])
+
+    # Create multiple unpublished superseding versions for the first score set.
+    # These share the same replaces_id, which caused row multiplication with the old LEFT JOIN filter.
+    for j in range(3):
+        create_seq_score_set(
+            client,
+            create_experiment(client, {"title": f"Superseding Experiment {j}"})["urn"],
+            update={"title": f"Superseding {j}", "supersededScoreSetUrn": published_urns[0]},
+        )
+
+    search_payload = {"limit": 2}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()["scoreSets"]) == 2
+    assert response.json()["numScoreSets"] == num_published
 
 
 ########################################################################################################################

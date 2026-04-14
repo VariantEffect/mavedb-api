@@ -77,18 +77,13 @@ class HGVSColumns:
 def build_search_score_sets_query_filter(
     db: Session, query: Query[ScoreSet], owner_or_contributor: Optional[User], search: ScoreSetsSearch
 ):
-    superseding_score_set = aliased(ScoreSet)
-
-    # Exclude superseded score sets from search results, but only when the superseding
-    # version is published. An unpublished replacement should not hide its published
-    # precursor from public search results.
-    query = query.join(superseding_score_set, ScoreSet.superseding_score_set, isouter=True)
-    query = query.filter(
-        or_(
-            superseding_score_set.id.is_(None),
-            superseding_score_set.published_date.is_(None),
-        )
-    )
+    # Exclude score sets that have been publicly superseded (i.e., have at least one
+    # published superseding version). Uses NOT EXISTS instead of LEFT OUTER JOIN to
+    # avoid row multiplication when multiple superseding versions point to the same
+    # original via replaces_id (which has no uniqueness constraint). A LEFT JOIN would
+    # produce N rows per original, all counted against the LIMIT, causing paginated
+    # searches to return fewer unique score sets than requested.
+    query = query.filter(~ScoreSet.superseding_score_set.has(ScoreSet.published_date.isnot(None)))
 
     if owner_or_contributor is not None:
         query = query.filter(
