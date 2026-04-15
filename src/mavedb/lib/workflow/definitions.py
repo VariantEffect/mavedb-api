@@ -194,6 +194,36 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
             },
             "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
         },
+        {
+            "key": "populate_vep_for_score_set",
+            "function": "populate_vep_for_score_set",
+            "type": JobType.MAPPED_VARIANT_ANNOTATION,
+            "params": {
+                "correlation_id": None,  # Required param to be filled in at runtime
+                "score_set_id": None,  # Required param to be filled in at runtime
+            },
+            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+        },
+        {
+            "key": "populate_hgvs_for_score_set",
+            "function": "populate_hgvs_for_score_set",
+            "type": JobType.MAPPED_VARIANT_ANNOTATION,
+            "params": {
+                "correlation_id": None,  # Required param to be filled in at runtime
+                "score_set_id": None,  # Required param to be filled in at runtime
+            },
+            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+        },
+        {
+            "key": "populate_variant_translations_for_score_set",
+            "function": "populate_variant_translations_for_score_set",
+            "type": JobType.MAPPED_VARIANT_ANNOTATION,
+            "params": {
+                "correlation_id": None,  # Required param to be filled in at runtime
+                "score_set_id": None,  # Required param to be filled in at runtime
+            },
+            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+        },
     ]
 
 
