@@ -1,7 +1,5 @@
 from enum import Enum
 
-# TODO add annotation types for new jobs
-
 
 class AnnotationType(str, Enum):
     VRS_MAPPING = "vrs_mapping"
@@ -12,3 +10,5 @@ class AnnotationType(str, Enum):
     CLINVAR_CONTROL = "clinvar_control"
     VEP_FUNCTIONAL_CONSEQUENCE = "vep_functional_consequence"
     LDH_SUBMISSION = "ldh_submission"
+    HGVS = "hgvs"
+    VEP_FUNCTIONAL_CONSEQUENCE = "vep_functional_consequence"
