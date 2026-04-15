@@ -9,7 +9,7 @@ from mavedb.lib.hgvs import populate_mapped_hgvs_for_variants
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.models.mapped_variant import MappedVariant
-from mavedb.worker.jobs.external_services.hgvs import submit_hgvs_mapping_jobs_for_score_set
+from mavedb.worker.jobs.external_services.hgvs import populate_hgvs_for_score_set
 from mavedb.worker.lib.managers.job_manager import JobManager
 
 
@@ -45,8 +45,8 @@ def score_set_with_variants(db: Session):
     return score_set
 
 
-class TestSubmitHgvsMappingJobsForScoreSet:
-    """Tests for submit_hgvs_mapping_jobs_for_score_set function."""
+class TestPopulateHgvsForScoreSet:
+    """Tests for populate_hgvs_for_score_set function."""
 
     @pytest.mark.asyncio
     async def test_successful_hgvs_population(self, mock_job_manager, score_set_with_variants):
@@ -62,7 +62,7 @@ class TestSubmitHgvsMappingJobsForScoreSet:
         with patch("mavedb.worker.jobs.external_services.hgvs.populate_mapped_hgvs_for_variants") as mock_populate:
             mock_populate.return_value = True
 
-            result = await submit_hgvs_mapping_jobs_for_score_set({}, 1, mock_job_manager)
+            result = await populate_hgvs_for_score_set({}, 1, mock_job_manager)
 
             assert result["status"] == "ok"
             assert "variants_processed" in result["data"]
@@ -83,7 +83,7 @@ class TestSubmitHgvsMappingJobsForScoreSet:
         mock_job.metadata_ = {}
         mock_job_manager.get_job.return_value = mock_job
 
-        result = await submit_hgvs_mapping_jobs_for_score_set({}, 1, mock_job_manager)
+        result = await populate_hgvs_for_score_set({}, 1, mock_job_manager)
 
         assert result["status"] == "ok"
         assert result["data"] == {}
@@ -102,7 +102,7 @@ class TestSubmitHgvsMappingJobsForScoreSet:
         with patch("mavedb.worker.jobs.external_services.hgvs.populate_mapped_hgvs_for_variants") as mock_populate:
             mock_populate.side_effect = HGVSProcessingError("API error")
 
-            result = await submit_hgvs_mapping_jobs_for_score_set({}, 1, mock_job_manager)
+            result = await populate_hgvs_for_score_set({}, 1, mock_job_manager)
 
             assert result["status"] == "failed"
             assert result["exception"] is not None

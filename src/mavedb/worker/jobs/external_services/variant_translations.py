@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 
 from mavedb.lib.exceptions import VariantTranslationProcessingError
-from mavedb.lib.variant_translations import populate_variant_translations_for_score_set
+from mavedb.lib.variant_translations import populate_variant_translations_for_variant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -28,9 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 @with_pipeline_management
-async def submit_variant_translation_jobs_for_score_set(
-    ctx: dict, job_id: int, job_manager: JobManager
-) -> JobResultData:
+async def populate_variant_translations_for_score_set(ctx: dict, job_id: int, job_manager: JobManager) -> JobResultData:
     """Populate variant translations for all mapped variants in a ScoreSet.
 
     This function retrieves all mapped variants with ClinGen allele IDs for a given
@@ -74,7 +72,7 @@ async def submit_variant_translation_jobs_for_score_set(
     job_manager.save_to_context(
         {
             "application": "mavedb-worker",
-            "function": "submit_variant_translation_jobs_for_score_set",
+            "function": "populate_variant_translations_for_score_set",
             "resource": score_set.urn,
             "correlation_id": correlation_id,
         }
@@ -151,7 +149,7 @@ async def submit_variant_translation_jobs_for_score_set(
                 continue
 
             # Process variant translations for this allele ID
-            created_count = await populate_variant_translations_for_score_set(job_manager.db, allele_id)
+            created_count = await populate_variant_translations_for_variant(job_manager.db, allele_id)
 
             variant_translations_created += created_count
             if created_count == 0:

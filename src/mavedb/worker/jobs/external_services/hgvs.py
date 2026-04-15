@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 @with_pipeline_management
-async def submit_hgvs_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_manager: JobManager) -> JobResultData:
+async def populate_hgvs_for_score_set(ctx: dict, job_id: int, job_manager: JobManager) -> JobResultData:
     """Populate HGVS nomenclature for all mapped variants in a ScoreSet.
 
     This function retrieves all mapped variants for a given ScoreSet and populates
@@ -72,13 +72,13 @@ async def submit_hgvs_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_man
     job_manager.save_to_context(
         {
             "application": "mavedb-worker",
-            "function": "submit_hgvs_mapping_jobs_for_score_set",
+            "function": "populate_hgvs_for_score_set",
             "resource": score_set.urn,
             "correlation_id": correlation_id,
         }
     )
-    job_manager.update_progress(0, 100, "Starting HGVS nomenclature mapping.")
-    logger.info(msg="Started HGVS nomenclature mapping", extra=job_manager.logging_context())
+    job_manager.update_progress(0, 100, "Starting HGVS population.")
+    logger.info(msg="Started HGVS population", extra=job_manager.logging_context())
 
     # Preset processed variants metadata so it persists even if no variants are processed
     job.metadata_["variants_processed"] = 0
@@ -97,9 +97,9 @@ async def submit_hgvs_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_man
     ).all()
 
     if not mapped_variants:
-        job_manager.update_progress(100, 100, "No mapped variants found. Skipped HGVS nomenclature mapping.")
+        job_manager.update_progress(100, 100, "No mapped variants found. Skipped HGVS population.")
         logger.warning(
-            msg=f"No mapped variants found for score set {score_set.urn}. Skipped HGVS mapping.",
+            msg=f"No mapped variants found for score set {score_set.urn}. Skipped HGVS population.",
             extra=job_manager.logging_context(),
         )
         return {"status": "ok", "data": {}, "exception": None}
@@ -193,10 +193,10 @@ async def submit_hgvs_mapping_jobs_for_score_set(ctx: dict, job_id: int, job_man
     job_manager.update_progress(
         100,
         100,
-        f"Completed HGVS nomenclature mapping for {variants_with_hgvs}/{variants_processed} variants.",
+        f"Completed HGVS nomenclature population for {variants_with_hgvs}/{variants_processed} variants.",
     )
     logger.info(
-        msg=f"Completed HGVS mapping: {variants_with_hgvs} variants with HGVS, {variants_without_hgvs} without",
+        msg=f"Completed HGVS population: {variants_with_hgvs} variants with HGVS, {variants_without_hgvs} without",
         extra=job_manager.logging_context(),
     )
 

@@ -12,7 +12,7 @@ from mavedb.models.variant_translation import VariantTranslation
 logger = logging.getLogger(__name__)
 
 
-async def populate_variant_translations_for_score_set(db: Session, allele_id: str) -> int:
+async def populate_variant_translations_for_variant(db: Session, allele_id: str) -> int:
     """Populate variant translations for a single ClinGen allele ID.
 
     Queries the ClinGen Allele Registry API to resolve canonical PA IDs and matching
