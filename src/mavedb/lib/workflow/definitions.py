@@ -5,9 +5,6 @@ from mavedb.models.enums.job_pipeline import DependencyType, JobType
 # repeated jobs, a suffix may be added to the key for uniqueness.
 
 
-# TODO add new jobs here
-
-
 def annotation_pipeline_job_definitions() -> list[JobDefinition]:
     return [
         {
@@ -194,6 +191,36 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "score_set_id": None,  # Required param to be filled in at runtime
                 "year": 2026,
                 "month": 1,
+            },
+            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+        },
+        {
+            "key": "populate_vep_for_score_set",
+            "function": "populate_vep_for_score_set",
+            "type": JobType.MAPPED_VARIANT_ANNOTATION,
+            "params": {
+                "correlation_id": None,  # Required param to be filled in at runtime
+                "score_set_id": None,  # Required param to be filled in at runtime
+            },
+            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+        },
+        {
+            "key": "populate_hgvs_for_score_set",
+            "function": "populate_hgvs_for_score_set",
+            "type": JobType.MAPPED_VARIANT_ANNOTATION,
+            "params": {
+                "correlation_id": None,  # Required param to be filled in at runtime
+                "score_set_id": None,  # Required param to be filled in at runtime
+            },
+            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+        },
+        {
+            "key": "populate_variant_translations_for_score_set",
+            "function": "populate_variant_translations_for_score_set",
+            "type": JobType.MAPPED_VARIANT_ANNOTATION,
+            "params": {
+                "correlation_id": None,  # Required param to be filled in at runtime
+                "score_set_id": None,  # Required param to be filled in at runtime
             },
             "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
         },
