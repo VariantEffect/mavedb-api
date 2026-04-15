@@ -692,6 +692,7 @@ class TestMapVariantsForScoreSetUnit:
             mapped_variant = session.query(MappedVariant).filter(MappedVariant.variant.has(urn=urn)).one_or_none()
             assert mapped_variant is not None
             assert mapped_variant.post_mapped != {}
+            assert mapped_variant.hgvs_assay_level is not None
 
         # Verify that annotation statuses were created and correct
         annotation_statuses = (

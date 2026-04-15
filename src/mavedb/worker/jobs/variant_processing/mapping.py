@@ -229,6 +229,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             mapped_variant = MappedVariant(
                 pre_mapped=mapped_score.get("pre_mapped", null()),
                 post_mapped=mapped_score.get("post_mapped", null()),
+                hgvs_assay_level=get_hgvs_from_post_mapped(mapped_score.get("post_mapped", {})),
                 variant_id=variant.id,
                 modification_date=date.today(),
                 mapped_date=mapping_results["mapped_date_utc"],
