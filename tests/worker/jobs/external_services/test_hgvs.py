@@ -4,12 +4,13 @@ import pytest
 from unittest.mock import MagicMock, patch
 from sqlalchemy.orm import Session
 
+from mavedb.lib.exceptions import HGVSProcessingError
+from mavedb.lib.hgvs import populate_mapped_hgvs_for_variants
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.worker.jobs.external_services.hgvs import submit_hgvs_mapping_jobs_for_score_set
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.lib.exceptions import HGVSProcessingError
 
 
 @pytest.fixture
@@ -137,8 +138,6 @@ class TestHgvsLibraryFunctions:
                     ]
                 }
 
-                from mavedb.worker.lib.hgvs import populate_mapped_hgvs_for_variants
-
                 result = populate_mapped_hgvs_for_variants(db, score_set, [mapped_variant])
 
                 assert result is True
@@ -164,8 +163,6 @@ class TestHgvsLibraryFunctions:
 
             with patch("mavedb.worker.lib.hgvs.get_hgvs_from_variant") as mock_get_hgvs:
                 mock_get_hgvs.return_value = None
-
-                from mavedb.worker.lib.hgvs import populate_mapped_hgvs_for_variants
 
                 result = populate_mapped_hgvs_for_variants(db, score_set, [mapped_variant])
 

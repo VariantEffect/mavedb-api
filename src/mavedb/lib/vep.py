@@ -151,6 +151,10 @@ def get_functional_consequence(hgvs_strings: Sequence[str]) -> dict[str, Optiona
                 missing_hgvs.discard(hgvs)
     else:
         logger.error(f"Failed batch VEP API request: {response.status_code} {response.text}")
+        # raise VEPBatchError(f"Batch VEP API request failed with status {response.status_code}")
+
+    # TODO add in retry logic for transient errors (e.g. 500 or 503) with exponential backoff
+    # if batch fails after all retries, add annotation statuses for all variants in that batch as failed
 
     # Fallback for missing HGVS strings
     if missing_hgvs:

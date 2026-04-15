@@ -7,8 +7,8 @@ import pytest
 pytest.importorskip("arq")
 
 import responses
+from mavedb.lib.vep import ENSEMBL_API_URL
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
-from mavedb.worker.lib.vep import ENSEMBL_API_URL
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 

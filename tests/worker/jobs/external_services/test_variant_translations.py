@@ -12,6 +12,7 @@ from mavedb.worker.jobs.external_services.variant_translations import (
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.lib.exceptions import VariantTranslationProcessingError
+from mavedb.lib.variant_translations import populate_variant_translations_for_score_set
 
 
 @pytest.fixture
@@ -180,10 +181,6 @@ class TestVariantTranslationLibraryFunctions:
             with patch("mavedb.worker.lib.variant_translations.get_matching_registered_ca_ids") as mock_get_ca:
                 mock_get_ca.return_value = ["CA789012"]
 
-                from mavedb.worker.lib.variant_translations import (
-                    populate_variant_translations_for_score_set,
-                )
-
                 result = await populate_variant_translations_for_score_set(db, "CA123456")
 
                 assert result > 0
@@ -194,10 +191,6 @@ class TestVariantTranslationLibraryFunctions:
         """Test translation from PA to CA allele IDs."""
         with patch("mavedb.worker.lib.variant_translations.get_matching_registered_ca_ids") as mock_get_ca:
             mock_get_ca.return_value = ["CA789012", "CA345678"]
-
-            from mavedb.worker.lib.variant_translations import (
-                populate_variant_translations_for_score_set,
-            )
 
             result = await populate_variant_translations_for_score_set(db, "PA123456")
 
@@ -210,10 +203,6 @@ class TestVariantTranslationLibraryFunctions:
         with patch("mavedb.worker.lib.variant_translations.get_canonical_pa_ids") as mock_get_pa:
             mock_get_pa.return_value = []
 
-            from mavedb.worker.lib.variant_translations import (
-                populate_variant_translations_for_score_set,
-            )
-
             result = await populate_variant_translations_for_score_set(db, "CA123456")
 
             assert result == 0
@@ -225,10 +214,6 @@ class TestVariantTranslationLibraryFunctions:
 
         with patch("mavedb.worker.lib.variant_translations.get_canonical_pa_ids") as mock_get_pa:
             mock_get_pa.side_effect = requests.exceptions.RequestException("Connection error")
-
-            from mavedb.worker.lib.variant_translations import (
-                populate_variant_translations_for_score_set,
-            )
 
             with pytest.raises(VariantTranslationProcessingError):
                 await populate_variant_translations_for_score_set(db, "CA123456")

@@ -11,17 +11,18 @@ import logging
 from datetime import date
 
 from sqlalchemy import select
-from sqlalchemy.orm.attributes import flag_modified
 
 from mavedb.lib.exceptions import VEPProcessingError
+from mavedb.lib.utils import batched
+from mavedb.lib.variants import get_hgvs_from_post_mapped
+from mavedb.lib.vep import get_functional_consequence
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobResultData
-from mavedb.worker.lib.vep import get_functional_consequence
+from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 @with_pipeline_management
-async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobManager) -> JobResultData:
+async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutionOutcome:
     """Populate VEP functional consequence predictions for all mapped variants in a ScoreSet.
 
     This function retrieves all mapped variants with post_mapped HGVS expressions for a given
@@ -102,7 +103,9 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             msg=f"No mapped variants found for score set {score_set.urn}. Skipped VEP population.",
             extra=job_manager.logging_context(),
         )
-        return {"status": "ok", "data": {}, "exception": None}
+        return JobExecutionOutcome.succeeded(
+            data={"variants_processed": 0, "variants_with_consequences": 0, "variants_without_consequences": 0}
+        )
 
     job_manager.save_to_context({"total_variants_to_process": len(mapped_variants)})
     logger.info(
@@ -111,48 +114,20 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
     )
 
     # Extract HGVS strings and build batches of 200
-    batches: list[dict] = []
-    current_batch_hgvs: list[str] = []
-    current_batch_variant_ids: list[int] = []
+    hgvs_and_variant_id_pairs: list[tuple[str, int]] = []
 
     for mapped_variant in mapped_variants:
-        try:
-            hgvs_string = mapped_variant.post_mapped.get("expressions", {})[0].get("value")  # type: ignore
-            if not hgvs_string:
-                logger.warning(
-                    msg=f"No HGVS string found in post_mapped for variant {mapped_variant.id}.",
-                    extra=job_manager.logging_context(),
-                )
-                continue
-
-            current_batch_hgvs.append(hgvs_string)
-            current_batch_variant_ids.append(mapped_variant.id)
-
-            # When batch reaches 200, save and start new batch
-            if len(current_batch_hgvs) == 200:
-                batches.append(
-                    {
-                        "hgvs_strings": current_batch_hgvs,
-                        "variant_ids": current_batch_variant_ids,
-                    }
-                )
-                current_batch_hgvs = []
-                current_batch_variant_ids = []
-        except (IndexError, KeyError, TypeError) as e:
+        hgvs_string = get_hgvs_from_post_mapped(mapped_variant)  # type: ignore
+        if not hgvs_string:
             logger.warning(
-                msg=f"Error extracting HGVS string from variant {mapped_variant.id}: {str(e)}",
+                msg=f"No HGVS string could be extracted from post_mapped for variant {mapped_variant.id}.",
                 extra=job_manager.logging_context(),
             )
             continue
 
-    # Add any remaining variants as final batch
-    if current_batch_hgvs:
-        batches.append(
-            {
-                "hgvs_strings": current_batch_hgvs,
-                "variant_ids": current_batch_variant_ids,
-            }
-        )
+        hgvs_and_variant_id_pairs.append((hgvs_string, mapped_variant.id))
+
+    batches = batched(hgvs_and_variant_id_pairs, 200)
 
     job_manager.save_to_context({"total_batches": len(batches)})
     logger.info(
@@ -164,6 +139,9 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
     variants_processed = 0
     variants_with_consequences = 0
     variants_without_consequences = 0
+
+    # Setup annotation manager
+    # annotation_manager = AnnotationStatusManager(job_manager.db)
 
     for batch_idx, batch in enumerate(batches):
         try:
@@ -213,6 +191,12 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
             job_manager.db.flush()
 
+            # TODO handle vep and variant recoder batches separately
+            # process all vep batch by batch
+            # then process all recoder batch by batch, with separate progress tracking for each
+            # then do last vep processing from recoder results, with separate progress tracking for that as well
+            # progress equals ~33% * number of batches processed for each of the 3 steps
+
             # Update progress
             progress_pct = int((batch_idx + 1) / len(batches) * 100)
             job_manager.update_progress(
@@ -258,12 +242,6 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 "exception": VEPProcessingError(f"Unexpected error processing batch {batch_idx + 1}: {str(e)}"),
             }
 
-    # Update metadata with final counts
-    job.metadata_["processed_batches"] = len(batches)
-    job.metadata_["variants_processed"] = variants_processed
-    job.metadata_["variants_with_consequences"] = variants_with_consequences
-    job.metadata_["variants_without_consequences"] = variants_without_consequences
-    flag_modified(job, "metadata_")
     job_manager.db.flush()
 
     job_manager.update_progress(

@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 from sqlalchemy.orm import Session
 
+from mavedb.lib.vep import get_functional_consequence, run_variant_recoder
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.models.mapped_variant import MappedVariant
@@ -197,8 +198,6 @@ class TestVepLibraryFunctions:
             ]
             mock_post.return_value = mock_response
 
-            from mavedb.worker.lib.vep import get_functional_consequence
-
             result = get_functional_consequence(["NM_000001.1:c.100A>G", "NM_000001.1:c.200C>T"])
 
             assert result["NM_000001.1:c.100A>G"] == "missense_variant"
@@ -241,8 +240,6 @@ class TestVepLibraryFunctions:
 
             mock_post.side_effect = [first_response, recoder_response, vep_response]
 
-            from mavedb.worker.lib.vep import get_functional_consequence
-
             result = get_functional_consequence(["NM_000001.1:c.100A>G", "NM_000001.1:c.200C>T"])
 
             assert result["NM_000001.1:c.100A>G"] == "missense_variant"
@@ -262,8 +259,6 @@ class TestVepLibraryFunctions:
                 }
             ]
             mock_post.return_value = mock_response
-
-            from mavedb.worker.lib.vep import run_variant_recoder
 
             result = run_variant_recoder(["NM_000001.1:c.100A>G"])
 

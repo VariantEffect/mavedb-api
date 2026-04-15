@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 
 from mavedb.lib.exceptions import VariantTranslationProcessingError
+from mavedb.lib.variant_translations import populate_variant_translations_for_score_set
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -22,7 +23,6 @@ from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.managers.types import JobResultData
-from mavedb.worker.lib.variant_translations import populate_variant_translations_for_score_set
 
 logger = logging.getLogger(__name__)
 
