@@ -14,6 +14,7 @@ from sqlalchemy import delete, null, select
 from mavedb.data_providers.services import CSV_UPLOAD_S3_BUCKET_NAME, RESTDataProvider, s3_client
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.score_sets import columns_for_dataset, create_variants, create_variants_data
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.validation.dataframe.dataframe import validate_and_standardize_dataframe_pair
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.enums.mapping_state import MappingState
@@ -25,7 +26,6 @@ from mavedb.models.variant import Variant
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 

@@ -46,7 +46,7 @@ from .job_manager import JobManager
 from .pipeline_manager import PipelineManager
 
 # Type definitions
-from .types import JobExecutionOutcome, RetryHistoryEntry
+from .types import RetryHistoryEntry
 
 __all__ = [
     # Main classes
@@ -62,6 +62,5 @@ __all__ = [
     "JobTransitionError",
     "PipelineCoordinationError",
     # Types
-    "JobExecutionOutcome",
     "RetryHistoryEntry",
 ]

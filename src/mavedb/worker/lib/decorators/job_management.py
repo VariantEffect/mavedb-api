@@ -14,10 +14,10 @@ from arq import ArqRedis
 from sqlalchemy.orm import Session
 
 from mavedb.lib.slack import send_slack_error
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.worker.lib.decorators.utils import ensure_ctx, ensure_job_id, ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 

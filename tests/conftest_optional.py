@@ -20,10 +20,10 @@ from mavedb.deps import get_db, get_seqrepo, get_worker, hgvs_data_provider
 from mavedb.lib.authentication import UserData, get_current_user
 from mavedb.lib.authorization import require_current_user
 from mavedb.lib.gnomad import gnomad_table_name
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.user import User
 from mavedb.server_main import app
 from mavedb.worker.jobs import BACKGROUND_CRONJOBS, BACKGROUND_FUNCTIONS
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.constants import ADMIN_USER, EXTRA_USER, TEST_SEQREPO_INITIAL_STATE, TEST_USER, VALID_CAID
 
 ####################################################################################################

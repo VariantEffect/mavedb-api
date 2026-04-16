@@ -2,8 +2,8 @@
 
 import pytest
 
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import JobStatus
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 
 @pytest.mark.unit

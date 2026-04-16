@@ -5,6 +5,7 @@ import logging
 import asyncclick as click  # using asyncclick to allow async commands
 
 from mavedb.db.session import SessionLocal
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.workflow.job_factory import JobFactory
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.models.score_set import ScoreSet
@@ -14,7 +15,6 @@ from mavedb.worker.jobs.external_services.uniprot import (
 )
 from mavedb.worker.jobs.registry import STANDALONE_JOB_DEFINITIONS
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from mavedb.worker.settings.lifecycle import standalone_ctx
 
 logger = logging.getLogger(__name__)

@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, call, patch
 from sqlalchemy.exc import NoResultFound
 
 from mavedb.lib.mapping import EXCLUDED_PREMAPPED_ANNOTATION_KEYS
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.mapped_variant import MappedVariant
@@ -17,7 +18,6 @@ from mavedb.models.variant import Variant
 from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 from mavedb.worker.jobs.variant_processing.mapping import map_variants_for_score_set
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.constants import TEST_CODING_LAYER, TEST_GENOMIC_LAYER, TEST_PROTEIN_LAYER
 from tests.helpers.util.setup.worker import construct_mock_mapping_output, create_variants_in_score_set
 

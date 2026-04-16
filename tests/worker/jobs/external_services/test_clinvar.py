@@ -13,12 +13,12 @@ pytest.importorskip("arq")
 import gzip
 from unittest.mock import call, patch
 
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.worker.jobs.external_services.clinvar import refresh_clinvar_controls
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 

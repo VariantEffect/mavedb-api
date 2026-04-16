@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import DependencyType, JobStatus, PipelineStatus
 from mavedb.models.job_dependency import JobDependency
 from mavedb.models.job_run import JobRun
@@ -38,7 +39,6 @@ from mavedb.worker.lib.managers.exceptions import (
     PipelineTransitionError,
 )
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.transaction_spy import TransactionSpy
 
 HANDLED_EXCEPTIONS_DURING_OBJECT_MANIPULATION = (

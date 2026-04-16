@@ -11,10 +11,10 @@ pytest.importorskip("arq")  # Skip tests if arq is not installed
 from sqlalchemy import select
 
 from mavedb import __version__
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.decorators.job_guarantee import with_guaranteed_job_run_record
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.transaction_spy import TransactionSpy
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")

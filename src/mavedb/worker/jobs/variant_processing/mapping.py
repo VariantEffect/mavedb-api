@@ -24,6 +24,7 @@ from mavedb.lib.exceptions import (
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.mapping import ANNOTATION_LAYERS, EXCLUDED_PREMAPPED_ANNOTATION_KEYS
 from mavedb.lib.slack import send_slack_error
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.job_pipeline import AnnotationStatus
@@ -35,7 +36,6 @@ from mavedb.models.variant import Variant
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 

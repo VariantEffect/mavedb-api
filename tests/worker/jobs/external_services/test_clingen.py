@@ -9,6 +9,7 @@ from unittest.mock import call, patch
 
 from sqlalchemy import select
 
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.mapped_variant import MappedVariant
@@ -19,7 +20,6 @@ from mavedb.worker.jobs.external_services.clingen import (
     submit_score_set_mappings_to_ldh,
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.constants import TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST
 from tests.helpers.util.setup.worker import create_mappings_in_score_set
 

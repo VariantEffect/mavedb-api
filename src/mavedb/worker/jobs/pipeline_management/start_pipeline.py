@@ -1,9 +1,9 @@
 import logging
 
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 

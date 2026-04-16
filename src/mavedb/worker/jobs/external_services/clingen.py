@@ -28,6 +28,7 @@ from mavedb.lib.clingen.services import (
     ClinGenLdhService,
     get_allele_registry_associations,
 )
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.job_pipeline import AnnotationStatus
@@ -37,7 +38,6 @@ from mavedb.models.variant import Variant
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 

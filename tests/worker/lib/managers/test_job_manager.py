@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.managers.constants import (
@@ -33,7 +34,6 @@ from mavedb.worker.lib.managers.exceptions import (
     JobTransitionError,
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.transaction_spy import TransactionSpy
 
 HANDLED_EXCEPTIONS_DURING_OBJECT_MANIPULATION = (

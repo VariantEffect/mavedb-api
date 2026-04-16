@@ -7,7 +7,6 @@ Covers status transitions, error handling, and JobManager interaction.
 
 import pytest
 
-
 pytest.importorskip("arq")  # Skip tests if arq is not installed
 
 import asyncio
@@ -15,13 +14,13 @@ from unittest.mock import patch
 
 from sqlalchemy import select
 
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.decorators.job_management import with_job_management
 from mavedb.worker.lib.managers.constants import RETRYABLE_FAILURE_CATEGORIES
 from mavedb.worker.lib.managers.exceptions import JobStateError
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.transaction_spy import TransactionSpy
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")

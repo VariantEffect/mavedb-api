@@ -4,6 +4,7 @@ import pytest
 
 pytest.importorskip("arq")
 
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import DependencyType, JobStatus
 from mavedb.worker.lib.managers.constants import (
     ACTIVE_JOB_STATUSES,
@@ -12,7 +13,6 @@ from mavedb.worker.lib.managers.constants import (
     STARTABLE_JOB_STATUSES,
     TERMINAL_JOB_STATUSES,
 )
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from mavedb.worker.lib.managers.utils import (
     construct_bulk_cancellation_result,
     job_dependency_is_met,

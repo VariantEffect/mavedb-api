@@ -25,6 +25,7 @@ from mavedb.lib.clinvar.utils import (
     parse_clinvar_variant_summary,
     validate_clinvar_variant_summary_date,
 )
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.job_pipeline import AnnotationStatus
@@ -34,7 +35,6 @@ from mavedb.models.variant import Variant
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 

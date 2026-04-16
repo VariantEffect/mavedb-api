@@ -6,13 +6,13 @@ pytest.importorskip("arq")
 
 from unittest.mock import MagicMock, call, patch
 
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 from mavedb.worker.jobs.external_services.gnomad import link_gnomad_variants
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 

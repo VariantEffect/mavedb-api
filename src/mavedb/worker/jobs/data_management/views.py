@@ -9,13 +9,13 @@ data consistency and performance.
 import logging
 
 from mavedb.db.view import refresh_all_mat_views
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.published_variant import PublishedVariantsMV
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.job_guarantee import with_guaranteed_job_run_record
 from mavedb.worker.lib.decorators.job_management import with_job_management
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 

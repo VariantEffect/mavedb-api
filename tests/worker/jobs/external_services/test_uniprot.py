@@ -11,6 +11,7 @@ from mavedb.lib.exceptions import (
     UniprotAmbiguousMappingResultError,
     UniprotMappingResultNotFoundError,
 )
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
@@ -19,7 +20,6 @@ from mavedb.worker.jobs.external_services.uniprot import (
     submit_uniprot_mapping_jobs_for_score_set,
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.constants import (
     TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE,
     TEST_UNIPROT_SWISS_PROT_TYPE,

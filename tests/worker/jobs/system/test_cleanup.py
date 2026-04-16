@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, call, patch
 
 from sqlalchemy import select
 
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums import DependencyType
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus, PipelineStatus
 from mavedb.models.job_dependency import JobDependency
@@ -29,7 +30,6 @@ from mavedb.worker.jobs.system.cleanup import (
     cleanup_stalled_jobs,
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from tests.helpers.transaction_spy import TransactionSpy
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")

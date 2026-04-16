@@ -20,6 +20,7 @@ from mavedb.lib.exceptions import (
     UniprotMappingResultNotFoundError,
 )
 from mavedb.lib.mapping import extract_ids_from_post_mapped_metadata
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.uniprot.id_mapping import UniProtIDMappingAPI
 from mavedb.lib.uniprot.utils import infer_db_name_from_sequence_accession
 from mavedb.models.job_dependency import JobDependency
@@ -27,7 +28,6 @@ from mavedb.models.score_set import ScoreSet
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 

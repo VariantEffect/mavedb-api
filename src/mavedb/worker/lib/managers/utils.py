@@ -9,9 +9,9 @@ import logging
 from datetime import datetime
 from typing import Literal, Optional, Union
 
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import DependencyType, JobStatus
 from mavedb.worker.lib.managers.constants import COMPLETED_JOB_STATUSES
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 

@@ -43,6 +43,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from mavedb.lib.slack import send_slack_message
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.job_dependency import JobDependency
 from mavedb.models.job_run import JobRun
@@ -61,7 +62,6 @@ from mavedb.worker.lib.managers.exceptions import (
     PipelineStateError,
     PipelineTransitionError,
 )
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 from mavedb.worker.lib.managers.utils import (
     construct_bulk_cancellation_result,
     job_dependency_is_met,

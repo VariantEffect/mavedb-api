@@ -18,6 +18,7 @@ from mavedb.lib.gnomad import (
     gnomad_variant_data_for_caids,
     link_gnomad_variants_to_mapped_variants,
 )
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.job_pipeline import AnnotationStatus
 from mavedb.models.mapped_variant import MappedVariant
@@ -26,7 +27,6 @@ from mavedb.models.variant import Variant
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 

@@ -8,12 +8,12 @@ from unittest.mock import call, patch
 
 from sqlalchemy import select
 
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.jobs.pipeline_management.start_pipeline import start_pipeline
 from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 

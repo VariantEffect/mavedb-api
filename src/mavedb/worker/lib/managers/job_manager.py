@@ -43,6 +43,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.managers.base_manager import BaseManager
@@ -58,7 +59,7 @@ from mavedb.worker.lib.managers.exceptions import (
     JobStateError,
     JobTransitionError,
 )
-from mavedb.worker.lib.managers.types import JobExecutionOutcome, RetryHistoryEntry
+from mavedb.worker.lib.managers.types import RetryHistoryEntry
 
 logger = logging.getLogger(__name__)
 

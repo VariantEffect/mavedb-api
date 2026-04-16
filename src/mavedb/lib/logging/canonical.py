@@ -9,7 +9,7 @@ from starlette.responses import Response
 from mavedb import __version__
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.logging.models import LogType, Source
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
+from mavedb.lib.types.workflow import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 

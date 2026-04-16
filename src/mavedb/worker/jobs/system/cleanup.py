@@ -21,13 +21,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.slack import send_slack_error
+from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.decorators.job_guarantee import with_guaranteed_job_run_record
 from mavedb.worker.lib.decorators.job_management import with_job_management
 from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
-from mavedb.worker.lib.managers.types import JobExecutionOutcome
 
 logger = logging.getLogger(__name__)
 
