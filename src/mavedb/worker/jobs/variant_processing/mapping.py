@@ -124,10 +124,13 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         mapped_scores = mapping_results.get("mapped_scores")
         if not mapped_scores:
             job_manager.db.rollback()
-            score_set.mapping_errors = {"error_message": mapping_results.get("error_message")}
+            internal_err = mapping_results.get(
+                "error_message", "No variants were mapped and no error message was provided."
+            )
+            score_set.mapping_errors = {"error_message": internal_err}
             job_manager.update_progress(100, 100, "Variant mapping failed; no variants were mapped.")
-            logger.error(msg="No variants were mapped for this score set.", extra=job_manager.logging_context())
-            raise NonexistentMappingScoresError("No variants were mapped for this score set.")
+            logger.error(msg=internal_err, extra=job_manager.logging_context())
+            raise NonexistentMappingScoresError(internal_err)
 
         # Ensure we have reference metadata
         reference_metadata = mapping_results.get("reference_sequences")
@@ -200,6 +203,10 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         job_manager.update_progress(90, 100, "Saving mapped variants.")
 
         successful_mapped_variants = 0
+        logger.info(
+            f"Processing {total_variants} mapped variants for score set {score_set.urn}.",
+            extra=job_manager.logging_context(),
+        )
         annotation_manager = AnnotationStatusManager(job_manager.db)
         for mapped_score in mapped_scores:
             variant_urn = mapped_score.get("mavedb_id")
