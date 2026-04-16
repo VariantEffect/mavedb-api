@@ -49,7 +49,7 @@ def get_cache_configuration(backend=None, redis_host=None, redis_port=None, redi
     cache_backend = backend or os.getenv("CLINGEN_CACHE_BACKEND", "redis")
 
     if cache_backend == "redis":
-        host = redis_host or os.getenv("CLINGEN_REDIS_HOST", "localhost")
+        host = redis_host or os.getenv("CLINGEN_REDIS_HOST", "redis")
         port = redis_port or int(os.getenv("CLINGEN_REDIS_PORT", "6379"))
         ssl = redis_ssl if redis_ssl is not None else os.getenv("CLINGEN_REDIS_SSL", "false").lower() == "true"
 
