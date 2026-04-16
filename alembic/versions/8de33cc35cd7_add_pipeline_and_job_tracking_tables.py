@@ -1,7 +1,7 @@
 """add pipeline and job tracking tables
 
 Revision ID: 8de33cc35cd7
-Revises: dcf8572d3a17
+Revises: 659999dec5d9
 Create Date: 2026-01-28 10:08:36.906494
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "8de33cc35cd7"
-down_revision = "dcf8572d3a17"
+down_revision = "659999dec5d9"
 branch_labels = None
 depends_on = None
 
