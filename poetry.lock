@@ -3496,22 +3496,22 @@ testing = ["fields", "hunter", "process-tests", "pytest-xdist", "virtualenv"]
 
 [[package]]
 name = "pytest-postgresql"
-version = "5.0.0"
+version = "7.0.2"
 description = "Postgresql fixtures and fixture factories for Pytest."
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.9"
 groups = ["dev"]
 files = [
-    {file = "pytest-postgresql-5.0.0.tar.gz", hash = "sha256:22edcbafab8995ee85b8d948ddfaad4f70c2c7462303d7477ecd2f77fc9d15bd"},
-    {file = "pytest_postgresql-5.0.0-py3-none-any.whl", hash = "sha256:6e8f0773b57c9b8975b6392c241b7b81b7018f32079a533f368f2fbda732ecd3"},
+    {file = "pytest_postgresql-7.0.2-py3-none-any.whl", hash = "sha256:0b0d31c51620a9c1d6be93286af354256bc58a47c379f56f4147b22da6e81fb5"},
+    {file = "pytest_postgresql-7.0.2.tar.gz", hash = "sha256:57c8d3f7d4e91d0ea8b2eac786d04f60080fa6ed6e66f1f94d747c71c9e5a4f4"},
 ]
 
 [package.dependencies]
-mirakuru = "*"
-port-for = ">=0.6.0"
+mirakuru = ">=2.6.0"
+packaging = "*"
+port-for = ">=0.7.3"
 psycopg = ">=3.0.0"
-pytest = ">=6.2"
-setuptools = "*"
+pytest = ">=7.2"
 
 [[package]]
 name = "pytest-socket"
@@ -3996,7 +3996,7 @@ version = "82.0.1"
 description = "Most extensible Python build backend with support for C/C++ extension modules"
 optional = false
 python-versions = ">=3.9"
-groups = ["dev"]
+groups = ["main"]
 files = [
     {file = "setuptools-82.0.1-py3-none-any.whl", hash = "sha256:a59e362652f08dcd477c78bb6e7bd9d80a7995bc73ce773050228a348ce2e5bb"},
     {file = "setuptools-82.0.1.tar.gz", hash = "sha256:7d872682c5d01cfde07da7bccc7b65469d3dca203318515ada1de5eda35efbf9"},
@@ -4981,4 +4981,4 @@ server = ["aiocache", "alembic", "alembic-utils", "arq", "authlib", "biocommons"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "6a260fe6be0c81157c7328e21e2a0e2b78936339a7dabf1e8e2e73b5dfe130fa"
+content-hash = "54b8b3af380bac76439457e41a5763cbd1a1a3fe7025c07d2bf99290155853f6"
