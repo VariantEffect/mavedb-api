@@ -191,7 +191,7 @@ class TestGetAssociatedClinvarAlleleId:
         mock_response.json.return_value = {"externalRecords": {"ClinVarAlleles": [{"alleleId": "123456"}]}}
         mock_request.return_value = mock_response
 
-        result = await get_associated_clinvar_allele_id("CA00001")
+        result = await get_associated_clinvar_allele_id("CA_CLINVAR_SUCCESS")
         assert result == "123456"
 
     @pytest.mark.asyncio
@@ -201,7 +201,7 @@ class TestGetAssociatedClinvarAlleleId:
         mock_response.json.return_value = {}
         mock_request.return_value = mock_response
 
-        result = await get_associated_clinvar_allele_id("CA00002")
+        result = await get_associated_clinvar_allele_id("CA_CLINVAR_NO_RECORDS")
 
         # For "no data found" cases we intentionally return an empty string (not None)
         # to allow caching of these results. This is the modal case - most ClinGen alleles don't have ClinVar associations.
@@ -214,7 +214,7 @@ class TestGetAssociatedClinvarAlleleId:
         mock_response.json.return_value = {"externalRecords": {}}
         mock_request.return_value = mock_response
 
-        result = await get_associated_clinvar_allele_id("CA00003")
+        result = await get_associated_clinvar_allele_id("CA_CLINVAR_NO_ALLELES")
         assert result == ""
 
     @pytest.mark.asyncio
@@ -224,7 +224,7 @@ class TestGetAssociatedClinvarAlleleId:
         mock_response.json.return_value = {"externalRecords": {"ClinVarAlleles": [{}]}}
         mock_request.return_value = mock_response
 
-        result = await get_associated_clinvar_allele_id("CA00004")
+        result = await get_associated_clinvar_allele_id("CA_CLINVAR_MISSING_ID")
         assert result == ""
 
     @pytest.mark.asyncio
@@ -234,7 +234,7 @@ class TestGetAssociatedClinvarAlleleId:
         mock_response.status_code = 404
         mock_request.return_value = mock_response
 
-        result = await get_associated_clinvar_allele_id("CA404")
+        result = await get_associated_clinvar_allele_id("CA_CLINVAR_404")
         assert result == ""
 
     @pytest.mark.asyncio
@@ -246,7 +246,7 @@ class TestGetAssociatedClinvarAlleleId:
         mock_request.return_value = mock_response
 
         with pytest.raises(requests.exceptions.HTTPError):
-            await get_associated_clinvar_allele_id("CA500")
+            await get_associated_clinvar_allele_id("CA_CLINVAR_500")
 
 
 @pytest.mark.unit
@@ -426,29 +426,28 @@ class TestCachingBehavior:
         assert mock_request.call_count == 2  # New API call was made
 
     @pytest.mark.asyncio
-    async def test_different_functions_cache_separately(self, mock_request, clear_cache):
-        """Verify different API functions cache results separately for same allele ID."""
-        # Mock response for get_canonical_pa_ids
-        mock_canonical_response = mock.Mock()
-        mock_canonical_response.status_code = 200
-        mock_canonical_response.json.return_value = {
+    async def test_different_functions_share_raw_data_cache(self, mock_request, clear_cache):
+        """Verify different API functions share the underlying allele data cache.
+
+        Since all functions delegate to get_clingen_allele_data, calling one function
+        caches the raw response, and subsequent calls for the same allele ID reuse it
+        without making additional API calls.
+        """
+        mock_response = mock.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
             "transcriptAlleles": [
                 {"MANE": True, "@id": "https://reg.genome.network/allele/PA99999"},
-            ]
+            ],
+            "externalRecords": {"ClinVarAlleles": [{"alleleId": "888888"}]},
         }
+        mock_request.return_value = mock_response
 
-        # Mock response for get_associated_clinvar_allele_id
-        mock_clinvar_response = mock.Mock()
-        mock_clinvar_response.status_code = 200
-        mock_clinvar_response.json.return_value = {"externalRecords": {"ClinVarAlleles": [{"alleleId": "888888"}]}}
+        # First call fetches from API
+        result1 = await get_canonical_pa_ids("CA_SHARED_CACHE_TEST")
+        # Second call reuses cached raw data — no new API call
+        result2 = await get_associated_clinvar_allele_id("CA_SHARED_CACHE_TEST")
 
-        mock_request.side_effect = [mock_canonical_response, mock_clinvar_response]
-
-        # Call different functions with same allele ID
-        result1 = await get_canonical_pa_ids("CA_FUNC_TEST")
-        result2 = await get_associated_clinvar_allele_id("CA_FUNC_TEST")
-
-        # Both should have made API calls (different cache keys by function name)
         assert result1 == ["PA99999"]
         assert result2 == "888888"
-        assert mock_request.call_count == 2
+        assert mock_request.call_count == 1  # Only one API call for both functions
