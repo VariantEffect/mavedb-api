@@ -127,7 +127,7 @@ class AnnotationStatusManager:
         self.session.add(new_status)
         self.session.flush()
 
-        logger.info(
+        logger.debug(
             f"Successfully added annotation for variant_id={variant_id}, annotation_type={annotation_type}, version={version}"
         )
         return new_status
