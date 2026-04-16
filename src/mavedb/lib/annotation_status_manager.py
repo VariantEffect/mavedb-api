@@ -54,10 +54,19 @@ class AnnotationStatusManager:
         version: Optional[str] = None,
         annotation_data: dict = {},
         current: bool = True,
+        replace_all_versions: bool = True,
     ) -> VariantAnnotationStatus:
         """
-        Insert a new annotation and mark previous ones as not current for the same (variant, type, version).
-        Callers should take care to ensure only one current annotation exists per (variant, type, version). Note
+        Insert a new annotation and mark previous ones as not current.
+
+        By default (``replace_all_versions=True``), all existing current annotations for
+        (variant, type) are retired regardless of version. This is appropriate for
+        pipelines like VRS mapping where a new run fully supersedes all
+        previous results across every version.
+
+        When ``replace_all_versions=False``, only existing current annotations matching
+        (variant, type, version) are retired. Use this for pipelines where a new run
+        should only supersede results of the same version.
 
         Args:
             variant_id (int): The ID of the variant being annotated.
@@ -65,12 +74,15 @@ class AnnotationStatusManager:
             version (Optional[str]): The version of the annotation source.
             annotation_data (dict): Additional data for the annotation status.
             current (bool): Whether this annotation is the current one.
+            replace_all_versions (bool): When True, retire all current annotations for
+                (variant, type) regardless of version. When False (default), only
+                retire those matching (variant, type, version).
 
         Returns:
             VariantAnnotationStatus: The newly created annotation status record.
 
         Side Effects:
-            - Updates existing records to set current=False for the same (variant, type, version).
+            - Updates existing records to set current=False.
             - Adds a new VariantAnnotationStatus record to the database session.
 
         NOTE:
@@ -81,19 +93,20 @@ class AnnotationStatusManager:
             f"Adding annotation for variant_id={variant_id}, annotation_type={annotation_type}, version={version}"
         )
 
-        # Find existing current annotations to be replaced
+        # Find existing current annotations to be replaced.
+        # With replace_all_versions=True, retire all versions; otherwise only the matching version.
+        retirement_filter = [
+            VariantAnnotationStatus.variant_id == variant_id,
+            VariantAnnotationStatus.annotation_type == annotation_type,
+            VariantAnnotationStatus.current.is_(True),
+        ]
+        if not replace_all_versions:
+            retirement_filter.append(VariantAnnotationStatus.version == version)
+
         existing_current = (
-            self.session.execute(
-                select(VariantAnnotationStatus).where(
-                    VariantAnnotationStatus.variant_id == variant_id,
-                    VariantAnnotationStatus.annotation_type == annotation_type,
-                    VariantAnnotationStatus.version == version,
-                    VariantAnnotationStatus.current.is_(True),
-                )
-            )
-            .scalars()
-            .all()
+            self.session.execute(select(VariantAnnotationStatus).where(*retirement_filter)).scalars().all()
         )
+
         for var_ann in existing_current:
             logger.debug(
                 f"Replacing current annotation {var_ann.id} for variant_id={variant_id}, annotation_type={annotation_type}, version={version}"

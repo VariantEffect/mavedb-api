@@ -133,6 +133,8 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     "error_message": "Mapped variant does not have an associated ClinGen allele ID.",
                     "failure_category": "missing_clingen_allele_id",
                 },
+                current=True,
+                replace_all_versions=False,
             )
             logger.debug(
                 "Mapped variant does not have an associated ClinGen allele ID.", extra=job_manager.logging_context()
@@ -150,6 +152,8 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     "error_message": "Multi-variant ClinGen allele IDs cannot be associated with ClinVar data.",
                     "failure_category": "multi_variant_clingen_allele_id",
                 },
+                current=True,
+                replace_all_versions=False,
             )
             logger.debug("Detected a multi-variant ClinGen allele ID, skipping.", extra=job_manager.logging_context())
             continue
@@ -169,6 +173,8 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     "error_message": f"Failed to retrieve ClinVar allele ID from ClinGen API: {str(exc)}",
                     "failure_category": "clingen_api_error",
                 },
+                current=True,
+                replace_all_versions=False,
             )
             logger.error(
                 f"Failed to retrieve ClinVar allele ID from ClinGen API for ClinGen allele ID {clingen_id}.",
@@ -193,6 +199,7 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     "failure_category": "no_associated_clinvar_allele_id",
                 },
                 current=True,
+                replace_all_versions=False,
             )
             logger.debug("No ClinVar allele ID found for ClinGen allele ID.", extra=job_manager.logging_context())
             continue
@@ -208,6 +215,8 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     "error_message": "No ClinVar data found for ClinVar allele ID.",
                     "failure_category": "no_clinvar_variant_data",
                 },
+                current=True,
+                replace_all_versions=False,
             )
             logger.debug("No ClinVar variant data found for ClinGen allele ID.", extra=job_manager.logging_context())
             continue
@@ -260,6 +269,7 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                 },
             },
             current=True,
+            replace_all_versions=False,
         )
 
         logger.debug("Updated ClinVar data for ClinGen allele ID.", extra=job_manager.logging_context())

@@ -497,3 +497,188 @@ class TestAnnotationStatusManagerIntegration:
         assert retrieved_annotation2.current is True
         assert retrieved_annotation2.status == AnnotationStatus.FAILED
         assert retrieved_annotation2.version == version
+
+
+@pytest.mark.unit
+class TestAnnotationStatusManagerReplaceAllVersionsUnit:
+    """Unit tests for the replace_all_versions parameter of AnnotationStatusManager.add_annotation."""
+
+    def test_replace_all_versions_false_keeps_different_version_current(
+        self, session, annotation_status_manager, existing_annotation_status, setup_lib_db_with_variant
+    ):
+        """Default behavior: a new annotation only retires the same version, not others."""
+        # existing_annotation_status is version "v1", current=True
+        new_annotation = annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v2",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+            replace_all_versions=False,
+        )
+        session.commit()
+
+        assert new_annotation.current is True
+        session.refresh(existing_annotation_status)
+        assert existing_annotation_status.current is True
+
+    def test_replace_all_versions_true_retires_all_versions(
+        self, session, annotation_status_manager, setup_lib_db_with_variant
+    ):
+        """replace_all_versions=True retires all current records for (variant, type) regardless of version."""
+        v1 = annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+            replace_all_versions=False,
+        )
+        session.commit()
+
+        v2 = annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v2",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+            replace_all_versions=False,
+        )
+        session.commit()
+
+        # Both v1 and v2 are current at this point (replace_all_versions=False)
+        session.refresh(v1)
+        session.refresh(v2)
+        assert v1.current is True
+        assert v2.current is True
+
+        # Now add v3 with replace_all_versions=True — should retire both v1 and v2
+        v3 = annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v3",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+            replace_all_versions=True,
+        )
+        session.commit()
+
+        session.refresh(v1)
+        session.refresh(v2)
+        session.refresh(v3)
+        assert v1.current is False
+        assert v2.current is False
+        assert v3.current is True
+
+    def test_replace_all_versions_true_only_affects_matching_type(
+        self, session, annotation_status_manager, setup_lib_db_with_variant
+    ):
+        """replace_all_versions=True only retires records for the same annotation_type."""
+        vrs = annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        clinvar = annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINVAR_CONTROL,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        session.commit()
+
+        # replace VRS_MAPPING only
+        new_vrs = annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v2",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+            replace_all_versions=True,
+        )
+        session.commit()
+
+        session.refresh(vrs)
+        session.refresh(clinvar)
+        session.refresh(new_vrs)
+        assert vrs.current is False
+        assert clinvar.current is True
+        assert new_vrs.current is True
+
+    def test_replace_all_versions_true_only_affects_matching_variant(
+        self, session, annotation_status_manager, setup_lib_db_with_score_set
+    ):
+        """replace_all_versions=True only retires records for the same variant_id."""
+        variant1 = Variant(score_set_id=1, hgvs_nt="NM_000000.1:c.1A>G", hgvs_pro="NP_000000.1:p.Met1Val", data={})
+        variant2 = Variant(score_set_id=1, hgvs_nt="NM_000000.1:c.2A>T", hgvs_pro="NP_000000.1:p.Met2Val", data={})
+        session.add_all([variant1, variant2])
+        session.commit()
+        session.refresh(variant1)
+        session.refresh(variant2)
+
+        ann1 = annotation_status_manager.add_annotation(
+            variant_id=variant1.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        ann2 = annotation_status_manager.add_annotation(
+            variant_id=variant2.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        session.commit()
+
+        # replace variant1 only
+        new_ann1 = annotation_status_manager.add_annotation(
+            variant_id=variant1.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v2",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+            replace_all_versions=True,
+        )
+        session.commit()
+
+        session.refresh(ann1)
+        session.refresh(ann2)
+        session.refresh(new_ann1)
+        assert ann1.current is False
+        assert ann2.current is True  # untouched
+        assert new_ann1.current is True
+
+    def test_replace_all_versions_true_same_version_also_retired(
+        self, session, annotation_status_manager, existing_annotation_status, setup_lib_db_with_variant
+    ):
+        """replace_all_versions=True retires a same-version record just as replace_all_versions=False would."""
+        # existing_annotation_status is version "v1"
+        new_annotation = annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.FAILED,
+            current=True,
+            replace_all_versions=True,
+        )
+        session.commit()
+
+        session.refresh(existing_annotation_status)
+        assert existing_annotation_status.current is False
+        assert new_annotation.current is True
