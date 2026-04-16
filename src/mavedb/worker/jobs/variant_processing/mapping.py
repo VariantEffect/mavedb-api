@@ -242,7 +242,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             annotation_manager.add_annotation(
                 variant_id=variant.id,  # type: ignore
                 annotation_type=AnnotationType.VRS_MAPPING,
-                version=mapped_score.get("vrs_version", null()),
+                version=mapped_score.get("dcd_mapping_version", null()),
                 status=AnnotationStatus.SUCCESS if annotation_was_successful else AnnotationStatus.FAILED,
                 annotation_data={
                     "error_message": mapped_score.get("error_message", null()),
