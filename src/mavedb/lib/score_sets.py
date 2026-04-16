@@ -2,7 +2,7 @@ import csv
 import io
 import logging
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from operator import attrgetter
 from typing import TYPE_CHECKING, Any, BinaryIO, Iterable, List, Literal, Optional, Sequence
 
@@ -54,7 +54,7 @@ from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
-from mavedb.view_models.search import ScoreSetsSearch
+from mavedb.view_models.search import ScoreSetsSearch, ControlledKeywordFilterOption
 
 if TYPE_CHECKING:
     from mavedb.lib.permissions import Action
@@ -335,8 +335,7 @@ def fetch_score_set_search_filter_options(
     publication_db_name_counter: Counter[str] = Counter()
     publication_journal_counter: Counter[str] = Counter()
     # Controlled keywords related counters
-    controlled_keywords_label_counter: Counter[str] = Counter()
-
+    controlled_keywords_counter: dict[str, Counter[str]] = defaultdict(Counter)
 
     # --- PERFORMANCE NOTE ---
     # The following counter construction loop is a bottleneck for large score set queries.
@@ -394,9 +393,19 @@ def fetch_score_set_search_filter_options(
         # Controlled keywords related options
         for controlled_keyword in getattr(score_set.experiment, "keyword_objs", []):
             keyword = getattr(controlled_keyword, "controlled_keyword", [])
+            if not keyword:
+                continue
+            key = getattr(keyword, "key", None)
             label = getattr(keyword, "label", None)
-            if label:
-                controlled_keywords_label_counter[label] += 1
+            if key and label:
+                controlled_keywords_counter[key][label] += 1
+
+    controlled_keywords_counter_list = []
+    for key, label_counter in controlled_keywords_counter.items():
+        for label, count in label_counter.items():
+            controlled_keywords_counter_list.append(
+                ControlledKeywordFilterOption(key=key, value=label, count=count)
+            )
 
     logger.debug(msg="Score set search filter options were fetched.", extra=logging_context())
 
@@ -408,7 +417,7 @@ def fetch_score_set_search_filter_options(
         "publication_author_names": score_set_search_filter_options_from_counter(publication_author_name_counter),
         "publication_db_names": score_set_search_filter_options_from_counter(publication_db_name_counter),
         "publication_journals": score_set_search_filter_options_from_counter(publication_journal_counter),
-        "controlled_keywords": score_set_search_filter_options_from_counter(controlled_keywords_label_counter),
+        "controlled_keywords": controlled_keywords_counter_list,
     }
 
 

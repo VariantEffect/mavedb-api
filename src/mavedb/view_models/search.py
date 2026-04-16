@@ -40,6 +40,15 @@ class ScoreSetsSearchResponse(BaseModel):
         from_attributes = True
 
 
+class ControlledKeywordFilterOption(BaseModel):
+    key: str
+    value: str
+    count: int
+
+    class Config:
+        from_attributes = True
+
+
 class ScoreSetsSearchFilterOption(BaseModel):
     value: str
     count: int
@@ -56,7 +65,7 @@ class ScoreSetsSearchFilterOptionsResponse(BaseModel):
     publication_author_names: list[ScoreSetsSearchFilterOption]
     publication_db_names: list[ScoreSetsSearchFilterOption]
     publication_journals: list[ScoreSetsSearchFilterOption]
-    controlled_keywords: list[ScoreSetsSearchFilterOption]
+    controlled_keywords: list[ControlledKeywordFilterOption]
 
     class Config:
         from_attributes = True
