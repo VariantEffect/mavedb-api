@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Optional
 
 import requests
 from aiocache import cached
@@ -13,13 +14,37 @@ CLINGEN_API_URL = "https://reg.genome.network/allele"
 
 
 @cached(ttl=CACHE_TTL_SECONDS, key_builder=clingen_cache_key_builder, cache=CACHE_CLASS, **CACHE_CONFIG)
+async def get_clingen_allele_data(clingen_allele_id: str) -> Optional[dict]:
+    """Retrieve full allele data from the ClinGen Allele Registry.
+
+    Results are automatically cached for 24 hours using aiocache with configurable backend.
+
+    Args:
+        clingen_allele_id: ClinGen allele ID to query (e.g., CA123456 or PA123456).
+
+    Returns:
+        Full JSON response from the ClinGen API, or None if the allele doesn't exist (404).
+
+    Raises:
+        requests.exceptions.HTTPError: If the API request fails with non-2xx status code
+            (excluding 404, which returns None).
+    """
+    loop = asyncio.get_running_loop()
+    response = await loop.run_in_executor(None, requests.get, f"{CLINGEN_API_URL}/{clingen_allele_id}")
+
+    if response.status_code == 404:
+        return None
+
+    if response.status_code != 200:
+        response.raise_for_status()
+
+    return response.json()
+
+
 async def get_canonical_pa_ids(clingen_allele_id: str) -> list[str]:
     """Retrieve canonical PA IDs from the ClinGen API for a given ClinGen allele ID.
 
-    Results are automatically cached for 24 hours using aiocache with configurable backend.
-    This significantly reduces repeated API calls when processing multiple ClinVar control
-    versions or running jobs that query the same alleles. Cache backend can be switched
-    between Redis (production) and in-memory (testing) via CLINGEN_CACHE_BACKEND env var.
+    Uses the cached allele data from `get_clingen_allele_data` to avoid redundant API calls.
 
     Args:
         clingen_allele_id: ClinGen allele ID to query (e.g., CA123456)
@@ -32,18 +57,9 @@ async def get_canonical_pa_ids(clingen_allele_id: str) -> list[str]:
         requests.exceptions.HTTPError: If the API request fails with non-2xx status code
             (excluding 404, which returns empty list).
     """
-    loop = asyncio.get_running_loop()
-    response = await loop.run_in_executor(None, requests.get, f"{CLINGEN_API_URL}/{clingen_allele_id}")
-
-    # 404 means the allele doesn't exist in ClinGen's registry - treat as "no data" (cacheable)
-    if response.status_code == 404:
+    data = await get_clingen_allele_data(clingen_allele_id)
+    if data is None:
         return []
-
-    # All other non-2xx status codes raise exceptions (400, 429, 5xx, etc.)
-    if response.status_code != 200:
-        response.raise_for_status()
-
-    data = response.json()
 
     pa_ids = []
     if data.get("transcriptAlleles"):
@@ -55,14 +71,10 @@ async def get_canonical_pa_ids(clingen_allele_id: str) -> list[str]:
     return pa_ids
 
 
-@cached(ttl=CACHE_TTL_SECONDS, key_builder=clingen_cache_key_builder, cache=CACHE_CLASS, **CACHE_CONFIG)
 async def get_matching_registered_ca_ids(clingen_pa_id: str) -> list[str]:
     """Retrieve matching registered transcript CA IDs for a given PA ID from the ClinGen API.
 
-    Results are automatically cached for 24 hours using aiocache with configurable backend.
-    This significantly reduces repeated API calls when processing variant translations or
-    running jobs that query the same protein alleles. Cache backend can be switched
-    between Redis (production) and in-memory (testing) via CLINGEN_CACHE_BACKEND env var.
+    Uses the cached allele data from `get_clingen_allele_data` to avoid redundant API calls.
 
     Args:
         clingen_pa_id: ClinGen protein allele ID to query (e.g., PA123456)
@@ -75,18 +87,9 @@ async def get_matching_registered_ca_ids(clingen_pa_id: str) -> list[str]:
         requests.exceptions.HTTPError: If the API request fails with non-2xx status code
             (excluding 404, which returns empty list).
     """
-    loop = asyncio.get_running_loop()
-    response = await loop.run_in_executor(None, requests.get, f"{CLINGEN_API_URL}/{clingen_pa_id}")
-
-    # 404 means the allele doesn't exist in ClinGen's registry - treat as "no data" (cacheable)
-    if response.status_code == 404:
+    data = await get_clingen_allele_data(clingen_pa_id)
+    if data is None:
         return []
-
-    # All other non-2xx status codes raise exceptions (400, 429, 5xx, etc.)
-    if response.status_code != 200:
-        response.raise_for_status()
-
-    data = response.json()
 
     ca_ids = []
     if data.get("aminoAcidAlleles"):
@@ -100,21 +103,13 @@ async def get_matching_registered_ca_ids(clingen_pa_id: str) -> list[str]:
     return ca_ids
 
 
-@cached(ttl=CACHE_TTL_SECONDS, key_builder=clingen_cache_key_builder, cache=CACHE_CLASS, **CACHE_CONFIG)
 async def get_associated_clinvar_allele_id(clingen_allele_id: str) -> str:
     """Retrieve the associated ClinVar Allele ID for a given ClinGen Allele ID.
 
-    Results are automatically cached for 24 hours using aiocache with configurable backend.
-    This significantly reduces repeated API calls when refreshing ClinVar controls across
-    multiple months/years, as each job queries the same ClinGen allele IDs. Cache backend
-    can be switched between Redis (production) and in-memory (testing) via the
-    CLINGEN_CACHE_BACKEND environment variable.
+    Uses the cached allele data from `get_clingen_allele_data` to avoid redundant API calls.
 
-    Note: Returns empty string when the API call succeeds but no ClinVar association exists,
-    or when the allele doesn't exist in ClinGen's registry (404). This ensures successful
-    negative results are cached, which is important since most ClinGen alleles don't have
-    ClinVar associations. Other API errors (400, 429, 5xx) raise HTTPError, which prevents
-    caching and allows retries for transient failures or surfaces issues like rate limiting.
+    Returns empty string when no ClinVar association exists or when the allele doesn't exist
+    in ClinGen's registry (404).
 
     Args:
         clingen_allele_id: ClinGen allele ID to query (e.g., CA123456)
@@ -127,20 +122,86 @@ async def get_associated_clinvar_allele_id(clingen_allele_id: str) -> str:
         requests.exceptions.HTTPError: If the API request fails with non-2xx status code
             (excluding 404, which returns empty string).
     """
-    loop = asyncio.get_running_loop()
-    response = await loop.run_in_executor(None, requests.get, f"{CLINGEN_API_URL}/{clingen_allele_id}")
-
-    # 404 means the allele doesn't exist in ClinGen's registry - treat as "no data" (cacheable)
-    if response.status_code == 404:
+    data = await get_clingen_allele_data(clingen_allele_id)
+    if data is None:
         return ""
 
-    # All other non-2xx status codes raise exceptions (400, 429, 5xx, etc.)
-    if response.status_code != 200:
-        response.raise_for_status()
-
-    data = response.json()
     clinvar_allele_id = data.get("externalRecords", {}).get("ClinVarAlleles", [{}])[0].get("alleleId")
     if clinvar_allele_id:
         return str(clinvar_allele_id)
 
     return ""
+
+
+def extract_hgvs_from_ca_allele_data(
+    data: dict,
+    target_is_coding: bool,
+    transcript_accession: Optional[str],
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Extract HGVS strings from ClinGen allele data for a CA (canonical allele) ID.
+
+    Parses the ClinGen API response to find GRCh38 genomic HGVS, coding HGVS
+    matching the target transcript (or MANE fallback), and protein HGVS.
+
+    Args:
+        data: Parsed JSON response from the ClinGen Allele Registry API.
+        target_is_coding: Whether the score set target is protein-coding.
+        transcript_accession: Specific transcript accession to match, or None to use MANE.
+
+    Returns:
+        Tuple of (hgvs_g, hgvs_c, hgvs_p), any of which may be None.
+    """
+    hgvs_g: Optional[str] = None
+    hgvs_c: Optional[str] = None
+    hgvs_p: Optional[str] = None
+
+    if data.get("genomicAlleles"):
+        for allele in data["genomicAlleles"]:
+            if allele.get("referenceGenome") == "GRCh38" and allele.get("hgvs"):
+                hgvs_g = allele["hgvs"][0]
+                break
+
+    if target_is_coding and data.get("transcriptAlleles"):
+        if transcript_accession:
+            for allele in data["transcriptAlleles"]:
+                if allele.get("hgvs"):
+                    for hgvs_string in allele["hgvs"]:
+                        hgvs_reference_sequence = hgvs_string.split(":")[0]
+                        if transcript_accession == hgvs_reference_sequence:
+                            hgvs_c = hgvs_string
+                            break
+                if hgvs_c:
+                    if allele.get("proteinEffect"):
+                        hgvs_p = allele["proteinEffect"].get("hgvs")
+                    break
+        else:
+            # No transcript specified; use MANE if available
+            for allele in data["transcriptAlleles"]:
+                if allele.get("MANE"):
+                    hgvs_c = allele["MANE"].get("nucleotide", {}).get("RefSeq", {}).get("hgvs")
+                    hgvs_p = allele["MANE"].get("protein", {}).get("RefSeq", {}).get("hgvs")
+                    break
+
+    return hgvs_g, hgvs_c, hgvs_p
+
+
+def extract_hgvs_from_pa_allele_data(data: dict) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Extract HGVS strings from ClinGen allele data for a PA (protein allele) ID.
+
+    For PA alleles, only hgvs_p is extracted from aminoAcidAlleles.
+
+    Args:
+        data: Parsed JSON response from the ClinGen Allele Registry API.
+
+    Returns:
+        Tuple of (None, None, hgvs_p), where hgvs_p may be None.
+    """
+    hgvs_p: Optional[str] = None
+
+    if data.get("aminoAcidAlleles"):
+        for allele in data["aminoAcidAlleles"]:
+            if allele.get("hgvs"):
+                hgvs_p = allele["hgvs"][0]
+                break
+
+    return None, None, hgvs_p
