@@ -149,7 +149,7 @@ class TestStartPipelineIntegration:
         """Test successful pipeline start from CREATED state."""
         manager = PipelineManager(session, arq_redis, sample_pipeline.id)
 
-        with TransactionSpy.spy(session, expect_flush=True):
+        with TransactionSpy.spy(session, expect_flush=True, expect_commit=coordinate_after_start):
             await manager.start_pipeline(coordinate=coordinate_after_start)
 
         # Commit the session to persist changes
@@ -354,7 +354,7 @@ class TestCoordinatePipelineIntegration:
         session.commit()
 
         with (
-            TransactionSpy.spy(session, expect_flush=True),
+            TransactionSpy.spy(session, expect_flush=True, expect_commit=True),
             patch.object(manager, "cancel_remaining_jobs", wraps=manager.cancel_remaining_jobs) as mock_cancel,
             patch.object(manager, "enqueue_ready_jobs", wraps=manager.enqueue_ready_jobs) as mock_enqueue,
         ):
@@ -778,7 +778,7 @@ class TestEnqueueReadyJobsUnit:
                 "get_pending_jobs",
                 return_value=[],
             ),
-            TransactionSpy.spy(mock_pipeline_manager.db, expect_flush=True),
+            TransactionSpy.spy(mock_pipeline_manager.db, expect_commit=True),
         ):
             await mock_pipeline_manager.enqueue_ready_jobs()
         # Should complete without error
@@ -802,7 +802,7 @@ class TestEnqueueReadyJobsUnit:
                 mock_pipeline_manager, "should_skip_job_due_to_dependencies", return_value=(should_skip, "Reason")
             ) as mock_should_skip,
             patch.object(mock_job_manager, "skip_job", return_value=None) as mock_skip_job,
-            TransactionSpy.spy(mock_pipeline_manager.db, expect_flush=True),
+            TransactionSpy.spy(mock_pipeline_manager.db, expect_commit=True),
         ):
             await mock_pipeline_manager.enqueue_ready_jobs()
 
@@ -823,7 +823,7 @@ class TestEnqueueReadyJobsUnit:
                 mock_pipeline_manager, "_enqueue_in_arq", side_effect=PipelineCoordinationError("ARQ enqueue failed")
             ),
             pytest.raises(PipelineCoordinationError, match="ARQ enqueue failed"),
-            TransactionSpy.spy(mock_pipeline_manager.db, expect_flush=True),
+            TransactionSpy.spy(mock_pipeline_manager.db, expect_commit=True),
         ):
             await mock_pipeline_manager.enqueue_ready_jobs()
 
@@ -840,7 +840,7 @@ class TestEnqueueReadyJobsUnit:
             patch.object(mock_pipeline_manager, "can_enqueue_job", return_value=True),
             patch.object(mock_pipeline_manager, "_enqueue_in_arq", return_value=None) as mock_enqueue,
             patch.object(mock_job_manager, "prepare_queue", return_value=None) as mock_prepare_queue,
-            TransactionSpy.spy(mock_pipeline_manager.db, expect_flush=True),
+            TransactionSpy.spy(mock_pipeline_manager.db, expect_commit=True),
         ):
             await mock_pipeline_manager.enqueue_ready_jobs()
 
@@ -869,7 +869,7 @@ class TestEnqueueReadyJobsIntegration:
         manager.set_pipeline_status(PipelineStatus.RUNNING)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True):
+        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
             await manager.enqueue_ready_jobs()
 
         # Verify that the independent job is now queued
@@ -935,7 +935,7 @@ class TestEnqueueReadyJobsIntegration:
         manager.set_pipeline_status(PipelineStatus.RUNNING)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True):
+        with TransactionSpy.spy(session, expect_commit=True):
             await manager.enqueue_ready_jobs()
 
         # Verify nothing was enqueued
@@ -962,7 +962,7 @@ class TestEnqueueReadyJobsIntegration:
         session.commit()
 
         with (
-            TransactionSpy.spy(session, expect_flush=True),
+            TransactionSpy.spy(session, expect_flush=True, expect_commit=True),
             patch.object(
                 manager.redis,
                 "enqueue_job",
@@ -1407,7 +1407,7 @@ class TestUnpausePipelineIntegration:
         session.commit()
 
         with (
-            TransactionSpy.spy(session, expect_flush=True),
+            TransactionSpy.spy(session, expect_flush=True, expect_commit=True),
         ):
             await manager.unpause_pipeline()
 
@@ -1492,7 +1492,7 @@ class TestRestartPipelineIntegration:
         session.commit()
 
         with (
-            TransactionSpy.spy(session, expect_flush=True),
+            TransactionSpy.spy(session, expect_flush=True, expect_commit=True),
         ):
             await manager.restart_pipeline()
 
@@ -1942,7 +1942,7 @@ class TestRetryFailedJobsIntegration:
         session.commit()
 
         with (
-            TransactionSpy.spy(session, expect_flush=True),
+            TransactionSpy.spy(session, expect_flush=True, expect_commit=True),
         ):
             await manager.retry_failed_jobs()
 
@@ -2066,7 +2066,7 @@ class TestRetryUnsuccessfulJobsIntegration:
         session.commit()
 
         with (
-            TransactionSpy.spy(session, expect_flush=True),
+            TransactionSpy.spy(session, expect_flush=True, expect_commit=True),
         ):
             await manager.retry_unsuccessful_jobs()
 
@@ -2158,7 +2158,7 @@ class TestRetryPipelineIntegration:
         session.commit()
 
         with (
-            TransactionSpy.spy(session, expect_flush=True),
+            TransactionSpy.spy(session, expect_flush=True, expect_commit=True),
         ):
             await manager.retry_pipeline()
 

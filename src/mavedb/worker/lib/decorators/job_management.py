@@ -18,6 +18,7 @@ from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.worker.lib.decorators.utils import ensure_ctx, ensure_job_id, ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers import JobManager
+from mavedb.worker.lib.managers.constants import TERMINAL_JOB_STATUSES
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,15 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
 
         # Inject the job manager into kwargs for access within the function
         kwargs["job_manager"] = job_manager
+
+        # Check if the job was cancelled before ARQ picked it up. This race
+        # occurs when a sibling job fails, the coordinator cancels remaining
+        # QUEUED jobs in the DB, but those jobs are already in the Redis queue
+        # waiting for ARQ to start them.
+        current_status = job_manager.get_job_status()
+        if current_status in TERMINAL_JOB_STATUSES:
+            logger.info(f"Job {job_id} already in terminal state {current_status}; skipping execution")
+            return JobExecutionOutcome.skipped(data={"reason": f"Job already in terminal state: {current_status}"})
 
         # Mark job as started and persist state
         job_manager.start_job()
