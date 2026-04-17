@@ -145,7 +145,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
+            patch.object(JobManager, "update_progress", return_value=None),
         ):
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
@@ -153,9 +153,8 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
-        mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
         assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
+        assert result.status == JobStatus.FAILED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -207,7 +206,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
+            patch.object(JobManager, "update_progress", return_value=None),
         ):
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
@@ -215,9 +214,8 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
-        mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
         assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
+        assert result.status == JobStatus.FAILED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -278,7 +276,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
+            patch.object(JobManager, "update_progress", return_value=None),
         ):
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
@@ -286,7 +284,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
-        mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
 
@@ -304,6 +301,87 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         for ann in annotation_statuses:
             assert ann.status == "success"
             assert ann.annotation_type == "clingen_allele_id"
+
+    async def test_submit_score_set_mappings_to_car_partial_failure(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        """Test that partial CAR failures (some matched, some not) result in a failed outcome."""
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Get mapped variants; return a CAR response that only matches the first variant
+        mapped_variants = session.scalars(select(MappedVariant)).all()
+        assert len(mapped_variants) == 4
+
+        first_hgvs = get_hgvs_from_post_mapped(mapped_variants[0].post_mapped)
+        registered_alleles_mock = [
+            {
+                "@id": f"CA{mapped_variants[0].id}",
+                "type": "nucleotide",
+                "genomicAlleles": [{"hgvs": first_hgvs}],
+            }
+        ]
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch.object(JobManager, "update_progress", return_value=None),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
+            )
+
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.FAILED
+        assert result.data["matched_count"] == 1
+        assert result.data["failed_count"] == 3
+
+        # Verify only the first variant got a CAID
+        variants_with_caid = session.scalars(
+            select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))
+        ).all()
+        assert len(variants_with_caid) == 1
+        assert variants_with_caid[0].clingen_allele_id == f"CA{mapped_variants[0].id}"
+
+        # Verify annotation statuses: 1 success, 3 failed
+        success_annotations = session.scalars(
+            select(VariantAnnotationStatus).where(
+                VariantAnnotationStatus.annotation_type == "clingen_allele_id",
+                VariantAnnotationStatus.status == "success",
+            )
+        ).all()
+        failed_annotations = session.scalars(
+            select(VariantAnnotationStatus).where(
+                VariantAnnotationStatus.annotation_type == "clingen_allele_id",
+                VariantAnnotationStatus.status == "failed",
+            )
+        ).all()
+        assert len(success_annotations) == 1
+        assert len(failed_annotations) == 3
 
     async def test_submit_score_set_mappings_to_car_hgvs_not_found(
         self,
@@ -355,7 +433,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             patch("mavedb.worker.jobs.external_services.clingen.get_hgvs_from_post_mapped", return_value=None),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
+            patch.object(JobManager, "update_progress", return_value=None),
         ):
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
@@ -363,9 +441,8 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
-        mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
         assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
+        assert result.status == JobStatus.FAILED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -470,7 +547,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
+            patch.object(JobManager, "update_progress", return_value=None),
         ):
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
@@ -478,7 +555,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
-        mock_update_progress.assert_called_with(100, 100, "Completed CAR mapped resource submission.")
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
 
@@ -560,7 +636,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
                 call(15, 100, "Submitting mapped variants to CAR."),
                 call(60, 100, "Processing registered alleles from CAR."),
                 call(95, 100, "Processed 4 of 4 registered alleles."),
-                call(100, 100, "Completed CAR mapped resource submission."),
+                call(100, 100, "Completed CAR mapped resource submission (4 successes)."),
             ]
         )
 
@@ -849,13 +925,15 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await submit_score_set_mappings_to_car(
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
+        mock_send_slack_error.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
+        assert result.status == JobStatus.FAILED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -869,7 +947,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
-        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.SUCCEEDED
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.FAILED
 
     async def test_submit_score_set_mappings_to_car_no_linked_alleles(
         self,
@@ -908,13 +986,15 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await submit_score_set_mappings_to_car(
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
+        mock_send_slack_error.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
+        assert result.status == JobStatus.FAILED
 
         # Verify no variants have CAIDs assigned
         variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
@@ -928,7 +1008,89 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
-        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.SUCCEEDED
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.FAILED
+
+    async def test_submit_score_set_mappings_to_car_partial_failure(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        """Test that partial CAR failures result in FAILED status with successful annotations committed."""
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Return a CAR response that only matches the first variant's HGVS
+        mapped_variants = session.scalars(select(MappedVariant)).all()
+        first_hgvs = get_hgvs_from_post_mapped(mapped_variants[0].post_mapped)
+        registered_alleles_mock = [
+            {
+                "@id": f"CA{mapped_variants[0].id}",
+                "type": "nucleotide",
+                "genomicAlleles": [{"hgvs": first_hgvs}],
+            }
+        ]
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+        ):
+            result = await submit_score_set_mappings_to_car(
+                standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
+            )
+
+        mock_send_slack_error.assert_called_once()
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.FAILED
+        assert result.data["matched_count"] == 1
+        assert result.data["failed_count"] == 3
+
+        # Verify the successfully matched variant got a CAID
+        variants_with_caid = session.scalars(
+            select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))
+        ).all()
+        assert len(variants_with_caid) == 1
+        assert variants_with_caid[0].clingen_allele_id == f"CA{mapped_variants[0].id}"
+
+        # Verify annotation statuses: 1 success, 3 failed
+        success_annotations = session.scalars(
+            select(VariantAnnotationStatus).where(
+                VariantAnnotationStatus.annotation_type == "clingen_allele_id",
+                VariantAnnotationStatus.status == "success",
+            )
+        ).all()
+        failed_annotations = session.scalars(
+            select(VariantAnnotationStatus).where(
+                VariantAnnotationStatus.annotation_type == "clingen_allele_id",
+                VariantAnnotationStatus.status == "failed",
+            )
+        ).all()
+        assert len(success_annotations) == 1
+        assert len(failed_annotations) == 3
+
+        # Verify the job status is updated in the database
+        session.refresh(submit_score_set_mappings_to_car_sample_job_run)
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.FAILED
 
     async def test_submit_score_set_mappings_to_car_propagates_exception_to_decorator(
         self,

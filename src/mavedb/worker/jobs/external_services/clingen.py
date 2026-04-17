@@ -208,15 +208,43 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
             current=True,
         )
 
+    if failed_submissions:
+        error_message = f"CAR submission failed for {len(failed_submissions)} variants in score set {score_set.urn}."
+        logger.error(
+            msg=error_message,
+            extra=job_manager.logging_context(),
+        )
+        job_manager.update_progress(
+            100,
+            100,
+            f"CAR submission failed ({len(linked_alleles)} successes, {len(failed_submissions)} failures).",
+        )
+        job_manager.db.flush()
+
+        # Return a failure state rather than raising to indicate to the manager
+        # we should still commit any successful annotations.
+        return JobExecutionOutcome.failed(
+            reason=error_message,
+            data={
+                "submitted_count": len(variant_post_mapped_hgvs),
+                "matched_count": len(linked_alleles),
+                "failed_count": len(failed_submissions),
+            },
+        )
+
     # Finalize progress
-    job_manager.update_progress(100, 100, "Completed CAR mapped resource submission.")
+    job_manager.update_progress(
+        100,
+        100,
+        f"Completed CAR mapped resource submission ({len(linked_alleles)} successes).",
+    )
     job_manager.db.flush()
     logger.info(msg="Completed CAR mapped resource submission", extra=job_manager.logging_context())
     return JobExecutionOutcome.succeeded(
         data={
             "submitted_count": len(variant_post_mapped_hgvs),
             "matched_count": len(linked_alleles),
-            "failed_count": len(failed_submissions),
+            "failed_count": 0,
         }
     )
 
