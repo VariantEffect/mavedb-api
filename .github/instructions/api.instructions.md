@@ -109,32 +109,66 @@ responses=shared_responses  # Defines 4xx/5xx response schemas
 
 ## Worker Integration
 
-### Job Pipeline
-Many operations chain through multiple worker jobs:
-1. `create_variants_for_score_set` — Parse uploaded CSV, create variant records
-2. `map_variants_for_score_set` — Map variants via DCD Mapping / VRS
-3. `submit_score_set_mappings_to_*` — Submit to ClinGen services
+### Pipeline System
 
-### Job Patterns
+Most write operations trigger a multi-step pipeline via the worker:
+
 ```python
-async def create_variants_for_score_set(ctx: dict, score_set_id: int, correlation_id: str):
-    logging_context = setup_job_state(ctx, correlation_id)
-    db = ctx["db"]
+from mavedb.lib.workflow.pipeline_factory import PipelineFactory
 
-    try:
-        # ... processing ...
-        pass
-    except Exception as e:
-        send_slack_error(e, logging_context)
-        raise
+# In a router endpoint:
+pipeline, entrypoint_job_run = PipelineFactory.create_pipeline(
+    db=db,
+    name="validate_map_annotate_score_set",
+    pipeline_params={
+        "score_set_id": score_set.id,
+        "updater_id": user_data.user.id,
+        "correlation_id": logging_context().get("correlation_id"),
+    },
+)
+db.commit()
+
+await worker.enqueue_job("start_pipeline", entrypoint_job_run.id)
 ```
 
-### Backoff and Retry
-Use `enqueue_job_with_backoff()` for jobs that may need retries (e.g., external service calls).
+This creates a `Pipeline` with multiple `JobRun` records and `JobDependency` records, then enqueues the pipeline's `start_pipeline` entrypoint in ARQ. The worker coordinates the rest — each job runs after its dependencies complete.
 
-## Correlation IDs
-Every request gets a correlation ID via starlette-context middleware. Pass it to worker jobs for end-to-end request tracing:
+### Job Function Signature
+
+All job functions follow this signature (the decorator injects `job_manager`):
+
 ```python
-from mavedb.lib.logging.context import save_to_logging_context
-correlation_id = save_to_logging_context({"score_set_urn": urn})
+@with_pipeline_management
+async def create_variants_for_score_set(
+    ctx: dict, job_id: int, job_manager: JobManager
+) -> JobExecutionOutcome:
+    job = job_manager.get_job()
+    validate_job_params(["score_set_id", "correlation_id", "updater_id"], job)
+    # ... business logic using job_manager.db ...
+    return JobExecutionOutcome.succeeded(data={"variants_created": count})
 ```
+
+Callers pass only `ctx` and `job_id` when enqueueing. The decorator creates the `JobManager` from the `job_id`.
+
+### Correlation IDs
+
+Correlation IDs flow from the API request through the pipeline to each job:
+
+```python
+# In the router — capture correlation ID from starlette-context
+from mavedb.lib.logging.context import save_to_logging_context, logging_context
+
+save_to_logging_context({"score_set_urn": urn})
+correlation_id = logging_context().get("correlation_id")
+
+# Pass to pipeline via pipeline_params
+pipeline, entrypoint = PipelineFactory.create_pipeline(
+    db=db,
+    name="validate_map_annotate_score_set",
+    pipeline_params={"correlation_id": correlation_id, ...},
+)
+```
+
+Each job retrieves the correlation ID from its `job_params` and uses `job_manager.save_to_context()` for structured logging.
+
+For detailed worker conventions, see `.github/instructions/worker.instructions.md` and `src/mavedb/worker/README.md`.

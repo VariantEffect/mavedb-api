@@ -38,9 +38,17 @@ src/mavedb/
 ├── models/                 # SQLAlchemy ORM models
 ├── view_models/            # Pydantic request/response models
 ├── routers/                # API endpoint handlers
-├── worker/                 # ARQ background jobs
-│   ├── jobs.py             # Job implementations
-│   └── settings.py         # Worker config, function registry, cron jobs
+├── worker/                 # ARQ background worker system
+│   ├── jobs/               # Job function implementations (by category)
+│   │   ├── registry.py     # Central registry of all jobs, cron definitions
+│   │   ├── variant_processing/  # Variant creation and mapping
+│   │   ├── external_services/   # ClinGen, ClinVar, gnomAD, UniProt
+│   │   ├── pipeline_management/ # Pipeline entrypoint (start_pipeline)
+│   │   └── system/         # Cron maintenance (cleanup stalled jobs)
+│   ├── lib/                # Infrastructure layer
+│   │   ├── decorators/     # @with_pipeline_management, @with_job_management
+│   │   └── managers/       # JobManager, PipelineManager state management
+│   └── settings/           # ARQ worker config, lifecycle hooks
 ├── lib/                    # Shared utilities
 │   ├── authentication.py   # ORCID JWT + API key auth
 │   ├── authorization.py    # Permission checks
@@ -204,18 +212,20 @@ poetry run python -m mavedb.scripts.<script_name>
 - URN generation logic in `src/mavedb/lib/urns.py` and `temp_urns.py`
 
 ### Worker Jobs (ARQ/Redis)
-- **Job definitions**: All background jobs in `src/mavedb/worker/jobs.py`
-- **Settings**: Worker configuration in `src/mavedb/worker/settings.py` with function registry and cron jobs
-- **Job patterns**: 
-  - Use `setup_job_state()` for logging context with correlation IDs
-  - Implement exponential backoff with `enqueue_job_with_backoff()`
-  - Handle database sessions within job context
-  - Send Slack notifications on failures via `send_slack_error()`
-- **Key job types**: 
-  - `create_variants_for_score_set` - Process uploaded CSV data
-  - `map_variants_for_score_set` - External variant mapping via VRS
-  - `submit_score_set_mappings_to_*` - Submit to external annotation services
-- **Enqueueing**: Use `ArqRedis.enqueue_job()` from routers with correlation ID for request tracing
+- **Two-layer architecture**: Infrastructure (decorators + managers) handles lifecycle/state; business layer (jobs/) implements domain logic
+- **Job registry**: All jobs registered in `src/mavedb/worker/jobs/registry.py` — `BACKGROUND_FUNCTIONS`, `BACKGROUND_CRONJOBS`, `STANDALONE_JOB_DEFINITIONS`
+- **Job function signature**: `async def job_name(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutionOutcome` — `job_manager` is injected by the decorator, not passed by callers
+- **Decorators**: `@with_pipeline_management` (most jobs), `@with_job_management` (standalone), `@with_guaranteed_job_run_record` (cron/auto-created JobRun)
+- **Pipeline system**: `PipelineFactory.create_pipeline()` creates Pipeline + JobRun + JobDependency records from definitions in `src/mavedb/lib/workflow/definitions.py`
+- **Session management**: Task-local DB sessions via `ContextVar` prevent concurrent ARQ jobs from sharing sessions
+- **Commit discipline**: Decorators commit lifecycle state changes; `update_progress()` commits as a checkpoint; job code should NOT commit
+- **Key job types**:
+  - `create_variants_for_score_set` - Parse uploaded CSV, create variant records
+  - `map_variants_for_score_set` - Map variants via DCD Mapping / VRS
+  - `submit_score_set_mappings_to_car/ldh` - Submit to ClinGen services
+  - `cleanup_stalled_jobs` - Cron job for recovering stuck jobs
+- **Enqueueing pipelines**: Routers call `PipelineFactory.create_pipeline()` then `ArqRedis.enqueue_job("start_pipeline", ...)` with the pipeline's entrypoint JobRun ID
+- **Detailed documentation**: See `src/mavedb/worker/README.md` and `.github/instructions/worker.instructions.md`
 
 ### View Models (Pydantic)
 - **Base model** (`src/mavedb/view_models/base/base.py`) converts empty strings to None and uses camelCase aliases
@@ -235,7 +245,9 @@ poetry run python -m mavedb.scripts.<script_name>
 ## Key Files to Reference
 - `src/mavedb/models/score_set.py` - Primary data model patterns
 - `src/mavedb/routers/score_sets.py` - Complex router with worker integration
-- `src/mavedb/worker/jobs.py` - Background processing patterns  
+- `src/mavedb/worker/jobs/registry.py` - Job registration and available functions
+- `src/mavedb/worker/jobs/variant_processing/creation.py` - Reference pipeline job implementation
+- `src/mavedb/lib/workflow/definitions.py` - Pipeline and job definitions
 - `src/mavedb/view_models/score_set.py` - Pydantic model hierarchy examples
 - `src/mavedb/server_main.py` - Application setup and dependency injection
 - `src/mavedb/data_providers/services.py` - External service integration patterns
