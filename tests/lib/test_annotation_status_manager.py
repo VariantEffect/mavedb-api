@@ -93,7 +93,7 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
     ):
         """Test that adding an annotation persists the provided annotation data."""
         annotation_data = {
-            "success_data": {"some_key": "some_value"},
+            "annotation_metadata": {"some_key": "some_value"},
             "error_message": None,
             "failure_category": None,
         }
@@ -148,6 +148,7 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
             annotation_data={},
             status=AnnotationStatus.SUCCESS,
             current=True,
+            replace_all_versions=False,
         )
         session.commit()
 

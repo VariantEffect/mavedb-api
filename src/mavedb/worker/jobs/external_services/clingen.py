@@ -178,7 +178,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
                 version=None,
                 status=AnnotationStatus.SUCCESS,
                 annotation_data={
-                    "success_data": {"clingen_allele_id": caid},
+                    "annotation_metadata": {"clingen_allele_id": caid},
                 },
                 current=True,
             )
@@ -349,7 +349,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
             version=None,
             status=AnnotationStatus.SUCCESS,
             annotation_data={
-                "success_data": {"ldh_iri": success["data"]["ldhIri"], "ldh_id": success["data"]["ldhId"]},
+                "annotation_metadata": {"ldh_iri": success["data"]["ldhIri"], "ldh_id": success["data"]["ldhId"]},
             },
             current=True,
         )

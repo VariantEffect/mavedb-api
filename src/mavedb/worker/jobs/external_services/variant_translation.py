@@ -221,7 +221,7 @@ async def populate_variant_translations_for_score_set(
                     status=AnnotationStatus.FAILED if failed > 0 else AnnotationStatus.SUCCESS,
                     annotation_data={
                         "job_run_id": job_manager.job_id,
-                        "success_data": {
+                        "annotation_metadata": {
                             "allele_id": allele_id,
                             "translation_pairs": [[pa, ca] for pa, ca in translation_pairs],
                             "translations_new": created,
@@ -296,7 +296,7 @@ async def populate_variant_translations_for_score_set(
                     status=AnnotationStatus.SUCCESS,
                     annotation_data={
                         "job_run_id": job_manager.job_id,
-                        "success_data": {
+                        "annotation_metadata": {
                             "allele_id": allele_id,
                             "translation_pairs": [[pa, ca] for pa, ca in translation_pairs],
                             "translations_new": created,

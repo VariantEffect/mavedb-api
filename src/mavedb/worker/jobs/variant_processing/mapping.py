@@ -254,7 +254,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 annotation_data={
                     "error_message": mapped_score.get("error_message", null()),
                     "job_run_id": job.id,
-                    "success_data": {
+                    "annotation_metadata": {
                         "mapped_assay_level_hgvs": get_hgvs_from_post_mapped(mapped_score.get("post_mapped", {})),
                     },
                 },

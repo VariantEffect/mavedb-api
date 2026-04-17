@@ -225,7 +225,7 @@ def link_gnomad_variants_to_mapped_variants(
                 version=GNOMAD_DATA_VERSION,
                 status=AnnotationStatus.SUCCESS,
                 annotation_data={
-                    "success_data": {
+                    "annotation_metadata": {
                         "gnomad_db_identifier": gnomad_variant.db_identifier,
                     }
                 },

@@ -264,7 +264,7 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
             status=AnnotationStatus.SUCCESS,
             annotation_data={
                 "job_run_id": job_manager.job_id,
-                "success_data": {
+                "annotation_metadata": {
                     "clinvar_allele_id": clinvar_allele_id,
                 },
             },

@@ -52,9 +52,9 @@ class VariantAnnotationStatus(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     failure_category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
-    # Success data (flexible JSONB for annotation results)
-    success_data: Mapped[Optional[Dict[str, Any]]] = mapped_column(
-        MutableDict.as_mutable(JSONB), nullable=True, comment="Annotation results when successful"
+    # Annotation metadata (flexible JSONB for annotation results)
+    annotation_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        MutableDict.as_mutable(JSONB), nullable=True, comment="Structured metadata for the annotation result"
     )
 
     # Current flag

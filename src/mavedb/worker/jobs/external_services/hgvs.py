@@ -253,7 +253,7 @@ async def populate_hgvs_for_score_set(ctx: dict, job_id: int, job_manager: JobMa
             status=AnnotationStatus.SUCCESS,
             annotation_data={
                 "job_run_id": job_manager.job_id,
-                "success_data": {
+                "annotation_metadata": {
                     "hgvs_g": hgvs_g,
                     "hgvs_c": hgvs_c,
                     "hgvs_p": hgvs_p,
