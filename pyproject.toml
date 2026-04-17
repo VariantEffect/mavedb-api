@@ -30,7 +30,7 @@ pyyaml = "~6.0.1"
 IDUtils = "~1.2.0"
 mavehgvs = "~0.7.0"
 eutils = "~0.6.0"
-setuptools = ">=69.0"  # eutils requires pkg_resources at import time
+setuptools = ">=69.0,<82.0"  # eutils requires pkg_resources at import time; removed in setuptools 82+
 email_validator = "~2.1.1"
 numpy = "~1.26"
 httpx = "~0.26.0"
