@@ -1,7 +1,13 @@
 import os
 from contextlib import contextmanager
+from contextvars import ContextVar
 
 from mavedb.db.session import db_session
+
+# Task-local DB session storage. Each asyncio Task (i.e., each concurrent ARQ job)
+# gets its own copy of this variable, preventing concurrent jobs from sharing or
+# closing each other's sessions via the shared ARQ `ctx` dict.
+_task_db_session: ContextVar = ContextVar("_task_db_session", default=None)
 
 
 def is_test_mode() -> bool:
@@ -25,14 +31,21 @@ def is_test_mode() -> bool:
 
 @contextmanager
 def ensure_session_ctx(ctx):
-    if "db" in ctx and ctx["db"] is not None:
-        # No-op context manager
-        yield ctx["db"]
+    existing = _task_db_session.get()
+    if existing is not None:
+        # Session already exists for this task (from an outer decorator).
+        # Refresh ctx["db"] so downstream code in _execute_managed_* reads
+        # this task's session, not a stale value left by another task.
+        ctx["db"] = existing
+        yield existing
     else:
         with db_session() as session:
+            _task_db_session.set(session)
             ctx["db"] = session
-            yield session
-            ctx["db"] = None  # Optionally clean up
+            try:
+                yield session
+            finally:
+                _task_db_session.set(None)
 
 
 def ensure_ctx(args) -> dict:
