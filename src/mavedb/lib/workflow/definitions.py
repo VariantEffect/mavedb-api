@@ -260,6 +260,23 @@ PIPELINE_DEFINITIONS: dict[str, PipelineDefinition] = {
             *annotation_pipeline_job_definitions(),
         ],
     },
+    "map_annotate_score_set": {
+        "description": "Pipeline to map and annotate variants for a score set (assumes variants are already created).",
+        "job_definitions": [
+            {
+                "key": "map_variants_for_score_set",
+                "function": "map_variants_for_score_set",
+                "type": JobType.VARIANT_MAPPING,
+                "params": {
+                    "correlation_id": None,  # Required param to be filled in at runtime
+                    "score_set_id": None,  # Required param to be filled in at runtime
+                    "updater_id": None,  # Required param to be filled in at runtime
+                },
+                "dependencies": [],
+            },
+            *annotation_pipeline_job_definitions(),
+        ],
+    },
     "annotate_score_set": {
         "description": "Pipeline to annotate variants for a score set.",
         "job_definitions": annotation_pipeline_job_definitions(),
