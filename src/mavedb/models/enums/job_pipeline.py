@@ -92,3 +92,4 @@ class JobType(str, Enum):
     MAPPED_VARIANT_ANNOTATION = "mapped_variant_annotation"
     PIPELINE_MANAGEMENT = "pipeline_management"
     DATA_MANAGEMENT = "data_management"
+    SYSTEM_MAINTENANCE = "system_maintenance"
