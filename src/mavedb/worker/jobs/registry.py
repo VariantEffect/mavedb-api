@@ -66,7 +66,7 @@ BACKGROUND_CRONJOBS: List[CronJob] = [
     ),
     cron(
         cleanup_stalled_jobs,
-        name="cleanup_stalled_jobs",
+        name="cleanup_stalled_jobs_cron",
         minute={15, 45},  # Run at :15 and :45 past each hour (every 30 minutes)
         keep_result=timedelta(minutes=25).total_seconds(),
     ),
@@ -165,6 +165,13 @@ STANDALONE_JOB_DEFINITIONS: dict[Callable, JobDefinition] = {
         "function": "refresh_published_variants_view",
         "key": "refresh_published_variants_view",
         "type": JobType.DATA_MANAGEMENT,
+    },
+    cleanup_stalled_jobs: {
+        "dependencies": [],
+        "params": {"correlation_id": None},
+        "function": "cleanup_stalled_jobs",
+        "key": "cleanup_stalled_jobs",
+        "type": JobType.SYSTEM_MAINTENANCE,
     },
 }
 """
