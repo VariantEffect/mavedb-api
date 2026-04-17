@@ -1,185 +1,78 @@
+import datetime
 import logging
-from typing import Optional, Sequence
+from typing import Sequence
 
 import asyncclick as click
-import requests
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from mavedb.lib.clingen.allele_registry import get_canonical_pa_ids, get_matching_registered_ca_ids
-from mavedb.lib.logging.context import format_raised_exception_info_as_dict
-from mavedb.models.mapped_variant import MappedVariant
+from mavedb.db.session import SessionLocal
+from mavedb.lib.workflow.job_factory import JobFactory
 from mavedb.models.score_set import ScoreSet
-from mavedb.models.variant import Variant
-from mavedb.models.variant_translation import VariantTranslation
-from mavedb.scripts.environment import script_environment, with_database_session
+from mavedb.worker.jobs.external_services.variant_translation import populate_variant_translations_for_score_set
+from mavedb.worker.jobs.registry import STANDALONE_JOB_DEFINITIONS
+from mavedb.worker.settings.lifecycle import standalone_ctx
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 
-@script_environment.command()
-@with_database_session
+@click.command()
 @click.argument("urns", nargs=-1)
-@click.option("--all", help="Populate mapped variants for every score set in MaveDB.", is_flag=True)
-async def populate_variant_translations(db: Session, urns: Sequence[Optional[str]], all: bool):
-    # TODO keep track of what has been processed.
-    # I think this makes sense to track on the mapped variant level in order to allow
-    # for individual variant translation failure, and also so that we don't have to reset the
-    # score set log to unprocessed if we redo a mapping. Since we create new mapped variant entries
-    # if a scoreset is remapped, we can just update the processed column once per mapped variant.
-    # However, this will also require keeping track of exactly what mapped variants fail here.
-    # Skipping this for now.
+@click.option(
+    "--all",
+    "all_score_sets",
+    is_flag=True,
+    help="Populate variant translations for every score set in MaveDB.",
+    default=False,
+)
+async def main(urns: Sequence[str], all_score_sets: bool) -> None:
+    """
+    Populate variant translations (PA<->CA relationships) for one or more score sets.
+    """
+    db = SessionLocal()
 
-    score_set_ids: Sequence[Optional[int]]
-    if all:
-        score_set_ids = db.scalars(select(ScoreSet.id)).all()
-        logger.info(
-            f"Command invoked with --all. Routine will populate mapped variant data for {len(urns)} score sets."
-        )
+    if urns and all_score_sets:
+        logger.error("Cannot provide both URNs and --all option.")
+        return
+
+    if all_score_sets:
+        logger.info("Processing all score sets in the database.")
+        score_sets = db.scalars(select(ScoreSet)).all()
     else:
-        score_set_ids = db.scalars(select(ScoreSet.id).where(ScoreSet.urn.in_(urns))).all()
-        logger.info(f"Populating mapped variant data for the provided score sets ({len(urns)}).")
+        logger.info(f"Processing score sets with URNs: {urns}")
+        score_sets = db.scalars(select(ScoreSet).where(ScoreSet.urn.in_(urns))).all()
 
-    for idx, ss_id in enumerate(score_set_ids):
-        if not ss_id:
-            continue
+    # Unique correlation ID for this batch run
+    correlation_id = f"populate_variant_translations_{datetime.datetime.now().isoformat()}"
 
-        score_set = db.scalar(select(ScoreSet).where(ScoreSet.id == ss_id))
-        if not score_set:
-            logger.warning(f"Could not fetch score set with id={ss_id}.")
-            continue
+    # Job definition for variant translation population
+    job_def = STANDALONE_JOB_DEFINITIONS[populate_variant_translations_for_score_set]
+    job_factory = JobFactory(db)
 
-        clingen_allele_ids = db.scalars(
-            select(MappedVariant.clingen_allele_id)
-            .join(Variant)
-            .join(ScoreSet)
-            .where(ScoreSet.id == ss_id)
-            .where(MappedVariant.current == True)  # noqa: E712
-        ).all()
-        logger.info(
-            f"Found {len(clingen_allele_ids)} clingen allele IDs in the database associated with this score set."
+    # Use a standalone context for job execution outside of ARQ worker.
+    ctx = standalone_ctx()
+    ctx["db"] = db
+
+    for score_set in score_sets:
+        logger.info(f"Populating variant translations for score set ID {score_set.id} (URN: {score_set.urn})...")
+
+        job_run = job_factory.create_job_run(
+            job_def=job_def,
+            pipeline_id=None,
+            correlation_id=correlation_id,
+            pipeline_params={
+                "score_set_id": score_set.id,
+                "correlation_id": correlation_id,
+            },
         )
+        db.add(job_run)
+        db.flush()
+        logger.info(f"Submitted job run ID {job_run.id} for score set ID {score_set.id}.")
 
-        # treat multi-variants separately
-        expanded_allele_ids = []
-        for allele_id in clingen_allele_ids:
-            if not allele_id:
-                continue
-            if "," in allele_id:
-                expanded_allele_ids.extend([single_allele_id for single_allele_id in allele_id.split(",")])
-            else:
-                expanded_allele_ids.append(allele_id)
-
-        for allele_id in set(expanded_allele_ids):
-            try:
-                if allele_id.startswith("CA"):
-                    # Get the canonical PA ID(s) from the ClinGen API (with automatic caching)
-                    try:
-                        canonical_pa_ids = await get_canonical_pa_ids(allele_id)
-                    except requests.exceptions.RequestException as exc:
-                        logger.error(
-                            f"Error fetching canonical PA IDs for {allele_id} from ClinGen API: {exc}. Skipping.",
-                            exc_info=True,
-                        )
-                        continue
-
-                    if not canonical_pa_ids:
-                        logger.warning(
-                            f"No canonical PA IDs found for {allele_id}. This may be expected if the query is noncoding."
-                        )
-                        continue
-                    for pa_id in canonical_pa_ids:
-                        existing_variant_translation = db.scalars(
-                            select(VariantTranslation).where(
-                                VariantTranslation.aa_clingen_id == pa_id, VariantTranslation.nt_clingen_id == allele_id
-                            )
-                        ).one_or_none()
-                        if not existing_variant_translation:
-                            db.add(
-                                VariantTranslation(
-                                    aa_clingen_id=pa_id,
-                                    nt_clingen_id=allele_id,
-                                )
-                            )
-                            # commit after each addition in order to query the database for existing variant translations
-                            db.commit()
-
-                        # For each canonical PA ID, get the matching registered transcript CA IDs (with automatic caching)
-                        try:
-                            ca_ids = await get_matching_registered_ca_ids(pa_id)
-                        except requests.exceptions.RequestException as exc:
-                            logger.error(
-                                f"Error fetching matching registered CA IDs for {pa_id} from ClinGen API: {exc}. Skipping.",
-                                exc_info=True,
-                            )
-                            continue
-
-                        if not ca_ids:
-                            logger.warning(f"No matching registered transcript CA IDs found for {pa_id}.")
-                            continue
-                        for ca_id in ca_ids:
-                            existing_variant_translation = db.scalars(
-                                select(VariantTranslation).where(
-                                    VariantTranslation.aa_clingen_id == pa_id, VariantTranslation.nt_clingen_id == ca_id
-                                )
-                            ).one_or_none()
-                            if not existing_variant_translation:
-                                db.add(
-                                    VariantTranslation(
-                                        aa_clingen_id=pa_id,
-                                        nt_clingen_id=ca_id,
-                                    )
-                                )
-                                db.commit()
-
-                elif allele_id.startswith("PA"):
-                    # Get the matching registered transcript CA IDs from the ClinGen API (with automatic caching)
-                    try:
-                        ca_ids = await get_matching_registered_ca_ids(allele_id)
-                    except requests.exceptions.RequestException as exc:
-                        logger.error(
-                            f"Error fetching matching registered CA IDs for {allele_id} from ClinGen API: {exc}. Skipping.",
-                            exc_info=True,
-                        )
-                        continue
-
-                    if not ca_ids:
-                        logger.warning(
-                            f"No matching registered transcript CA IDs found for {allele_id}. This is unexpected."
-                        )
-                        continue
-                    for ca_id in ca_ids:
-                        existing_variant_translation = db.scalars(
-                            select(VariantTranslation).where(
-                                VariantTranslation.aa_clingen_id == allele_id, VariantTranslation.nt_clingen_id == ca_id
-                            )
-                        ).one_or_none()
-                        if not existing_variant_translation:
-                            db.add(
-                                VariantTranslation(
-                                    aa_clingen_id=allele_id,
-                                    nt_clingen_id=ca_id,
-                                )
-                            )
-                            db.commit()
-
-                else:
-                    logger.warning(f"Invalid clingen allele ID format: {allele_id}")
-
-            except Exception as e:
-                logging_context = {
-                    "processed_score_sets": urns[:idx],
-                    "unprocessed_score_sets": urns[idx:],
-                }
-                logging_context = {**logging_context, **format_raised_exception_info_as_dict(e)}
-                logger.error(f"Unexpected error processing clingen allele ID {allele_id}: {e}")
-                db.rollback()
-
-        logger.info(f"Done with score set {score_set.urn}. ({idx+1}/{len(urns)}).")
-
-    logger.info("Done populating variant translations.")
+        # Despite accepting a third argument for the job manager and MyPy expecting it, this
+        # argument will be injected automatically by the decorator. We only need to pass
+        # the ctx and job_run.id here for the decorator to generate the job manager.
+        await populate_variant_translations_for_score_set(ctx, job_run.id)  # type: ignore
 
 
 if __name__ == "__main__":
-    populate_variant_translations()
+    main()

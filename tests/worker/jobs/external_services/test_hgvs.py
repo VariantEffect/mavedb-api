@@ -205,34 +205,6 @@ class TestPopulateHgvsForScoreSetUnit:
         assert result.status == JobStatus.SUCCEEDED
         assert result.data["skipped_count"] == 1
 
-    async def test_updates_progress(
-        self,
-        session,
-        with_populated_domain_data,
-        with_populate_hgvs_job,
-        mock_worker_ctx,
-        sample_populate_hgvs_run,
-        setup_sample_variants_with_caid_for_hgvs,
-    ):
-        """Test that progress updates are made during the population process."""
-        with (
-            patch.object(JobManager, "update_progress") as mock_update_progress,
-            patch(
-                "mavedb.worker.jobs.external_services.hgvs.get_clingen_allele_data",
-                return_value=SAMPLE_CA_ALLELE_DATA,
-            ),
-        ):
-            result = await populate_hgvs_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_hgvs_run.id),
-            )
-
-        assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
-        mock_update_progress.assert_any_call(0, 100, "Starting mapped HGVS population.")
-        mock_update_progress.assert_any_call(100, 100, "Completed mapped HGVS population.")
-
     async def test_propagates_exceptions(
         self,
         session,

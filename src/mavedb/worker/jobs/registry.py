@@ -19,6 +19,7 @@ from mavedb.worker.jobs.external_services import (
     link_gnomad_variants,
     poll_uniprot_mapping_jobs_for_score_set,
     populate_hgvs_for_score_set,
+    populate_variant_translations_for_score_set,
     refresh_clinvar_controls,
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,
@@ -44,6 +45,7 @@ BACKGROUND_FUNCTIONS: List[Callable] = [
     poll_uniprot_mapping_jobs_for_score_set,
     link_gnomad_variants,
     populate_hgvs_for_score_set,
+    populate_variant_translations_for_score_set,
     # Data management jobs
     refresh_materialized_views,
     refresh_published_variants_view,
@@ -141,6 +143,13 @@ STANDALONE_JOB_DEFINITIONS: dict[Callable, JobDefinition] = {
         "params": {"score_set_id": None, "correlation_id": None},
         "function": "populate_hgvs_for_score_set",
         "key": "populate_hgvs_for_score_set",
+        "type": JobType.MAPPED_VARIANT_ANNOTATION,
+    },
+    populate_variant_translations_for_score_set: {
+        "dependencies": [],
+        "params": {"score_set_id": None, "correlation_id": None},
+        "function": "populate_variant_translations_for_score_set",
+        "key": "populate_variant_translations_for_score_set",
         "type": JobType.MAPPED_VARIANT_ANNOTATION,
     },
     refresh_materialized_views: {

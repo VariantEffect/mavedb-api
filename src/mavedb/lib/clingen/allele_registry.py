@@ -205,3 +205,20 @@ def extract_hgvs_from_pa_allele_data(data: dict) -> tuple[Optional[str], Optiona
                 break
 
     return None, None, hgvs_p
+
+
+def expand_allele_ids(clingen_allele_ids: list[Optional[str]]) -> set[str]:
+    """Expand comma-separated multi-variant ClinGen allele IDs into individual IDs.
+
+    Multi-variant alleles may contain multiple comma-separated ClinGen IDs.
+    This function normalizes them into individual IDs for independent processing.
+    """
+    expanded: set[str] = set()
+    for allele_id in clingen_allele_ids:
+        if not allele_id:
+            continue
+        if "," in allele_id:
+            expanded.update(single_id.strip() for single_id in allele_id.split(","))
+        else:
+            expanded.add(allele_id)
+    return expanded

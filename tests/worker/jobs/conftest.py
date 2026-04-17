@@ -990,3 +990,99 @@ def setup_sample_variants_with_caid_for_hgvs(
     session.add(mapped_variant)
     session.commit()
     return variant, mapped_variant
+
+
+# --- Variant Translation Fixtures ---
+
+
+@pytest.fixture
+def populate_variant_translations_sample_params(with_populated_domain_data, sample_score_set):
+    """Provide sample parameters for populate_variant_translations_for_score_set job."""
+
+    return {
+        "correlation_id": "sample-correlation-id",
+        "score_set_id": sample_score_set.id,
+    }
+
+
+@pytest.fixture
+def sample_populate_variant_translations_pipeline():
+    """Create a pipeline instance for populate_variant_translations_for_score_set job."""
+
+    return Pipeline(
+        urn="test:populate_variant_translations_pipeline",
+        name="Populate Variant Translations Pipeline",
+    )
+
+
+@pytest.fixture
+def sample_populate_variant_translations_run(populate_variant_translations_sample_params):
+    """Create a JobRun instance for populate_variant_translations_for_score_set job."""
+
+    return JobRun(
+        urn="test:populate_variant_translations_for_score_set",
+        job_type="populate_variant_translations_for_score_set",
+        job_function="populate_variant_translations_for_score_set",
+        max_retries=3,
+        retry_count=0,
+        job_params=populate_variant_translations_sample_params,
+    )
+
+
+@pytest.fixture
+def with_populate_variant_translations_job(session, sample_populate_variant_translations_run):
+    """Add a populate_variant_translations_for_score_set job run to the session."""
+
+    session.add(sample_populate_variant_translations_run)
+    session.commit()
+
+
+@pytest.fixture
+def with_populate_variant_translations_pipeline(session, sample_populate_variant_translations_pipeline):
+    """Add a populate_variant_translations pipeline to the session."""
+
+    session.add(sample_populate_variant_translations_pipeline)
+    session.commit()
+
+
+@pytest.fixture
+def sample_populate_variant_translations_run_pipeline(
+    session,
+    with_populate_variant_translations_job,
+    with_populate_variant_translations_pipeline,
+    sample_populate_variant_translations_run,
+    sample_populate_variant_translations_pipeline,
+):
+    """Provide a context with a populate_variant_translations job run and pipeline."""
+
+    sample_populate_variant_translations_run.pipeline_id = sample_populate_variant_translations_pipeline.id
+    session.commit()
+    return sample_populate_variant_translations_run
+
+
+@pytest.fixture
+def setup_sample_variants_with_caid_for_translation(
+    session, with_populated_domain_data, mock_worker_ctx, sample_populate_variant_translations_run
+):
+    """Setup variants and mapped variants in the database for variant translation testing."""
+    score_set = session.get(ScoreSet, sample_populate_variant_translations_run.job_params["score_set_id"])
+
+    variant = Variant(
+        urn="urn:variant:test-variant-with-caid-translation",
+        score_set_id=score_set.id,
+        hgvs_nt="NM_000000.1:c.1A>G",
+        hgvs_pro="NP_000000.1:p.Met1Val",
+        data={"hgvs_c": "NM_000000.1:c.1A>G", "hgvs_p": "NP_000000.1:p.Met1Val"},
+    )
+    session.add(variant)
+    session.commit()
+    mapped_variant = MappedVariant(
+        variant_id=variant.id,
+        clingen_allele_id=VALID_CAID,
+        current=True,
+        mapped_date="2024-01-01T00:00:00Z",
+        mapping_api_version="1.0.0",
+    )
+    session.add(mapped_variant)
+    session.commit()
+    return variant, mapped_variant
