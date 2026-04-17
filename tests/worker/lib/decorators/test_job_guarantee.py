@@ -78,3 +78,43 @@ class TestJobGuaranteeDecoratorIntegration:
         assert job_run.job_type == "test_job"
         assert job_run.job_function == "sample_job"
         assert job_run.mavedb_version is not None
+
+    async def test_decorator_skips_creation_when_job_id_provided(self, session, standalone_worker_context):
+        """When a job_id is already provided (e.g. from run_job script), the decorator
+        should use it instead of creating a new JobRun record."""
+        # Pre-create a JobRun like run_job.py does
+        existing_job = JobRun(
+            job_type="test_job",
+            job_function="sample_job",
+            status=JobStatus.PENDING,
+            mavedb_version=__version__,
+        )  # type: ignore[call-arg]
+        session.add(existing_job)
+        session.flush()
+        existing_job_id = existing_job.id
+
+        job_count_before = session.execute(select(JobRun)).scalars().all()
+
+        # Call with the pre-existing job_id as the second argument
+        result = await sample_job(standalone_worker_context, existing_job_id)
+
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+
+        # No new JobRun should have been created
+        job_count_after = session.execute(select(JobRun)).scalars().all()
+        assert len(job_count_after) == len(job_count_before)
+
+    async def test_decorator_raises_on_invalid_job_id(self, session, standalone_worker_context):
+        """When a job_id int is provided but doesn't correspond to a real JobRun,
+        the decorator should raise immediately to uphold its guarantee."""
+        nonexistent_job_id = 999999
+
+        job_count_before = len(session.execute(select(JobRun)).scalars().all())
+
+        with pytest.raises(ValueError, match="does not correspond to an existing JobRun"):
+            await sample_job(standalone_worker_context, nonexistent_job_id)
+
+        # No new JobRun should have been created by the decorator
+        job_count_after = len(session.execute(select(JobRun)).scalars().all())
+        assert job_count_after == job_count_before

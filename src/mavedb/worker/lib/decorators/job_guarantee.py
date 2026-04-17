@@ -65,6 +65,12 @@ def with_guaranteed_job_run_record(job_type: str) -> Callable[[F], F]:
                 if is_test_mode():
                     return await func(*args, **kwargs)
 
+                # If a job_id was already provided (e.g. from a script that
+                # pre-created the JobRun), validate it exists and use it.
+                if len(args) > 1 and isinstance(args[1], int):
+                    _validate_job_exists(ensure_ctx(args), args[1])
+                    return await func(*args, **kwargs)
+
                 # The job id must be passed as the second argument to the wrapped function.
                 job = _create_job_run(job_type, func, args, kwargs)
                 args = list(args)
@@ -76,6 +82,14 @@ def with_guaranteed_job_run_record(job_type: str) -> Callable[[F], F]:
         return async_wrapper  # type: ignore
 
     return decorator
+
+
+def _validate_job_exists(ctx: dict, job_id: int) -> None:
+    """Verify that a pre-provided job_id corresponds to an existing JobRun record."""
+    db: Session = ctx["db"]
+    exists = db.query(JobRun.id).filter(JobRun.id == job_id).first() is not None
+    if not exists:
+        raise ValueError(f"Provided job_id {job_id} does not correspond to an existing JobRun record")
 
 
 def _create_job_run(
