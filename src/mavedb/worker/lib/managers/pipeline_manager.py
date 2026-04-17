@@ -402,9 +402,13 @@ class PipelineManager(BaseManager):
                 logger.info(f"Skipped job {job.urn} due to unreachable dependencies: {reason}")
                 continue
 
-        # Ensure enqueued jobs can view the status change and pipelines
-        # can view skipped jobs by flushing transactions.
-        self.db.flush()
+        # Commit status changes (QUEUED and skipped) before the async Redis
+        # enqueue loop. This releases PostgreSQL row-level locks held by flush().
+        # Without committing here, a downstream job started by ARQ during one of
+        # the await yields in the enqueue loop could attempt a synchronous UPDATE
+        # on a locked row, blocking the event loop and deadlocking the worker
+        # (psycopg2 is synchronous, so the blocked UPDATE freezes asyncio).
+        self.db.commit()
 
         if not jobs_to_queue:
             logger.debug(f"No ready jobs to enqueue in pipeline {self.pipeline_id}")
