@@ -14,6 +14,24 @@ from mavedb.lib.clinvar.utils import (
 )
 
 
+def _mock_session(mock_get):
+    """Create a mock requests.Session whose .get delegates to mock_get."""
+
+    class _Session:
+        headers = {}
+
+        def update(self, _):
+            pass
+
+        def get(self, url, **kwargs):
+            return mock_get(url, **kwargs)
+
+    # Give headers a real .update so session.headers.update(...) works
+    session = _Session()
+    session.headers = {}  # plain dict is fine
+    return session
+
+
 @pytest.mark.unit
 class TestValidateClinvarVariantSummaryDate:
     def test_valid_past_date(self):
@@ -77,10 +95,10 @@ class TestFetchClinvarVariantSummaryTSV:
         # Simulate successful fetch from top-level URL
         mock_content = b"mock gzipped content"
 
-        def mock_get(url, stream=True):
+        def mock_get(url, **kwargs):
             return self.MockResponse(mock_content)
 
-        monkeypatch.setattr("requests.get", mock_get)
+        monkeypatch.setattr("mavedb.lib.clinvar.utils._ncbi_session", lambda: _mock_session(mock_get))
         result = await fetch_clinvar_variant_summary_tsv(1, 2016)
         assert result == mock_content
 
@@ -93,7 +111,7 @@ class TestFetchClinvarVariantSummaryTSV:
         mock_content = b"archive gzipped content"
         call_count = {"count": 0}
 
-        def mock_get(url, stream=True):
+        def mock_get(url, **kwargs):
             call_count["count"] += 1
             if call_count["count"] == 1:
                 # First call (top-level URL) should fail
@@ -102,7 +120,7 @@ class TestFetchClinvarVariantSummaryTSV:
                 # Second call (archive URL) should succeed
                 return self.MockResponse(mock_content)
 
-        monkeypatch.setattr("requests.get", mock_get)
+        monkeypatch.setattr("mavedb.lib.clinvar.utils._ncbi_session", lambda: _mock_session(mock_get))
         result = await fetch_clinvar_variant_summary_tsv(2, 2017)
         assert result == mock_content
         assert call_count["count"] == 2  # Verify both URLs were tried
@@ -113,10 +131,10 @@ class TestFetchClinvarVariantSummaryTSV:
         monkeypatch.setattr("mavedb.lib.clinvar.utils.CLINVAR_CACHE_DIR", tmp_path)
 
         # Simulate both URLs failing
-        def mock_get(url, stream=True):
+        def mock_get(url, **kwargs):
             raise requests.RequestException("Not found")
 
-        monkeypatch.setattr("requests.get", mock_get)
+        monkeypatch.setattr("mavedb.lib.clinvar.utils._ncbi_session", lambda: _mock_session(mock_get))
         with pytest.raises(requests.RequestException, match="Not found"):
             await fetch_clinvar_variant_summary_tsv(3, 2018)
 
@@ -138,11 +156,11 @@ class TestFetchClinvarVariantSummaryTSV:
         mock_content = b"cached content"
         call_count = {"count": 0}
 
-        def mock_get(url, stream=True):
+        def mock_get(url, **kwargs):
             call_count["count"] += 1
             return self.MockResponse(mock_content)
 
-        monkeypatch.setattr("requests.get", mock_get)
+        monkeypatch.setattr("mavedb.lib.clinvar.utils._ncbi_session", lambda: _mock_session(mock_get))
 
         result1 = await fetch_clinvar_variant_summary_tsv(5, 2020)
         assert result1 == mock_content
@@ -166,14 +184,14 @@ class TestFetchClinvarVariantSummaryTSV:
         mock_content_2 = b"second fetch after expiry"
         call_count = {"count": 0}
 
-        def mock_get(url, stream=True):
+        def mock_get(url, **kwargs):
             call_count["count"] += 1
             if call_count["count"] == 1:
                 return self.MockResponse(mock_content_1)
             else:
                 return self.MockResponse(mock_content_2)
 
-        monkeypatch.setattr("requests.get", mock_get)
+        monkeypatch.setattr("mavedb.lib.clinvar.utils._ncbi_session", lambda: _mock_session(mock_get))
 
         result1 = await fetch_clinvar_variant_summary_tsv(6, 2021)
         assert result1 == mock_content_1

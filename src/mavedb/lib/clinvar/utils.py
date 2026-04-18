@@ -11,10 +11,18 @@ from pathlib import Path
 from typing import Dict
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from mavedb.lib.clinvar.constants import TSV_VARIANT_ARCHIVE_BASE_URL
 
 logger = logging.getLogger(__name__)
+
+# NCBI requires a descriptive User-Agent header; requests using the default
+# `python-requests/...` agent are routinely throttled or rejected with 503.
+NCBI_REQUEST_HEADERS = {
+    "User-Agent": "MaveDB/1.0 (https://mavedb.org)",
+}
 
 # ClinVar TSV files are archival and never change once released
 # Use 90-day TTL (7776000 seconds) for file-based caching
@@ -26,6 +34,24 @@ CLINVAR_TSV_CACHE_TTL = 7776000
 # These files are large (5-50+ MB) so we store them on disk instead of Redis
 # Defaults to a user-specific cache directory under the home directory unless CLINVAR_CACHE_DIR is set
 CLINVAR_CACHE_DIR = Path(os.getenv("CLINVAR_CACHE_DIR", Path.home() / ".cache" / "mavedb" / "clinvar"))
+
+# NCBI's FTP servers aggressively throttle concurrent connections, returning 503
+# when multiple requests arrive in quick succession (common when ARQ runs several
+# ClinVar refresh jobs in parallel). Retry with exponential backoff.
+NCBI_RETRY_STRATEGY = Retry(
+    total=5,
+    backoff_factor=2,
+    status_forcelist=[429, 500, 502, 503, 504],
+)
+
+
+def _ncbi_session() -> requests.Session:
+    session = requests.Session()
+    session.headers.update(NCBI_REQUEST_HEADERS)
+    adapter = HTTPAdapter(max_retries=NCBI_RETRY_STRATEGY)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
 
 
 def validate_clinvar_variant_summary_date(month: int, year: int) -> None:
@@ -107,12 +133,13 @@ async def fetch_clinvar_variant_summary_tsv(month: int, year: int) -> bytes:
     loop = asyncio.get_running_loop()
 
     def _fetch_and_cache_tsv():
+        session = _ncbi_session()
         try:
-            response = requests.get(url_top_level, stream=True)
+            response = session.get(url_top_level, stream=True)
             response.raise_for_status()
             content = response.content
         except requests.exceptions.HTTPError:
-            response = requests.get(url_archive, stream=True)
+            response = session.get(url_archive, stream=True)
             response.raise_for_status()
             content = response.content
 
