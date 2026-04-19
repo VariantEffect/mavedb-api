@@ -36,7 +36,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "correlation_id": None,  # Required param to be filled in at runtime
                 "score_set_id": None,  # Required param to be filled in at runtime
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "submit_uniprot_mapping_jobs_for_score_set",
@@ -78,7 +78,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "correlation_id": None,  # Required param to be filled in at runtime
                 "score_set_id": None,  # Required param to be filled in at runtime
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "populate_hgvs_for_score_set",
