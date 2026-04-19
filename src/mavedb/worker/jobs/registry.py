@@ -121,7 +121,7 @@ STANDALONE_JOB_DEFINITIONS: dict[Callable, JobDefinition] = {
     },
     refresh_clinvar_controls: {
         "dependencies": [],
-        "params": {"score_set_id": None, "correlation_id": None, "year": None, "month": None},
+        "params": {"score_set_id": None, "correlation_id": None},
         "function": "refresh_clinvar_controls",
         "key": "refresh_clinvar_controls",
         "type": JobType.MAPPED_VARIANT_ANNOTATION,

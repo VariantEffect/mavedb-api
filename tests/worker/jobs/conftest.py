@@ -95,8 +95,6 @@ def refresh_clinvar_controls_sample_params(with_populated_domain_data, sample_sc
     return {
         "correlation_id": "sample-correlation-id",
         "score_set_id": sample_score_set.id,
-        "month": 1,
-        "year": 2026,
     }
 
 

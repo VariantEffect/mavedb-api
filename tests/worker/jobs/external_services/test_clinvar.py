@@ -33,65 +33,40 @@ def mock_fetch_tsv(*args, **kwargs):
 class TestRefreshClinvarControlsUnit:
     """Tests for the refresh_clinvar_controls job function."""
 
-    async def test_refresh_clinvar_controls_invalid_month_raises(
+    @pytest.fixture(autouse=True)
+    def _mock_clinvar_versions(self):
+        """Mock generate_clinvar_versions to return a single version for testing."""
+        with patch(
+            "mavedb.worker.jobs.external_services.clinvar.generate_clinvar_versions",
+            return_value=[(2026, 1)],
+        ):
+            yield
+
+    async def test_refresh_clinvar_controls_skips_version_on_fetch_failure(
         self,
         mock_worker_ctx,
         session,
         with_refresh_clinvar_controls_job,
         sample_refresh_clinvar_controls_job_run,
     ):
-        # edit the job run to have an invalid month
-        sample_refresh_clinvar_controls_job_run.job_params["month"] = 13
-        session.commit()
+        """Test that a fetch failure for a version is logged and skipped, not propagated."""
 
-        with pytest.raises(ValueError, match="Month must be an integer between 1 and 12."):
-            await refresh_clinvar_controls(
-                mock_worker_ctx,
-                sample_refresh_clinvar_controls_job_run.id,
-                JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
-            )
-
-    async def test_refresh_clinvar_controls_invalid_year_raises(
-        self,
-        mock_worker_ctx,
-        session,
-        with_refresh_clinvar_controls_job,
-        sample_refresh_clinvar_controls_job_run,
-    ):
-        # edit the job run to have an invalid year
-        sample_refresh_clinvar_controls_job_run.job_params["year"] = 1999
-        session.commit()
-
-        with pytest.raises(ValueError, match="ClinVar archived data is only available from February 2015 onwards."):
-            await refresh_clinvar_controls(
-                mock_worker_ctx,
-                sample_refresh_clinvar_controls_job_run.id,
-                JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
-            )
-
-    async def test_refresh_clinvar_controls_propagates_exception_during_fetch(
-        self,
-        mock_worker_ctx,
-        session,
-        with_refresh_clinvar_controls_job,
-        sample_refresh_clinvar_controls_job_run,
-    ):
-        # Mock the fetch_clinvar_variant_data function to raise an exception
         async def awaitable_exception(*args, **kwargs):
             raise Exception("Network error")
 
-        with (
-            pytest.raises(Exception, match="Network error"),
-            patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                side_effect=awaitable_exception,
-            ),
+        with patch(
+            "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
+            side_effect=awaitable_exception,
         ):
-            await refresh_clinvar_controls(
+            result = await refresh_clinvar_controls(
                 mock_worker_ctx,
                 sample_refresh_clinvar_controls_job_run.id,
                 JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
             )
+
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["versions_completed"] == 0
 
     async def test_refresh_clinvar_controls_no_mapped_variants(
         self,
@@ -602,10 +577,8 @@ class TestRefreshClinvarControlsUnit:
 
         mock_update_progress.assert_has_calls(
             [
-                call(0, 100, "Starting ClinVar clinical control refresh for version 01_2026."),
-                call(1, 100, "Fetching ClinVar variant summary TSV data."),
-                call(10, 100, "Fetched and parsed ClinVar variant summary TSV data."),
-                call(10, 100, "Refreshing ClinVar data for 1 variants (0 completed)."),
+                call(0, 100, "Starting ClinVar refresh across 1 versions."),
+                call(0, 100, "Processing ClinVar version 01_2026 (1/1)."),
                 call(100, 100, "Completed ClinVar clinical control refresh."),
             ]
         )
@@ -615,6 +588,15 @@ class TestRefreshClinvarControlsUnit:
 @pytest.mark.asyncio
 class TestRefreshClinvarControlsIntegration:
     """Integration tests for the refresh_clinvar_controls job function."""
+
+    @pytest.fixture(autouse=True)
+    def _mock_clinvar_versions(self):
+        """Mock generate_clinvar_versions to return a single version for testing."""
+        with patch(
+            "mavedb.worker.jobs.external_services.clinvar.generate_clinvar_versions",
+            return_value=[(2026, 1)],
+        ):
+            yield
 
     async def test_refresh_clinvar_controls_no_mapped_variants(
         self,
@@ -1301,6 +1283,15 @@ class TestRefreshClinvarControlsIntegration:
 @pytest.mark.integration
 class TestRefreshClinvarControlsArqContext:
     """Tests for running the refresh_clinvar_controls job function within an ARQ worker context."""
+
+    @pytest.fixture(autouse=True)
+    def _mock_clinvar_versions(self):
+        """Mock generate_clinvar_versions to return a single version for testing."""
+        with patch(
+            "mavedb.worker.jobs.external_services.clinvar.generate_clinvar_versions",
+            return_value=[(2026, 1)],
+        ):
+            yield
 
     async def test_refresh_clinvar_controls_with_arq_context_independent(
         self,
