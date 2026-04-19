@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 CACHE_KEY_PREFIX = "mavedb:clingen"
 CACHE_KEY_VERSION = "v1"
 CACHE_TTL_SECONDS = 86400  # 24 hours
+# aiocache default is 5s, which times out under connection pool contention when
+# concurrent annotation jobs all hit Redis simultaneously.
+CACHE_TIMEOUT_SECONDS = 30
 
 
 def get_cache_configuration(backend=None, redis_host=None, redis_port=None, redis_ssl=None):
@@ -59,6 +62,7 @@ def get_cache_configuration(backend=None, redis_host=None, redis_port=None, redi
             "port": port,
             "ssl": ssl,
             "namespace": CACHE_KEY_PREFIX,
+            "timeout": CACHE_TIMEOUT_SECONDS,
         }
         return cache_class, cache_config
 
@@ -66,6 +70,7 @@ def get_cache_configuration(backend=None, redis_host=None, redis_port=None, redi
         cache_class = Cache.MEMORY
         cache_config = {
             "namespace": CACHE_KEY_PREFIX,
+            "timeout": CACHE_TIMEOUT_SECONDS,
         }
         return cache_class, cache_config
 

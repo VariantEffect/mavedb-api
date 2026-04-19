@@ -2,6 +2,7 @@
 
 This module exports jobs for integrating with third-party services:
 - ClinGen (Clinical Genome Resource) for allele registration and data submission
+- ClinGen cache pre-warming to prevent stampede on downstream annotation jobs
 - UniProt for protein sequence annotation and ID mapping
 - gnomAD for population frequency and genomic context data
 - HGVS for standardized variant nomenclature population
@@ -13,6 +14,7 @@ from .clingen import (
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,
 )
+from .clingen_cache import warm_clingen_cache
 from .clinvar import refresh_clinvar_controls
 from .gnomad import link_gnomad_variants
 from .hgvs import populate_hgvs_for_score_set
@@ -25,6 +27,7 @@ from .variant_translation import populate_variant_translations_for_score_set
 __all__ = [
     "submit_score_set_mappings_to_car",
     "submit_score_set_mappings_to_ldh",
+    "warm_clingen_cache",
     "refresh_clinvar_controls",
     "link_gnomad_variants",
     "populate_hgvs_for_score_set",

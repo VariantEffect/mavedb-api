@@ -1086,3 +1086,71 @@ def setup_sample_variants_with_caid_for_translation(
     session.add(mapped_variant)
     session.commit()
     return variant, mapped_variant
+
+
+## ClinGen Cache Warming Job Fixtures ##
+
+
+@pytest.fixture
+def warm_clingen_cache_sample_params(with_populated_domain_data, sample_score_set):
+    """Provide sample parameters for warm_clingen_cache job."""
+
+    return {
+        "correlation_id": "sample-correlation-id",
+        "score_set_id": sample_score_set.id,
+    }
+
+
+@pytest.fixture
+def sample_warm_clingen_cache_job_run(warm_clingen_cache_sample_params):
+    """Create a JobRun instance for warm_clingen_cache job."""
+
+    return JobRun(
+        urn="test:warm_clingen_cache",
+        job_type="warm_clingen_cache",
+        job_function="warm_clingen_cache",
+        max_retries=3,
+        retry_count=0,
+        job_params=warm_clingen_cache_sample_params,
+    )
+
+
+@pytest.fixture
+def with_warm_clingen_cache_job(session, sample_warm_clingen_cache_job_run):
+    """Add a warm_clingen_cache job run to the session."""
+
+    session.add(sample_warm_clingen_cache_job_run)
+    session.commit()
+
+
+@pytest.fixture
+def sample_warm_clingen_cache_pipeline():
+    """Create a pipeline instance for warm_clingen_cache job."""
+
+    return Pipeline(
+        urn="test:warm_clingen_cache_pipeline",
+        name="Warm ClinGen Cache Pipeline",
+    )
+
+
+@pytest.fixture
+def with_warm_clingen_cache_pipeline(session, sample_warm_clingen_cache_pipeline):
+    """Add a warm_clingen_cache pipeline to the session."""
+
+    session.add(sample_warm_clingen_cache_pipeline)
+    session.commit()
+
+
+@pytest.fixture
+def sample_warm_clingen_cache_job_in_pipeline(
+    session,
+    with_warm_clingen_cache_job,
+    with_warm_clingen_cache_pipeline,
+    sample_warm_clingen_cache_job_run,
+    sample_warm_clingen_cache_pipeline,
+):
+    """Provide a context with a warm_clingen_cache job run and pipeline."""
+
+    sample_warm_clingen_cache_job_run.pipeline_id = sample_warm_clingen_cache_pipeline.id
+    session.commit()
+    return sample_warm_clingen_cache_job_run

@@ -19,6 +19,16 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
             "dependencies": [("map_variants_for_score_set", DependencyType.SUCCESS_REQUIRED)],
         },
         {
+            "key": "warm_clingen_cache",
+            "function": "warm_clingen_cache",
+            "type": JobType.MAPPED_VARIANT_ANNOTATION,
+            "params": {
+                "correlation_id": None,  # Required param to be filled in at runtime
+                "score_set_id": None,  # Required param to be filled in at runtime
+            },
+            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+        },
+        {
             "key": "link_gnomad_variants",
             "function": "link_gnomad_variants",
             "type": JobType.MAPPED_VARIANT_ANNOTATION,
@@ -60,7 +70,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "year": 2015,
                 "month": 2,
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "refresh_clinvar_controls_201601",
@@ -72,7 +82,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "year": 2016,
                 "month": 1,
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "refresh_clinvar_controls_201701",
@@ -84,7 +94,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "year": 2017,
                 "month": 1,
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "refresh_clinvar_controls_201801",
@@ -96,7 +106,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "year": 2018,
                 "month": 1,
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "refresh_clinvar_controls_201901",
@@ -108,7 +118,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "year": 2019,
                 "month": 1,
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "refresh_clinvar_controls_202001",
@@ -120,7 +130,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "year": 2020,
                 "month": 1,
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "refresh_clinvar_controls_202101",
@@ -132,7 +142,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "year": 2021,
                 "month": 1,
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "refresh_clinvar_controls_202201",
@@ -144,7 +154,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "year": 2022,
                 "month": 1,
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "refresh_clinvar_controls_202301",
@@ -156,7 +166,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "year": 2023,
                 "month": 1,
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "refresh_clinvar_controls_202401",
@@ -168,7 +178,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "year": 2024,
                 "month": 1,
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "refresh_clinvar_controls_202501",
@@ -180,7 +190,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "year": 2025,
                 "month": 1,
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "refresh_clinvar_controls_202601",
@@ -192,7 +202,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "year": 2026,
                 "month": 1,
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "populate_vep_for_score_set",
@@ -212,7 +222,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "correlation_id": None,  # Required param to be filled in at runtime
                 "score_set_id": None,  # Required param to be filled in at runtime
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "populate_variant_translations_for_score_set",
@@ -222,7 +232,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "correlation_id": None,  # Required param to be filled in at runtime
                 "score_set_id": None,  # Required param to be filled in at runtime
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
     ]
 

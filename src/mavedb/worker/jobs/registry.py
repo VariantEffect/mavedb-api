@@ -24,6 +24,7 @@ from mavedb.worker.jobs.external_services import (
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,
     submit_uniprot_mapping_jobs_for_score_set,
+    warm_clingen_cache,
 )
 from mavedb.worker.jobs.pipeline_management import start_pipeline
 from mavedb.worker.jobs.system import cleanup_stalled_jobs
@@ -40,6 +41,7 @@ BACKGROUND_FUNCTIONS: List[Callable] = [
     # External service jobs
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,
+    warm_clingen_cache,
     refresh_clinvar_controls,
     submit_uniprot_mapping_jobs_for_score_set,
     poll_uniprot_mapping_jobs_for_score_set,
@@ -108,6 +110,13 @@ STANDALONE_JOB_DEFINITIONS: dict[Callable, JobDefinition] = {
         "params": {"score_set_id": None, "correlation_id": None},
         "function": "submit_score_set_mappings_to_ldh",
         "key": "submit_score_set_mappings_to_ldh",
+        "type": JobType.MAPPED_VARIANT_ANNOTATION,
+    },
+    warm_clingen_cache: {
+        "dependencies": [],
+        "params": {"score_set_id": None, "correlation_id": None},
+        "function": "warm_clingen_cache",
+        "key": "warm_clingen_cache",
         "type": JobType.MAPPED_VARIANT_ANNOTATION,
     },
     refresh_clinvar_controls: {
