@@ -34,10 +34,9 @@ class VariantAnnotationStatus(Base):
     # Primary key
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
-    # Composite primary key
-    variant_id: Mapped[int] = mapped_column(Integer, ForeignKey("variants.id", ondelete="CASCADE"), primary_key=True)
+    variant_id: Mapped[int] = mapped_column(Integer, ForeignKey("variants.id", ondelete="CASCADE"), nullable=False)
     annotation_type: Mapped[str] = mapped_column(
-        String(50), primary_key=True, comment="Type of annotation: vrs, clinvar, gnomad, etc."
+        String(50), nullable=False, comment="Type of annotation: vrs, clinvar, gnomad, etc."
     )
 
     # Source version
@@ -105,4 +104,14 @@ class VariantAnnotationStatus(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<VariantAnnotationStatus(variant_id={self.variant_id}, type='{self.annotation_type}', status='{self.status}')>"
+        return (
+            f"<VariantAnnotationStatus("
+            f"id={self.id}, "
+            f"variant_id={self.variant_id}, "
+            f"type='{self.annotation_type}', "
+            f"version={self.version!r}, "
+            f"status='{self.status}', "
+            f"current={self.current}, "
+            f"created_at={self.created_at}"
+            f")>"
+        )
