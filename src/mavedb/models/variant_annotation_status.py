@@ -81,16 +81,9 @@ class VariantAnnotationStatus(Base):
 
     # Indexes
     __table_args__ = (
-        Index("ix_variant_annotation_status_variant_id", "variant_id"),
-        Index("ix_variant_annotation_status_annotation_type", "annotation_type"),
-        Index("ix_variant_annotation_status_status", "status"),
-        Index("ix_variant_annotation_status_job_run_id", "job_run_id"),
-        Index("ix_variant_annotation_status_created_at", "created_at"),
-        # Composite index for common queries
-        Index("ix_variant_annotation_variant_type_status", "variant_id", "annotation_type", "status"),
-        Index("ix_variant_annotation_type_status", "annotation_type", "status"),
-        Index("ix_variant_annotation_status_current", "current"),
-        Index("ix_variant_annotation_status_version", "version"),
+        # Indexes should be kept minimal to reduce write overhead on this large, append-only table.
+        # The 'current' flag is included in the index to optimize queries that filter for current=True,
+        # which is the common case when looking up annotation status for a variant.
         Index(
             "ix_variant_annotation_status_variant_type_version_current",
             "variant_id",
@@ -98,6 +91,8 @@ class VariantAnnotationStatus(Base):
             "version",
             "current",
         ),
+        # FK index for job_run_id — needed for CASCADE deletes on job_runs
+        Index("ix_variant_annotation_status_job_run_id", "job_run_id"),
         CheckConstraint(
             "annotation_type IN ('vrs_mapping', 'clingen_allele_id', 'mapped_hgvs', 'variant_translation', 'gnomad_allele_frequency', 'clinvar_control', 'vep_functional_consequence', 'ldh_submission')",
             name="ck_variant_annotation_type_valid",
