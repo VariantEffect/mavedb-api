@@ -147,6 +147,7 @@ def link_gnomad_variants_to_mapped_variants(
     logger.debug(msg="Linking gnomAD variants to mapped variants", extra=logging_context())
 
     linked_gnomad_variants = 0
+    annotation_manager = AnnotationStatusManager(db)
     for index, row in enumerate(gnomad_variant_data, start=1):
         logger.info(
             msg=f"Processing gnomAD variant row {index}/{len(gnomad_variant_data)}: {row.caid}", extra=logging_context()
@@ -171,7 +172,6 @@ def link_gnomad_variants_to_mapped_variants(
         if faf95_max is not None:
             faf95_max = float(faf95_max)
 
-        annotation_manager = AnnotationStatusManager(db)
         for mapped_variant in mapped_variants_with_caids:
             # Remove any existing gnomAD variants for this mapped variant that match the current gnomAD data version to avoid data duplication.
             # There should only be one gnomAD variant per mapped variant per gnomAD data version, since each gnomAD variant can only match to one
@@ -240,6 +240,8 @@ def link_gnomad_variants_to_mapped_variants(
         logger.info(
             f"Linked {len(mapped_variants_with_caids)} mapped variants with CAID {row.caid} to gnomAD variant {gnomad_identifier_for_variant}. ({index}/{len(gnomad_variant_data)})"
         )
+
+    annotation_manager.flush()
 
     save_to_logging_context({"linked_gnomad_variants": linked_gnomad_variants})
     logger.info(

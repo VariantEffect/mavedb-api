@@ -8,7 +8,7 @@ for genetic variants, ensuring that only one current status exists per
 import logging
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from mavedb.models.enums.annotation_type import AnnotationType
@@ -17,34 +17,24 @@ from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 
 logger = logging.getLogger(__name__)
 
+# Default number of pending annotations to accumulate before auto-flushing.
+DEFAULT_BATCH_SIZE = 500
+
 
 class AnnotationStatusManager:
     """
-    Manager for handling variant annotation statuses.
+    Manager for handling variant annotation statuses with batched writes.
 
-    Attributes:
-        session (Session): The SQLAlchemy session used for database operations.
-
-    Methods:
-        add_annotation(
-            variant_id: int,
-            annotation_type: AnnotationType,
-            version: Optional[str],
-            annotation_data: dict,
-            current: bool = True
-        ) -> VariantAnnotationStatus:
-            Inserts a new annotation status and marks previous ones as not current.
-
-        get_current_annotation(
-            variant_id: int,
-            annotation_type: AnnotationType,
-            version: Optional[str] = None
-        ) -> Optional[VariantAnnotationStatus]:
-            Retrieves the current annotation status for a given variant/type/version.
+    Annotations are accumulated in memory and flushed to the database in
+    batches (default 500) to reduce round-trips.  Callers **must** call
+    :meth:`flush` after the last ``add_annotation`` to persist any remainder.
     """
 
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, *, batch_size: int = DEFAULT_BATCH_SIZE):
         self.session = session
+        self.batch_size = batch_size
+        self._pending: list[VariantAnnotationStatus] = []
+        self._retirement_filters: list[dict] = []
 
     def add_annotation(
         self,
@@ -55,82 +45,89 @@ class AnnotationStatusManager:
         annotation_data: dict = {},
         current: bool = True,
         replace_all_versions: bool = True,
-    ) -> VariantAnnotationStatus:
+    ) -> None:
         """
-        Insert a new annotation and mark previous ones as not current.
+        Stage a new annotation and schedule retirement of previous current rows.
 
         By default (``replace_all_versions=True``), all existing current annotations for
-        (variant, type) are retired regardless of version. This is appropriate for
-        pipelines like VRS mapping where a new run fully supersedes all
-        previous results across every version.
+        (variant, type) are retired regardless of version.
 
         When ``replace_all_versions=False``, only existing current annotations matching
-        (variant, type, version) are retired. Use this for pipelines where a new run
-        should only supersede results of the same version.
+        (variant, type, version) are retired.
 
-        Args:
-            variant_id (int): The ID of the variant being annotated.
-            annotation_type (AnnotationType): The type of annotation (e.g., 'vrs', 'clinvar').
-            version (Optional[str]): The version of the annotation source.
-            annotation_data (dict): Additional data for the annotation status.
-            current (bool): Whether this annotation is the current one.
-            replace_all_versions (bool): When True, retire all current annotations for
-                (variant, type) regardless of version. When False (default), only
-                retire those matching (variant, type, version).
-
-        Returns:
-            VariantAnnotationStatus: The newly created annotation status record.
-
-        Side Effects:
-            - Updates existing records to set current=False.
-            - Adds a new VariantAnnotationStatus record to the database session.
+        Writes are accumulated in memory and flushed to the database when
+        ``batch_size`` is reached.  Call :meth:`flush` after the last add to
+        persist any remaining annotations.
 
         NOTE:
-            - This method does not commit the session and only flushes to the database. The caller
-              is responsible for persisting any changes (e.g., by calling session.commit()).
+            This method does not commit the session. The caller is responsible
+            for persisting changes (e.g., via ``session.commit()``).
         """
-        logger.debug(
-            f"Adding annotation for variant_id={variant_id}, annotation_type={annotation_type}, version={version}"
+        self._retirement_filters.append(
+            {
+                "variant_id": variant_id,
+                "annotation_type": annotation_type,
+                "replace_all_versions": replace_all_versions,
+                "version": version,
+            }
         )
 
-        # Find existing current annotations to be replaced.
-        # With replace_all_versions=True, retire all versions; otherwise only the matching version.
-        retirement_filter = [
-            VariantAnnotationStatus.variant_id == variant_id,
-            VariantAnnotationStatus.annotation_type == annotation_type,
-            VariantAnnotationStatus.current.is_(True),
-        ]
-        if not replace_all_versions:
-            retirement_filter.append(VariantAnnotationStatus.version == version)
-
-        existing_current = (
-            self.session.execute(select(VariantAnnotationStatus).where(*retirement_filter)).scalars().all()
+        self._pending.append(
+            VariantAnnotationStatus(
+                variant_id=variant_id,
+                annotation_type=annotation_type,
+                status=status,
+                version=version,
+                current=current,
+                **annotation_data,
+            )  # type: ignore[call-arg]
         )
 
-        for var_ann in existing_current:
-            logger.debug(
-                f"Replacing current annotation {var_ann.id} for variant_id={variant_id}, annotation_type={annotation_type}, version={version}"
-            )
-            var_ann.current = False
+        if len(self._pending) >= self.batch_size:
+            self.flush()
 
+    def flush(self) -> None:
+        """Flush all pending annotations to the database.
+
+        Retires old ``current=True`` rows in bulk, then inserts all pending
+        new rows in a single ``add_all`` + ``flush``.  This replaces the
+        previous pattern of 2 flushes per ``add_annotation`` call.
+        """
+        if not self._pending:
+            return
+
+        self._retire_existing()
+        self.session.add_all(self._pending)
         self.session.flush()
 
-        new_status = VariantAnnotationStatus(
-            variant_id=variant_id,
-            annotation_type=annotation_type,
-            status=status,
-            version=version,
-            current=current,
-            **annotation_data,
-        )  # type: ignore[call-arg]
+        logger.debug(f"Flushed {len(self._pending)} annotation statuses")
+        self._pending.clear()
+        self._retirement_filters.clear()
 
-        self.session.add(new_status)
-        self.session.flush()
+    def _retire_existing(self) -> None:
+        """Bulk-retire existing current annotations for all pending writes.
 
-        logger.debug(
-            f"Successfully added annotation for variant_id={variant_id}, annotation_type={annotation_type}, version={version}"
-        )
-        return new_status
+        Groups retirement filters by (annotation_type, replace_all_versions, version)
+        and issues one UPDATE per group, minimizing round-trips.
+        """
+        # Group filters to minimize UPDATE statements.
+        # Key: (annotation_type, replace_all_versions, version) -> list of variant_ids
+        groups: dict[tuple, list[int]] = {}
+        for f in self._retirement_filters:
+            key = (f["annotation_type"], f["replace_all_versions"], f["version"])
+            groups.setdefault(key, []).append(f["variant_id"])
+
+        for (annotation_type, replace_all_versions, version), variant_ids in groups.items():
+            conditions = [
+                VariantAnnotationStatus.variant_id.in_(variant_ids),
+                VariantAnnotationStatus.annotation_type == annotation_type,
+                VariantAnnotationStatus.current.is_(True),
+            ]
+            if not replace_all_versions:
+                conditions.append(VariantAnnotationStatus.version == version)
+
+            stmt = update(VariantAnnotationStatus).where(*conditions).values(current=False)
+            self.session.execute(stmt)
 
     def get_current_annotation(
         self, variant_id: int, annotation_type: AnnotationType, version: Optional[str] = None
@@ -138,14 +135,10 @@ class AnnotationStatusManager:
         """
         Retrieve the current annotation for a given variant/type/version.
 
-        Args:
-            variant_id (int): The ID of the variant.
-            annotation_type (AnnotationType): The type of annotation.
-            version (Optional[str]): The version of the annotation source.
-
-        Returns:
-            Optional[VariantAnnotationStatus]: The current annotation status record, or None if not found.
+        Flushes pending annotations first to ensure the result is up to date.
         """
+        self.flush()
+
         stmt = select(VariantAnnotationStatus).where(
             VariantAnnotationStatus.variant_id == variant_id,
             VariantAnnotationStatus.annotation_type == annotation_type,

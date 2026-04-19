@@ -21,7 +21,7 @@ def existing_annotation_status(session, annotation_status_manager, setup_lib_db_
     """Fixture to create an existing annotation status in the database."""
 
     # Add initial annotation
-    annotation = annotation_status_manager.add_annotation(
+    annotation_status_manager.add_annotation(
         variant_id=setup_lib_db_with_variant.id,
         annotation_type=AnnotationType.VRS_MAPPING,
         version="v1",
@@ -29,7 +29,14 @@ def existing_annotation_status(session, annotation_status_manager, setup_lib_db_
         status=AnnotationStatus.SUCCESS,
         current=True,
     )
+    annotation_status_manager.flush()
     session.commit()
+
+    annotation = annotation_status_manager.get_current_annotation(
+        variant_id=setup_lib_db_with_variant.id,
+        annotation_type=AnnotationType.VRS_MAPPING,
+        version="v1",
+    )
 
     assert annotation.id is not None
     assert annotation.current is True
@@ -42,7 +49,7 @@ def existing_unversioned_annotation_status(session, annotation_status_manager, s
     """Fixture to create an existing annotation status in the database."""
 
     # Add initial annotation
-    annotation = annotation_status_manager.add_annotation(
+    annotation_status_manager.add_annotation(
         variant_id=setup_lib_db_with_variant.id,
         annotation_type=AnnotationType.VRS_MAPPING,
         version=None,
@@ -50,7 +57,13 @@ def existing_unversioned_annotation_status(session, annotation_status_manager, s
         status=AnnotationStatus.SUCCESS,
         current=True,
     )
+    annotation_status_manager.flush()
     session.commit()
+
+    annotation = annotation_status_manager.get_current_annotation(
+        variant_id=setup_lib_db_with_variant.id,
+        annotation_type=AnnotationType.VRS_MAPPING,
+    )
 
     assert annotation.id is not None
     assert annotation.current is True
@@ -74,7 +87,7 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
         self, session, annotation_status_manager, annotation_type, status, setup_lib_db_with_variant
     ):
         """Test that adding an annotation creates a new entry with correct type and version."""
-        annotation = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=annotation_type,
             version="v1.0",
@@ -82,8 +95,16 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
             current=True,
             status=status,
         )
+        annotation_status_manager.flush()
         session.commit()
 
+        annotation = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=annotation_type,
+            version="v1.0",
+        )
+
+        assert annotation is not None
         assert annotation.annotation_type == annotation_type
         assert annotation.status == status
         assert annotation.version == "v1.0"
@@ -97,7 +118,7 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
             "error_message": None,
             "failure_category": None,
         }
-        annotation = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             status=AnnotationStatus.SUCCESS,
@@ -105,8 +126,16 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
             annotation_data=annotation_data,
             current=True,
         )
+        annotation_status_manager.flush()
         session.commit()
 
+        annotation = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1.0",
+        )
+
+        assert annotation is not None
         for key, value in annotation_data.items():
             assert getattr(annotation, key) == value
 
@@ -117,7 +146,7 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
         manager = AnnotationStatusManager(session)
 
         # Add second annotation for same (variant, type, version)
-        annotation = manager.add_annotation(
+        manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version="v1",
@@ -125,8 +154,16 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
             status=AnnotationStatus.FAILED,
             current=True,
         )
+        manager.flush()
         session.commit()
 
+        annotation = manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+        )
+
+        assert annotation is not None
         assert annotation.id is not None
         assert annotation.current is True
 
@@ -141,7 +178,7 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
         manager = AnnotationStatusManager(session)
 
         # Add second annotation for same (variant, type) but different version
-        annotation = manager.add_annotation(
+        manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version="v2",
@@ -150,8 +187,16 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
             current=True,
             replace_all_versions=False,
         )
+        manager.flush()
         session.commit()
 
+        annotation = manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v2",
+        )
+
+        assert annotation is not None
         assert annotation.id is not None
         assert annotation.current is True
 
@@ -166,7 +211,7 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
         manager = AnnotationStatusManager(session)
 
         # Add second annotation for same variant but different type
-        annotation = manager.add_annotation(
+        manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
             version="v1",
@@ -174,8 +219,16 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
             status=AnnotationStatus.SUCCESS,
             current=True,
         )
+        manager.flush()
         session.commit()
 
+        annotation = manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
+            version="v1",
+        )
+
+        assert annotation is not None
         assert annotation.id is not None
         assert annotation.current is True
 
@@ -185,7 +238,7 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
 
     def test_add_annotation_without_version(self, session, annotation_status_manager, setup_lib_db_with_variant):
         """Test that adding an annotation without specifying version works correctly."""
-        annotation = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
             version=None,
@@ -193,8 +246,15 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
             status=AnnotationStatus.SKIPPED,
             current=True,
         )
+        annotation_status_manager.flush()
         session.commit()
 
+        annotation = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
+        )
+
+        assert annotation is not None
         assert annotation.id is not None
         assert annotation.version is None
         assert annotation.current is True
@@ -205,7 +265,7 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
         """Test that adding multiple annotations without version marks previous ones as not current."""
 
         # Add second annotation without version
-        second_annotation = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version=None,
@@ -213,8 +273,15 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
             status=AnnotationStatus.FAILED,
             current=True,
         )
+        annotation_status_manager.flush()
         session.commit()
 
+        second_annotation = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+        )
+
+        assert second_annotation is not None
         assert second_annotation.id is not None
         assert second_annotation.current is True
 
@@ -228,7 +295,7 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
         """Test that adding an annotation of different type without version keeps previous current."""
 
         # Add second annotation of different type without version
-        second_annotation = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
             version=None,
@@ -236,8 +303,15 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
             status=AnnotationStatus.SUCCESS,
             current=True,
         )
+        annotation_status_manager.flush()
         session.commit()
 
+        second_annotation = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
+        )
+
+        assert second_annotation is not None
         assert second_annotation.id is not None
         assert second_annotation.current is True
 
@@ -258,7 +332,7 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
         session.refresh(variant2)
 
         # Add annotation for variant 1
-        annotation1 = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=variant1.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version="v1",
@@ -266,10 +340,9 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
             status=AnnotationStatus.SUCCESS,
             current=True,
         )
-        session.commit()
 
         # Add annotation for variant 2
-        annotation2 = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=variant2.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version="v1",
@@ -277,11 +350,25 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
             status=AnnotationStatus.SUCCESS,
             current=True,
         )
+        annotation_status_manager.flush()
         session.commit()
 
+        annotation1 = annotation_status_manager.get_current_annotation(
+            variant_id=variant1.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+        )
+        annotation2 = annotation_status_manager.get_current_annotation(
+            variant_id=variant2.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+        )
+
+        assert annotation1 is not None
         assert annotation1.id is not None
         assert annotation1.current is True
 
+        assert annotation2 is not None
         assert annotation2.id is not None
         assert annotation2.current is True
 
@@ -370,7 +457,7 @@ class TestAnnotationStatusManagerIntegration:
     ):
         """Test that adding and getting current annotation work together correctly."""
         # Add annotation
-        added_annotation = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version="v1",
@@ -378,6 +465,7 @@ class TestAnnotationStatusManagerIntegration:
             status=AnnotationStatus.SUCCESS,
             current=True,
         )
+        annotation_status_manager.flush()
         session.commit()
 
         # Get current annotation
@@ -388,7 +476,6 @@ class TestAnnotationStatusManagerIntegration:
         )
 
         assert retrieved_annotation is not None
-        assert retrieved_annotation.id == added_annotation.id
         assert retrieved_annotation.current is True
         assert retrieved_annotation.status == AnnotationStatus.SUCCESS
 
@@ -409,10 +496,11 @@ class TestAnnotationStatusManagerIntegration:
             status=AnnotationStatus.FAILED,
             current=True,
         )
+        annotation_status_manager.flush()
         session.commit()
 
         # Add second annotation
-        second_annotation = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version=version,
@@ -420,6 +508,7 @@ class TestAnnotationStatusManagerIntegration:
             status=AnnotationStatus.SUCCESS,
             current=True,
         )
+        annotation_status_manager.flush()
         session.commit()
 
         # Get current annotation
@@ -430,7 +519,6 @@ class TestAnnotationStatusManagerIntegration:
         )
 
         assert retrieved_annotation is not None
-        assert retrieved_annotation.id == second_annotation.id
         assert retrieved_annotation.current is True
         assert retrieved_annotation.version == version
         assert retrieved_annotation.status == AnnotationStatus.SUCCESS
@@ -452,7 +540,7 @@ class TestAnnotationStatusManagerIntegration:
         session.refresh(variant2)
 
         # Add annotation for variant 1
-        annotation1 = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=variant1.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version=version,
@@ -460,10 +548,9 @@ class TestAnnotationStatusManagerIntegration:
             status=AnnotationStatus.SUCCESS,
             current=True,
         )
-        session.commit()
 
         # Add annotation for variant 2
-        annotation2 = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=variant2.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version=version,
@@ -471,6 +558,7 @@ class TestAnnotationStatusManagerIntegration:
             status=AnnotationStatus.FAILED,
             current=True,
         )
+        annotation_status_manager.flush()
         session.commit()
 
         # Get current annotation for variant 1
@@ -481,7 +569,6 @@ class TestAnnotationStatusManagerIntegration:
         )
 
         assert retrieved_annotation1 is not None
-        assert retrieved_annotation1.id == annotation1.id
         assert retrieved_annotation1.current is True
         assert retrieved_annotation1.status == AnnotationStatus.SUCCESS
         assert retrieved_annotation1.version == version
@@ -494,7 +581,6 @@ class TestAnnotationStatusManagerIntegration:
         )
 
         assert retrieved_annotation2 is not None
-        assert retrieved_annotation2.id == annotation2.id
         assert retrieved_annotation2.current is True
         assert retrieved_annotation2.status == AnnotationStatus.FAILED
         assert retrieved_annotation2.version == version
@@ -509,7 +595,7 @@ class TestAnnotationStatusManagerReplaceAllVersionsUnit:
     ):
         """Default behavior: a new annotation only retires the same version, not others."""
         # existing_annotation_status is version "v1", current=True
-        new_annotation = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version="v2",
@@ -518,9 +604,17 @@ class TestAnnotationStatusManagerReplaceAllVersionsUnit:
             current=True,
             replace_all_versions=False,
         )
+        annotation_status_manager.flush()
         session.commit()
 
+        new_annotation = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v2",
+        )
+        assert new_annotation is not None
         assert new_annotation.current is True
+
         session.refresh(existing_annotation_status)
         assert existing_annotation_status.current is True
 
@@ -528,7 +622,7 @@ class TestAnnotationStatusManagerReplaceAllVersionsUnit:
         self, session, annotation_status_manager, setup_lib_db_with_variant
     ):
         """replace_all_versions=True retires all current records for (variant, type) regardless of version."""
-        v1 = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version="v1",
@@ -537,9 +631,9 @@ class TestAnnotationStatusManagerReplaceAllVersionsUnit:
             current=True,
             replace_all_versions=False,
         )
-        session.commit()
+        annotation_status_manager.flush()
 
-        v2 = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version="v2",
@@ -548,16 +642,25 @@ class TestAnnotationStatusManagerReplaceAllVersionsUnit:
             current=True,
             replace_all_versions=False,
         )
+        annotation_status_manager.flush()
         session.commit()
 
         # Both v1 and v2 are current at this point (replace_all_versions=False)
-        session.refresh(v1)
-        session.refresh(v2)
-        assert v1.current is True
-        assert v2.current is True
+        v1 = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+        )
+        v2 = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v2",
+        )
+        assert v1 is not None and v1.current is True
+        assert v2 is not None and v2.current is True
 
         # Now add v3 with replace_all_versions=True — should retire both v1 and v2
-        v3 = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version="v3",
@@ -566,20 +669,26 @@ class TestAnnotationStatusManagerReplaceAllVersionsUnit:
             current=True,
             replace_all_versions=True,
         )
+        annotation_status_manager.flush()
         session.commit()
 
         session.refresh(v1)
         session.refresh(v2)
-        session.refresh(v3)
         assert v1.current is False
         assert v2.current is False
-        assert v3.current is True
+
+        v3 = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v3",
+        )
+        assert v3 is not None and v3.current is True
 
     def test_replace_all_versions_true_only_affects_matching_type(
         self, session, annotation_status_manager, setup_lib_db_with_variant
     ):
         """replace_all_versions=True only retires records for the same annotation_type."""
-        vrs = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version="v1",
@@ -587,7 +696,7 @@ class TestAnnotationStatusManagerReplaceAllVersionsUnit:
             status=AnnotationStatus.SUCCESS,
             current=True,
         )
-        clinvar = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.CLINVAR_CONTROL,
             version="v1",
@@ -595,10 +704,22 @@ class TestAnnotationStatusManagerReplaceAllVersionsUnit:
             status=AnnotationStatus.SUCCESS,
             current=True,
         )
+        annotation_status_manager.flush()
         session.commit()
 
+        vrs = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+        )
+        clinvar = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINVAR_CONTROL,
+            version="v1",
+        )
+
         # replace VRS_MAPPING only
-        new_vrs = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version="v2",
@@ -607,14 +728,20 @@ class TestAnnotationStatusManagerReplaceAllVersionsUnit:
             current=True,
             replace_all_versions=True,
         )
+        annotation_status_manager.flush()
         session.commit()
 
         session.refresh(vrs)
         session.refresh(clinvar)
-        session.refresh(new_vrs)
         assert vrs.current is False
         assert clinvar.current is True
-        assert new_vrs.current is True
+
+        new_vrs = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v2",
+        )
+        assert new_vrs is not None and new_vrs.current is True
 
     def test_replace_all_versions_true_only_affects_matching_variant(
         self, session, annotation_status_manager, setup_lib_db_with_score_set
@@ -627,7 +754,7 @@ class TestAnnotationStatusManagerReplaceAllVersionsUnit:
         session.refresh(variant1)
         session.refresh(variant2)
 
-        ann1 = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=variant1.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version="v1",
@@ -635,7 +762,7 @@ class TestAnnotationStatusManagerReplaceAllVersionsUnit:
             status=AnnotationStatus.SUCCESS,
             current=True,
         )
-        ann2 = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=variant2.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version="v1",
@@ -643,10 +770,22 @@ class TestAnnotationStatusManagerReplaceAllVersionsUnit:
             status=AnnotationStatus.SUCCESS,
             current=True,
         )
+        annotation_status_manager.flush()
         session.commit()
 
+        ann1 = annotation_status_manager.get_current_annotation(
+            variant_id=variant1.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+        )
+        ann2 = annotation_status_manager.get_current_annotation(
+            variant_id=variant2.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+        )
+
         # replace variant1 only
-        new_ann1 = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=variant1.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version="v2",
@@ -655,21 +794,27 @@ class TestAnnotationStatusManagerReplaceAllVersionsUnit:
             current=True,
             replace_all_versions=True,
         )
+        annotation_status_manager.flush()
         session.commit()
 
         session.refresh(ann1)
         session.refresh(ann2)
-        session.refresh(new_ann1)
         assert ann1.current is False
         assert ann2.current is True  # untouched
-        assert new_ann1.current is True
+
+        new_ann1 = annotation_status_manager.get_current_annotation(
+            variant_id=variant1.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v2",
+        )
+        assert new_ann1 is not None and new_ann1.current is True
 
     def test_replace_all_versions_true_same_version_also_retired(
         self, session, annotation_status_manager, existing_annotation_status, setup_lib_db_with_variant
     ):
         """replace_all_versions=True retires a same-version record just as replace_all_versions=False would."""
         # existing_annotation_status is version "v1"
-        new_annotation = annotation_status_manager.add_annotation(
+        annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             version="v1",
@@ -678,8 +823,203 @@ class TestAnnotationStatusManagerReplaceAllVersionsUnit:
             current=True,
             replace_all_versions=True,
         )
+        annotation_status_manager.flush()
         session.commit()
 
         session.refresh(existing_annotation_status)
         assert existing_annotation_status.current is False
+
+        new_annotation = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+        )
+        assert new_annotation is not None
         assert new_annotation.current is True
+        assert new_annotation.status == AnnotationStatus.FAILED
+
+
+@pytest.mark.unit
+class TestAnnotationStatusManagerBatchingUnit:
+    """Unit tests for batching and flush behavior."""
+
+    def test_flush_noop_when_empty(self, annotation_status_manager):
+        """flush() with no pending annotations does nothing and does not error."""
+        annotation_status_manager.flush()  # should not raise
+
+    def test_auto_flush_at_batch_size(self, session, setup_lib_db_with_score_set):
+        """Annotations are auto-flushed to the DB when batch_size is reached."""
+        variants = [
+            Variant(score_set_id=1, hgvs_nt=f"NM_000000.1:c.{i}A>G", hgvs_pro=f"NP_000000.1:p.Met{i}Val", data={})
+            for i in range(3)
+        ]
+        session.add_all(variants)
+        session.commit()
+        for v in variants:
+            session.refresh(v)
+
+        manager = AnnotationStatusManager(session, batch_size=2)
+
+        # Add first — stays pending (below threshold)
+        manager.add_annotation(
+            variant_id=variants[0].id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        assert len(manager._pending) == 1
+
+        # Add second — triggers auto-flush (reaches batch_size=2)
+        manager.add_annotation(
+            variant_id=variants[1].id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        assert len(manager._pending) == 0  # flushed
+
+        # Verify the auto-flushed rows are visible in the DB
+        ann = manager.get_current_annotation(
+            variant_id=variants[0].id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+        )
+        assert ann is not None and ann.current is True
+
+        # Add a third — stays pending (below threshold again)
+        manager.add_annotation(
+            variant_id=variants[2].id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        assert len(manager._pending) == 1
+
+        # Explicit flush persists the remainder
+        manager.flush()
+        assert len(manager._pending) == 0
+
+        ann3 = manager.get_current_annotation(
+            variant_id=variants[2].id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+        )
+        assert ann3 is not None and ann3.current is True
+
+    def test_get_current_annotation_auto_flushes_pending(
+        self, session, annotation_status_manager, setup_lib_db_with_variant
+    ):
+        """get_current_annotation() flushes pending writes before querying."""
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        # No explicit flush — get_current_annotation should auto-flush
+        annotation = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+        )
+        assert annotation is not None
+        assert annotation.current is True
+        assert len(annotation_status_manager._pending) == 0
+
+    def test_flush_clears_internal_buffers(self, session, annotation_status_manager, setup_lib_db_with_variant):
+        """flush() clears both _pending and _retirement_filters."""
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        assert len(annotation_status_manager._pending) == 1
+        assert len(annotation_status_manager._retirement_filters) == 1
+
+        annotation_status_manager.flush()
+        assert len(annotation_status_manager._pending) == 0
+        assert len(annotation_status_manager._retirement_filters) == 0
+
+    def test_batch_retirement_groups_by_annotation_type(
+        self, session, annotation_status_manager, setup_lib_db_with_variant
+    ):
+        """Multiple annotation types in one batch are retired independently."""
+        # Create initial annotations for two types
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINVAR_CONTROL,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        annotation_status_manager.flush()
+        session.commit()
+
+        vrs_v1 = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+        )
+        clinvar_v1 = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINVAR_CONTROL,
+            version="v1",
+        )
+
+        # Now add replacements for both types in one batch
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v2",
+            annotation_data={},
+            status=AnnotationStatus.FAILED,
+            current=True,
+        )
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINVAR_CONTROL,
+            version="v2",
+            annotation_data={},
+            status=AnnotationStatus.FAILED,
+            current=True,
+        )
+        annotation_status_manager.flush()
+        session.commit()
+
+        session.refresh(vrs_v1)
+        session.refresh(clinvar_v1)
+        assert vrs_v1.current is False
+        assert clinvar_v1.current is False
+
+        vrs_v2 = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v2",
+        )
+        clinvar_v2 = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINVAR_CONTROL,
+            version="v2",
+        )
+        assert vrs_v2 is not None and vrs_v2.current is True
+        assert clinvar_v2 is not None and clinvar_v2.current is True

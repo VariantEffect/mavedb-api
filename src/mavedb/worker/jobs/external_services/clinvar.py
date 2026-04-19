@@ -262,6 +262,7 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
 
             total_refreshed += 1
 
+        annotation_manager.flush()
         versions_completed += 1
         logger.info(
             f"Completed ClinVar version {clinvar_version} for {total_variants_to_refresh} variants.",

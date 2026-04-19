@@ -148,6 +148,8 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
                 current=True,
             )
 
+    annotation_manager.flush()
+
     # Save final context and progress
     job_manager.save_to_context({"num_mapped_variants_linked_to_gnomad_variants": num_linked_gnomad_variants})
     job_manager.update_progress(100, 100, f"Linked {num_linked_gnomad_variants} mapped variants to gnomAD variants.")

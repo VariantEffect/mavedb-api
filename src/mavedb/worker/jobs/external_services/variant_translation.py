@@ -329,6 +329,7 @@ async def populate_variant_translations_for_score_set(
                 )
             total_skipped += len(variant_ids)
 
+    annotation_manager.flush()
     job_manager.db.flush()
 
     job_manager.save_to_context(

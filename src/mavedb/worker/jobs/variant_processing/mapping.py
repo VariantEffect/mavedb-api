@@ -264,6 +264,8 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             job_manager.db.add(mapped_variant)
             logger.debug(msg="Added new mapped variant to session.", extra=job_manager.logging_context())
 
+        annotation_manager.flush()
+
         if successful_mapped_variants == 0:
             score_set.mapping_state = MappingState.failed
             score_set.mapping_errors = {"error_message": "All variants failed to map."}

@@ -208,6 +208,8 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
             current=True,
         )
 
+    annotation_manager.flush()
+
     if failed_submissions:
         error_message = f"CAR submission failed for {len(failed_submissions)} variants in score set {score_set.urn}."
         logger.error(
@@ -405,6 +407,8 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
             },
             current=True,
         )
+
+    annotation_manager.flush()
 
     if submission_failures:
         logger.warning(

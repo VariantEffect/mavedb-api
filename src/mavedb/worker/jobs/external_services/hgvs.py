@@ -263,6 +263,7 @@ async def populate_hgvs_for_score_set(ctx: dict, job_id: int, job_manager: JobMa
         )
         populated_count += 1
 
+    annotation_manager.flush()
     job_manager.db.flush()
 
     job_manager.save_to_context(
