@@ -21,10 +21,7 @@ from sqlalchemy import select
 
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.clingen.allele_registry import get_associated_clinvar_allele_id
-from mavedb.lib.clinvar.utils import (
-    fetch_clinvar_variant_summary_tsv,
-    parse_clinvar_variant_summary,
-)
+from mavedb.lib.clinvar.utils import fetch_clinvar_variant_data
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.enums.annotation_type import AnnotationType
@@ -117,8 +114,7 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
         logger.info(f"Processing ClinVar version {clinvar_version}", extra=job_manager.logging_context())
 
         try:
-            tsv_content = await fetch_clinvar_variant_summary_tsv(month, year)
-            tsv_data = parse_clinvar_variant_summary(tsv_content)
+            tsv_data = await fetch_clinvar_variant_data(month, year)
         except Exception:
             logger.error(
                 f"Failed to fetch/parse ClinVar TSV for version {clinvar_version}, skipping.",

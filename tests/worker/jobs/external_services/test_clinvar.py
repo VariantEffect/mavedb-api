@@ -10,7 +10,6 @@ from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 
 pytest.importorskip("arq")
 
-import gzip
 from unittest.mock import call, patch
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
@@ -22,10 +21,13 @@ from mavedb.worker.lib.managers.job_manager import JobManager
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
-
-def mock_fetch_tsv(*args, **kwargs):
-    data = b"#AlleleID\tClinicalSignificance\tGeneSymbol\tReviewStatus\nVCV000000123\tbenign\tTEST\treviewed by expert panel"
-    return gzip.compress(data)
+MOCK_CLINVAR_DATA = {
+    "VCV000000123": {
+        "GeneSymbol": "TEST",
+        "ClinicalSignificance": "benign",
+        "ReviewStatus": "reviewed by expert panel",
+    },
+}
 
 
 @pytest.mark.unit
@@ -55,7 +57,7 @@ class TestRefreshClinvarControlsUnit:
             raise Exception("Network error")
 
         with patch(
-            "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
+            "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
             side_effect=awaitable_exception,
         ):
             result = await refresh_clinvar_controls(
@@ -77,15 +79,9 @@ class TestRefreshClinvarControlsUnit:
     ):
         """Test that the job completes successfully when there are no mapped variants."""
 
-        async def awaitable_noop(*args, **kwargs):
-            return {}
-
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                side_effect=awaitable_noop,
-            ),
-            patch("mavedb.worker.jobs.external_services.clinvar.parse_clinvar_variant_summary"),
+        with patch(
+            "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+            return_value={},
         ):
             result = await refresh_clinvar_controls(
                 mock_worker_ctx,
@@ -125,8 +121,8 @@ class TestRefreshClinvarControlsUnit:
         session.commit()
 
         with patch(
-            "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-            return_value=mock_fetch_tsv(),
+            "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+            return_value=MOCK_CLINVAR_DATA,
         ):
             result = await refresh_clinvar_controls(
                 mock_worker_ctx,
@@ -160,8 +156,8 @@ class TestRefreshClinvarControlsUnit:
         session.commit()
 
         with patch(
-            "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-            return_value=mock_fetch_tsv(),
+            "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+            return_value=MOCK_CLINVAR_DATA,
         ):
             result = await refresh_clinvar_controls(
                 mock_worker_ctx,
@@ -202,8 +198,8 @@ class TestRefreshClinvarControlsUnit:
                 side_effect=requests.exceptions.RequestException("ClinGen API error"),
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             result = await refresh_clinvar_controls(
@@ -243,8 +239,8 @@ class TestRefreshClinvarControlsUnit:
                 return_value=None,
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             result = await refresh_clinvar_controls(
@@ -277,9 +273,14 @@ class TestRefreshClinvarControlsUnit:
     ):
         """Test that the job handles no ClinVar data found for the associated ClinVar Allele ID."""
 
-        def mock_fetch_tsv(*args, **kwargs):
-            data = b"#AlleleID\tClinicalSignificance\tGeneSymbol\tReviewStatus\nVCV000000001\tbenign\tTEST\treviewed by expert panel"
-            return gzip.compress(data)
+        # TSV data with a different allele ID than the one being looked up
+        non_matching_clinvar_data = {
+            "VCV000000001": {
+                "GeneSymbol": "TEST",
+                "ClinicalSignificance": "benign",
+                "ReviewStatus": "reviewed by expert panel",
+            },
+        }
 
         # Mock the get_associated_clinvar_allele_id function to return a ClinVar Allele ID
         with (
@@ -288,8 +289,8 @@ class TestRefreshClinvarControlsUnit:
                 return_value="VCV000000123",
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=non_matching_clinvar_data,
             ),
         ):
             result = await refresh_clinvar_controls(
@@ -329,8 +330,8 @@ class TestRefreshClinvarControlsUnit:
                 return_value="VCV000000123",
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             result = await refresh_clinvar_controls(
@@ -389,8 +390,8 @@ class TestRefreshClinvarControlsUnit:
                 return_value="VCV000000123",
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             result = await refresh_clinvar_controls(
@@ -429,8 +430,8 @@ class TestRefreshClinvarControlsUnit:
                 return_value="VCV000000123",
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                side_effect=[mock_fetch_tsv(), mock_fetch_tsv()],
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                side_effect=[MOCK_CLINVAR_DATA, MOCK_CLINVAR_DATA],
             ),
         ):
             # First run
@@ -512,8 +513,8 @@ class TestRefreshClinvarControlsUnit:
                 side_effect=side_effect_get_associated_clinvar_allele_id,
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             result = await refresh_clinvar_controls(
@@ -561,8 +562,8 @@ class TestRefreshClinvarControlsUnit:
                 return_value="VCV000000123",
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
             patch.object(JobManager, "update_progress") as mock_update_progress,
         ):
@@ -610,8 +611,8 @@ class TestRefreshClinvarControlsIntegration:
 
         with (
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
@@ -662,8 +663,8 @@ class TestRefreshClinvarControlsIntegration:
 
         with (
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
@@ -719,8 +720,8 @@ class TestRefreshClinvarControlsIntegration:
 
         with (
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
@@ -786,8 +787,8 @@ class TestRefreshClinvarControlsIntegration:
                 return_value=None,
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
@@ -850,8 +851,8 @@ class TestRefreshClinvarControlsIntegration:
                 return_value="VCV000000001",
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
@@ -927,8 +928,8 @@ class TestRefreshClinvarControlsIntegration:
                 return_value="VCV000000123",
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
@@ -993,8 +994,8 @@ class TestRefreshClinvarControlsIntegration:
                 return_value="VCV000000123",
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
@@ -1060,8 +1061,8 @@ class TestRefreshClinvarControlsIntegration:
                 return_value="VCV000000123",
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_in_pipeline.id)
@@ -1111,8 +1112,8 @@ class TestRefreshClinvarControlsIntegration:
                 return_value="VCV000000123",
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                side_effect=[mock_fetch_tsv(), mock_fetch_tsv()],
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                side_effect=[MOCK_CLINVAR_DATA, MOCK_CLINVAR_DATA],
             ),
         ):
             # First run
@@ -1193,8 +1194,8 @@ class TestRefreshClinvarControlsIntegration:
                 side_effect=side_effect_get_associated_clinvar_allele_id,
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             result = await refresh_clinvar_controls(mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id)
@@ -1253,8 +1254,8 @@ class TestRefreshClinvarControlsIntegration:
                 side_effect=ValueError("Unexpected error"),
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             result = await refresh_clinvar_controls(
@@ -1312,8 +1313,8 @@ class TestRefreshClinvarControlsArqContext:
                 return_value="VCV000000123",
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             await arq_redis.enqueue_job("refresh_clinvar_controls", sample_refresh_clinvar_controls_job_run.id)
@@ -1353,8 +1354,8 @@ class TestRefreshClinvarControlsArqContext:
                 return_value="VCV000000123",
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             await arq_redis.enqueue_job("refresh_clinvar_controls", sample_refresh_clinvar_controls_job_run.id)
@@ -1396,8 +1397,8 @@ class TestRefreshClinvarControlsArqContext:
                 side_effect=ValueError("Unexpected error"),
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             await arq_redis.enqueue_job("refresh_clinvar_controls", sample_refresh_clinvar_controls_job_run.id)
@@ -1434,8 +1435,8 @@ class TestRefreshClinvarControlsArqContext:
                 side_effect=ValueError("Unexpected error"),
             ),
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_summary_tsv",
-                return_value=mock_fetch_tsv(),
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
             ),
         ):
             await arq_redis.enqueue_job("refresh_clinvar_controls", sample_refresh_clinvar_controls_job_run.id)

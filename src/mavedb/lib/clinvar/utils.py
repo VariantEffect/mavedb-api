@@ -1,48 +1,30 @@
 import asyncio
 import csv
 import gzip
+import hashlib
 import io
 import logging
-import os
+import pickle
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict
 
 import requests
 from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
-from mavedb.lib.clinvar.constants import TSV_VARIANT_ARCHIVE_BASE_URL
+from mavedb.lib.clinvar.constants import (
+    CLINVAR_CACHE_DIR,
+    CLINVAR_FIELDS_TO_KEEP,
+    NCBI_REQUEST_HEADERS,
+    NCBI_RETRY_STRATEGY,
+    TSV_VARIANT_ARCHIVE_BASE_URL,
+)
+
+_FIELDS_HASH = hashlib.sha256("|".join(CLINVAR_FIELDS_TO_KEEP).encode()).hexdigest()[:8]
+"""Short hash of the kept fields, embedded in the cache filename so that adding/removing fields automatically invalidates stale caches. This ensures that if we change which fields we keep from the ClinVar TSV, we won't accidentally use old cached data that doesn't have the new fields."""
 
 logger = logging.getLogger(__name__)
-
-# NCBI requires a descriptive User-Agent header; requests using the default
-# `python-requests/...` agent are routinely throttled or rejected with 503.
-NCBI_REQUEST_HEADERS = {
-    "User-Agent": "MaveDB/1.0 (https://mavedb.org)",
-}
-
-# ClinVar TSV files are archival and never change once released
-# Use 90-day TTL (7776000 seconds) for file-based caching
-# Since these files are immutable and stored on disk (not Redis), a long TTL
-# reduces unnecessary re-downloads and bandwidth usage
-CLINVAR_TSV_CACHE_TTL = 7776000
-
-# File-based cache directory for ClinVar TSV files
-# These files are large (5-50+ MB) so we store them on disk instead of Redis
-# Defaults to a user-specific cache directory under the home directory unless CLINVAR_CACHE_DIR is set
-CLINVAR_CACHE_DIR = Path(os.getenv("CLINVAR_CACHE_DIR", Path.home() / ".cache" / "mavedb" / "clinvar"))
-
-# NCBI's FTP servers aggressively throttle concurrent connections, returning 503
-# when multiple requests arrive in quick succession (common when ARQ runs several
-# ClinVar refresh jobs in parallel). Retry with exponential backoff.
-NCBI_RETRY_STRATEGY = Retry(
-    total=5,
-    backoff_factor=2,
-    status_forcelist=[429, 500, 502, 503, 504],
-)
 
 
 def _ncbi_session() -> requests.Session:
@@ -84,23 +66,26 @@ def validate_clinvar_variant_summary_date(month: int, year: int) -> None:
         raise ValueError("Cannot fetch ClinVar data for future months.")
 
 
-async def fetch_clinvar_variant_summary_tsv(month: int, year: int) -> bytes:
+async def fetch_clinvar_variant_data(month: int, year: int) -> Dict[str, Dict[str, str]]:
     """
-    Fetches the ClinVar variant summary TSV file for a specified month and year.
+    Fetch, parse, and cache ClinVar variant summary data for a given month/year.
 
-    This function attempts to download the variant summary file from the ClinVar FTP archive.
-    It first tries the top-level directory for recent files, and if not found, falls back to the year-based subdirectory.
-    The function validates the provided month and year before attempting the download.
+    Downloads the gzipped TSV from NCBI (with retry), parses it, trims each row
+    to only the fields we need (see ``CLINVAR_FIELDS_TO_KEEP``), and caches the
+    resulting dict as a pickle file on disk.  Both download and parse run in an
+    executor to avoid blocking the event loop — the modern 350 MB+ files take
+    significant CPU time to decompress and parse.
 
-    Results are cached to disk for 90 days since archival ClinVar data is immutable.
-    File-based caching is used instead of Redis because these files are large (5-50+ MB).
+    On subsequent calls the cached pickle is loaded directly (also in an executor),
+    skipping both the network fetch and the expensive parse.
 
     Args:
-        month (int): The month for which to fetch the variant summary (as an integer).
-        year (int): The year for which to fetch the variant summary.
+        month: The month for which to fetch the variant summary (1-12).
+        year: The year for which to fetch the variant summary.
 
     Returns:
-        bytes: The contents of the downloaded variant summary TSV file (gzipped).
+        A dict mapping AlleleID (str) to a dict of the kept fields, e.g.
+        ``{"VCV123": {"GeneSymbol": "BRCA1", "ClinicalSignificance": "Pathogenic", "ReviewStatus": "..."}}``.
 
     Raises:
         requests.RequestException: If the file cannot be downloaded from either location.
@@ -108,82 +93,78 @@ async def fetch_clinvar_variant_summary_tsv(month: int, year: int) -> bytes:
     """
     validate_clinvar_variant_summary_date(month, year)
 
-    # Check file-based cache first
-    cache_file = CLINVAR_CACHE_DIR / f"variant_summary_{year}-{month:02d}.txt.gz"
+    cache_file = CLINVAR_CACHE_DIR / f"variant_summary_{year}-{month:02d}.parsed.{_FIELDS_HASH}.pkl"
 
+    # Archival ClinVar files are immutable — cache never expires.
     if cache_file.exists():
-        file_age = time.time() - cache_file.stat().st_mtime
-        if file_age < CLINVAR_TSV_CACHE_TTL:
-            logger.debug(
-                f"Cache hit for ClinVar {year}-{month:02d} (age: {file_age:.0f}s, TTL: {CLINVAR_TSV_CACHE_TTL}s)"
-            )
-            return cache_file.read_bytes()
-        else:
-            logger.debug(
-                f"Cache expired for ClinVar {year}-{month:02d} (age: {file_age:.0f}s, TTL: {CLINVAR_TSV_CACHE_TTL}s)"
-            )
+        logger.debug(f"Cache hit for parsed ClinVar {year}-{month:02d}")
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _load_parsed_cache, cache_file)
 
-    logger.debug(f"Cache miss or expired - fetching ClinVar {year}-{month:02d} from remote server")
-    # Construct URLs for the variant summary TSV file. ClinVar stores recent files at the top level and older files in year-based subdirectories.
-    # The cadence at which files are moved is not documented, so we try both locations with a preference for the top-level URL.
+    logger.debug(f"Cache miss — fetching and parsing ClinVar {year}-{month:02d}")
+
+    # ClinVar stores recent files at the top level and older files in
+    # year-based subdirectories.  The cadence at which files are moved is not
+    # documented, so we try both locations with a preference for the top-level.
     url_top_level = f"{TSV_VARIANT_ARCHIVE_BASE_URL}/variant_summary_{year}-{month:02d}.txt.gz"
     url_archive = f"{TSV_VARIANT_ARCHIVE_BASE_URL}/{year}/variant_summary_{year}-{month:02d}.txt.gz"
 
-    # Execute HTTP request in executor to avoid blocking the event loop
     loop = asyncio.get_running_loop()
-
-    def _fetch_and_cache_tsv():
-        session = _ncbi_session()
-        try:
-            response = session.get(url_top_level, stream=True)
-            response.raise_for_status()
-            content = response.content
-        except requests.exceptions.HTTPError:
-            response = session.get(url_archive, stream=True)
-            response.raise_for_status()
-            content = response.content
-
-        # Store in file cache
-        CLINVAR_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        cache_file.write_bytes(content)
-        logger.info(f"Cached ClinVar {year}-{month:02d} to {cache_file} ({len(content)} bytes)")
-
-        return content
-
-    return await loop.run_in_executor(None, _fetch_and_cache_tsv)
+    return await loop.run_in_executor(None, _fetch_parse_and_cache, url_top_level, url_archive, cache_file, year, month)
 
 
-def parse_clinvar_variant_summary(tsv_content: bytes) -> Dict[str, Dict[str, str]]:
+def _load_parsed_cache(cache_file: Path) -> Dict[str, Dict[str, str]]:
+    """Load a previously cached parsed dict from a pickle file."""
+    with open(cache_file, "rb") as f:
+        return pickle.load(f)  # noqa: S301 — trusted local cache written by _fetch_parse_and_cache
+
+
+def _fetch_parse_and_cache(
+    url_top_level: str,
+    url_archive: str,
+    cache_file: Path,
+    year: int,
+    month: int,
+) -> Dict[str, Dict[str, str]]:
+    """Download ClinVar TSV, parse to a trimmed dict, and cache as pickle.
+
+    Runs in an executor — all operations here are blocking (network I/O + CPU).
     """
-    Parses a gzipped TSV file content and returns a dictionary mapping Allele IDs to row data.
+    session = _ncbi_session()
+    try:
+        response = session.get(url_top_level, stream=True)
+        response.raise_for_status()
+        content = response.content
+    except requests.exceptions.HTTPError:
+        response = session.get(url_archive, stream=True)
+        response.raise_for_status()
+        content = response.content
 
-    Args:
-        tsv_content (bytes): The gzipped TSV file content as bytes.
-
-    Returns:
-        Dict[str, Dict[str, str]]: A dictionary where each key is a string Allele ID (from the '#AlleleID' column),
-        and each value is a dictionary representing the corresponding row with column names as keys.
-
-    Raises:
-        KeyError: If the '#AlleleID' column is missing in any row.
-        ValueError: If the '#AlleleID' value cannot be converted to an integer.
-        csv.Error: If there is an error parsing the TSV content.
-
-    Note:
-        The function temporarily increases the CSV field size limit to handle large fields in the TSV file. Some old ClinVar
-        variant summary files may have fields larger than the default limit.
-    """
+    # Parse the gzipped TSV, keeping only the fields we actually use.
+    # Some old ClinVar files have fields larger than the default csv limit.
     default_csv_field_size_limit = csv.field_size_limit()
-
     try:
         csv.field_size_limit(sys.maxsize)
-
-        with gzip.open(filename=io.BytesIO(tsv_content), mode="rt") as f:
-            # This readlines object will only be a list of bytes if the file is opened in "rb" mode.
+        with gzip.open(filename=io.BytesIO(content), mode="rt") as f:
             reader = csv.DictReader(f.readlines(), delimiter="\t")  # type: ignore
-            data = {str(row["#AlleleID"]): row for row in reader}
-
+            data: Dict[str, Dict[str, str]] = {
+                str(row["#AlleleID"]): {field: row[field] for field in CLINVAR_FIELDS_TO_KEEP} for row in reader
+            }
     finally:
         csv.field_size_limit(default_csv_field_size_limit)
+
+    # Cache the parsed + trimmed dict to disk so subsequent calls skip both
+    # the network fetch and the expensive parse.
+    CLINVAR_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(cache_file, "wb") as f:
+        pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+    logger.info(f"Cached parsed ClinVar {year}-{month:02d} to {cache_file} ({len(data)} alleles)")
+
+    # Remove stale cache files for this month/year with a different fields hash.
+    stale_prefix = f"variant_summary_{year}-{month:02d}.parsed."
+    for stale in CLINVAR_CACHE_DIR.glob(f"{stale_prefix}*.pkl"):
+        if stale != cache_file:
+            stale.unlink(missing_ok=True)
+            logger.debug(f"Removed stale cache file {stale}")
 
     return data
