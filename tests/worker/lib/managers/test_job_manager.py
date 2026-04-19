@@ -1842,6 +1842,7 @@ class TestGetJobUnit:
         manager.db = mock_db
         manager.redis = mock_redis
         manager.job_id = mock_job_run.id
+        manager.context = {}
 
         with (
             TransactionSpy.mock_database_execution_failure(manager.db),

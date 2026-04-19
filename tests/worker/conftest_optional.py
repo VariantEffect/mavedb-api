@@ -21,6 +21,7 @@ def mock_job_manager(mock_job_run):
     manager.db = mock_db
     manager.redis = mock_redis
     manager.job_id = mock_job_run.id
+    manager.context = {}
 
     with patch.object(manager, "get_job", return_value=mock_job_run):
         yield manager

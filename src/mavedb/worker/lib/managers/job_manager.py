@@ -133,8 +133,6 @@ class JobManager(BaseManager):
         worker thread and should not be shared across concurrent operations.
     """
 
-    context: dict[str, Any] = {}
-
     def __init__(self, db: Session, redis: Optional[ArqRedis], job_id: int):
         """Initialize JobManager for a specific job.
 
@@ -159,6 +157,7 @@ class JobManager(BaseManager):
         """
         super().__init__(db, redis)
 
+        self.context: dict[str, Any] = {}
         self.job_id = job_id
         job = self.get_job()
         self.pipeline_id = job.pipeline_id if job else None
