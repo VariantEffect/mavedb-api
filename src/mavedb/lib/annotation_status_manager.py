@@ -10,6 +10,7 @@ from typing import Optional
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import desc
 
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.job_pipeline import AnnotationStatus
@@ -150,3 +151,53 @@ class AnnotationStatusManager:
 
         result = self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    def get_annotation_history(
+        self,
+        variant_id: int,
+        annotation_type: AnnotationType,
+        version: Optional[str] = None,
+    ) -> list[VariantAnnotationStatus]:
+        """
+        Return the full annotation timeline for a variant/type, newest first.
+
+        Includes both current and retired rows — useful for debugging and
+        support investigations.
+        """
+        self.flush()
+
+        stmt = (
+            select(VariantAnnotationStatus)
+            .where(
+                VariantAnnotationStatus.variant_id == variant_id,
+                VariantAnnotationStatus.annotation_type == annotation_type,
+            )
+            .order_by(desc(VariantAnnotationStatus.id))
+        )
+
+        if version is not None:
+            stmt = stmt.where(VariantAnnotationStatus.version == version)
+
+        return list(self.session.scalars(stmt).all())
+
+    def get_all_current_annotations(
+        self,
+        variant_id: int,
+    ) -> list[VariantAnnotationStatus]:
+        """
+        Return all current annotations for a variant, across all types and versions.
+
+        Useful for a quick overview of what annotations are active for a given variant.
+        """
+        self.flush()
+
+        stmt = (
+            select(VariantAnnotationStatus)
+            .where(
+                VariantAnnotationStatus.variant_id == variant_id,
+                VariantAnnotationStatus.current.is_(True),
+            )
+            .order_by(VariantAnnotationStatus.annotation_type, VariantAnnotationStatus.version)
+        )
+
+        return list(self.session.scalars(stmt).all())

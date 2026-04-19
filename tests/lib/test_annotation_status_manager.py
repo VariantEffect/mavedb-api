@@ -1023,3 +1023,319 @@ class TestAnnotationStatusManagerBatchingUnit:
         )
         assert vrs_v2 is not None and vrs_v2.current is True
         assert clinvar_v2 is not None and clinvar_v2.current is True
+
+
+@pytest.mark.unit
+class TestAnnotationStatusManagerAuditHelpersUnit:
+    """Unit tests for audit query helpers: get_annotation_history and get_all_current_annotations."""
+
+    def test_get_annotation_history_returns_all_rows_newest_first(
+        self, session, annotation_status_manager, setup_lib_db_with_variant
+    ):
+        """get_annotation_history returns both current and retired rows, newest first."""
+        # Create two annotations for the same (variant, type, version) — first gets retired
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        annotation_status_manager.flush()
+
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.FAILED,
+            current=True,
+        )
+        annotation_status_manager.flush()
+        session.commit()
+
+        history = annotation_status_manager.get_annotation_history(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+        )
+
+        assert len(history) == 2
+        # Newest first
+        assert history[0].status == AnnotationStatus.FAILED
+        assert history[0].current is True
+        assert history[1].status == AnnotationStatus.SUCCESS
+        assert history[1].current is False
+
+    def test_get_annotation_history_filters_by_version(
+        self, session, annotation_status_manager, setup_lib_db_with_variant
+    ):
+        """get_annotation_history with version only returns matching rows."""
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINVAR_CONTROL,
+            version="2025-01",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+            replace_all_versions=False,
+        )
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINVAR_CONTROL,
+            version="2025-02",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+            replace_all_versions=False,
+        )
+        annotation_status_manager.flush()
+        session.commit()
+
+        history_jan = annotation_status_manager.get_annotation_history(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINVAR_CONTROL,
+            version="2025-01",
+        )
+        assert len(history_jan) == 1
+        assert history_jan[0].version == "2025-01"
+
+    def test_get_annotation_history_without_version_returns_all_versions(
+        self, session, annotation_status_manager, setup_lib_db_with_variant
+    ):
+        """get_annotation_history without version returns rows across all versions."""
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINVAR_CONTROL,
+            version="2025-01",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+            replace_all_versions=False,
+        )
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINVAR_CONTROL,
+            version="2025-02",
+            annotation_data={},
+            status=AnnotationStatus.FAILED,
+            current=True,
+            replace_all_versions=False,
+        )
+        annotation_status_manager.flush()
+        session.commit()
+
+        history = annotation_status_manager.get_annotation_history(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINVAR_CONTROL,
+        )
+        assert len(history) == 2
+
+    def test_get_annotation_history_empty_for_no_records(self, annotation_status_manager, setup_lib_db_with_variant):
+        """get_annotation_history returns empty list when no records exist."""
+        history = annotation_status_manager.get_annotation_history(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+        )
+        assert history == []
+
+    def test_get_annotation_history_auto_flushes_pending(
+        self, session, annotation_status_manager, setup_lib_db_with_variant
+    ):
+        """get_annotation_history flushes pending writes before querying."""
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        # No explicit flush
+        history = annotation_status_manager.get_annotation_history(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+        )
+        assert len(history) == 1
+        assert len(annotation_status_manager._pending) == 0
+
+    def test_get_all_current_annotations_returns_all_types(
+        self, session, annotation_status_manager, setup_lib_db_with_variant
+    ):
+        """get_all_current_annotations returns current annotations across all types."""
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINVAR_CONTROL,
+            version="2025-01",
+            annotation_data={},
+            status=AnnotationStatus.FAILED,
+            current=True,
+        )
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
+            version=None,
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        annotation_status_manager.flush()
+        session.commit()
+
+        all_current = annotation_status_manager.get_all_current_annotations(
+            variant_id=setup_lib_db_with_variant.id,
+        )
+        assert len(all_current) == 3
+        types = {a.annotation_type for a in all_current}
+        assert types == {
+            AnnotationType.VRS_MAPPING,
+            AnnotationType.CLINVAR_CONTROL,
+            AnnotationType.CLINGEN_ALLELE_ID,
+        }
+
+    def test_get_all_current_annotations_excludes_retired(
+        self, session, annotation_status_manager, setup_lib_db_with_variant
+    ):
+        """get_all_current_annotations does not include retired rows."""
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        annotation_status_manager.flush()
+
+        # Replace it — v1 becomes retired
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v2",
+            annotation_data={},
+            status=AnnotationStatus.FAILED,
+            current=True,
+        )
+        annotation_status_manager.flush()
+        session.commit()
+
+        all_current = annotation_status_manager.get_all_current_annotations(
+            variant_id=setup_lib_db_with_variant.id,
+        )
+        assert len(all_current) == 1
+        assert all_current[0].version == "v2"
+
+    def test_get_all_current_annotations_empty_for_no_records(
+        self, annotation_status_manager, setup_lib_db_with_variant
+    ):
+        """get_all_current_annotations returns empty list when no records exist."""
+        result = annotation_status_manager.get_all_current_annotations(
+            variant_id=setup_lib_db_with_variant.id,
+        )
+        assert result == []
+
+    def test_get_all_current_annotations_auto_flushes_pending(
+        self, session, annotation_status_manager, setup_lib_db_with_variant
+    ):
+        """get_all_current_annotations flushes pending writes before querying."""
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        # No explicit flush
+        result = annotation_status_manager.get_all_current_annotations(
+            variant_id=setup_lib_db_with_variant.id,
+        )
+        assert len(result) == 1
+        assert len(annotation_status_manager._pending) == 0
+
+    def test_get_all_current_annotations_ordered_by_type_then_version(
+        self, session, annotation_status_manager, setup_lib_db_with_variant
+    ):
+        """get_all_current_annotations returns results ordered by annotation_type, version."""
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINVAR_CONTROL,
+            version="2025-02",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+            replace_all_versions=False,
+        )
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.CLINVAR_CONTROL,
+            version="2025-01",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+            replace_all_versions=False,
+        )
+        annotation_status_manager.flush()
+        session.commit()
+
+        all_current = annotation_status_manager.get_all_current_annotations(
+            variant_id=setup_lib_db_with_variant.id,
+        )
+        assert len(all_current) == 3
+        # clinvar_control < vrs_mapping alphabetically
+        assert all_current[0].annotation_type == AnnotationType.CLINVAR_CONTROL
+        assert all_current[0].version == "2025-01"
+        assert all_current[1].annotation_type == AnnotationType.CLINVAR_CONTROL
+        assert all_current[1].version == "2025-02"
+        assert all_current[2].annotation_type == AnnotationType.VRS_MAPPING
+
+
+@pytest.mark.unit
+class TestVariantAnnotationStatusReprUnit:
+    """Unit tests for the VariantAnnotationStatus __repr__ method."""
+
+    def test_repr_includes_key_fields(self, session, annotation_status_manager, setup_lib_db_with_variant):
+        """__repr__ includes id, variant_id, type, version, status, current, and created_at."""
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+            annotation_data={},
+            status=AnnotationStatus.SUCCESS,
+            current=True,
+        )
+        annotation_status_manager.flush()
+        session.commit()
+
+        annotation = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1",
+        )
+        repr_str = repr(annotation)
+
+        assert "VariantAnnotationStatus" in repr_str
+        assert f"id={annotation.id}" in repr_str
+        assert f"variant_id={setup_lib_db_with_variant.id}" in repr_str
+        assert "type='vrs_mapping'" in repr_str
+        assert "version='v1'" in repr_str
+        assert "status='success'" in repr_str
+        assert "current=True" in repr_str
+        assert "created_at=" in repr_str
