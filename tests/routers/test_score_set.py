@@ -878,7 +878,9 @@ def test_show_score_sets_anonymous_can_fetch_public_score_sets(
     assert response_data[0]["urn"] == published_score_set["urn"]
 
 
-def test_show_score_sets_anonymous_cannot_fetch_private_score_sets(session, client, setup_router_db, anonymous_app_overrides):
+def test_show_score_sets_anonymous_cannot_fetch_private_score_sets(
+    session, client, setup_router_db, anonymous_app_overrides
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     # Score set is private (not published); change ownership so it belongs to another user
@@ -930,7 +932,9 @@ def test_show_score_sets_mixed_public_and_private_returns_404(
 ):
     experiment = create_experiment(client)
     public_score_set = create_seq_score_set(client, experiment["urn"])
-    public_score_set = mock_worker_variant_insertion(client, session, data_provider, public_score_set, data_files / "scores.csv")
+    public_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, public_score_set, data_files / "scores.csv"
+    )
     private_score_set = create_seq_score_set(client, experiment["urn"])
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
         published_score_set = publish_score_set(client, public_score_set["urn"])
@@ -1449,6 +1453,115 @@ def test_admin_can_add_scores_and_counts_to_other_user_score_set(
     # fact that it would have succeeded.
     score_set.update({"processingState": "processing"})
     assert score_set == response_data
+
+
+########################################################################################################################
+# Score set variant upload error handling
+########################################################################################################################
+
+
+def test_upload_score_set_variant_data_returns_500_and_resets_processing_state_when_enqueue_job_fails(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception("queue failure")),
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+
+    assert response.status_code == 500
+
+    db_score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    session.refresh(db_score_set)
+    assert db_score_set.processing_state == ProcessingState.failed
+
+
+def test_upload_score_set_variant_data_deletes_s3_files_when_enqueue_job_fails(
+    client, setup_router_db, data_files, mock_s3_client
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+    counts_csv_path = data_files / "counts.csv"
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        open(counts_csv_path, "rb") as counts_file,
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception("queue failure")),
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={
+                "scores_file": (scores_csv_path.name, scores_file, "text/csv"),
+                "counts_file": (counts_csv_path.name, counts_file, "text/csv"),
+            },
+        )
+
+    assert response.status_code == 500
+    # Both uploaded S3 keys should be passed to delete_objects for cleanup.
+    mock_s3_client.delete_objects.assert_called_once()
+    delete_call_kwargs = mock_s3_client.delete_objects.call_args.kwargs
+    deleted_keys = {obj["Key"] for obj in delete_call_kwargs["Delete"]["Objects"]}
+    assert len(deleted_keys) == 2
+    assert all("scores.csv" in k or "counts.csv" in k for k in deleted_keys)
+
+
+def test_upload_score_set_variant_data_deletes_s3_files_when_pipeline_creation_fails(
+    client, setup_router_db, data_files, mock_s3_client
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch("mavedb.routers.score_sets.PipelineFactory.create_pipeline", side_effect=Exception("pipeline failure")),
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+
+    assert response.status_code == 500
+    mock_s3_client.delete_objects.assert_called_once()
+    delete_call_kwargs = mock_s3_client.delete_objects.call_args.kwargs
+    deleted_keys = {obj["Key"] for obj in delete_call_kwargs["Delete"]["Objects"]}
+    assert len(deleted_keys) == 1
+    assert any("scores.csv" in k for k in deleted_keys)
+
+
+def test_patch_score_set_with_variants_returns_500_and_resets_processing_state_when_enqueue_job_fails(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception("queue failure")),
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.patch(
+            f"/api/v1/score-sets-with-variants/{score_set['urn']}",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+
+    assert response.status_code == 500
+
+    db_score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    session.refresh(db_score_set)
+    assert db_score_set.processing_state == ProcessingState.failed
 
 
 ########################################################################################################################

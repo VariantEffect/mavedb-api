@@ -171,36 +171,53 @@ async def enqueue_variant_creation(
                 Key=counts_file_key,
             )
 
-    pipeline_factory = PipelineFactory(session=db)
-    pipeline, pipeline_entrypoint = pipeline_factory.create_pipeline(
-        pipeline_name="validate_map_annotate_score_set",
-        creating_user=user_data.user,
-        pipeline_params={
-            "correlation_id": correlation_id_for_context(),
-            "score_set_id": item.id,
-            "updater_id": user_data.user.id,
-            "scores_file_key": scores_file_key,
-            "counts_file_key": counts_file_key,
-            "score_columns_metadata": item.dataset_columns.get("score_columns_metadata")
-            if new_score_columns_metadata is None
-            else new_score_columns_metadata,
-            "count_columns_metadata": item.dataset_columns.get("count_columns_metadata")
-            if new_count_columns_metadata is None
-            else new_count_columns_metadata,
-        },
-    )
-
-    # Await the insertion of this job into the worker queue, not the job itself.
-    # Uses provided score and counts dataframes and metadata files, or falls back to existing data on the score set if not provided.
-    job = await worker.enqueue_job(
-        pipeline_entrypoint.job_function, pipeline_entrypoint.id, _job_id=pipeline_entrypoint.urn
-    )
-    if job is not None:
-        save_to_logging_context({"worker_job_id": job.job_id})
-        logger.info(
-            msg="Enqueued validate_map_annotate_score_set pipeline (job_id: {}).".format(job.job_id),
-            extra=logging_context(),
+    try:
+        pipeline_factory = PipelineFactory(session=db)
+        pipeline, pipeline_entrypoint = pipeline_factory.create_pipeline(
+            pipeline_name="validate_map_annotate_score_set",
+            creating_user=user_data.user,
+            pipeline_params={
+                "correlation_id": correlation_id_for_context(),
+                "score_set_id": item.id,
+                "updater_id": user_data.user.id,
+                "scores_file_key": scores_file_key,
+                "counts_file_key": counts_file_key,
+                "score_columns_metadata": item.dataset_columns.get("score_columns_metadata")
+                if new_score_columns_metadata is None
+                else new_score_columns_metadata,
+                "count_columns_metadata": item.dataset_columns.get("count_columns_metadata")
+                if new_count_columns_metadata is None
+                else new_count_columns_metadata,
+            },
         )
+
+        # Await the insertion of this job into the worker queue, not the job itself.
+        # Uses provided score and counts dataframes and metadata files, or falls back to existing data on the score set if not provided.
+        job = await worker.enqueue_job(
+            pipeline_entrypoint.job_function, pipeline_entrypoint.id, _job_id=pipeline_entrypoint.urn
+        )
+        if job is not None:
+            save_to_logging_context({"worker_job_id": job.job_id})
+            logger.info(
+                msg="Enqueued validate_map_annotate_score_set pipeline (job_id: {}).".format(job.job_id),
+                extra=logging_context(),
+            )
+    except Exception:
+        # Clean up any S3 files uploaded during this call to avoid orphaned objects when the
+        # pipeline could not be created or enqueued.
+        keys_to_delete = [k for k in [scores_file_key, counts_file_key] if k is not None]
+        if keys_to_delete:
+            try:
+                s3_client().delete_objects(
+                    Bucket=CSV_UPLOAD_S3_BUCKET_NAME,
+                    Delete={"Objects": [{"Key": k} for k in keys_to_delete]},
+                )
+            except Exception:
+                logger.error(
+                    msg="Failed to clean up orphaned S3 files after pipeline enqueue failure.",
+                    extra=logging_context(),
+                )
+        raise
 
 
 class ScoreSetUpdateResult(TypedDict):
@@ -1921,16 +1938,33 @@ async def upload_score_set_variant_data(
 
     logger.info(msg="Enqueuing variant creation job.", extra=logging_context())
 
-    await enqueue_variant_creation(
-        item=item,
-        user_data=user_data,
-        new_scores_df=score_set_variants_data["scores_df"],
-        new_counts_df=score_set_variants_data["counts_df"],
-        new_score_columns_metadata=dataset_column_metadata.get("score_columns_metadata", {}),
-        new_count_columns_metadata=dataset_column_metadata.get("count_columns_metadata", {}),
-        worker=worker,
-        db=db,
-    )
+    try:
+        await enqueue_variant_creation(
+            item=item,
+            user_data=user_data,
+            new_scores_df=score_set_variants_data["scores_df"],
+            new_counts_df=score_set_variants_data["counts_df"],
+            new_score_columns_metadata=dataset_column_metadata.get("score_columns_metadata", {}),
+            new_count_columns_metadata=dataset_column_metadata.get("count_columns_metadata", {}),
+            worker=worker,
+            db=db,
+        )
+    except Exception:
+        logger.error(
+            msg="Failed to enqueue variant creation pipeline; resetting score set processing state.",
+            extra=logging_context(),
+        )
+        try:
+            db.rollback()
+            item.processing_state = ProcessingState.failed
+            db.add(item)
+            db.commit()
+        except Exception:
+            logger.error(
+                msg="Failed to reset score set processing state after pipeline enqueue failure.",
+                extra=logging_context(),
+            )
+        raise HTTPException(status_code=500, detail="Failed to enqueue variant processing pipeline.")
 
     db.add(item)
     db.commit()
@@ -2084,20 +2118,37 @@ async def update_score_set_with_variants(
         updatedItem.processing_state = ProcessingState.processing
         logger.info(msg="Enqueuing variant creation job.", extra=logging_context())
 
-        await enqueue_variant_creation(
-            item=updatedItem,
-            user_data=user_data,
-            worker=worker,
-            new_scores_df=score_set_variants_data["scores_df"],
-            new_counts_df=score_set_variants_data["counts_df"],
-            new_score_columns_metadata=dataset_column_metadata.get("score_columns_metadata")
-            if did_score_columns_metadata_change
-            else existing_score_columns_metadata,
-            new_count_columns_metadata=dataset_column_metadata.get("count_columns_metadata")
-            if did_count_columns_metadata_change
-            else existing_count_columns_metadata,
-            db=db,
-        )
+        try:
+            await enqueue_variant_creation(
+                item=updatedItem,
+                user_data=user_data,
+                worker=worker,
+                new_scores_df=score_set_variants_data["scores_df"],
+                new_counts_df=score_set_variants_data["counts_df"],
+                new_score_columns_metadata=dataset_column_metadata.get("score_columns_metadata")
+                if did_score_columns_metadata_change
+                else existing_score_columns_metadata,
+                new_count_columns_metadata=dataset_column_metadata.get("count_columns_metadata")
+                if did_count_columns_metadata_change
+                else existing_count_columns_metadata,
+                db=db,
+            )
+        except Exception:
+            logger.error(
+                msg="Failed to enqueue variant creation pipeline; resetting score set processing state.",
+                extra=logging_context(),
+            )
+            try:
+                db.rollback()
+                updatedItem.processing_state = ProcessingState.failed
+                db.add(updatedItem)
+                db.commit()
+            except Exception:
+                logger.error(
+                    msg="Failed to reset score set processing state after pipeline enqueue failure.",
+                    extra=logging_context(),
+                )
+            raise HTTPException(status_code=500, detail="Failed to enqueue variant processing pipeline.")
 
     db.add(updatedItem)
     db.commit()
@@ -2144,12 +2195,29 @@ async def update_score_set(
         updatedItem.processing_state = ProcessingState.processing
 
         logger.info(msg="Enqueuing variant creation job.", extra=logging_context())
-        await enqueue_variant_creation(
-            item=updatedItem,
-            user_data=user_data,
-            worker=worker,
-            db=db,
-        )
+        try:
+            await enqueue_variant_creation(
+                item=updatedItem,
+                user_data=user_data,
+                worker=worker,
+                db=db,
+            )
+        except Exception:
+            logger.error(
+                msg="Failed to enqueue variant creation pipeline; resetting score set processing state.",
+                extra=logging_context(),
+            )
+            try:
+                db.rollback()
+                updatedItem.processing_state = ProcessingState.failed
+                db.add(updatedItem)
+                db.commit()
+            except Exception:
+                logger.error(
+                    msg="Failed to reset score set processing state after pipeline enqueue failure.",
+                    extra=logging_context(),
+                )
+            raise HTTPException(status_code=500, detail="Failed to enqueue variant processing pipeline.")
 
         db.add(updatedItem)
         db.commit()
