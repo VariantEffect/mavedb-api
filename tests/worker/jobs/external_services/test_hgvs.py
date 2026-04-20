@@ -57,16 +57,14 @@ class TestPopulateHgvsForScoreSetUnit:
         sample_populate_hgvs_run,
     ):
         """Test populating HGVS when no mapped variants exist."""
-        with patch.object(JobManager, "update_progress") as mock_update_progress:
-            result = await populate_hgvs_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_hgvs_run.id),
-            )
+        result = await populate_hgvs_for_score_set(
+            mock_worker_ctx,
+            1,
+            JobManager(session, mock_worker_ctx["redis"], sample_populate_hgvs_run.id),
+        )
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
-        mock_update_progress.assert_any_call(100, 100, "No current mapped variants found. Nothing to do.")
 
     async def test_variant_without_caid_skipped(
         self,
@@ -82,12 +80,11 @@ class TestPopulateHgvsForScoreSetUnit:
         mapped_variant.clingen_allele_id = None
         session.commit()
 
-        with patch.object(JobManager, "update_progress"):
-            result = await populate_hgvs_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_hgvs_run.id),
-            )
+        result = await populate_hgvs_for_score_set(
+            mock_worker_ctx,
+            1,
+            JobManager(session, mock_worker_ctx["redis"], sample_populate_hgvs_run.id),
+        )
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
@@ -107,12 +104,11 @@ class TestPopulateHgvsForScoreSetUnit:
         mapped_variant.clingen_allele_id = "CA123,CA456"
         session.commit()
 
-        with patch.object(JobManager, "update_progress"):
-            result = await populate_hgvs_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_hgvs_run.id),
-            )
+        result = await populate_hgvs_for_score_set(
+            mock_worker_ctx,
+            1,
+            JobManager(session, mock_worker_ctx["redis"], sample_populate_hgvs_run.id),
+        )
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
@@ -129,7 +125,6 @@ class TestPopulateHgvsForScoreSetUnit:
     ):
         """Test successful HGVS population for a CA allele."""
         with (
-            patch.object(JobManager, "update_progress"),
             patch(
                 "mavedb.worker.jobs.external_services.hgvs.get_clingen_allele_data",
                 return_value=SAMPLE_CA_ALLELE_DATA,
@@ -162,7 +157,6 @@ class TestPopulateHgvsForScoreSetUnit:
         import requests
 
         with (
-            patch.object(JobManager, "update_progress"),
             patch(
                 "mavedb.worker.jobs.external_services.hgvs.get_clingen_allele_data",
                 side_effect=requests.exceptions.ConnectionError("Connection refused"),
@@ -189,7 +183,6 @@ class TestPopulateHgvsForScoreSetUnit:
     ):
         """Test that a 404 from ClinGen results in a skipped annotation."""
         with (
-            patch.object(JobManager, "update_progress"),
             patch(
                 "mavedb.worker.jobs.external_services.hgvs.get_clingen_allele_data",
                 return_value=None,

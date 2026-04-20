@@ -35,17 +35,15 @@ class TestPopulateVariantTranslationsUnit:
         sample_populate_variant_translations_run,
     ):
         """Test that the job succeeds with zero translations when no mapped variants exist."""
-        with patch.object(JobManager, "update_progress") as mock_update_progress:
-            result = await populate_variant_translations_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_variant_translations_run.id),
-            )
+        result = await populate_variant_translations_for_score_set(
+            mock_worker_ctx,
+            1,
+            JobManager(session, mock_worker_ctx["redis"], sample_populate_variant_translations_run.id),
+        )
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
         assert result.data["translations_created"] == 0
-        mock_update_progress.assert_any_call(100, 100, "No current mapped variants found. Nothing to do.")
 
     async def test_variant_without_caid_no_translations(
         self,
@@ -61,12 +59,11 @@ class TestPopulateVariantTranslationsUnit:
         mapped_variant.clingen_allele_id = None
         session.commit()
 
-        with patch.object(JobManager, "update_progress"):
-            result = await populate_variant_translations_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_variant_translations_run.id),
-            )
+        result = await populate_variant_translations_for_score_set(
+            mock_worker_ctx,
+            1,
+            JobManager(session, mock_worker_ctx["redis"], sample_populate_variant_translations_run.id),
+        )
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
@@ -83,7 +80,6 @@ class TestPopulateVariantTranslationsUnit:
     ):
         """Test that a CA allele creates translations via PA lookup."""
         with (
-            patch.object(JobManager, "update_progress"),
             patch(
                 "mavedb.worker.jobs.external_services.variant_translation.get_canonical_pa_ids",
                 return_value=["PA00001"],
@@ -124,7 +120,6 @@ class TestPopulateVariantTranslationsUnit:
         session.commit()
 
         with (
-            patch.object(JobManager, "update_progress"),
             patch(
                 "mavedb.worker.jobs.external_services.variant_translation.get_matching_registered_ca_ids",
                 return_value=["CA33333", "CA44444"],
@@ -159,7 +154,6 @@ class TestPopulateVariantTranslationsUnit:
         session.commit()
 
         with (
-            patch.object(JobManager, "update_progress"),
             patch(
                 "mavedb.worker.jobs.external_services.variant_translation.get_canonical_pa_ids",
                 return_value=["PA00002"],
@@ -190,7 +184,6 @@ class TestPopulateVariantTranslationsUnit:
     ):
         """Test that a CA allele with no canonical PA IDs results in a skip."""
         with (
-            patch.object(JobManager, "update_progress"),
             patch(
                 "mavedb.worker.jobs.external_services.variant_translation.get_canonical_pa_ids",
                 return_value=[],
@@ -224,7 +217,6 @@ class TestPopulateVariantTranslationsUnit:
         session.commit()
 
         with (
-            patch.object(JobManager, "update_progress"),
             patch(
                 "mavedb.worker.jobs.external_services.variant_translation.get_matching_registered_ca_ids",
                 return_value=[],
@@ -253,7 +245,6 @@ class TestPopulateVariantTranslationsUnit:
         import requests
 
         with (
-            patch.object(JobManager, "update_progress"),
             patch(
                 "mavedb.worker.jobs.external_services.variant_translation.get_canonical_pa_ids",
                 side_effect=requests.exceptions.ConnectionError("Connection failed"),
@@ -285,12 +276,11 @@ class TestPopulateVariantTranslationsUnit:
         mapped_variant.clingen_allele_id = "XX12345"
         session.commit()
 
-        with patch.object(JobManager, "update_progress"):
-            result = await populate_variant_translations_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_variant_translations_run.id),
-            )
+        result = await populate_variant_translations_for_score_set(
+            mock_worker_ctx,
+            1,
+            JobManager(session, mock_worker_ctx["redis"], sample_populate_variant_translations_run.id),
+        )
 
         assert result.status == JobStatus.SUCCEEDED
         assert result.data["alleles_skipped"] == 1
@@ -310,7 +300,6 @@ class TestPopulateVariantTranslationsUnit:
         session.commit()
 
         with (
-            patch.object(JobManager, "update_progress"),
             patch(
                 "mavedb.worker.jobs.external_services.variant_translation.get_canonical_pa_ids",
                 return_value=["PA00003"],

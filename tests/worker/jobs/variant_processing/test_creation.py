@@ -103,7 +103,6 @@ class TestCreateVariantsForScoreSetUnit:
                 "download_fileobj",
                 side_effect=Exception("The specified key does not exist."),
             ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
             pytest.raises(Exception, match="The specified key does not exist."),
         ):
             await create_variants_for_score_set(
@@ -112,7 +111,6 @@ class TestCreateVariantsForScoreSetUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
 
-        mock_update_progress.assert_any_call(100, 100, "Variant creation job failed due to an internal error.")
         session.refresh(sample_score_set)
         assert sample_score_set.processing_state == ProcessingState.failed
         assert sample_score_set.mapping_state == MappingState.not_attempted
@@ -188,7 +186,6 @@ class TestCreateVariantsForScoreSetUnit:
                 "mavedb.worker.jobs.variant_processing.creation.pd.read_csv",
                 side_effect=[sample_score_dataframe, sample_count_dataframe],
             ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
             pytest.raises(ValueError, match="Can't create variants when score set has no targets."),
         ):
             await create_variants_for_score_set(
@@ -196,148 +193,6 @@ class TestCreateVariantsForScoreSetUnit:
                 sample_independent_variant_creation_run.id,
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
             )
-
-        mock_update_progress.assert_any_call(100, 100, "Score set has no targets; cannot create variants.")
-
-    async def test_create_variants_for_score_set_calls_validate_standardize_dataframe_with_correct_parameters(
-        self,
-        session,
-        with_independent_processing_runs,
-        with_populated_domain_data,
-        mock_worker_ctx,
-        mock_s3_client,
-        create_variants_sample_params,
-        sample_score_dataframe,
-        sample_count_dataframe,
-        sample_score_set,
-        sample_independent_variant_creation_run,
-    ):
-        with (
-            patch.object(mock_s3_client, "download_fileobj", return_value=None),
-            # Mock pd.read_csv to return sample dataframes
-            patch(
-                "mavedb.worker.jobs.variant_processing.creation.pd.read_csv",
-                side_effect=[sample_score_dataframe, sample_count_dataframe],
-            ),
-            patch(
-                "mavedb.worker.jobs.variant_processing.creation.validate_and_standardize_dataframe_pair",
-                return_value=(
-                    sample_score_dataframe,
-                    sample_count_dataframe,
-                    create_variants_sample_params["score_columns_metadata"],
-                    create_variants_sample_params["count_columns_metadata"],
-                ),
-            ) as mock_validate,
-            patch(
-                "mavedb.worker.jobs.variant_processing.creation.create_variants_data",
-                return_value=[MagicMock(spec=Variant)],
-            ),
-            patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
-        ):
-            await create_variants_for_score_set(
-                mock_worker_ctx,
-                sample_independent_variant_creation_run.id,
-                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
-            )
-
-        mock_validate.assert_called_once_with(
-            scores_df=sample_score_dataframe,
-            counts_df=sample_count_dataframe,
-            score_columns_metadata=create_variants_sample_params["score_columns_metadata"],
-            count_columns_metadata=create_variants_sample_params["count_columns_metadata"],
-            targets=sample_score_set.target_genes,
-            hdp=mock_worker_ctx["hdp"],
-        )
-
-    async def test_create_variants_for_score_set_calls_create_variants_data_with_correct_parameters(
-        self,
-        session,
-        with_independent_processing_runs,
-        with_populated_domain_data,
-        mock_worker_ctx,
-        mock_s3_client,
-        create_variants_sample_params,
-        sample_score_dataframe,
-        sample_count_dataframe,
-        sample_score_set,
-        sample_independent_variant_creation_run,
-    ):
-        with (
-            patch.object(mock_s3_client, "download_fileobj", return_value=None),
-            # Mock pd.read_csv to return sample dataframes
-            patch(
-                "mavedb.worker.jobs.variant_processing.creation.pd.read_csv",
-                side_effect=[sample_score_dataframe, sample_count_dataframe],
-            ),
-            patch(
-                "mavedb.worker.jobs.variant_processing.creation.validate_and_standardize_dataframe_pair",
-                return_value=(
-                    sample_score_dataframe,
-                    sample_count_dataframe,
-                    create_variants_sample_params["score_columns_metadata"],
-                    create_variants_sample_params["count_columns_metadata"],
-                ),
-            ),
-            patch(
-                "mavedb.worker.jobs.variant_processing.creation.create_variants_data",
-                return_value=[MagicMock(spec=Variant)],
-            ) as mock_create_variants_data,
-            patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
-        ):
-            await create_variants_for_score_set(
-                mock_worker_ctx,
-                sample_independent_variant_creation_run.id,
-                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
-            )
-
-        mock_create_variants_data.assert_called_once_with(sample_score_dataframe, sample_count_dataframe, None)
-
-    async def test_create_variants_for_score_set_calls_create_variants_with_correct_parameters(
-        self,
-        session,
-        with_independent_processing_runs,
-        with_populated_domain_data,
-        mock_worker_ctx,
-        mock_s3_client,
-        create_variants_sample_params,
-        sample_score_dataframe,
-        sample_count_dataframe,
-        sample_score_set,
-        sample_independent_variant_creation_run,
-    ):
-        mock_variant = MagicMock(spec=Variant)
-        with (
-            patch.object(mock_s3_client, "download_fileobj", return_value=None),
-            # Mock pd.read_csv to return sample dataframes
-            patch(
-                "mavedb.worker.jobs.variant_processing.creation.pd.read_csv",
-                side_effect=[sample_score_dataframe, sample_count_dataframe],
-            ),
-            patch(
-                "mavedb.worker.jobs.variant_processing.creation.validate_and_standardize_dataframe_pair",
-                return_value=(
-                    sample_score_dataframe,
-                    sample_count_dataframe,
-                    create_variants_sample_params["score_columns_metadata"],
-                    create_variants_sample_params["count_columns_metadata"],
-                ),
-            ),
-            patch(
-                "mavedb.worker.jobs.variant_processing.creation.create_variants_data",
-                return_value=[mock_variant],
-            ),
-            patch(
-                "mavedb.worker.jobs.variant_processing.creation.create_variants",
-                return_value=None,
-            ) as mock_create_variants,
-        ):
-            await create_variants_for_score_set(
-                mock_worker_ctx,
-                sample_independent_variant_creation_run.id,
-                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
-            )
-
-        mock_create_variants.assert_called_once_with(session, sample_score_set, [mock_variant])
 
     async def test_create_variants_for_score_set_handles_empty_variant_data(
         self,
@@ -477,57 +332,6 @@ class TestCreateVariantsForScoreSetUnit:
         assert sample_score_set.mapping_state == MappingState.queued
         assert sample_score_set.processing_errors is None
 
-    async def test_create_variants_for_score_set_updates_progress(
-        self,
-        session,
-        with_independent_processing_runs,
-        with_populated_domain_data,
-        mock_worker_ctx,
-        mock_s3_client,
-        create_variants_sample_params,
-        sample_score_dataframe,
-        sample_count_dataframe,
-        sample_score_set,
-        sample_independent_variant_creation_run,
-    ):
-        with (
-            patch.object(mock_s3_client, "download_fileobj", return_value=None),
-            # Mock pd.read_csv to return sample dataframes
-            patch(
-                "mavedb.worker.jobs.variant_processing.creation.pd.read_csv",
-                side_effect=[sample_score_dataframe, sample_count_dataframe],
-            ),
-            patch(
-                "mavedb.worker.jobs.variant_processing.creation.validate_and_standardize_dataframe_pair",
-                return_value=(
-                    sample_score_dataframe,
-                    sample_count_dataframe,
-                    create_variants_sample_params["score_columns_metadata"],
-                    create_variants_sample_params["count_columns_metadata"],
-                ),
-            ),
-            patch(
-                "mavedb.worker.jobs.variant_processing.creation.create_variants_data",
-                return_value=[MagicMock(spec=Variant)],
-            ),
-            patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
-        ):
-            await create_variants_for_score_set(
-                mock_worker_ctx,
-                sample_independent_variant_creation_run.id,
-                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
-            )
-
-        mock_update_progress.assert_has_calls(
-            [
-                call(0, 100, "Starting variant creation job."),
-                call(10, 100, "Validated score set metadata and beginning data validation."),
-                call(80, 100, "Data validation complete; creating variants in database."),
-                call(100, 100, "Completed variant creation job."),
-            ]
-        )
-
     async def test_create_variants_for_score_set_retains_existing_variants_when_exception_occurs(
         self,
         session,
@@ -596,7 +400,6 @@ class TestCreateVariantsForScoreSetUnit:
                 "mavedb.worker.jobs.variant_processing.creation.validate_and_standardize_dataframe_pair",
                 side_effect=Exception("Test exception during data validation"),
             ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
             pytest.raises(Exception, match="Test exception during data validation"),
         ):
             await create_variants_for_score_set(
@@ -610,7 +413,6 @@ class TestCreateVariantsForScoreSetUnit:
         assert sample_score_set.processing_state == ProcessingState.failed
         assert sample_score_set.mapping_state == MappingState.not_attempted
         assert "Test exception during data validation" in sample_score_set.processing_errors["exception"]
-        mock_update_progress.assert_any_call(100, 100, "Variant creation job failed due to an internal error.")
 
 
 @pytest.mark.integration

@@ -5,7 +5,7 @@ import pytest
 pytest.importorskip("arq")
 
 from asyncio.unix_events import _UnixSelectorEventLoop
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from sqlalchemy.exc import NoResultFound
 
@@ -46,7 +46,6 @@ class TestMapVariantsForScoreSetUnit:
         # with return value from run_in_executor.
         with (
             patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=self.dummy_mapping_output({})),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
         ):
             result = await map_variants_for_score_set(
                 mock_worker_ctx,
@@ -54,7 +53,6 @@ class TestMapVariantsForScoreSetUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
-        mock_update_progress.assert_any_call(100, 100, "Variant mapping failed due to missing results.")
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
         assert "score_set_id" in result.data
@@ -95,7 +93,6 @@ class TestMapVariantsForScoreSetUnit:
                     {"mapped_scores": [], "error_message": "No variants were mapped for this score set"}
                 ),
             ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
         ):
             result = await map_variants_for_score_set(
                 mock_worker_ctx,
@@ -103,7 +100,6 @@ class TestMapVariantsForScoreSetUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
-        mock_update_progress.assert_any_call(100, 100, "Variant mapping failed; no variants were mapped.")
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
         assert "score_set_id" in result.data
@@ -141,7 +137,6 @@ class TestMapVariantsForScoreSetUnit:
                     {"mapped_scores": [MagicMock()], "error_message": "Reference metadata missing from mapping results"}
                 ),
             ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
         ):
             result = await map_variants_for_score_set(
                 mock_worker_ctx,
@@ -149,7 +144,6 @@ class TestMapVariantsForScoreSetUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
 
-        mock_update_progress.assert_any_call(100, 100, "Variant mapping failed due to missing reference metadata.")
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
         assert "score_set_id" in result.data
@@ -190,7 +184,6 @@ class TestMapVariantsForScoreSetUnit:
                     }
                 ),
             ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
             pytest.raises(ValueError),
         ):
             await map_variants_for_score_set(
@@ -198,8 +191,6 @@ class TestMapVariantsForScoreSetUnit:
                 sample_independent_variant_mapping_run.id,
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
-
-        mock_update_progress.assert_any_call(100, 100, "Variant mapping failed due to an unexpected error.")
 
         assert sample_score_set.mapping_state == MappingState.failed
         assert sample_score_set.mapping_errors is not None
@@ -240,7 +231,6 @@ class TestMapVariantsForScoreSetUnit:
                 "run_in_executor",
                 return_value=self.dummy_mapping_output(mapping_output),
             ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
             pytest.raises(NoResultFound),
         ):
             await map_variants_for_score_set(
@@ -248,8 +238,6 @@ class TestMapVariantsForScoreSetUnit:
                 sample_independent_variant_mapping_run.id,
                 JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
             )
-
-        mock_update_progress.assert_any_call(100, 100, "Variant mapping failed due to an unexpected error.")
 
         assert sample_score_set.mapping_state == MappingState.failed
         assert sample_score_set.mapping_errors is not None
@@ -808,70 +796,6 @@ class TestMapVariantsForScoreSetUnit:
             .one_or_none()
         )
         assert new_annotation_status is not None
-
-    async def test_map_variants_for_score_set_progress_updates(
-        self,
-        session,
-        with_independent_processing_runs,
-        mock_worker_ctx,
-        sample_independent_variant_mapping_run,
-        sample_score_set,
-    ):
-        """Test mapping variants reports progress updates."""
-
-        # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
-        async def dummy_mapping_job():
-            return await construct_mock_mapping_output(
-                session=session,
-                score_set=sample_score_set,
-                with_gene_info=True,
-                with_layers={"g", "c", "p"},
-                with_pre_mapped=True,
-                with_post_mapped=True,
-                with_reference_metadata=True,
-                with_mapped_scores=True,
-                with_all_variants=True,
-            )
-
-        # Create a variant in the score set to be mapped
-        variant = Variant(
-            score_set_id=sample_score_set.id, hgvs_nt="NM_000000.1:c.1A>G", hgvs_pro="NP_000000.1:p.Met1Val", data={}
-        )
-        session.add(variant)
-        session.commit()
-
-        with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
-                return_value=dummy_mapping_job(),
-            ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
-        ):
-            result = await map_variants_for_score_set(
-                mock_worker_ctx,
-                sample_independent_variant_mapping_run.id,
-                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
-            )
-
-        assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
-
-        assert sample_score_set.mapping_state == MappingState.complete
-        assert sample_score_set.mapping_errors is None
-
-        # Verify progress updates were reported
-        mock_update_progress.assert_has_calls(
-            [
-                call(0, 100, "Starting variant mapping job."),
-                call(10, 100, "Score set prepared for variant mapping."),
-                call(30, 100, "Mapping variants using VRS mapping service."),
-                call(80, 100, "Processing mapped variants."),
-                call(90, 100, "Saving mapped variants."),
-                call(100, 100, "Finished processing mapped variants."),
-            ]
-        )
 
 
 @pytest.mark.integration

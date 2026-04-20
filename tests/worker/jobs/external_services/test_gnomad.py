@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("arq")
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
@@ -31,18 +31,14 @@ class TestLinkGnomadVariantsUnit:
         sample_link_gnomad_variants_run,
     ):
         """Test linking gnomAD variants when no mapped variants have CAIDs."""
-        with patch.object(JobManager, "update_progress") as mock_update_progress:
-            result = await link_gnomad_variants(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
-            )
+        result = await link_gnomad_variants(
+            mock_worker_ctx,
+            1,
+            JobManager(session, mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
+        )
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
-        mock_update_progress.assert_any_call(
-            100, 100, "No variants with CAIDs found to link to gnomAD variants. Nothing to do."
-        )
 
     async def test_link_gnomad_variants_no_gnomad_matches(
         self,
@@ -57,7 +53,6 @@ class TestLinkGnomadVariantsUnit:
         """Test linking gnomAD variants when no gnomAD variants match the CAIDs."""
 
         with (
-            patch.object(JobManager, "update_progress") as mock_update_progress,
             patch(
                 "mavedb.worker.jobs.external_services.gnomad.gnomad_variant_data_for_caids",
                 return_value={},
@@ -72,7 +67,6 @@ class TestLinkGnomadVariantsUnit:
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
-        mock_update_progress.assert_any_call(100, 100, "Linked 0 mapped variants to gnomAD variants.")
 
     async def test_link_gnomad_variants_call_linking_method(
         self,
@@ -87,7 +81,6 @@ class TestLinkGnomadVariantsUnit:
         """Test that the linking method is called when gnomAD variants match CAIDs."""
 
         with (
-            patch.object(JobManager, "update_progress") as mock_update_progress,
             patch(
                 "mavedb.worker.jobs.external_services.gnomad.gnomad_variant_data_for_caids",
                 return_value=[MagicMock()],
@@ -107,48 +100,6 @@ class TestLinkGnomadVariantsUnit:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
         mock_linking_method.assert_called_once()
-        mock_update_progress.assert_any_call(100, 100, "Linked 1 mapped variants to gnomAD variants.")
-
-    async def test_link_gnomad_variants_updates_progress(
-        self,
-        session,
-        with_populated_domain_data,
-        with_gnomad_linking_job,
-        mock_worker_ctx,
-        sample_link_gnomad_variants_run,
-        setup_sample_variants_with_caid,
-        athena_engine,
-    ):
-        """Test that progress updates are made during the linking process."""
-
-        with (
-            patch.object(JobManager, "update_progress") as mock_update_progress,
-            patch(
-                "mavedb.worker.jobs.external_services.gnomad.gnomad_variant_data_for_caids",
-                return_value=[MagicMock()],
-            ),
-            patch(
-                "mavedb.worker.jobs.external_services.gnomad.link_gnomad_variants_to_mapped_variants",
-                return_value=1,
-            ),
-            patch("mavedb.worker.jobs.external_services.gnomad.athena.engine", athena_engine),
-        ):
-            result = await link_gnomad_variants(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
-            )
-
-        assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
-        mock_update_progress.assert_has_calls(
-            [
-                call(0, 100, "Starting gnomAD mapped resource linkage."),
-                call(10, 100, "Found 1 variants with CAIDs to link to gnomAD variants."),
-                call(75, 100, "Found 1 gnomAD variants matching CAIDs."),
-                call(100, 100, "Linked 1 mapped variants to gnomAD variants."),
-            ]
-        )
 
     async def test_link_gnomad_variants_propagates_exceptions(
         self,

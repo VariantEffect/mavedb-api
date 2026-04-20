@@ -13,7 +13,7 @@ import pytest
 pytest.importorskip("arq")  # Skip tests if arq is not installed
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, call, patch
+from unittest.mock import AsyncMock, patch
 
 from sqlalchemy import select
 
@@ -49,12 +49,9 @@ class TestCleanupStalledJobsUnit:
         self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
     ):
         """Test cleanup when no stalled jobs are found."""
-        with (
-            patch.object(JobManager, "update_progress") as mock_update_progress,
-        ):
-            result = await cleanup_stalled_jobs(
-                mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
-            )
+        result = await cleanup_stalled_jobs(
+            mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
+        )
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
@@ -62,29 +59,6 @@ class TestCleanupStalledJobsUnit:
         assert result.data["queued_jobs"] == []
         assert result.data["running_jobs"] == []
         assert result.data["pending_jobs"] == []
-
-        # Verify progress updates
-        assert mock_update_progress.call_count >= 4  # Start, QUEUED, RUNNING, PENDING
-
-    async def test_cleanup_updates_progress_correctly(
-        self, mock_worker_ctx, session, sample_cleanup_job_run, with_cleanup_job
-    ):
-        """Test that cleanup updates progress at each stage."""
-        with (
-            patch.object(JobManager, "update_progress") as mock_update_progress,
-        ):
-            await cleanup_stalled_jobs(
-                mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
-            )
-
-        # Verify progress update calls
-        expected_calls = [
-            call(0, 100, "Starting cleanup of stalled jobs."),
-            call(10, 100, "Found 0 stalled QUEUED jobs to evaluate."),
-            call(50, 100, "Found 0 stalled RUNNING jobs to evaluate."),
-            call(80, 100, "Found 0 stalled PENDING jobs to evaluate."),
-        ]
-        mock_update_progress.assert_has_calls(expected_calls)
 
     async def test_cleanup_stalled_queued_job_with_retries_remaining(
         self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job

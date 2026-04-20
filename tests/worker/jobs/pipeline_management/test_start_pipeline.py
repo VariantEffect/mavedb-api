@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("arq")
 
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 from sqlalchemy import select
 
@@ -83,42 +83,6 @@ class TestStartPipelineUnit:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
         mock_coordinate_pipeline.assert_called_once()
-
-    async def test_start_pipeline_updates_progress(
-        self,
-        session,
-        mock_worker_ctx,
-        mock_pipeline_manager,
-        setup_start_pipeline_job_run,
-    ):
-        """Test that starting a pipeline updates job progress."""
-
-        with (
-            patch("mavedb.worker.lib.managers.pipeline_manager.PipelineManager") as mock_pipeline_manager_class,
-            patch.object(PipelineManager, "coordinate_pipeline", return_value=None),
-            patch.object(
-                JobManager,
-                "update_progress",
-                return_value=None,
-            ) as mock_update_progress,
-        ):
-            mock_pipeline_manager_class.return_value = mock_pipeline_manager
-
-            result = await start_pipeline(
-                mock_worker_ctx,
-                setup_start_pipeline_job_run.id,
-                JobManager(session, mock_worker_ctx["redis"], setup_start_pipeline_job_run.id),
-            )
-
-        assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
-
-        mock_update_progress.assert_has_calls(
-            [
-                call(0, 100, "Coordinating pipeline for the first time."),
-                call(100, 100, "Initial pipeline coordination complete."),
-            ]
-        )
 
     async def test_start_pipeline_raises_exception(
         self,

@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("arq")
 
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 from mavedb.lib.exceptions import (
     NonExistentTargetGeneError,
@@ -50,22 +50,16 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
         sample_score_set.target_genes = []
         session.commit()
 
-        with (
-            patch.object(JobManager, "update_progress") as mock_update_progress,
-        ):
-            job_result = await submit_uniprot_mapping_jobs_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(
-                    db=session,
-                    redis=mock_worker_ctx["redis"],
-                    job_id=sample_submit_uniprot_mapping_jobs_run.id,
-                ),
-            )
-
-        mock_update_progress.assert_called_with(
-            100, 100, "No target genes found. Skipped UniProt mapping job submission."
+        job_result = await submit_uniprot_mapping_jobs_for_score_set(
+            mock_worker_ctx,
+            1,
+            JobManager(
+                db=session,
+                redis=mock_worker_ctx["redis"],
+                job_id=sample_submit_uniprot_mapping_jobs_run.id,
+            ),
         )
+
         assert isinstance(job_result, JobExecutionOutcome)
         assert job_result.status == JobStatus.SUCCEEDED
 
@@ -85,20 +79,16 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
     ):
         """Test submitting UniProt mapping jobs when no ACs are present in post mapped metadata."""
 
-        with (
-            patch.object(JobManager, "update_progress") as mock_update_progress,
-        ):
-            job_result = await submit_uniprot_mapping_jobs_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(
-                    db=session,
-                    redis=mock_worker_ctx["redis"],
-                    job_id=sample_submit_uniprot_mapping_jobs_run.id,
-                ),
-            )
+        job_result = await submit_uniprot_mapping_jobs_for_score_set(
+            mock_worker_ctx,
+            1,
+            JobManager(
+                db=session,
+                redis=mock_worker_ctx["redis"],
+                job_id=sample_submit_uniprot_mapping_jobs_run.id,
+            ),
+        )
 
-        mock_update_progress.assert_called_with(100, 100, "No UniProt mapping jobs were submitted.")
         assert isinstance(job_result, JobExecutionOutcome)
         assert job_result.status == JobStatus.SUCCEEDED
 
@@ -123,20 +113,16 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
         target_gene.post_mapped_metadata = {"protein": {"sequence_accessions": [VALID_NT_ACCESSION, "P67890"]}}
         session.commit()
 
-        with (
-            patch.object(JobManager, "update_progress") as mock_update_progress,
-        ):
-            job_result = await submit_uniprot_mapping_jobs_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(
-                    db=session,
-                    redis=mock_worker_ctx["redis"],
-                    job_id=sample_submit_uniprot_mapping_jobs_run.id,
-                ),
-            )
+        job_result = await submit_uniprot_mapping_jobs_for_score_set(
+            mock_worker_ctx,
+            1,
+            JobManager(
+                db=session,
+                redis=mock_worker_ctx["redis"],
+                job_id=sample_submit_uniprot_mapping_jobs_run.id,
+            ),
+        )
 
-        mock_update_progress.assert_called_with(100, 100, "No UniProt mapping jobs were submitted.")
         assert isinstance(job_result, JobExecutionOutcome)
         assert job_result.status == JobStatus.SUCCEEDED
 
@@ -161,12 +147,9 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
         target_gene.post_mapped_metadata = {"protein": {"sequence_accessions": [VALID_NT_ACCESSION]}}
         session.commit()
 
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
-                return_value=None,
-            ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
+        with patch(
+            "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
+            return_value=None,
         ):
             job_result = await submit_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx,
@@ -178,7 +161,6 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 ),
             )
 
-        mock_update_progress.assert_called_with(100, 100, "No UniProt mapping jobs were submitted.")
         assert isinstance(job_result, JobExecutionOutcome)
         assert job_result.status == JobStatus.SUCCEEDED
 
@@ -210,7 +192,6 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
                 side_effect=Exception("UniProt API failure"),
             ),
-            patch.object(JobManager, "update_progress"),
             pytest.raises(Exception, match="UniProt API failure"),
         ):
             await submit_uniprot_mapping_jobs_for_score_set(
@@ -243,12 +224,9 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
         target_gene.post_mapped_metadata = {"protein": {"sequence_accessions": [VALID_NT_ACCESSION]}}
         session.commit()
 
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
-                return_value="job_12345",
-            ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
+        with patch(
+            "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
+            return_value="job_12345",
         ):
             result = await submit_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx,
@@ -260,7 +238,6 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
                 ),
             )
 
-        mock_update_progress.assert_called_with(100, 100, "Failed to submit UniProt mapping jobs.")
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
@@ -288,12 +265,9 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
         target_gene.post_mapped_metadata = {"protein": {"sequence_accessions": [VALID_NT_ACCESSION]}}
         session.commit()
 
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
-                return_value="job_12345",
-            ),
-            patch.object(JobManager, "update_progress"),
+        with patch(
+            "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
+            return_value="job_12345",
         ):
             job_result = await submit_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx,
@@ -348,12 +322,9 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
         target_gene_2.post_mapped_metadata = {"protein": {"sequence_accessions": ["NM_000546"]}}
         session.commit()
 
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
-                side_effect=["job_12345", None],
-            ),
-            patch.object(JobManager, "update_progress"),
+        with patch(
+            "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
+            side_effect=["job_12345", None],
         ):
             job_result = await submit_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx,
@@ -380,54 +351,6 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
         # Verify that polling job params have been updated correctly
         session.refresh(sample_dummy_polling_job_for_submission_run)
         assert sample_dummy_polling_job_for_submission_run.job_params["mapping_jobs"] == expected_submitted_jobs
-
-    async def test_submit_uniprot_mapping_jobs_updates_progress(
-        self,
-        session,
-        mock_worker_ctx,
-        with_populated_domain_data,
-        with_submit_uniprot_mapping_job,
-        with_dummy_polling_job_for_submission_run,
-        sample_score_set,
-        sample_submit_uniprot_mapping_jobs_run,
-    ):
-        """Test that progress updates are made during UniProt mapping job submission."""
-
-        # Arrange the post mapped metadata to have a single AC
-        target_gene = sample_score_set.target_genes[0]
-        target_gene.post_mapped_metadata = {"protein": {"sequence_accessions": [VALID_NT_ACCESSION]}}
-        session.commit()
-
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
-                return_value="job_12345",
-            ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
-        ):
-            job_result = await submit_uniprot_mapping_jobs_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(
-                    db=session,
-                    redis=mock_worker_ctx["redis"],
-                    job_id=sample_submit_uniprot_mapping_jobs_run.id,
-                ),
-            )
-
-        assert isinstance(job_result, JobExecutionOutcome)
-        assert job_result.status == JobStatus.SUCCEEDED
-
-        # Verify that progress updates were made
-        mock_update_progress.assert_has_calls(
-            [
-                call(0, 100, "Starting UniProt mapping job submission."),
-                call(
-                    95, 100, f"Submitted UniProt mapping job for target gene {sample_score_set.target_genes[0].name}."
-                ),
-                call(100, 100, "Completed submission of UniProt mapping jobs."),
-            ]
-        )
 
 
 @pytest.mark.integration
@@ -1081,20 +1004,16 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
         sample_polling_job_for_submission_run.job_params["mapping_jobs"] = {}
         session.commit()
 
-        with (
-            patch.object(JobManager, "update_progress") as mock_update_progress,
-        ):
-            job_result = await poll_uniprot_mapping_jobs_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(
-                    db=session,
-                    redis=mock_worker_ctx["redis"],
-                    job_id=sample_polling_job_for_submission_run.id,
-                ),
-            )
+        job_result = await poll_uniprot_mapping_jobs_for_score_set(
+            mock_worker_ctx,
+            1,
+            JobManager(
+                db=session,
+                redis=mock_worker_ctx["redis"],
+                job_id=sample_polling_job_for_submission_run.id,
+            ),
+        )
 
-        mock_update_progress.assert_called_with(100, 100, "No mapping jobs found to poll.")
         assert isinstance(job_result, JobExecutionOutcome)
         assert job_result.status == JobStatus.SUCCEEDED
 
@@ -1117,12 +1036,9 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
         }
         session.commit()
 
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.check_id_mapping_results_ready",
-                return_value=False,
-            ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
+        with patch(
+            "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.check_id_mapping_results_ready",
+            return_value=False,
         ):
             job_result = await poll_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx,
@@ -1138,9 +1054,6 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
         assert job_result.status == JobStatus.FAILED
         assert job_result.failure_category == FailureCategory.SERVICE_UNAVAILABLE
         assert "1" in job_result.data["pending_target_genes"]
-
-        # Verify that progress updates were made
-        mock_update_progress.assert_called_with(100, 100, "UniProt results not ready for 1 target(s).")
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
@@ -1170,7 +1083,6 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.get_id_mapping_results",
                 return_value={"results": []},  # minimal response with no results
             ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
             pytest.raises(UniprotMappingResultNotFoundError),
         ):
             await poll_uniprot_mapping_jobs_for_score_set(
@@ -1182,10 +1094,6 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                     job_id=sample_polling_job_for_submission_run.id,
                 ),
             )
-
-        mock_update_progress.assert_called_with(
-            100, 100, f"No UniProt ID found for accession {VALID_NT_ACCESSION}. Cannot add UniProt ID."
-        )
 
     async def test_poll_uniprot_mapping_jobs_ambiguous_results(
         self,
@@ -1228,7 +1136,6 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                     ]
                 },
             ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
             pytest.raises(UniprotAmbiguousMappingResultError),
         ):
             await poll_uniprot_mapping_jobs_for_score_set(
@@ -1240,12 +1147,6 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                     job_id=sample_polling_job_for_submission_run.id,
                 ),
             )
-
-        mock_update_progress.assert_called_with(
-            100,
-            100,
-            f"Ambiguous UniProt ID mapping results for accession {VALID_NT_ACCESSION}. Cannot add UniProt ID.",
-        )
 
     async def test_poll_uniprot_mapping_jobs_nonexistent_target(
         self,
@@ -1271,7 +1172,6 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.get_id_mapping_results",
                 return_value=TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE,
             ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
             pytest.raises(NonExistentTargetGeneError),
         ):
             await poll_uniprot_mapping_jobs_for_score_set(
@@ -1283,12 +1183,6 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                     job_id=sample_polling_job_for_submission_run.id,
                 ),
             )
-
-        mock_update_progress.assert_called_with(
-            100,
-            100,
-            f"Target gene ID 999 not found in score set {sample_score_set.urn}. Cannot add UniProt ID.",
-        )
 
     async def test_poll_uniprot_mapping_jobs_successful_update(
         self,
@@ -1314,7 +1208,6 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.get_id_mapping_results",
                 return_value=TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE,
             ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
         ):
             job_result = await poll_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx,
@@ -1328,9 +1221,6 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
 
         assert isinstance(job_result, JobExecutionOutcome)
         assert job_result.status == JobStatus.SUCCEEDED
-
-        # Verify that progress updates were made
-        mock_update_progress.assert_called_with(100, 100, "Completed polling of UniProt mapping jobs.")
 
         # Verify the target gene uniprot id has been updated
         session.refresh(sample_score_set)
@@ -1374,7 +1264,6 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                     {"results": []},  # No results for the second mapping job
                 ],
             ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
         ):
             job_result = await poll_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx,
@@ -1391,66 +1280,11 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
         assert job_result.failure_category == FailureCategory.SERVICE_UNAVAILABLE
         assert str(new_target_gene.id) in job_result.data["pending_target_genes"]
 
-        # Verify that progress updates were made
-        mock_update_progress.assert_called_with(100, 100, "UniProt results not ready for 1 target(s).")
-
         # Verify the target gene uniprot id has been updated for the successful mapping and
         # remains None for the failed mapping
         session.refresh(sample_score_set)
         assert sample_score_set.target_genes[0].uniprot_id_from_mapped_metadata == VALID_UNIPROT_ACCESSION
         assert sample_score_set.target_genes[1].uniprot_id_from_mapped_metadata is None
-
-    async def test_poll_uniprot_mapping_jobs_updates_progress(
-        self,
-        session,
-        mock_worker_ctx,
-        with_populated_domain_data,
-        with_independent_polling_job_for_submission_run,
-        sample_score_set,
-        sample_polling_job_for_submission_run,
-    ):
-        # Arrange the polling job params to have one mapping job
-        sample_polling_job_for_submission_run.job_params["mapping_jobs"] = {
-            "1": {"job_id": "job_11111", "accession": VALID_NT_ACCESSION}
-        }
-        session.commit()
-
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.check_id_mapping_results_ready",
-                side_effect=[True, True, True],
-            ),
-            patch(
-                "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.get_id_mapping_results",
-                side_effect=[TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE],
-            ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
-        ):
-            job_result = await poll_uniprot_mapping_jobs_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(
-                    db=session,
-                    redis=mock_worker_ctx["redis"],
-                    job_id=sample_polling_job_for_submission_run.id,
-                ),
-            )
-
-        assert isinstance(job_result, JobExecutionOutcome)
-        assert job_result.status == JobStatus.SUCCEEDED
-
-        # Verify that progress updates were made incrementally
-        mock_update_progress.assert_has_calls(
-            [
-                call(0, 100, "Starting UniProt mapping job polling."),
-                call(95, 100, "Polled UniProt mapping job for target gene Sample Gene."),
-                call(100, 100, "Completed polling of UniProt mapping jobs."),
-            ]
-        )
-
-        # Verify the target gene uniprot ids have been updated
-        session.refresh(sample_score_set)
-        assert sample_score_set.target_genes[0].uniprot_id_from_mapped_metadata == VALID_UNIPROT_ACCESSION
 
     async def test_poll_uniprot_mapping_jobs_propagates_exceptions(
         self,

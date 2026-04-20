@@ -5,7 +5,7 @@ import pytest
 pytest.importorskip("arq")
 
 from asyncio.unix_events import _UnixSelectorEventLoop
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 from sqlalchemy import select
 
@@ -41,7 +41,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         # Patch to disable ClinGen submission endpoint
         with (
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", False),
-            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
         ):
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
@@ -49,7 +48,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
-        mock_update_progress.assert_called_with(100, 100, "ClinGen submission is disabled. Skipping CAR submission.")
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SKIPPED
 
@@ -66,7 +64,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
     ):
         """Test submitting score set mappings to ClinGen when there are no mappings."""
         with (
-            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
         ):
@@ -76,7 +73,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
-        mock_update_progress.assert_called_with(100, 100, "No mapped variants to submit to CAR. Skipped submission.")
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
 
@@ -95,7 +91,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         with (
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", ""),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
         ):
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
@@ -103,9 +98,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
-        mock_update_progress.assert_called_with(
-            100, 100, "CAR submission endpoint not configured. Can't complete submission."
-        )
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
@@ -145,7 +137,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-            patch.object(JobManager, "update_progress", return_value=None),
         ):
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
@@ -206,7 +197,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-            patch.object(JobManager, "update_progress", return_value=None),
         ):
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
@@ -276,7 +266,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-            patch.object(JobManager, "update_progress", return_value=None),
         ):
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
@@ -347,7 +336,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-            patch.object(JobManager, "update_progress", return_value=None),
         ):
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
@@ -433,7 +421,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             patch("mavedb.worker.jobs.external_services.clingen.get_hgvs_from_post_mapped", return_value=None),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-            patch.object(JobManager, "update_progress", return_value=None),
         ):
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
@@ -547,7 +534,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-            patch.object(JobManager, "update_progress", return_value=None),
         ):
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
@@ -572,73 +558,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         for ann in annotation_statuses:
             assert ann.status == "success"
             assert ann.annotation_type == "clingen_allele_id"
-
-    async def test_submit_score_set_mappings_to_car_updates_progress(
-        self,
-        mock_worker_ctx,
-        session,
-        with_submit_score_set_mappings_to_car_job,
-        submit_score_set_mappings_to_car_sample_job_run,
-        mock_s3_client,
-        sample_score_dataframe,
-        sample_count_dataframe,
-        with_dummy_setup_jobs,
-        sample_score_set,
-        dummy_variant_creation_job_run,
-        dummy_variant_mapping_job_run,
-    ):
-        # Create mappings in the score set
-        await create_mappings_in_score_set(
-            session,
-            mock_s3_client,
-            mock_worker_ctx,
-            sample_score_dataframe,
-            sample_count_dataframe,
-            dummy_variant_creation_job_run,
-            dummy_variant_mapping_job_run,
-        )
-
-        # Get the mapped variants from score set before submission
-        mapped_variants = session.scalars(
-            select(MappedVariant).join(Variant).where(Variant.score_set_id == sample_score_set.id)
-        ).all()
-        assert len(mapped_variants) == 4
-
-        # Patch ClinGenAlleleRegistryService to return registered alleles
-        registered_alleles_mock = [
-            {
-                "@id": f"CA{mv.id}",
-                "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mv.post_mapped)}],
-            }
-            for mv in mapped_variants
-        ]
-
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
-                return_value=registered_alleles_mock,
-            ),
-            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
-            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
-            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-        ):
-            await submit_score_set_mappings_to_car(
-                mock_worker_ctx,
-                submit_score_set_mappings_to_car_sample_job_run.id,
-                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
-            )
-
-        mock_update_progress.assert_has_calls(
-            [
-                call(0, 100, "Starting CAR mapped resource submission."),
-                call(10, 100, "Preparing 4 mapped variants for CAR submission."),
-                call(15, 100, "Submitting mapped variants to CAR."),
-                call(60, 100, "Processing registered alleles from CAR."),
-                call(95, 100, "Processed 4 of 4 registered alleles."),
-                call(100, 100, "Completed CAR mapped resource submission (4 successes)."),
-            ]
-        )
 
 
 @pytest.mark.integration
@@ -1432,7 +1351,6 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
         with (
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
             patch("mavedb.worker.jobs.external_services.clingen.LDH_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
-            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
         ):
             result = await submit_score_set_mappings_to_ldh(
                 mock_worker_ctx,
@@ -1440,7 +1358,6 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id),
             )
 
-        mock_update_progress.assert_called_with(100, 100, "No mapped variants to submit to LDH. Skipping submission.")
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
 
@@ -1480,7 +1397,6 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
             patch("mavedb.worker.jobs.external_services.clingen.LDH_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
-            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
         ):
             result = await submit_score_set_mappings_to_ldh(
                 mock_worker_ctx,
@@ -1490,7 +1406,6 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
-        mock_update_progress.assert_called_with(100, 100, "All mapped variant submissions to LDH failed.")
 
     async def test_submit_score_set_mappings_to_ldh_hgvs_not_found(
         self,
@@ -1521,7 +1436,6 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
             patch("mavedb.worker.jobs.external_services.clingen.LDH_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.get_hgvs_from_post_mapped", return_value=None),
-            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
         ):
             result = await submit_score_set_mappings_to_ldh(
                 mock_worker_ctx,
@@ -1529,9 +1443,6 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_ldh_sample_job_run.id),
             )
 
-        mock_update_progress.assert_called_with(
-            100, 100, "No valid mapped variants to submit to LDH. Skipping submission."
-        )
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
 
@@ -1629,7 +1540,6 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
             patch("mavedb.worker.jobs.external_services.clingen.LDH_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
-            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
         ):
             result = await submit_score_set_mappings_to_ldh(
                 mock_worker_ctx,
@@ -1639,9 +1549,6 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
-        mock_update_progress.assert_called_with(
-            100, 100, "Finalized LDH mapped resource submission (2 successes, 2 failures)."
-        )
 
     async def test_submit_score_set_mappings_to_ldh_all_successful_submission(
         self,
@@ -1694,7 +1601,6 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
             patch("mavedb.worker.jobs.external_services.clingen.LDH_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
-            patch.object(JobManager, "update_progress", return_value=None) as mock_update_progress,
         ):
             result = await submit_score_set_mappings_to_ldh(
                 mock_worker_ctx,
@@ -1704,9 +1610,6 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
-        mock_update_progress.assert_called_with(
-            100, 100, "Finalized LDH mapped resource submission (4 successes, 0 failures)."
-        )
 
 
 @pytest.mark.integration

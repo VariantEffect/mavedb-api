@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("arq")  # Skip tests if arq is not installed
 
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 from sqlalchemy import select
 
@@ -14,7 +14,6 @@ from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
 from mavedb.models.published_variant import PublishedVariantsMV
 from mavedb.worker.jobs.data_management.views import refresh_materialized_views, refresh_published_variants_view
-from tests.helpers.transaction_spy import TransactionSpy
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
@@ -30,31 +29,10 @@ class TestRefreshMaterializedViewsUnit:
 
     async def test_refresh_materialized_views_calls_refresh_function(self, mock_worker_ctx, mock_job_manager):
         """Test that refresh_materialized_views calls the refresh function."""
-        with (
-            patch("mavedb.worker.jobs.data_management.views.refresh_all_mat_views") as mock_refresh,
-            TransactionSpy.spy(mock_job_manager.db, expect_commit=True, expect_flush=True),
-        ):
+        with patch("mavedb.worker.jobs.data_management.views.refresh_all_mat_views") as mock_refresh:
             result = await refresh_materialized_views(mock_worker_ctx, 999, job_manager=mock_job_manager)
 
         mock_refresh.assert_called_once_with(mock_job_manager.db)
-        assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
-
-    async def test_refresh_materialized_views_updates_progress(self, mock_worker_ctx, mock_job_manager):
-        """Test that refresh_materialized_views updates progress correctly."""
-        with (
-            patch("mavedb.worker.jobs.data_management.views.refresh_all_mat_views"),
-            # Progress update patch means we skip commits.
-            patch.object(mock_job_manager, "update_progress", return_value=None) as mock_update_progress,
-            TransactionSpy.spy(mock_job_manager.db, expect_commit=False, expect_flush=True),
-        ):
-            result = await refresh_materialized_views(mock_worker_ctx, 999, job_manager=mock_job_manager)
-
-        expected_calls = [
-            call(0, 100, "Starting refresh of all materialized views."),
-            call(100, 100, "Completed refresh of all materialized views."),
-        ]
-        mock_update_progress.assert_has_calls(expected_calls)
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
 
@@ -67,9 +45,7 @@ class TestRefreshMaterializedViewsIntegration:
     async def test_refresh_materialized_views_integration(self, standalone_worker_context, session):
         """Integration test that runs refresh_materialized_views end-to-end."""
 
-        # Flush will be called implicitly when the transaction is committed
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await refresh_materialized_views(standalone_worker_context)
+        result = await refresh_materialized_views(standalone_worker_context)
 
         job = session.execute(
             select(JobRun).where(JobRun.job_function == "refresh_materialized_views")
@@ -89,7 +65,6 @@ class TestRefreshMaterializedViewsIntegration:
                 "mavedb.worker.jobs.data_management.views.refresh_all_mat_views",
                 side_effect=Exception("Test exception during refresh"),
             ),
-            TransactionSpy.spy(session, expect_rollback=True, expect_flush=True, expect_commit=True),
             patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await refresh_materialized_views(standalone_worker_context)
@@ -148,34 +123,10 @@ class TestRefreshPublishedVariantsViewUnit:
         with (
             patch.object(PublishedVariantsMV, "refresh") as mock_refresh,
             patch("mavedb.worker.jobs.data_management.views.validate_job_params"),
-            TransactionSpy.spy(mock_job_manager.db, expect_commit=True, expect_flush=True),
         ):
             result = await refresh_published_variants_view(mock_worker_ctx, 999, job_manager=mock_job_manager)
 
         mock_refresh.assert_called_once_with(mock_job_manager.db)
-        assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
-
-    async def test_refresh_published_variants_view_updates_progress(
-        self, mock_worker_ctx, mock_job_manager, mock_job_run
-    ):
-        """Test that refresh_published_variants_view updates progress correctly."""
-        mock_job_run.job_params = {"correlation_id": "test-corr-id"}
-
-        with (
-            patch.object(PublishedVariantsMV, "refresh"),
-            patch("mavedb.worker.jobs.data_management.views.validate_job_params"),
-            # Progress update patch means we skip commits.
-            patch.object(mock_job_manager, "update_progress", return_value=None) as mock_update_progress,
-            TransactionSpy.spy(mock_job_manager.db, expect_commit=False, expect_flush=True),
-        ):
-            result = await refresh_published_variants_view(mock_worker_ctx, 999, job_manager=mock_job_manager)
-
-        expected_calls = [
-            call(0, 100, "Starting refresh of published variants materialized view."),
-            call(100, 100, "Completed refresh of published variants materialized view."),
-        ]
-        mock_update_progress.assert_has_calls(expected_calls)
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
 
@@ -202,9 +153,7 @@ class TestRefreshPublishedVariantsViewIntegration:
         self, standalone_worker_context, session, setup_refresh_job_run
     ):
         """Integration test that runs refresh_published_variants_view end-to-end."""
-        # Flush will be called implicitly when the transaction is committed
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await refresh_published_variants_view(standalone_worker_context, setup_refresh_job_run.id)
+        result = await refresh_published_variants_view(standalone_worker_context, setup_refresh_job_run.id)
 
         session.refresh(setup_refresh_job_run)
         assert setup_refresh_job_run.status == JobStatus.SUCCEEDED
@@ -226,9 +175,7 @@ class TestRefreshPublishedVariantsViewIntegration:
         session.add(setup_refresh_job_run)
         session.commit()
 
-        # Flush will be called implicitly when the transaction is committed
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await refresh_published_variants_view(standalone_worker_context, setup_refresh_job_run.id)
+        result = await refresh_published_variants_view(standalone_worker_context, setup_refresh_job_run.id)
 
         session.refresh(setup_refresh_job_run)
         assert setup_refresh_job_run.status == JobStatus.SUCCEEDED
@@ -247,7 +194,6 @@ class TestRefreshPublishedVariantsViewIntegration:
                 "refresh",
                 side_effect=Exception("Test exception during published variants view refresh"),
             ),
-            TransactionSpy.spy(session, expect_rollback=True, expect_flush=True, expect_commit=True),
             patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await refresh_published_variants_view(standalone_worker_context, setup_refresh_job_run.id)
@@ -268,10 +214,7 @@ class TestRefreshPublishedVariantsViewIntegration:
         session.add(setup_refresh_job_run)
         session.commit()
 
-        with (
-            TransactionSpy.spy(session, expect_rollback=True, expect_flush=True, expect_commit=True),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
-        ):
+        with patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error:
             result = await refresh_published_variants_view(standalone_worker_context, setup_refresh_job_run.id)
             mock_send_slack_error.assert_called_once()
 

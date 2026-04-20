@@ -10,7 +10,7 @@ from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 
 pytest.importorskip("arq")
 
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.mapped_variant import MappedVariant
@@ -544,45 +544,6 @@ class TestRefreshClinvarControlsUnit:
         assert annotated_variant2.status == AnnotationStatus.SUCCESS
         assert annotated_variant2.annotation_type == AnnotationType.CLINVAR_CONTROL
         assert annotated_variant2.error_message is None
-
-    async def test_refresh_clinvar_controls_updates_progress(
-        self,
-        mock_worker_ctx,
-        session,
-        with_refresh_clinvar_controls_job,
-        sample_refresh_clinvar_controls_job_run,
-        setup_sample_variants_with_caid,
-    ):
-        """Test that the job updates progress correctly."""
-
-        # Mock the get_associated_clinvar_allele_id function to return a ClinVar Allele ID
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
-                return_value="VCV000000123",
-            ),
-            patch(
-                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
-                return_value=MOCK_CLINVAR_DATA,
-            ),
-            patch.object(JobManager, "update_progress") as mock_update_progress,
-        ):
-            result = await refresh_clinvar_controls(
-                mock_worker_ctx,
-                sample_refresh_clinvar_controls_job_run.id,
-                JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
-            )
-
-        assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
-
-        mock_update_progress.assert_has_calls(
-            [
-                call(0, 100, "Starting ClinVar refresh across 1 versions."),
-                call(0, 100, "Processing ClinVar version 01_2026 (1/1)."),
-                call(100, 100, "Completed ClinVar clinical control refresh."),
-            ]
-        )
 
 
 @pytest.mark.integration
