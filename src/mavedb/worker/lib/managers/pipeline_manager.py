@@ -34,7 +34,7 @@ Error Handling:
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Sequence
 
 from arq import ArqRedis
@@ -1044,7 +1044,9 @@ class PipelineManager(BaseManager):
             # Calculate duration
             duration = 0
             if pipeline.created_at:
-                end_time = pipeline.finished_at or datetime.now()
+                # `pipeline.created_at` is stored as a timezone-aware timestamp (TIMESTAMPTZ),
+                # so compare against a timezone-aware "now" to avoid mixing naive/aware datetimes.
+                end_time = pipeline.finished_at or datetime.now(timezone.utc)
                 duration = int((end_time - pipeline.created_at).total_seconds())
 
         except (AttributeError, TypeError, KeyError, ValueError) as e:

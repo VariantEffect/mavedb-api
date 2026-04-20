@@ -45,10 +45,12 @@ from mavedb.routers import (
     experiment_sets,
     experiments,
     hgvs,
+    job_runs,
     licenses,
     mapped_variant,
     orcid,
     permissions,
+    pipelines,
     publication_identifiers,
     raw_read_identifiers,
     refget,
@@ -94,11 +96,13 @@ app.include_router(doi_identifiers.router)
 app.include_router(experiment_sets.router)
 app.include_router(experiments.router)
 app.include_router(hgvs.router)
+app.include_router(job_runs.router)
 app.include_router(licenses.router)
 # app.include_router(log.router)
 app.include_router(mapped_variant.router)
 app.include_router(orcid.router)
 app.include_router(permissions.router)
+app.include_router(pipelines.router)
 app.include_router(publication_identifiers.router)
 app.include_router(raw_read_identifiers.router)
 app.include_router(refget.router)
