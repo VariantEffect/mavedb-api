@@ -1,8 +1,12 @@
+# ruff: noqa: E402
+
 """Tests for Slack notification utilities."""
 
 from unittest.mock import patch
 
 import pytest
+
+pytest.importorskip("slack_sdk", reason="slack_sdk is required to test Slack notification utilities")
 
 from mavedb.lib.slack import send_slack_error
 
