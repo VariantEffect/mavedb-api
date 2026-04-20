@@ -262,7 +262,6 @@ def mock_job_run(mock_pipeline):
         job_function="test_function",
         status=JobStatus.PENDING,
         pipeline_id=mock_pipeline.id,
-        priority=0,
         max_retries=3,
         retry_count=0,
         retry_delay_seconds=None,

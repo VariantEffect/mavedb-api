@@ -49,8 +49,7 @@ class JobRun(Base):
         Integer, ForeignKey("pipelines.id", ondelete="SET NULL"), nullable=True
     )
 
-    # Priority and scheduling
-    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Scheduling
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     retry_delay_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -103,7 +102,6 @@ class JobRun(Base):
             "status IN ('pending', 'queued', 'running', 'succeeded', 'failed', 'errored', 'cancelled', 'skipped')",
             name="ck_job_runs_status_valid",
         ),
-        CheckConstraint("priority >= 0", name="ck_job_runs_priority_positive"),
         CheckConstraint("max_retries >= 0", name="ck_job_runs_max_retries_positive"),
         CheckConstraint("retry_count >= 0", name="ck_job_runs_retry_count_positive"),
     )
