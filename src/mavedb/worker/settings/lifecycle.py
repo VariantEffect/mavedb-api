@@ -28,7 +28,7 @@ def standalone_ctx():
 
 
 async def startup(ctx):
-    ctx["pool"] = futures.ProcessPoolExecutor()
+    ctx["pool"] = futures.ProcessPoolExecutor(max_workers=4)
 
 
 async def shutdown(ctx):
