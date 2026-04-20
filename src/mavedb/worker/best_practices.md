@@ -215,6 +215,34 @@ Jobs that process score sets update the score set's `processing_state` and `mapp
 
 **Exception**: Some jobs currently manage score set state directly. This is legacy behavior being refactored. New jobs should rely on the infrastructure-layer state management where possible.
 
+## Idempotency Contract
+
+**All job functions must be safe to retry from scratch.** The worker infrastructure retries jobs that fail with transient errors (network timeouts, DB disconnects) and recovers stalled jobs via the cleanup cron. A retried job re-executes the entire function — there is no checkpointing or partial-resume mechanism.
+
+This means a job that partially completes, crashes, and gets retried must not produce duplicate side effects. In practice:
+
+- **Database writes** are generally safe — if the crash happens before commit, the transaction rolls back and retry starts clean.
+- **External API submissions** (CAR, LDH, UniProt, ClinGen) must tolerate duplicate calls. Currently our external targets handle this gracefully (idempotent endpoints or deduplication on their side), but this is an implicit assumption, not an enforced guarantee.
+- **Cache writes** are inherently idempotent.
+
+When writing a new job that calls an external service, verify that the target handles duplicate submissions. If it doesn't, guard against re-submission by checking for prior results before calling:
+
+```python
+# Check if we already submitted successfully in a prior attempt
+existing = db.scalars(
+    select(Submission).where(
+        Submission.score_set_id == score_set_id,
+        Submission.status == "accepted",
+    )
+).first()
+
+if existing:
+    return JobExecutionOutcome.succeeded(data={"submission_id": existing.external_id})
+
+# No prior submission — proceed
+result = await external_client.submit(score_set)
+```
+
 ## Common Pitfalls
 
 ### Don't call lifecycle methods from job code
