@@ -9,6 +9,10 @@ import logging
 from datetime import datetime
 from typing import Literal, Optional, Union
 
+import redis.exceptions
+import requests.exceptions
+import sqlalchemy.exc
+
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import DependencyType, FailureCategory, JobStatus
 from mavedb.worker.lib.managers.constants import COMPLETED_JOB_STATUSES
@@ -19,7 +23,21 @@ logger = logging.getLogger(__name__)
 # Exception-to-failure-category mapping for automatic classification of unhandled exceptions.
 # Job authors can always pass an explicit category on the outcome for domain-specific failures.
 # This mapping only covers infrastructure-level exceptions that the decorator can reasonably classify.
+#
+# Order matters: classify_exception() returns on the first isinstance() match, so more
+# specific types must appear before their parents (e.g. requests.Timeout before OSError).
 EXCEPTION_TO_FAILURE_CATEGORY: dict[type[Exception], FailureCategory] = {
+    # requests — all inherit from OSError, so these must come first to get precise categories.
+    requests.exceptions.Timeout: FailureCategory.TIMEOUT,
+    requests.exceptions.ConnectionError: FailureCategory.NETWORK_ERROR,
+    # SQLAlchemy — independent hierarchy, not caught by builtins.
+    sqlalchemy.exc.OperationalError: FailureCategory.NETWORK_ERROR,
+    sqlalchemy.exc.DisconnectionError: FailureCategory.NETWORK_ERROR,
+    sqlalchemy.exc.InterfaceError: FailureCategory.NETWORK_ERROR,
+    # Redis — independent hierarchy (redis.ConnectionError != builtins.ConnectionError).
+    redis.exceptions.TimeoutError: FailureCategory.TIMEOUT,
+    redis.exceptions.ConnectionError: FailureCategory.NETWORK_ERROR,
+    # Builtins — catch-all for anything not matched above (e.g. raw socket errors).
     ConnectionError: FailureCategory.NETWORK_ERROR,
     TimeoutError: FailureCategory.TIMEOUT,
     OSError: FailureCategory.NETWORK_ERROR,

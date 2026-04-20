@@ -31,9 +31,11 @@ from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
 
 logger = logging.getLogger(__name__)
 
-# Timeout thresholds for detecting stalled jobs (in minutes)
+# Timeout thresholds for detecting stalled jobs (in minutes).
+# RUNNING_TIMEOUT_MINUTES must stay below ArqWorkerSettings.job_timeout (currently 2 hours)
+# to avoid marking legitimately running jobs as stalled.
 QUEUED_TIMEOUT_MINUTES = 10  # QUEUED jobs should start within 10 min
-RUNNING_TIMEOUT_MINUTES = 60  # RUNNING jobs should complete within 1 hour
+RUNNING_TIMEOUT_MINUTES = 90  # RUNNING jobs should complete within 90 min (30 min buffer under ARQ timeout)
 PENDING_TIMEOUT_MINUTES = 30  # PENDING jobs in pipelines should be enqueued within 30 minutes
 
 

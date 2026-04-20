@@ -15,6 +15,15 @@ from mavedb.worker.jobs import BACKGROUND_CRONJOBS, BACKGROUND_FUNCTIONS
 from mavedb.worker.settings.lifecycle import on_job_end, on_job_start, shutdown, startup
 from mavedb.worker.settings.redis import RedisWorkerSettings
 
+# Limit concurrency to prevent event loop starvation from sync psycopg2 DB
+# operations. With the default max_jobs=10, multiple jobs issuing blocking DB
+# calls simultaneously can starve the event loop and cause apparent hangs.
+# 2 jobs still compete, but the practical impact is much less severe. If we
+# wanted to eventually increase concurrency, we could look into using a
+# connection pool with async support (e.g. asyncpg) to mitigate the issue.
+MAX_JOBS = 2
+JOB_TIMEOUT_SECONDS = 2 * 60 * 60  # 2 hours — matches RUNNING_TIMEOUT_MINUTES (90 min) with buffer
+
 
 class ArqWorkerSettings:
     """
@@ -30,11 +39,5 @@ class ArqWorkerSettings:
     functions: list = BACKGROUND_FUNCTIONS
     cron_jobs: list = BACKGROUND_CRONJOBS
 
-    # Limit concurrency to prevent event loop starvation from sync psycopg2 DB
-    # operations. With the default max_jobs=10, multiple jobs issuing blocking DB
-    # calls simultaneously can starve the event loop and cause apparent hangs.
-    # 2 jobs still compete, but the practical impact is much less severe. If we wanted
-    # to eventually increase concurrency, we could look into using a connection pool
-    # with async support (e.g. asyncpg) to mitigate the issue.
-    max_jobs = 2
-    job_timeout = 5 * 60 * 60  # Keep jobs alive for a long while...
+    max_jobs = MAX_JOBS
+    job_timeout = JOB_TIMEOUT_SECONDS
