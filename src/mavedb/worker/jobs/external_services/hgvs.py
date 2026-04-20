@@ -127,6 +127,13 @@ async def populate_hgvs_for_score_set(ctx: dict, job_id: int, job_manager: JobMa
         if total_variants > 0 and index % max(total_variants // 20, 1) == 0:
             progress = 5 + int((index / total_variants) * 90)
             job_manager.update_progress(progress, 100, f"Processing HGVS for variant {index + 1}/{total_variants}.")
+            logger.info(
+                "Processing variant %s/%s: variant_id=%s",
+                index + 1,
+                total_variants,
+                variant_id,
+                extra=job_manager.logging_context(),
+            )
 
         hgvs_g: Optional[str] = None
         hgvs_c: Optional[str] = None

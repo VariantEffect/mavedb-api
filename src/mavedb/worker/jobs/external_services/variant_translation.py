@@ -125,6 +125,13 @@ async def populate_variant_translations_for_score_set(
         if total_alleles > 0 and index % max(total_alleles // 20, 1) == 0:
             progress = 5 + int((index / total_alleles) * 90)
             job_manager.update_progress(progress, 100, f"Processing allele {index + 1}/{total_alleles}.")
+            logger.info(
+                "Processing allele %s/%s: %s",
+                index + 1,
+                total_alleles,
+                allele_id,
+                extra=job_manager.logging_context(),
+            )
 
         job_manager.save_to_context(
             {

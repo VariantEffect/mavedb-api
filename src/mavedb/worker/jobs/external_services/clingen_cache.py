@@ -88,10 +88,15 @@ async def warm_clingen_cache(ctx: dict, job_id: int, job_manager: JobManager) ->
             )
 
         if total > 0 and index % max(total // 20, 1) == 0:
+            job_manager.save_to_context({"warmed_alleles": warmed, "failed_alleles": failed})
             job_manager.update_progress(
                 int((index / total) * 100),
                 100,
                 f"Warming ClinGen cache ({index}/{total}).",
+            )
+            logger.info(
+                f"Warming ClinGen cache: {index}/{total} allele IDs processed. Warmed: {warmed}, failed: {failed}.",
+                extra=job_manager.logging_context(),
             )
 
     job_manager.update_progress(100, 100, f"Cache warming complete. Warmed: {warmed}, failed: {failed}.")

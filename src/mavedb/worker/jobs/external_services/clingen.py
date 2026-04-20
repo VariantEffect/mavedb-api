@@ -192,6 +192,10 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
             if total % 20 == 0 or processed == total:
                 progress = 50 + round((processed / total) * 45 / 5) * 5
                 job_manager.update_progress(progress, 100, f"Processed {processed} of {total} registered alleles.")
+                logger.info(
+                    msg=f"Processed {processed}/{total} registered alleles from CAR.",
+                    extra=job_manager.logging_context(),
+                )
 
     # For mapped variants which did not get a CAID, log failure annotation
     failed_submissions = set(obj[0] for obj in variant_post_mapped_objects) - set(registered_mapped_variant_ids)
