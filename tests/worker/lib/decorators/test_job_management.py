@@ -10,6 +10,7 @@ import pytest
 pytest.importorskip("arq")  # Skip tests if arq is not installed
 
 import asyncio
+from datetime import datetime
 from unittest.mock import patch
 
 from sqlalchemy import select
@@ -18,7 +19,6 @@ from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.decorators.job_management import with_job_management
-from mavedb.worker.lib.managers.constants import RETRYABLE_FAILURE_CATEGORIES
 from mavedb.worker.lib.managers.exceptions import JobStateError
 from mavedb.worker.lib.managers.job_manager import JobManager
 from tests.helpers.transaction_spy import TransactionSpy
@@ -271,6 +271,50 @@ class TestManagedJobDecoratorUnit:
             mock_job_manager_class.return_value = mock_job_manager
             assert await assert_manager_passed_job(mock_worker_ctx, 999)
 
+    async def test_decorator_still_transitions_errored_when_slack_is_unreachable(
+        self, session, mock_job_manager, mock_worker_ctx
+    ):
+        """When Slack is unreachable, the job should still transition to ERRORED
+        and the result should be returned (not an exception). send_slack_error
+        handles Slack failures internally, so the decorator is unaffected."""
+        with (
+            patch("mavedb.worker.lib.decorators.job_management.JobManager") as mock_job_manager_class,
+            patch("mavedb.lib.slack.send_slack_message", side_effect=RuntimeError("Slack is down")),
+            patch.object(mock_job_manager, "start_job", return_value=None),
+            patch.object(mock_job_manager, "should_retry", return_value=False),
+            patch.object(mock_job_manager, "error_job", return_value=None) as mock_error_job,
+            TransactionSpy.spy(session, expect_rollback=True, expect_commit=True),
+        ):
+            mock_job_manager_class.return_value = mock_job_manager
+            result = await sample_raise(mock_worker_ctx, 999)
+
+        mock_error_job.assert_called_once()
+        assert result.status == JobStatus.ERRORED
+        assert str(result.exception) == "error in wrapped function"
+
+    async def test_decorator_still_transitions_errored_when_slack_is_unreachable_and_error_job_fails(
+        self, session, mock_job_manager, mock_worker_ctx
+    ):
+        """When error_job fails and Slack is unreachable, the original exception is still
+        returned as an ERRORED result. The decorator logs critical for the error_job failure,
+        and send_slack_error handles Slack failures internally."""
+        with (
+            patch("mavedb.worker.lib.decorators.job_management.JobManager") as mock_job_manager_class,
+            patch("mavedb.lib.slack.send_slack_message", side_effect=RuntimeError("Slack is down")),
+            patch("mavedb.worker.lib.decorators.job_management.logger") as mock_logger,
+            patch.object(mock_job_manager, "start_job", return_value=None),
+            patch.object(mock_job_manager, "should_retry", return_value=False),
+            patch.object(mock_job_manager, "error_job", side_effect=JobStateError("error in error_job")),
+            TransactionSpy.spy(session, expect_commit=True, expect_rollback=True),
+        ):
+            mock_job_manager_class.return_value = mock_job_manager
+            result = await sample_raise(mock_worker_ctx, 999)
+
+        assert result.status == JobStatus.ERRORED
+        assert str(result.exception) == "error in wrapped function"
+        # Decorator logs critical when error_job itself fails, regardless of Slack status
+        mock_logger.critical.assert_called()
+
 
 @pytest.mark.asyncio
 @pytest.mark.integration
@@ -375,9 +419,8 @@ class TestManagedJobDecoratorIntegration:
 
         @with_job_management
         async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
-            sample_job_run.failure_category = RETRYABLE_FAILURE_CATEGORIES[0]  # Set a retryable failure category
             await event.wait()  # Simulate async work, block until test signals
-            raise RuntimeError("Simulated job failure for retry")
+            raise ConnectionError("Simulated network failure for retry")
 
         with patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error:
             # Start the job (it will block at event.wait())
@@ -388,15 +431,10 @@ class TestManagedJobDecoratorIntegration:
             job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
             assert job.status == JobStatus.RUNNING
 
-            # TODO: We patch `should_retry` to return True to force a retry scenario. After implementing failure
-            # categorization in the worker, this patch can be removed and we should directly test retry logic based
-            # on failure categories.
-            #
-            # Now allow the job to complete with failure that triggers a retry. This failure
-            # should be swallowed by the job_task.
-            with patch.object(JobManager, "should_retry", return_value=True):
-                event.set()
-                await job_task
+            # ConnectionError is classified as NETWORK_ERROR (retryable), so retry
+            # logic triggers automatically without patching should_retry.
+            event.set()
+            await job_task
 
             mock_send_slack_error.assert_called_once()
 
@@ -404,3 +442,26 @@ class TestManagedJobDecoratorIntegration:
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
         assert job.status == JobStatus.PENDING
         assert job.retry_count == 1  # Ensure it attempted once before retrying
+
+    async def test_decorator_integrated_recovers_stale_running_job(
+        self, session, arq_redis, sample_job_run, standalone_worker_context, with_populated_job_data
+    ):
+        """Integration test: when a job is stuck RUNNING from a crashed worker,
+        start_job() accepts the RUNNING state and the job completes successfully."""
+
+        # Simulate a stale RUNNING state from a previous worker crash
+        sample_job_run.status = JobStatus.RUNNING
+        sample_job_run.started_at = datetime.now()
+        session.commit()
+
+        @with_job_management
+        async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
+            return JobExecutionOutcome.succeeded()
+
+        await sample_job(standalone_worker_context, sample_job_run.id)
+
+        # Job should have recovered and completed successfully
+        job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
+        assert job.status == JobStatus.SUCCEEDED
+        # started_at should be refreshed (not the stale timestamp)
+        assert job.started_at is not None

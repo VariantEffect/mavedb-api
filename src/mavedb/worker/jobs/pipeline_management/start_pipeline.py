@@ -1,6 +1,7 @@
 import logging
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
+from mavedb.models.enums.job_pipeline import FailureCategory
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
@@ -44,7 +45,9 @@ async def start_pipeline(ctx: dict, job_id: int, job_manager: JobManager) -> Job
     logger.debug(msg="Coordinating pipeline for the first time.", extra=job_manager.logging_context())
 
     if not job_manager.pipeline_id:
-        return JobExecutionOutcome.failed(reason="No pipeline associated with this job.")
+        return JobExecutionOutcome.failed(
+            reason="No pipeline associated with this job.", failure_category=FailureCategory.SYSTEM_ERROR
+        )
 
     # Initialize PipelineManager and coordinate pipeline. The pipeline manager decorator
     # will have started the pipeline for us already, but doesn't coordinate on start automatically.

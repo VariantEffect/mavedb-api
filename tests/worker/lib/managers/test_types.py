@@ -3,7 +3,7 @@
 import pytest
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
-from mavedb.models.enums.job_pipeline import JobStatus
+from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
 
 
 @pytest.mark.unit
@@ -51,6 +51,14 @@ class TestJobExecutionOutcomeFailed:
         result = JobExecutionOutcome.failed(reason="x", data=None)
         assert result.data == {}
 
+    def test_with_failure_category(self):
+        result = JobExecutionOutcome.failed(reason="HGVS parse error", failure_category=FailureCategory.DATA_ERROR)
+        assert result.failure_category == FailureCategory.DATA_ERROR
+
+    def test_without_failure_category_defaults_to_none(self):
+        result = JobExecutionOutcome.failed(reason="bad input")
+        assert result.failure_category is None
+
 
 @pytest.mark.unit
 class TestJobExecutionOutcomeErrored:
@@ -79,6 +87,16 @@ class TestJobExecutionOutcomeErrored:
         exc = RuntimeError("x")
         result = JobExecutionOutcome.errored(exception=exc, data=None)
         assert result.data == {}
+
+    def test_with_failure_category(self):
+        exc = ConnectionError("timeout")
+        result = JobExecutionOutcome.errored(exception=exc, failure_category=FailureCategory.NETWORK_ERROR)
+        assert result.failure_category == FailureCategory.NETWORK_ERROR
+
+    def test_without_failure_category_defaults_to_none(self):
+        exc = RuntimeError("boom")
+        result = JobExecutionOutcome.errored(exception=exc)
+        assert result.failure_category is None
 
 
 @pytest.mark.unit
@@ -120,21 +138,26 @@ class TestJobExecutionOutcomeToDict:
     def test_succeeded(self):
         result = JobExecutionOutcome.succeeded(data={"k": 1})
         d = result.to_dict()
-        assert d == {"status": "succeeded", "data": {"k": 1}, "error": None}
+        assert d == {"status": "succeeded", "data": {"k": 1}, "error": None, "failure_category": None}
 
     def test_failed(self):
         result = JobExecutionOutcome.failed(reason="bad", data={"partial": 3})
         d = result.to_dict()
-        assert d == {"status": "failed", "data": {"partial": 3}, "error": "bad"}
+        assert d == {"status": "failed", "data": {"partial": 3}, "error": "bad", "failure_category": None}
+
+    def test_failed_with_failure_category(self):
+        result = JobExecutionOutcome.failed(reason="bad", failure_category=FailureCategory.DATA_ERROR)
+        d = result.to_dict()
+        assert d["failure_category"] == "data_error"
 
     def test_errored_excludes_exception(self):
         exc = RuntimeError("crash")
         result = JobExecutionOutcome.errored(exception=exc)
         d = result.to_dict()
-        assert d == {"status": "errored", "data": {}, "error": "crash"}
+        assert d == {"status": "errored", "data": {}, "error": "crash", "failure_category": None}
         assert "exception" not in d
 
     def test_skipped(self):
         result = JobExecutionOutcome.skipped()
         d = result.to_dict()
-        assert d == {"status": "skipped", "data": {}, "error": None}
+        assert d == {"status": "skipped", "data": {}, "error": None, "failure_category": None}

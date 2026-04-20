@@ -93,7 +93,7 @@ worker/
 │       ├── constants.py               #   Status grouping constants
 │       ├── exceptions.py              #   Exception hierarchy
 │       ├── types.py                   #   TypedDicts (RetryHistoryEntry, PipelineProgress)
-│       └── utils.py                   #   Dependency checking helpers
+│       └── utils.py                   #   Dependency checking helpers, classify_exception()
 │
 └── settings/                          # ARQ worker configuration
     ├── worker.py                      #   ArqWorkerSettings class

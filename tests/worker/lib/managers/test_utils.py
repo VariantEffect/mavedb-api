@@ -5,7 +5,7 @@ import pytest
 pytest.importorskip("arq")
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
-from mavedb.models.enums.job_pipeline import DependencyType, JobStatus
+from mavedb.models.enums.job_pipeline import DependencyType, FailureCategory, JobStatus
 from mavedb.worker.lib.managers.constants import (
     ACTIVE_JOB_STATUSES,
     COMPLETED_JOB_STATUSES,
@@ -14,6 +14,7 @@ from mavedb.worker.lib.managers.constants import (
     TERMINAL_JOB_STATUSES,
 )
 from mavedb.worker.lib.managers.utils import (
+    classify_exception,
     construct_bulk_cancellation_result,
     job_dependency_is_met,
     job_should_be_skipped_due_to_unfulfillable_dependency,
@@ -120,3 +121,30 @@ class TestJobShouldBeSkippedDueToUnfulfillableDependencyUnit:
             assert isinstance(result[1], str)
         else:
             assert result == (False, None)
+
+
+@pytest.mark.unit
+class TestClassifyException:
+    """Tests for classify_exception mapping."""
+
+    def test_connection_error_returns_network_error(self):
+        assert classify_exception(ConnectionError("connection refused")) == FailureCategory.NETWORK_ERROR
+
+    def test_timeout_error_returns_timeout(self):
+        assert classify_exception(TimeoutError("timed out")) == FailureCategory.TIMEOUT
+
+    def test_os_error_returns_network_error(self):
+        assert classify_exception(OSError("socket error")) == FailureCategory.NETWORK_ERROR
+
+    def test_connection_reset_error_returns_network_error(self):
+        """ConnectionResetError is a subclass of ConnectionError, so isinstance matches."""
+        assert classify_exception(ConnectionResetError("reset by peer")) == FailureCategory.NETWORK_ERROR
+
+    def test_value_error_returns_unknown(self):
+        assert classify_exception(ValueError("bad value")) == FailureCategory.UNKNOWN
+
+    def test_runtime_error_returns_unknown(self):
+        assert classify_exception(RuntimeError("unexpected")) == FailureCategory.UNKNOWN
+
+    def test_generic_exception_returns_unknown(self):
+        assert classify_exception(Exception("generic")) == FailureCategory.UNKNOWN

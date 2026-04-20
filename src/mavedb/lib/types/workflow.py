@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
-from mavedb.models.enums.job_pipeline import DependencyType, JobStatus
+from mavedb.models.enums.job_pipeline import DependencyType, FailureCategory, JobStatus
 
 
 @dataclass
@@ -21,6 +21,7 @@ class JobExecutionOutcome:
     data: dict[str, Any]
     error: str | None
     exception: Exception | None
+    failure_category: FailureCategory | None = None
 
     @classmethod
     def succeeded(cls, data: dict[str, Any] | None = None) -> JobExecutionOutcome:
@@ -28,14 +29,26 @@ class JobExecutionOutcome:
         return cls(status=JobStatus.SUCCEEDED, data=data or {}, error=None, exception=None)
 
     @classmethod
-    def failed(cls, reason: str, data: dict[str, Any] | None = None) -> JobExecutionOutcome:
+    def failed(
+        cls, reason: str, data: dict[str, Any] | None = None, failure_category: FailureCategory | None = None
+    ) -> JobExecutionOutcome:
         """Controlled failure — job determined the outcome was unsuccessful."""
-        return cls(status=JobStatus.FAILED, data=data or {}, error=reason, exception=None)
+        return cls(
+            status=JobStatus.FAILED, data=data or {}, error=reason, exception=None, failure_category=failure_category
+        )
 
     @classmethod
-    def errored(cls, exception: Exception, data: dict[str, Any] | None = None) -> JobExecutionOutcome:
+    def errored(
+        cls, exception: Exception, data: dict[str, Any] | None = None, failure_category: FailureCategory | None = None
+    ) -> JobExecutionOutcome:
         """Unhandled exception — job crashed."""
-        return cls(status=JobStatus.ERRORED, data=data or {}, error=str(exception), exception=exception)
+        return cls(
+            status=JobStatus.ERRORED,
+            data=data or {},
+            error=str(exception),
+            exception=exception,
+            failure_category=failure_category,
+        )
 
     @classmethod
     def skipped(cls, data: dict[str, Any] | None = None) -> JobExecutionOutcome:
@@ -53,6 +66,7 @@ class JobExecutionOutcome:
             "status": self.status.value,
             "data": self.data,
             "error": self.error,
+            "failure_category": self.failure_category.value if self.failure_category else None,
         }
 
 

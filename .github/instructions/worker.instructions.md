@@ -87,11 +87,14 @@ Always return using factory methods:
 ```python
 return JobExecutionOutcome.succeeded(data={"variants_created": count})
 return JobExecutionOutcome.failed(reason="No mapped variants found", data={...})
+return JobExecutionOutcome.failed(reason="HGVS parse error", failure_category=FailureCategory.DATA_ERROR)
 return JobExecutionOutcome.skipped(data={"reason": "Feature disabled"})
 # For unhandled exceptions: let them propagate — the decorator catches and creates .errored()
 ```
 
-**Do not return `.errored()` from job code.** Let unhandled exceptions propagate; the decorator catches them, marks the job as ERRORED, sends Slack alerts, and handles retry logic.
+The optional `failure_category` parameter on `.failed()` and `.errored()` controls retry eligibility. Categories in `RETRYABLE_FAILURE_CATEGORIES` (e.g., `NETWORK_ERROR`, `TIMEOUT`, `SERVICE_UNAVAILABLE`) enable automatic retries. When a job doesn't set an explicit category, the decorator classifies unhandled exceptions via `classify_exception()` (e.g., `ConnectionError` → `NETWORK_ERROR`). Unclassifiable exceptions default to `UNKNOWN` (not retryable).
+
+**Do not return `.errored()` from job code.** Let unhandled exceptions propagate; the decorator catches them, classifies the failure, marks the job as ERRORED, sends Slack alerts, and handles retry logic.
 
 ## Parameter Access Pattern
 
@@ -113,10 +116,14 @@ Parameters with `None` values in pipeline definitions are filled at runtime from
 
 ## Error Handling
 
-- **Business failures** (validation errors, missing data): Return `JobExecutionOutcome.failed(reason=...)`
-- **Unhandled exceptions**: Let them propagate. The decorator catches them, marks the job as ERRORED, sends a Slack alert, and evaluates retry eligibility.
+- **Business failures** (validation errors, missing data): Return `JobExecutionOutcome.failed(reason=..., failure_category=...)` with an explicit `FailureCategory` for retry control.
+- **Unhandled exceptions**: Let them propagate. The decorator catches them, classifies the exception via `classify_exception()`, marks the job as ERRORED, sends a Slack alert, and evaluates retry eligibility.
 - **External service disabled/unavailable**: Return `JobExecutionOutcome.skipped()` if a config check shows the service is disabled. Let connection errors propagate for retry handling.
 - **Retry eligibility**: Determined by `should_retry()` which checks `retry_count < max_retries` and `failure_category in RETRYABLE_FAILURE_CATEGORIES`.
+- **Failure classification**: `classify_exception()` in `utils.py` maps infrastructure exceptions to categories (`ConnectionError` → `NETWORK_ERROR`, `TimeoutError` → `TIMEOUT`, `OSError` → `NETWORK_ERROR`). Unmapped exceptions default to `UNKNOWN`. Job-level explicit `failure_category` on the outcome takes priority over automatic classification.
+- **Slack safety**: `send_slack_error()` catches its own exceptions internally (logging critical on failure), so Slack outages never interfere with job lifecycle management or error recovery in the decorators.
+- **Stale RUNNING recovery**: `start_job()` accepts RUNNING as a startable status (alongside QUEUED and PENDING). When ARQ re-delivers a job after a worker crash, `start_job()` logs a warning and resets the start timestamp rather than raising `JobTransitionError`.
+- **Concurrency limit**: `max_jobs = 2` in `ArqWorkerSettings` prevents event loop starvation from sync psycopg2 DB calls. With the default `max_jobs=10`, multiple concurrent jobs issuing blocking DB operations can starve the asyncio event loop.
 
 ## Pipeline Lifecycle (Brief)
 

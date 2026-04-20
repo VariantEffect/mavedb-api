@@ -12,7 +12,7 @@ from mavedb.lib.exceptions import (
     UniprotMappingResultNotFoundError,
 )
 from mavedb.lib.types.workflow import JobExecutionOutcome
-from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
+from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus, PipelineStatus
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.worker.jobs.external_services.uniprot import (
@@ -1102,9 +1102,6 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
         session.refresh(sample_score_set)
         assert sample_score_set.target_genes[0].uniprot_id_from_mapped_metadata is None
 
-    # TODO:XXX -- We will eventually want to make sure the job indicates to the manager
-    #             its desire to be retried. For now, we just verify that no changes are made
-    #             when results are not ready.
     async def test_poll_uniprot_mapping_jobs_results_not_ready(
         self,
         session,
@@ -1138,10 +1135,12 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
             )
 
         assert isinstance(job_result, JobExecutionOutcome)
-        assert job_result.status == JobStatus.SUCCEEDED
+        assert job_result.status == JobStatus.FAILED
+        assert job_result.failure_category == FailureCategory.SERVICE_UNAVAILABLE
+        assert "1" in job_result.data["pending_target_genes"]
 
         # Verify that progress updates were made
-        mock_update_progress.assert_called_with(100, 100, "Completed polling of UniProt mapping jobs.")
+        mock_update_progress.assert_called_with(100, 100, "UniProt results not ready for 1 target(s).")
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
@@ -1388,10 +1387,12 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
             )
 
         assert isinstance(job_result, JobExecutionOutcome)
-        assert job_result.status == JobStatus.SUCCEEDED
+        assert job_result.status == JobStatus.FAILED
+        assert job_result.failure_category == FailureCategory.SERVICE_UNAVAILABLE
+        assert str(new_target_gene.id) in job_result.data["pending_target_genes"]
 
         # Verify that progress updates were made
-        mock_update_progress.assert_called_with(100, 100, "Completed polling of UniProt mapping jobs.")
+        mock_update_progress.assert_called_with(100, 100, "UniProt results not ready for 1 target(s).")
 
         # Verify the target gene uniprot id has been updated for the successful mapping and
         # remains None for the failed mapping
@@ -1692,17 +1693,16 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
             )
 
         assert isinstance(job_result, JobExecutionOutcome)
-        assert job_result.status == JobStatus.SUCCEEDED
+        assert job_result.status == JobStatus.FAILED
+        assert job_result.failure_category == FailureCategory.SERVICE_UNAVAILABLE
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
         assert sample_score_set.target_genes[0].uniprot_id_from_mapped_metadata is None
 
-        # Verify that the polling job succeeded
-        # TODO#XXX -- For now, we mark the job as succeeded even if no updates were made.
-        #             In the future, we may want to have the job indicate it should be retried.
+        # The decorator detects SERVICE_UNAVAILABLE as retryable and resets the job to PENDING
         session.refresh(sample_polling_job_for_submission_run)
-        assert sample_polling_job_for_submission_run.status == JobStatus.SUCCEEDED
+        assert sample_polling_job_for_submission_run.status == JobStatus.PENDING
 
     async def test_poll_uniprot_mapping_jobs_no_results(
         self,

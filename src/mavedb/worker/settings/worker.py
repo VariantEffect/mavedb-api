@@ -30,4 +30,11 @@ class ArqWorkerSettings:
     functions: list = BACKGROUND_FUNCTIONS
     cron_jobs: list = BACKGROUND_CRONJOBS
 
+    # Limit concurrency to prevent event loop starvation from sync psycopg2 DB
+    # operations. With the default max_jobs=10, multiple jobs issuing blocking DB
+    # calls simultaneously can starve the event loop and cause apparent hangs.
+    # 2 jobs still compete, but the practical impact is much less severe. If we wanted
+    # to eventually increase concurrency, we could look into using a connection pool
+    # with async support (e.g. asyncpg) to mitigate the issue.
+    max_jobs = 2
     job_timeout = 5 * 60 * 60  # Keep jobs alive for a long while...

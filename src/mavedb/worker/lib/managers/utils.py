@@ -10,10 +10,28 @@ from datetime import datetime
 from typing import Literal, Optional, Union
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
-from mavedb.models.enums.job_pipeline import DependencyType, JobStatus
+from mavedb.models.enums.job_pipeline import DependencyType, FailureCategory, JobStatus
 from mavedb.worker.lib.managers.constants import COMPLETED_JOB_STATUSES
 
 logger = logging.getLogger(__name__)
+
+
+# Exception-to-failure-category mapping for automatic classification of unhandled exceptions.
+# Job authors can always pass an explicit category on the outcome for domain-specific failures.
+# This mapping only covers infrastructure-level exceptions that the decorator can reasonably classify.
+EXCEPTION_TO_FAILURE_CATEGORY: dict[type[Exception], FailureCategory] = {
+    ConnectionError: FailureCategory.NETWORK_ERROR,
+    TimeoutError: FailureCategory.TIMEOUT,
+    OSError: FailureCategory.NETWORK_ERROR,
+}
+
+
+def classify_exception(exc: Exception) -> FailureCategory:
+    """Map an exception to a FailureCategory. Uses isinstance to match parent classes."""
+    for exc_type, category in EXCEPTION_TO_FAILURE_CATEGORY.items():
+        if isinstance(exc, exc_type):
+            return category
+    return FailureCategory.UNKNOWN
 
 
 def construct_bulk_cancellation_result(reason: str) -> JobExecutionOutcome:

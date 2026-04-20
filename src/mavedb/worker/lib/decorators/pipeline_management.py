@@ -21,6 +21,7 @@ from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.decorators import with_job_management
 from mavedb.worker.lib.decorators.utils import ensure_ctx, ensure_job_id, ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers import PipelineManager
+from mavedb.worker.lib.managers.utils import classify_exception
 
 logger = logging.getLogger(__name__)
 
@@ -171,8 +172,6 @@ async def _execute_managed_pipeline(
             logger.critical(
                 f"Unable to perform cleanup coordination on pipeline {pipeline_id} associated with job {job_id} after error: {inner_e}"
             )
-
-            # Notify about the internal error, as it indicates a serious problem with pipeline state persistence
             send_slack_error(inner_e)
 
             # No further work here. We can rely on the notification hooks below to alert on the original failure
@@ -181,9 +180,7 @@ async def _execute_managed_pipeline(
             logger.error(f"Pipeline {pipeline_id} associated with job {job_id} failed to coordinate: {e}")
 
             # Build errored result for the unhandled exception
-            result = JobExecutionOutcome.errored(exception=e)
-
-            # Notify about the original failure
+            result = JobExecutionOutcome.errored(exception=e, failure_category=classify_exception(e))
             send_slack_error(e)
 
             # Swallow the exception after alerting so ARQ can finish the job cleanly and log results.

@@ -7,7 +7,6 @@ from typing import Any
 
 from slack_sdk.webhook import WebhookClient
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -39,14 +38,17 @@ def send_slack_message(text: str):
 
 
 def send_slack_error(err, request=None):
-    text = {"type": err.__class__.__name__, "exception": str(err), "location": find_traceback_locations()}
+    try:
+        text = {"type": err.__class__.__name__, "exception": str(err), "location": find_traceback_locations()}
 
-    if request:
-        text["client"] = str(request.client.host)
-        text["request"] = f"{request.method} {request.url}"
+        if request:
+            text["client"] = str(request.client.host)
+            text["request"] = f"{request.method} {request.url}"
 
-    text = json.dumps(text)
-    send_slack_message(text)
+        text = json.dumps(text)
+        send_slack_message(text)
+    except Exception:
+        logger.critical("Failed to send Slack error notification", exc_info=True)
 
 
 def log_and_send_slack_message(msg: str, ctx: dict[str, Any], level: int):

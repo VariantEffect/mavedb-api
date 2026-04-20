@@ -17,6 +17,7 @@ from mavedb.lib.score_sets import columns_for_dataset, create_variants, create_v
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.validation.dataframe.dataframe import validate_and_standardize_dataframe_pair
 from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.models.enums.job_pipeline import FailureCategory
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.mapped_variant import MappedVariant
@@ -228,7 +229,9 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
         )
 
         if isinstance(e, ValidationError):
-            return JobExecutionOutcome.failed(reason=str(e), data={"score_set_id": score_set.id})
+            return JobExecutionOutcome.failed(
+                reason=str(e), data={"score_set_id": score_set.id}, failure_category=FailureCategory.VALIDATION_ERROR
+            )
         raise
 
     else:

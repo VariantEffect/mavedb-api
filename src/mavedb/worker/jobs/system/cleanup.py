@@ -65,7 +65,9 @@ async def _handle_stalled_job_retry(
     """
     # Step 1: Fail the job for being stalled
     manager.fail_job(
-        result=JobExecutionOutcome.failed(reason=stall_reason, data={"reason": stall_reason}),
+        result=JobExecutionOutcome.failed(
+            reason=stall_reason, data={"reason": stall_reason}, failure_category=FailureCategory.TIMEOUT
+        ),
     )
     job.failure_category = FailureCategory.TIMEOUT  # Timeouts are retryable
     db.flush()
@@ -120,7 +122,9 @@ async def _handle_stalled_job_retry(
         # Re-fail the job since we couldn't enqueue it
         error_msg = f"Failed to enqueue after stall recovery: {e}"
         manager.fail_job(
-            result=JobExecutionOutcome.failed(reason=error_msg, data={"reason": error_msg}),
+            result=JobExecutionOutcome.failed(
+                reason=error_msg, data={"reason": error_msg}, failure_category=FailureCategory.SYSTEM_ERROR
+            ),
         )
         job.failure_category = FailureCategory.SYSTEM_ERROR  # Enqueue failures during cleanup are not retryable
         return False
@@ -317,6 +321,7 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
     else:
         logger.debug("Cleanup complete: No stalled jobs found", extra=job_manager.logging_context())
 
+    job_manager.update_progress(100, 100, f"Cleanup complete: {total_cleaned} stalled jobs handled.")
     return JobExecutionOutcome.succeeded(
         data={
             "total_cleaned": total_cleaned,

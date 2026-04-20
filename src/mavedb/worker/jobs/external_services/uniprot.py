@@ -23,6 +23,7 @@ from mavedb.lib.mapping import extract_ids_from_post_mapped_metadata
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.uniprot.id_mapping import UniProtIDMappingAPI
 from mavedb.lib.uniprot.utils import infer_db_name_from_sequence_accession
+from mavedb.models.enums.job_pipeline import FailureCategory
 from mavedb.models.job_dependency import JobDependency
 from mavedb.models.score_set import ScoreSet
 from mavedb.worker.jobs.utils.setup import validate_job_params
@@ -181,6 +182,7 @@ async def submit_uniprot_mapping_jobs_for_score_set(
         return JobExecutionOutcome.failed(
             reason=f"Could not find unique dependent polling job for UniProt mapping job {job.id}.",
             data={"jobs_submitted": len(mapping_jobs)},
+            failure_category=FailureCategory.SYSTEM_ERROR,
         )
 
     # Set mapping jobs on dependent polling job. Only one polling job per score set should be created.
@@ -254,6 +256,7 @@ async def poll_uniprot_mapping_jobs_for_score_set(
 
     # Poll each mapping job and update target genes with UniProt IDs
     uniprot_api = UniProtIDMappingAPI()
+    pending_jobs = []
     for target_gene_id, mapping_job in mapping_jobs.items():
         mapping_job_id = mapping_job["job_id"]
 
@@ -267,11 +270,10 @@ async def poll_uniprot_mapping_jobs_for_score_set(
         # Check if the mapping job is ready
         if not uniprot_api.check_id_mapping_results_ready(mapping_job_id):
             logger.warning(
-                msg=f"Job {mapping_job_id} not ready. Skipped polling this job.",
+                msg=f"Job {mapping_job_id} not ready. Will retry polling.",
                 extra=job_manager.logging_context(),
             )
-            # TODO#XXX: When results are not ready, we want to signal to the manager a desire to retry
-            #           this polling job later. For now, we just skip and log.
+            pending_jobs.append(target_gene_id)
             continue
 
         # Extract mapped UniProt IDs from results
@@ -315,6 +317,24 @@ async def poll_uniprot_mapping_jobs_for_score_set(
             int((list(score_set.target_genes).index(target_gene) + 1) / len(score_set.target_genes) * 95),
             100,
             f"Polled UniProt mapping job for target gene {target_gene.name}.",
+        )
+
+    # If any polling jobs are still pending, signal for retry via a retryable failure category.
+    # The decorator will evaluate should_retry() and re-enqueue if retries remain. This is a little hacky,
+    # but it allows us to avoid raising exceptions for expected cases where UniProt results aren't ready yet.
+    # A future version of this workflow could be improved by leveraging the _defer_by functionality in ARQ.
+    if pending_jobs:
+        job_manager.update_progress(100, 100, f"UniProt results not ready for {len(pending_jobs)} target(s).")
+        logger.info(
+            msg=f"UniProt results not ready for target gene(s) {pending_jobs}. Requesting retry.",
+            extra=job_manager.logging_context(),
+        )
+        # Flush partial updates (e.g. target genes that were successfully mapped) before returning.
+        job_manager.db.flush()
+        return JobExecutionOutcome.failed(
+            reason=f"UniProt results not ready for {len(pending_jobs)} target gene(s). Will retry.",
+            data={"pending_target_genes": pending_jobs},
+            failure_category=FailureCategory.SERVICE_UNAVAILABLE,
         )
 
     job_manager.update_progress(100, 100, "Completed polling of UniProt mapping jobs.")

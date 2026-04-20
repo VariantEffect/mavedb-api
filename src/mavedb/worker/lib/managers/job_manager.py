@@ -54,6 +54,7 @@ from mavedb.worker.lib.managers.constants import (
     STARTABLE_JOB_STATUSES,
     TERMINAL_JOB_STATUSES,
 )
+from mavedb.worker.lib.managers.utils import classify_exception
 from mavedb.worker.lib.managers.exceptions import (
     DatabaseConnectionError,
     JobStateError,
@@ -179,9 +180,12 @@ class JobManager(BaseManager):
         """Mark job as started and initialize execution tracking. This method does
         not flush or commit the database session; the caller is responsible for persisting changes.
 
-        Transitions job from QUEUED or PENDING to RUNNING state, setting start
+        Transitions job from QUEUED, PENDING, or RUNNING to RUNNING state, setting start
         timestamp and a default progress message. This method should be called
         once at the beginning of job execution.
+
+        If the job is already RUNNING (stale from a crashed worker that ARQ re-delivered),
+        a warning is logged and the start timestamp is reset.
 
         State Changes:
         - Sets status to JobStatus.RUNNING
@@ -192,7 +196,7 @@ class JobManager(BaseManager):
         Raises:
             DatabaseConnectionError: Cannot fetch job from database
             JobStateError: Cannot save job start state to database
-            JobTransitionError: Job not in valid state to start (must be QUEUED or PENDING)
+            JobTransitionError: Job not in valid state to start (must be QUEUED, PENDING, or RUNNING)
 
         Example:
             >>> manager = JobManager(db, redis, 123)
@@ -206,6 +210,14 @@ class JobManager(BaseManager):
                 "Invalid job start attempt: status not in STARTABLE_JOB_STATUSES", extra=self.logging_context()
             )
             raise JobTransitionError(f"Cannot start job {self.job_id} from status {job_run.status}")
+
+        # Recovery path: job is already RUNNING from a previous worker that crashed.
+        # ARQ re-delivered the job, so we reset the timestamp and proceed.
+        if job_run.status == JobStatus.RUNNING:
+            logger.warning(
+                f"Job {self.job_id} already RUNNING (previous worker likely crashed) — resetting start time",
+                extra=self.logging_context(),
+            )
 
         try:
             job_run.status = JobStatus.RUNNING
@@ -257,7 +269,12 @@ class JobManager(BaseManager):
             job_run.finished_at = datetime.now()
 
             if status in (JobStatus.FAILED, JobStatus.ERRORED):
-                job_run.failure_category = FailureCategory.UNKNOWN
+                if result.failure_category:
+                    job_run.failure_category = result.failure_category
+                elif result.exception:
+                    job_run.failure_category = classify_exception(result.exception)
+                else:
+                    job_run.failure_category = FailureCategory.UNKNOWN
 
             if result.error:
                 job_run.error_message = result.error
@@ -265,8 +282,8 @@ class JobManager(BaseManager):
             if result.exception:
                 job_run.error_message = str(result.exception)
                 job_run.error_traceback = traceback.format_exc()
-                job_run.failure_category = FailureCategory.UNKNOWN
 
+            if job_run.failure_category:
                 self.save_to_context({"failure_category": str(job_run.failure_category)})
 
         except (AttributeError, TypeError, KeyError, ValueError) as e:

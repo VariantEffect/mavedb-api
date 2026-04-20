@@ -31,7 +31,7 @@ from mavedb.lib.clingen.services import (
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus
+from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus, FailureCategory
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -103,7 +103,10 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
             msg="ClinGen Allele Registry submission is disabled (no submission endpoint), unable to complete submission of mapped variants to CAR.",
             extra=job_manager.logging_context(),
         )
-        return JobExecutionOutcome.failed(reason="ClinGen Allele Registry submission endpoint is not configured.")
+        return JobExecutionOutcome.failed(
+            reason="ClinGen Allele Registry submission endpoint is not configured.",
+            failure_category=FailureCategory.CONFIGURATION_ERROR,
+        )
 
     # Fetch mapped variants with post-mapped data for the score set
     variant_post_mapped_objects = job_manager.db.execute(
@@ -233,6 +236,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
                 "matched_count": len(linked_alleles),
                 "failed_count": len(failed_submissions),
             },
+            failure_category=FailureCategory.DEPENDENCY_FAILURE,
         )
 
     # Finalize progress
@@ -431,6 +435,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
             return JobExecutionOutcome.failed(
                 reason=error_message,
                 data={"submitted_count": 0, "failed_count": len(submission_failures)},
+                failure_category=FailureCategory.DEPENDENCY_FAILURE,
             )
 
     logger.info(

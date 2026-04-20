@@ -156,6 +156,23 @@ class TestJobStartUnit:
         assert mock_job_run.started_at is not None
         assert mock_job_run.progress_message == "Job began execution"
 
+    def test_start_job_logs_warning_for_running_recovery(self, mock_job_manager, mock_job_run):
+        """When start_job is called on a RUNNING job (stale from crashed worker), it logs a warning
+        and resets the start time rather than raising an error."""
+        mock_job_run.status = JobStatus.RUNNING
+        mock_job_run.started_at = "2025-01-01T00:00:00"
+
+        with (
+            TransactionSpy.spy(mock_job_manager.db),
+            patch("mavedb.worker.lib.managers.job_manager.logger") as mock_logger,
+        ):
+            mock_job_manager.start_job()
+
+        mock_logger.warning.assert_called_once()
+        assert "already RUNNING" in mock_logger.warning.call_args[0][0]
+        assert mock_job_run.status == JobStatus.RUNNING
+        assert mock_job_run.started_at is not None
+
 
 @pytest.mark.integration
 class TestJobStartIntegration:
@@ -352,7 +369,12 @@ class TestJobCompletionUnit:
         if exception:
             assert mock_job_run.error_message == str(exception)
             assert mock_job_run.error_traceback is not None
-            assert mock_job_run.failure_category == FailureCategory.UNKNOWN
+
+            # failure_category is only set for FAILED/ERRORED statuses
+            if valid_status in (JobStatus.FAILED, JobStatus.ERRORED):
+                assert mock_job_run.failure_category == FailureCategory.UNKNOWN
+            else:
+                assert mock_job_run.failure_category is None
 
         else:
             assert mock_job_run.error_message is None
@@ -360,6 +382,45 @@ class TestJobCompletionUnit:
 
             # Proper handling of failure category only applies to FAILED status. See
             # test_complete_job_sets_default_failure_category_when_job_failed for that case.
+
+    def test_complete_job_uses_explicit_failure_category_from_outcome(self, mock_job_manager, mock_job_run):
+        """Test that an explicit failure_category on the outcome takes priority."""
+        result = JobExecutionOutcome.failed(reason="rate limited", failure_category=FailureCategory.NETWORK_ERROR)
+
+        with TransactionSpy.spy(mock_job_manager.db):
+            mock_job_manager.complete_job(status=JobStatus.FAILED, result=result)
+
+        assert mock_job_run.failure_category == FailureCategory.NETWORK_ERROR
+
+    def test_complete_job_classifies_exception_when_no_explicit_category(self, mock_job_manager, mock_job_run):
+        """Test that classify_exception is used when outcome has no explicit category but has an exception."""
+        result = JobExecutionOutcome.errored(exception=ConnectionError("connection refused"))
+
+        with TransactionSpy.spy(mock_job_manager.db):
+            mock_job_manager.complete_job(status=JobStatus.ERRORED, result=result)
+
+        assert mock_job_run.failure_category == FailureCategory.NETWORK_ERROR
+
+    def test_complete_job_classifies_timeout_exception(self, mock_job_manager, mock_job_run):
+        """Test that TimeoutError is classified as TIMEOUT."""
+        result = JobExecutionOutcome.errored(exception=TimeoutError("timed out"))
+
+        with TransactionSpy.spy(mock_job_manager.db):
+            mock_job_manager.complete_job(status=JobStatus.ERRORED, result=result)
+
+        assert mock_job_run.failure_category == FailureCategory.TIMEOUT
+
+    def test_complete_job_explicit_category_overrides_exception_classification(self, mock_job_manager, mock_job_run):
+        """Test that explicit failure_category takes priority over exception classification."""
+        result = JobExecutionOutcome.errored(
+            exception=ConnectionError("conn refused"),
+            failure_category=FailureCategory.SERVICE_UNAVAILABLE,
+        )
+
+        with TransactionSpy.spy(mock_job_manager.db):
+            mock_job_manager.complete_job(status=JobStatus.ERRORED, result=result)
+
+        assert mock_job_run.failure_category == FailureCategory.SERVICE_UNAVAILABLE
 
 
 @pytest.mark.integration
@@ -462,7 +523,12 @@ class TestJobCompletionIntegration:
         }
         assert job.error_message == "Test error"
         assert job.error_traceback is not None
-        assert job.failure_category == FailureCategory.UNKNOWN
+
+        # failure_category is only set for FAILED/ERRORED statuses
+        if valid_status in (JobStatus.FAILED, JobStatus.ERRORED):
+            assert job.failure_category == FailureCategory.UNKNOWN
+        else:
+            assert job.failure_category is None
 
 
 @pytest.mark.unit

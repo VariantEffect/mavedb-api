@@ -27,7 +27,7 @@ from mavedb.lib.slack import send_slack_error
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus
+from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus, FailureCategory
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
@@ -294,6 +294,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         return JobExecutionOutcome.failed(
             reason=str(e),
             data={"score_set_id": score_set.id, "mapped_count": 0, "total_count": 0},
+            failure_category=FailureCategory.DATA_ERROR,
         )
 
     except Exception as e:
@@ -329,6 +330,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 "unmapped_count": total_variants,
                 "total_count": total_variants,
             },
+            failure_category=FailureCategory.VRS_MAPPING_FAILED,
         )
 
     logger.info(msg="Variant mapping job completed successfully.", extra=job_manager.logging_context())

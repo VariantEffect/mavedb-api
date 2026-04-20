@@ -43,14 +43,8 @@ class FailureCategory(str, Enum):
     # System-level failures
     SYSTEM_ERROR = "system_error"
     TIMEOUT = "timeout"
-    RESOURCE_EXHAUSTION = "resource_exhaustion"
     CONFIGURATION_ERROR = "configuration_error"
     DEPENDENCY_FAILURE = "dependency_failure"
-
-    # Queue and scheduling failures
-    ENQUEUE_ERROR = "enqueue_error"
-    SCHEDULING_ERROR = "scheduling_error"
-    CANCELLED = "cancelled"
 
     # Data and validation failures
     VALIDATION_ERROR = "validation_error"
@@ -58,19 +52,10 @@ class FailureCategory(str, Enum):
 
     # External service failures
     NETWORK_ERROR = "network_error"
-    API_RATE_LIMITED = "api_rate_limited"
     SERVICE_UNAVAILABLE = "service_unavailable"
-    AUTHENTICATION_FAILED = "authentication_failed"
-
-    # Permission and access failures
-    PERMISSION_ERROR = "permission_error"
-    QUOTA_EXCEEDED = "quota_exceeded"
 
     # Variant processing specific
-    INVALID_HGVS = "invalid_hgvs"
-    REFERENCE_MISMATCH = "reference_mismatch"
     VRS_MAPPING_FAILED = "vrs_mapping_failed"
-    TRANSCRIPT_NOT_FOUND = "transcript_not_found"
 
     # Catch-all
     UNKNOWN = "unknown"

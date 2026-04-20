@@ -291,6 +291,50 @@ class TestPipelineManagementDecoratorUnit:
         mock_with_job_mgmt.assert_called_once()
         mock_send_slack_error.assert_called_once()
 
+    async def test_decorator_still_returns_result_when_slack_is_unreachable(
+        self, session, mock_pipeline_manager, mock_worker_ctx, sample_job_run, with_populated_job_data
+    ):
+        """When Slack is unreachable and the pipeline fails, the result should still be returned.
+        send_slack_error handles Slack failures internally, so the decorator is unaffected."""
+        with (
+            patch("mavedb.worker.lib.decorators.pipeline_management.PipelineManager") as mock_pipeline_manager_class,
+            patch.object(mock_pipeline_manager, "coordinate_pipeline", return_value=None),
+            patch.object(mock_pipeline_manager, "start_pipeline", return_value=None),
+            patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=PipelineStatus.CREATED),
+            TransactionSpy.spy(session, expect_commit=True, expect_rollback=True),
+            patch("mavedb.lib.slack.send_slack_message", side_effect=RuntimeError("Slack is down")),
+        ):
+            mock_pipeline_manager_class.return_value = mock_pipeline_manager
+            result = await sample_raise(mock_worker_ctx, sample_job_run.id)
+
+        assert result.status == JobStatus.ERRORED
+
+    async def test_decorator_still_returns_result_when_slack_is_unreachable_and_coordination_fails(
+        self, session, mock_pipeline_manager, mock_worker_ctx, sample_job_run, with_populated_job_data
+    ):
+        """When pipeline coordination fails and Slack is unreachable, the result should still be returned.
+        The decorator logs critical for the coordination failure, and send_slack_error handles
+        Slack failures internally."""
+        with (
+            patch("mavedb.worker.lib.decorators.pipeline_management.PipelineManager") as mock_pipeline_manager_class,
+            patch.object(
+                mock_pipeline_manager,
+                "coordinate_pipeline",
+                side_effect=RuntimeError("coordination failed"),
+            ),
+            patch.object(mock_pipeline_manager, "start_pipeline", return_value=None),
+            patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=PipelineStatus.CREATED),
+            TransactionSpy.spy(session, expect_commit=True, expect_rollback=True),
+            patch("mavedb.lib.slack.send_slack_message", side_effect=RuntimeError("Slack is down")),
+            patch("mavedb.worker.lib.decorators.pipeline_management.logger") as mock_logger,
+        ):
+            mock_pipeline_manager_class.return_value = mock_pipeline_manager
+            result = await sample_job(mock_worker_ctx, sample_job_run.id)
+
+        assert result.status == JobStatus.ERRORED
+        # Decorator logs critical when cleanup coordination also fails, regardless of Slack status
+        mock_logger.critical.assert_called()
+
 
 @pytest.mark.asyncio
 @pytest.mark.integration
@@ -407,7 +451,7 @@ class TestPipelineManagementDecoratorIntegration:
         @with_pipeline_management
         async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
             await event.wait()  # Simulate async work, block until test signals
-            raise RuntimeError("Simulated job failure for retry")
+            raise ConnectionError("Simulated network failure for retry")
 
         @with_pipeline_management
         async def sample_retried_job(ctx: dict, job_id: int, job_manager: JobManager):
@@ -432,11 +476,10 @@ class TestPipelineManagementDecoratorIntegration:
             pipeline = session.execute(select(Pipeline).where(Pipeline.id == sample_pipeline.id)).scalar_one()
             assert pipeline.status == PipelineStatus.RUNNING
 
-            # Now allow the job to complete with failure that triggers a retry. This failure
-            # should be swallowed by the job_task.
-            with patch.object(JobManager, "should_retry", return_value=True):
-                event.set()
-                await job_task
+            # ConnectionError is classified as NETWORK_ERROR (retryable), so retry
+            # logic triggers automatically without patching should_retry.
+            event.set()
+            await job_task
 
             mock_send_slack_error.assert_called_once()
 

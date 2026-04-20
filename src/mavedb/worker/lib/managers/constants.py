@@ -8,8 +8,12 @@ pipeline coordination.
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus, PipelineStatus
 
 # Job status constants for common groupings
-STARTABLE_JOB_STATUSES = [JobStatus.QUEUED, JobStatus.PENDING]
-"""Job statuses that can be transitioned to RUNNING state."""
+STARTABLE_JOB_STATUSES = [JobStatus.QUEUED, JobStatus.PENDING, JobStatus.RUNNING]
+"""Job statuses that can be transitioned to RUNNING state.
+
+RUNNING is included to handle recovery after a worker crash: ARQ re-delivers
+the job but the DB still shows RUNNING from the dead process. start_job()
+logs a warning and resets the timestamp in this case."""
 
 COMPLETED_JOB_STATUSES = [JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.ERRORED]
 """Job statuses indicating finished execution (completed states)."""
@@ -36,7 +40,6 @@ RETRYABLE_FAILURE_CATEGORIES = (
     FailureCategory.NETWORK_ERROR,
     FailureCategory.TIMEOUT,
     FailureCategory.SERVICE_UNAVAILABLE,
-    # TODO: Add more retryable exception types as needed
 )
 """Failure categories that are considered retryable errors."""
 

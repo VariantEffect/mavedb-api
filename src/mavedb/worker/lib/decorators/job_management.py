@@ -19,6 +19,7 @@ from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.worker.lib.decorators.utils import ensure_ctx, ensure_job_id, ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers import JobManager
 from mavedb.worker.lib.managers.constants import TERMINAL_JOB_STATUSES
+from mavedb.worker.lib.managers.utils import classify_exception
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +126,7 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
             db_session.rollback()
 
             # Build errored result — this is an unhandled exception
-            result = JobExecutionOutcome.errored(exception=e)
+            result = JobExecutionOutcome.errored(exception=e, failure_category=classify_exception(e))
 
             # Mark job as errored
             job_manager.error_job(result=result)
@@ -142,15 +143,11 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
 
         except Exception as inner_e:
             logger.critical(f"Failed to mark job {job_id} as errored: {inner_e}")
-
-            # Notify separately about inner failure, which affects job persistence
             send_slack_error(inner_e)
 
             # Re-raise the outer exception immediately to prevent duplicate notifications
         finally:
             logger.error(f"Job {job_id} failed: {e}")
-
-            # Notify about the original exception
             send_slack_error(e)
 
             # Swallow the exception after alerting so ARQ can finish the job cleanly and log results.
