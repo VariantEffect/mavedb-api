@@ -815,7 +815,9 @@ class TestEnqueueReadyJobsUnit:
         with (
             patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=PipelineStatus.RUNNING),
             patch.object(
-                mock_pipeline_manager, "get_pending_jobs", return_value=[Mock(spec=JobRun, id=1, urn="test:job:1")]
+                mock_pipeline_manager,
+                "get_pending_jobs",
+                return_value=[Mock(spec=JobRun, id=1, urn="test:job:1", retry_count=0)],
             ),
             patch.object(mock_pipeline_manager, "can_enqueue_job", return_value=True),
             patch.object(mock_job_manager, "prepare_queue", return_value=None) as mock_prepare_queue,
@@ -830,13 +832,22 @@ class TestEnqueueReadyJobsUnit:
         mock_prepare_queue.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_enqueue_ready_jobs_successful_enqueue(self, mock_pipeline_manager, mock_job_manager):
-        """Test successful job enqueuing."""
+    @pytest.mark.parametrize(
+        "retry_count, expected_is_retry",
+        [
+            (0, False),
+            (1, True),
+            (3, True),
+        ],
+    )
+    async def test_enqueue_ready_jobs_successful_enqueue(
+        self, mock_pipeline_manager, mock_job_manager, retry_count, expected_is_retry
+    ):
+        """Test successful job enqueuing, passing is_retry based on retry_count."""
+        mock_job = Mock(spec=JobRun, id=1, urn="test:job:1", retry_count=retry_count)
         with (
             patch.object(mock_pipeline_manager, "get_pipeline_status", return_value=PipelineStatus.RUNNING),
-            patch.object(
-                mock_pipeline_manager, "get_pending_jobs", return_value=[Mock(spec=JobRun, id=1, urn="test:job:1")]
-            ),
+            patch.object(mock_pipeline_manager, "get_pending_jobs", return_value=[mock_job]),
             patch.object(mock_pipeline_manager, "can_enqueue_job", return_value=True),
             patch.object(mock_pipeline_manager, "_enqueue_in_arq", return_value=None) as mock_enqueue,
             patch.object(mock_job_manager, "prepare_queue", return_value=None) as mock_prepare_queue,
@@ -845,7 +856,7 @@ class TestEnqueueReadyJobsUnit:
             await mock_pipeline_manager.enqueue_ready_jobs()
 
         mock_prepare_queue.assert_called_once()
-        mock_enqueue.assert_called_once()
+        mock_enqueue.assert_called_once_with(mock_job, is_retry=expected_is_retry)
 
 
 @pytest.mark.integration
@@ -971,6 +982,55 @@ class TestEnqueueReadyJobsIntegration:
             pytest.raises(PipelineCoordinationError, match="Failed to enqueue job in ARQ"),
         ):
             await manager.enqueue_ready_jobs()
+
+    @pytest.mark.asyncio
+    async def test_enqueue_ready_jobs_passes_is_retry_true_for_retried_jobs(
+        self,
+        session,
+        arq_redis,
+        with_populated_job_data,
+        sample_pipeline,
+        sample_job_run,
+    ):
+        """Test that enqueue_ready_jobs passes is_retry=True when retry_count > 0."""
+        manager = PipelineManager(session, arq_redis, sample_pipeline.id)
+
+        # Set the pipeline to RUNNING status and simulate a retried job
+        manager.set_pipeline_status(PipelineStatus.RUNNING)
+        sample_job_run.retry_count = 1
+        session.commit()
+
+        with (
+            TransactionSpy.spy(session, expect_flush=True, expect_commit=True),
+            patch.object(manager, "_enqueue_in_arq", wraps=manager._enqueue_in_arq) as mock_enqueue,
+        ):
+            await manager.enqueue_ready_jobs()
+
+        mock_enqueue.assert_called_once_with(sample_job_run, is_retry=True)
+
+    @pytest.mark.asyncio
+    async def test_enqueue_ready_jobs_passes_is_retry_false_for_first_attempt(
+        self,
+        session,
+        arq_redis,
+        with_populated_job_data,
+        sample_pipeline,
+        sample_job_run,
+    ):
+        """Test that enqueue_ready_jobs passes is_retry=False when retry_count == 0."""
+        manager = PipelineManager(session, arq_redis, sample_pipeline.id)
+
+        # Set the pipeline to RUNNING status; retry_count defaults to 0
+        manager.set_pipeline_status(PipelineStatus.RUNNING)
+        session.commit()
+
+        with (
+            TransactionSpy.spy(session, expect_flush=True, expect_commit=True),
+            patch.object(manager, "_enqueue_in_arq", wraps=manager._enqueue_in_arq) as mock_enqueue,
+        ):
+            await manager.enqueue_ready_jobs()
+
+        mock_enqueue.assert_called_once_with(sample_job_run, is_retry=False)
 
 
 @pytest.mark.unit

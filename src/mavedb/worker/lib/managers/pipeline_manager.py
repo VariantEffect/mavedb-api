@@ -416,7 +416,7 @@ class PipelineManager(BaseManager):
 
         successfully_enqueued = []
         for job in jobs_to_queue:
-            await self._enqueue_in_arq(job, is_retry=False)
+            await self._enqueue_in_arq(job, is_retry=job.retry_count > 0)
             successfully_enqueued.append(job.urn)
             logger.info(f"Successfully enqueued job {job.urn}")
 

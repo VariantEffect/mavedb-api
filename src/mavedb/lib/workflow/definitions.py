@@ -58,6 +58,9 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "mapping_jobs": {},  # Required param to be filled in at runtime by previous job
             },
             "dependencies": [("submit_uniprot_mapping_jobs_for_score_set", DependencyType.SUCCESS_REQUIRED)],
+            # UniProt ID mapping results are typically ready within seconds to minutes. A 30-second
+            # retry delay prevents hammering the API while still polling frequently enough to be timely.
+            "retry_delay_seconds": 30,
         },
         # Consolidated ClinVar refresh: a single job iterates all archival versions internally
         {

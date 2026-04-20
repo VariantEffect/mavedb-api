@@ -58,6 +58,7 @@ class JobFactory:
             pipeline_id=pipeline_id,
             mavedb_version=mavedb_version,
             correlation_id=correlation_id,
+            retry_delay_seconds=job_def.get("retry_delay_seconds"),
         )  # type: ignore[call-arg]
 
         self.session.add(job_run)

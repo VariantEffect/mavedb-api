@@ -129,6 +129,27 @@ class TestJobFactoryCreateJobRunUnit:
 
         assert job_run in job_factory.session.new
 
+    def test_create_job_run_sets_retry_delay_seconds_from_definition(self, job_factory, sample_job_definition):
+        sample_job_definition["retry_delay_seconds"] = 30
+        job_run = job_factory.create_job_run(
+            job_def=sample_job_definition,
+            correlation_id="test-correlation-id",
+            pipeline_params={"required_param": "required_value"},
+            pipeline_id=1,
+        )
+
+        assert job_run.retry_delay_seconds == 30
+
+    def test_create_job_run_retry_delay_seconds_defaults_to_none_when_absent(self, job_factory, sample_job_definition):
+        job_run = job_factory.create_job_run(
+            job_def=sample_job_definition,
+            correlation_id="test-correlation-id",
+            pipeline_params={"required_param": "required_value"},
+            pipeline_id=1,
+        )
+
+        assert job_run.retry_delay_seconds is None
+
 
 @pytest.mark.integration
 class TestJobFactoryCreateJobRunIntegration:
