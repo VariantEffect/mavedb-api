@@ -20,7 +20,7 @@ from mavedb.lib.gnomad import (
 )
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationStatus
+from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -141,9 +141,9 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
                 annotation_type=AnnotationType.GNOMAD_ALLELE_FREQUENCY,
                 version=GNOMAD_DATA_VERSION,
                 status=AnnotationStatus.SKIPPED,
+                failure_category=AnnotationFailureCategory.EXTERNAL_REFERENCE_NOT_FOUND,
                 annotation_data={
                     "error_message": "No gnomAD variant could be linked for this mapped variant.",
-                    "failure_category": "not_found",
                 },
                 current=True,
             )

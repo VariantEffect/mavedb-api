@@ -25,7 +25,7 @@ from mavedb.lib.clinvar.utils import fetch_clinvar_variant_data
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationStatus
+from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -133,10 +133,10 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     annotation_type=AnnotationType.CLINVAR_CONTROL,
                     version=clinvar_version,
                     status=AnnotationStatus.SKIPPED,
+                    failure_category=AnnotationFailureCategory.MISSING_IDENTIFIER,
                     annotation_data={
                         "job_run_id": job_manager.job_id,
                         "error_message": "Mapped variant does not have an associated ClinGen allele ID.",
-                        "failure_category": "missing_clingen_allele_id",
                     },
                     current=True,
                     replace_all_versions=False,
@@ -149,10 +149,10 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     annotation_type=AnnotationType.CLINVAR_CONTROL,
                     version=clinvar_version,
                     status=AnnotationStatus.SKIPPED,
+                    failure_category=AnnotationFailureCategory.UNSUPPORTED_IDENTIFIER,
                     annotation_data={
                         "job_run_id": job_manager.job_id,
                         "error_message": "Multi-variant ClinGen allele IDs cannot be associated with ClinVar data.",
-                        "failure_category": "multi_variant_clingen_allele_id",
                     },
                     current=True,
                     replace_all_versions=False,
@@ -167,10 +167,10 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     annotation_type=AnnotationType.CLINVAR_CONTROL,
                     version=clinvar_version,
                     status=AnnotationStatus.FAILED,
+                    failure_category=AnnotationFailureCategory.EXTERNAL_API_ERROR,
                     annotation_data={
                         "job_run_id": job_manager.job_id,
                         "error_message": f"Failed to retrieve ClinVar allele ID from ClinGen API: {str(exc)}",
-                        "failure_category": "clingen_api_error",
                     },
                     current=True,
                     replace_all_versions=False,
@@ -188,10 +188,10 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     annotation_type=AnnotationType.CLINVAR_CONTROL,
                     version=clinvar_version,
                     status=AnnotationStatus.SKIPPED,
+                    failure_category=AnnotationFailureCategory.NO_LINKED_ALLELE,
                     annotation_data={
                         "job_run_id": job_manager.job_id,
                         "error_message": "No ClinVar allele ID found for ClinGen allele ID.",
-                        "failure_category": "no_associated_clinvar_allele_id",
                     },
                     current=True,
                     replace_all_versions=False,
@@ -204,10 +204,10 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     annotation_type=AnnotationType.CLINVAR_CONTROL,
                     version=clinvar_version,
                     status=AnnotationStatus.SKIPPED,
+                    failure_category=AnnotationFailureCategory.EXTERNAL_REFERENCE_NOT_FOUND,
                     annotation_data={
                         "job_run_id": job_manager.job_id,
                         "error_message": "No ClinVar data found for ClinVar allele ID.",
-                        "failure_category": "no_clinvar_variant_data",
                     },
                     current=True,
                     replace_all_versions=False,

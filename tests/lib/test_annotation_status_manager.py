@@ -116,13 +116,13 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
         annotation_data = {
             "annotation_metadata": {"some_key": "some_value"},
             "error_message": None,
-            "failure_category": None,
         }
         annotation_status_manager.add_annotation(
             variant_id=setup_lib_db_with_variant.id,
             annotation_type=AnnotationType.VRS_MAPPING,
             status=AnnotationStatus.SUCCESS,
             version="v1.0",
+            failure_category=None,
             annotation_data=annotation_data,
             current=True,
         )
@@ -136,6 +136,7 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
         )
 
         assert annotation is not None
+        assert annotation.failure_category is None
         for key, value in annotation_data.items():
             assert getattr(annotation, key) == value
 

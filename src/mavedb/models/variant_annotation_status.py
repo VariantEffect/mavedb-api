@@ -11,7 +11,7 @@ from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mavedb.db.base import Base
-from mavedb.models.enums.job_pipeline import AnnotationStatus
+from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus
 
 if TYPE_CHECKING:
     from mavedb.models.job_run import JobRun
@@ -49,7 +49,7 @@ class VariantAnnotationStatus(Base):
 
     # Error information
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    failure_category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    failure_category: Mapped[Optional[AnnotationFailureCategory]] = mapped_column(String(100), nullable=True)
 
     # Annotation metadata (flexible JSONB for annotation results)
     annotation_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(
@@ -99,6 +99,10 @@ class VariantAnnotationStatus(Base):
         CheckConstraint(
             "status IN ('success', 'failed', 'skipped')",
             name="ck_variant_annotation_status_valid",
+        ),
+        CheckConstraint(
+            "failure_category IS NULL OR failure_category IN ('missing_identifier', 'unsupported_identifier', 'external_api_error', 'external_reference_not_found', 'no_linked_allele', 'unknown')",
+            name="ck_variant_annotation_failure_category_valid",
         ),
         ## Although un-enforced at the DB level, we should ensure only one 'current' record per (variant_id, annotation_type, version)
     )

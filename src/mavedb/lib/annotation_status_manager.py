@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql import desc
 
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationStatus
+from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus
 from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,7 @@ class AnnotationStatusManager:
         annotation_type: AnnotationType,
         status: AnnotationStatus,
         version: Optional[str] = None,
+        failure_category: Optional[AnnotationFailureCategory] = None,
         annotation_data: dict = {},
         current: bool = True,
         replace_all_versions: bool = True,
@@ -79,6 +80,7 @@ class AnnotationStatusManager:
                 annotation_type=annotation_type,
                 status=status,
                 version=version,
+                failure_category=failure_category,
                 current=current,
                 **annotation_data,
             )  # type: ignore[call-arg]

@@ -27,7 +27,7 @@ from mavedb.lib.slack import send_slack_error
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationStatus
+from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
@@ -251,6 +251,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 annotation_type=AnnotationType.VRS_MAPPING,
                 version=mapping_results.get("dcd_mapping_version"),
                 status=AnnotationStatus.SUCCESS if annotation_was_successful else AnnotationStatus.FAILED,
+                failure_category=None if annotation_was_successful else AnnotationFailureCategory.EXTERNAL_API_ERROR,
                 annotation_data={
                     "error_message": mapped_score.get("error_message", null()),
                     "job_run_id": job.id,

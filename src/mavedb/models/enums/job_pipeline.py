@@ -84,6 +84,23 @@ class AnnotationStatus(str, Enum):
     SKIPPED = "skipped"
 
 
+class AnnotationFailureCategory(str, Enum):
+    """Categories of annotation-level failures on individual variants.
+
+    These describe WHY a specific variant's annotation failed or was skipped,
+    as opposed to job-level FailureCategory which describes why an entire job failed.
+    """
+
+    MISSING_IDENTIFIER = "missing_identifier"  # Required identifier (e.g. ClinGen allele ID) not present on variant
+    UNSUPPORTED_IDENTIFIER = "unsupported_identifier"  # Identifier exists but is in an unsupported format (multi-variant, unrecognized prefix)
+    EXTERNAL_API_ERROR = "external_api_error"  # External service call failed (network, auth, rate limit)
+    EXTERNAL_REFERENCE_NOT_FOUND = (
+        "external_reference_not_found"  # Lookup succeeded but external resource doesn't exist
+    )
+    NO_LINKED_ALLELE = "no_linked_allele"  # No linked allele found in external registry (ClinVar, CA/PA translations)
+    UNKNOWN = "unknown"  # Catch-all for uncategorized failures
+
+
 class JobType(str, Enum):
     """Types of jobs in the pipeline."""
 

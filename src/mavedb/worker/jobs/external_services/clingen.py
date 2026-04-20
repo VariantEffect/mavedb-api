@@ -31,7 +31,7 @@ from mavedb.lib.clingen.services import (
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationStatus
+from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -202,6 +202,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
             annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
             version=None,
             status=AnnotationStatus.FAILED,
+            failure_category=AnnotationFailureCategory.EXTERNAL_API_ERROR,
             annotation_data={
                 "error_message": "Failed to register variant with ClinGen Allele Registry.",
             },
@@ -402,6 +403,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
             annotation_type=AnnotationType.LDH_SUBMISSION,
             version=None,
             status=AnnotationStatus.FAILED,
+            failure_category=AnnotationFailureCategory.EXTERNAL_API_ERROR,
             annotation_data={
                 "error_message": "Failed to submit variant to ClinGen Linked Data Hub.",
             },

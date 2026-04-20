@@ -20,7 +20,7 @@ from mavedb.lib.clingen.allele_registry import (
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variant_translations import upsert_variant_translations
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationStatus
+from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -155,10 +155,10 @@ async def populate_variant_translations_for_score_set(
                         annotation_type=AnnotationType.VARIANT_TRANSLATION,
                         version=None,
                         status=AnnotationStatus.FAILED,
+                        failure_category=AnnotationFailureCategory.EXTERNAL_API_ERROR,
                         annotation_data={
                             "job_run_id": job_manager.job_id,
                             "error_message": f"ClinGen API error looking up PA IDs for {allele_id}: {exc}",
-                            "failure_category": "clingen_api_error",
                         },
                         current=True,
                     )
@@ -178,10 +178,10 @@ async def populate_variant_translations_for_score_set(
                         annotation_type=AnnotationType.VARIANT_TRANSLATION,
                         version=None,
                         status=AnnotationStatus.SKIPPED,
+                        failure_category=AnnotationFailureCategory.NO_LINKED_ALLELE,
                         annotation_data={
                             "job_run_id": job_manager.job_id,
                             "error_message": f"No canonical PA IDs for {allele_id}.",
-                            "failure_category": "no_canonical_pa_ids",
                         },
                         current=True,
                     )
@@ -254,10 +254,10 @@ async def populate_variant_translations_for_score_set(
                         annotation_type=AnnotationType.VARIANT_TRANSLATION,
                         version=None,
                         status=AnnotationStatus.FAILED,
+                        failure_category=AnnotationFailureCategory.EXTERNAL_API_ERROR,
                         annotation_data={
                             "job_run_id": job_manager.job_id,
                             "error_message": f"ClinGen API error for {allele_id}: {exc}",
-                            "failure_category": "clingen_api_error",
                         },
                         current=True,
                     )
@@ -276,10 +276,10 @@ async def populate_variant_translations_for_score_set(
                         annotation_type=AnnotationType.VARIANT_TRANSLATION,
                         version=None,
                         status=AnnotationStatus.SKIPPED,
+                        failure_category=AnnotationFailureCategory.NO_LINKED_ALLELE,
                         annotation_data={
                             "job_run_id": job_manager.job_id,
                             "error_message": f"No registered transcript CA IDs for {allele_id}.",
-                            "failure_category": "no_registered_ca_ids",
                         },
                         current=True,
                     )
@@ -320,10 +320,10 @@ async def populate_variant_translations_for_score_set(
                     annotation_type=AnnotationType.VARIANT_TRANSLATION,
                     version=None,
                     status=AnnotationStatus.SKIPPED,
+                    failure_category=AnnotationFailureCategory.UNSUPPORTED_IDENTIFIER,
                     annotation_data={
                         "job_run_id": job_manager.job_id,
                         "error_message": f"Unrecognized allele ID format: {allele_id}",
-                        "failure_category": "invalid_allele_format",
                     },
                     current=True,
                 )
