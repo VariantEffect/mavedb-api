@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from mavedb.models.enums.job_pipeline import DependencyType, FailureCategory, JobStatus
 
@@ -76,6 +76,7 @@ class JobDefinition(TypedDict):
     function: str
     params: dict[str, Any]
     dependencies: list[tuple[str, DependencyType]]
+    retry_delay_seconds: NotRequired[int]
 
 
 class PipelineDefinition(TypedDict):

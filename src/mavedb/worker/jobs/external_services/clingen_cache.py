@@ -76,6 +76,9 @@ async def warm_clingen_cache(ctx: dict, job_id: int, job_manager: JobManager) ->
     warmed = 0
     failed = 0
     for index, allele_id in enumerate(allele_ids):
+        if not allele_id:
+            continue
+
         try:
             await get_clingen_allele_data(allele_id)
             warmed += 1
