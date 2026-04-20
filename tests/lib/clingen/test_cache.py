@@ -146,7 +146,7 @@ class TestCacheBackendConfiguration:
         cache_class, cache_config = get_cache_configuration(backend="redis")
 
         assert cache_class == Cache.REDIS
-        assert cache_config["endpoint"] == "localhost"
+        assert cache_config["endpoint"] == "redis"
         assert cache_config["port"] == 6379
         assert cache_config["ssl"] is False
 
