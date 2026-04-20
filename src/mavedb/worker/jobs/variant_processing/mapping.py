@@ -112,33 +112,19 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
         # Ensure we have mapping results
         if not mapping_results:
-            job_manager.db.rollback()
-            score_set.mapping_errors = {"error_message": "Mapping results were not returned from VRS mapping service."}
-            job_manager.update_progress(100, 100, "Variant mapping failed due to missing results.")
-            logger.error(
-                msg="Mapping results were not returned from VRS mapping service.", extra=job_manager.logging_context()
-            )
             raise NonexistentMappingResultsError("Mapping results were not returned from VRS mapping service.")
 
         # Ensure we have mapped scores
         mapped_scores = mapping_results.get("mapped_scores")
         if not mapped_scores:
-            job_manager.db.rollback()
             internal_err = mapping_results.get(
                 "error_message", "No variants were mapped and no error message was provided."
             )
-            score_set.mapping_errors = {"error_message": internal_err}
-            job_manager.update_progress(100, 100, "Variant mapping failed; no variants were mapped.")
-            logger.error(msg=internal_err, extra=job_manager.logging_context())
             raise NonexistentMappingScoresError(internal_err)
 
         # Ensure we have reference metadata
         reference_metadata = mapping_results.get("reference_sequences")
         if not reference_metadata:
-            job_manager.db.rollback()
-            score_set.mapping_errors = {"error_message": "Reference metadata missing from mapping results."}
-            job_manager.update_progress(100, 100, "Variant mapping failed due to missing reference metadata.")
-            logger.error(msg="Reference metadata missing from mapping results.", extra=job_manager.logging_context())
             raise NonexistentMappingReferenceError("Reference metadata missing from mapping results.")
 
         # Process and store mapped variants
@@ -283,13 +269,31 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 "inserted_mapped_variants": len(mapped_scores),
             }
         )
+
+        # Flush score set state; the decorator will commit on return via the success/return paths below.
+        job_manager.db.add(score_set)
+        job_manager.db.flush()
+
     except (NonexistentMappingResultsError, NonexistentMappingScoresError, NonexistentMappingReferenceError) as e:
         send_slack_error(e)
         logging_context = {**job_manager.logging_context(), **format_raised_exception_info_as_dict(e)}
         logger.error(msg="Known error during variant mapping.", extra=logging_context)
 
+        job_manager.db.rollback()
+
         score_set.mapping_state = MappingState.failed
-        # These exceptions have already set mapping_errors appropriately
+        score_set.mapping_errors = {"error_message": str(e)}
+
+        # Flush score set state; the decorator will commit on return.
+        job_manager.db.add(score_set)
+        job_manager.db.flush()
+
+        progress_messages = {
+            NonexistentMappingResultsError: "Variant mapping failed due to missing results.",
+            NonexistentMappingScoresError: "Variant mapping failed; no variants were mapped.",
+            NonexistentMappingReferenceError: "Variant mapping failed due to missing reference metadata.",
+        }
+        job_manager.update_progress(100, 100, progress_messages.get(type(e), "Variant mapping failed."))
 
         return JobExecutionOutcome.failed(
             reason=str(e),
@@ -302,6 +306,9 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         logging_context = {**job_manager.logging_context(), **format_raised_exception_info_as_dict(e)}
         logger.error(msg="Encountered an unexpected error while parsing mapped variants.", extra=logging_context)
 
+        # For unexpected exceptions we must commit score set state before re-raising
+        # because the decorator will rollback before marking the job as errored.
+        # update_progress commits internally, persisting both score_set state and progress.
         job_manager.db.rollback()
 
         score_set.mapping_state = MappingState.failed
@@ -309,13 +316,11 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             score_set.mapping_errors = {
                 "error_message": f"Encountered an unexpected error while parsing mapped variants. This job will be retried up to {job.max_retries} times (this was attempt {job.retry_count})."
             }
+
+        job_manager.db.add(score_set)
         job_manager.update_progress(100, 100, "Variant mapping failed due to an unexpected error.")
 
         raise
-
-    finally:
-        job_manager.db.add(score_set)
-        job_manager.db.flush()
 
     logger.info(msg="Inserted mapped variants into db.", extra=job_manager.logging_context())
     job_manager.update_progress(100, 100, "Finished processing mapped variants.")

@@ -199,17 +199,12 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
         variants_data = create_variants_data(validated_scores, validated_counts, None)
         create_variants(job_manager.db, score_set, variants_data)
 
-    except Exception as e:
+    except ValidationError as e:
         job_manager.db.rollback()
+
         score_set.processing_state = ProcessingState.failed
         score_set.mapping_state = MappingState.not_attempted
-
-        # Capture exception details in score set processing errors for all exceptions.
-        score_set.processing_errors = {"exception": str(e), "detail": []}
-        # ValidationErrors arise from problematic input data; capture their details specifically.
-        if isinstance(e, ValidationError):
-            score_set.processing_errors["detail"] = e.triggering_exceptions
-
+        score_set.processing_errors = {"exception": str(e), "detail": e.triggering_exceptions}
         if score_set.num_variants:
             score_set.processing_errors["exception"] = (
                 f"Update failed, variants were not updated. {score_set.processing_errors.get('exception', '')}"
@@ -223,34 +218,70 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
                 "created_variants": 0,
             }
         )
+
+        # Flush score set state; the decorator will commit on return.
+        job_manager.db.add(score_set)
+        job_manager.db.flush()
+
         job_manager.update_progress(100, 100, "Variant creation job failed due to an internal error.")
         logger.error(
             msg="Encountered an internal exception while processing variants.", extra=job_manager.logging_context()
         )
 
-        if isinstance(e, ValidationError):
-            return JobExecutionOutcome.failed(
-                reason=str(e), data={"score_set_id": score_set.id}, failure_category=FailureCategory.VALIDATION_ERROR
-            )
-        raise
+        return JobExecutionOutcome.failed(
+            reason=str(e), data={"score_set_id": score_set.id}, failure_category=FailureCategory.VALIDATION_ERROR
+        )
 
-    else:
-        score_set.processing_state = ProcessingState.success
-        score_set.mapping_state = MappingState.queued
-        score_set.processing_errors = null()
+    except Exception as e:
+        # For unexpected exceptions we must commit score set state before re-raising
+        # because the decorator will rollback before marking the job as errored.
+        # update_progress commits internally, persisting both score_set state and progress.
+        job_manager.db.rollback()
+
+        score_set.processing_state = ProcessingState.failed
+        score_set.mapping_state = MappingState.not_attempted
+        score_set.processing_errors = {"exception": str(e), "detail": []}
+        if score_set.num_variants:
+            score_set.processing_errors["exception"] = (
+                f"Update failed, variants were not updated. {score_set.processing_errors.get('exception', '')}"
+            )
 
         job_manager.save_to_context(
             {
                 "processing_state": score_set.processing_state.name,
                 "mapping_state": score_set.mapping_state.name,
-                "created_variants": score_set.num_variants,
+                **format_raised_exception_info_as_dict(e),
+                "created_variants": 0,
             }
         )
 
-    finally:
+        # Flush score set state so it's visible in the current transaction, then commit
+        # via update_progress. The commit is what survives the decorator's rollback.
         job_manager.db.add(score_set)
         job_manager.db.flush()
-        job_manager.db.refresh(score_set)
+        job_manager.update_progress(100, 100, "Variant creation job failed due to an internal error.")
+
+        logger.error(
+            msg="Encountered an internal exception while processing variants.", extra=job_manager.logging_context()
+        )
+        raise
+
+    # Success path
+    score_set.processing_state = ProcessingState.success
+    score_set.mapping_state = MappingState.queued
+    score_set.processing_errors = null()
+
+    job_manager.save_to_context(
+        {
+            "processing_state": score_set.processing_state.name,
+            "mapping_state": score_set.mapping_state.name,
+            "created_variants": score_set.num_variants,
+        }
+    )
+
+    job_manager.db.add(score_set)
+    job_manager.db.flush()
+    job_manager.db.refresh(score_set)
 
     job_manager.update_progress(100, 100, "Completed variant creation job.")
     logger.info(msg="Added new variants to score set.", extra=job_manager.logging_context())
