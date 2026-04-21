@@ -22,6 +22,7 @@ from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
+from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.orcid import OrcidUser
@@ -3677,6 +3678,28 @@ def test_can_fetch_current_clinical_control_options_for_score_set(
             in (TEST_SAVED_CLINVAR_CONTROL["dbVersion"], TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbVersion"])
             for control_version in control_option["availableVersions"]
         )
+
+
+def test_clinical_control_options_exclude_non_current(client, setup_router_db, session, data_provider, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinical_controls_to_mapped_variants(session, score_set)
+
+    # Mark all mapped variants as non-current to simulate stale mapping data.
+    mapped_variants = session.scalars(
+        select(MappedVariantDbModel)
+        .join(VariantDbModel)
+        .join(ScoreSetDbModel)
+        .where(ScoreSetDbModel.urn == score_set["urn"])
+    ).all()
+    for mv in mapped_variants:
+        mv.current = False
+    session.commit()
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
+    assert response.status_code == 404
 
 
 ########################################################################################################################
