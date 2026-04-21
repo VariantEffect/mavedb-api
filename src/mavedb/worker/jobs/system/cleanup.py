@@ -48,12 +48,14 @@ async def _handle_stalled_job_retry(
 ) -> bool:
     """Handle retry and enqueue for a stalled job.
 
-    Unified workflow:
-    1. Fail the job for being stalled
-    2. Check if eligible for retry using should_retry()
-    3. If eligible: prepare retry and attempt to enqueue
-    4. For pipeline jobs: check dependencies before enqueueing
-    5. If enqueue fails: re-fail the job
+    For pipeline jobs, the dependency state determines the recovery path before
+    any retry bookkeeping occurs:
+
+    - Unfulfillable dependency (terminal failure/cancel): skip directly without
+      consuming retry budget — the job can never run regardless of retries.
+    - Dependency not yet met (still running/pending): fail+retry back to PENDING
+      so the pipeline manager will enqueue it once the dependency completes.
+    - Dependency satisfied (or standalone job): fail+retry+enqueue via ARQ.
 
     Args:
         job: The stalled job to handle
@@ -63,20 +65,65 @@ async def _handle_stalled_job_retry(
         db: Database session
 
     Returns:
-        True if job was successfully retried/enqueued, False if failed permanently
+        True if job was successfully handled, False if permanently failed
     """
-    # Step 1: Fail the job for being stalled
+    # For pipeline jobs, decide the recovery path upfront based on dependency state.
+    # This keeps the three outcomes — skip, wait, enqueue — distinct and avoids
+    # consuming the retry budget for jobs that can never run.
+    if job.pipeline_id is not None:
+        pipeline_manager = PipelineManager(db, redis, job.pipeline_id)
+
+        should_skip, skip_reason = pipeline_manager.should_skip_job_due_to_dependencies(job)
+        if should_skip:
+            # Dependency is permanently unsatisfiable — skip directly without fail/retry.
+            logger.info(
+                f"Skipping stalled pipeline job {job.urn} due to unsatisfiable dependencies: {skip_reason}",
+                extra=manager.logging_context(),
+            )
+            manager.skip_job(
+                result=JobExecutionOutcome.skipped(
+                    data={"reason": skip_reason, "timestamp": datetime.now().isoformat()}
+                )
+            )
+            return True
+
+        if not pipeline_manager.can_enqueue_job(job):
+            # Dependencies exist but aren't terminal yet — retry back to PENDING and let
+            # the pipeline manager enqueue the job when the dependency completes.
+            logger.info(
+                f"Stalled pipeline job {job.urn} dependencies not yet met - leaving in PENDING for pipeline manager",
+                extra=manager.logging_context(),
+            )
+            manager.fail_job(
+                result=JobExecutionOutcome.failed(
+                    reason=stall_reason, data={"reason": stall_reason}, failure_category=FailureCategory.TIMEOUT
+                ),
+            )
+            job.failure_category = FailureCategory.TIMEOUT
+            db.flush()
+
+            if not manager.should_retry():
+                job.failure_category = FailureCategory.SYSTEM_ERROR
+                db.flush()
+                logger.warning(
+                    f"Stalled job {job.urn} cannot be retried (max retries reached)", extra=manager.logging_context()
+                )
+                return False
+
+            manager.prepare_retry(reason=stall_reason)
+            db.flush()
+            return True
+
+    # Standalone job or pipeline job whose dependencies are satisfied — fail, retry, and enqueue.
     manager.fail_job(
         result=JobExecutionOutcome.failed(
             reason=stall_reason, data={"reason": stall_reason}, failure_category=FailureCategory.TIMEOUT
         ),
     )
-    job.failure_category = FailureCategory.TIMEOUT  # Timeouts are retryable
+    job.failure_category = FailureCategory.TIMEOUT
     db.flush()
 
-    # Step 2: Check if eligible for retry
     if not manager.should_retry():
-        # Max retries reached or non-retryable error - mark as SYSTEM_ERROR and leave in FAILED state
         job.failure_category = FailureCategory.SYSTEM_ERROR
         db.flush()
         logger.warning(
@@ -84,35 +131,9 @@ async def _handle_stalled_job_retry(
         )
         return False
 
-    # Step 3: Prepare retry
     manager.prepare_retry(reason=stall_reason)
     db.flush()
 
-    # Step 4: Try to enqueue (with pipeline dependency checks)
-    if job.pipeline_id is not None:
-        # Pipeline job - check dependencies before enqueueing
-        pipeline_manager = PipelineManager(db, redis, job.pipeline_id)
-
-        # Check if dependencies can be satisfied
-        should_skip, skip_reason = pipeline_manager.should_skip_job_due_to_dependencies(job)
-        if should_skip:
-            logger.info(
-                f"Skipping stalled pipeline job {job.urn} due to unsatisfiable dependencies: {skip_reason}",
-                extra=manager.logging_context(),
-            )
-            # Leave in PENDING - pipeline manager will handle skipping
-            return True
-
-        # Check if job can be enqueued based on current dependencies
-        if not pipeline_manager.can_enqueue_job(job):
-            logger.info(
-                f"Stalled pipeline job {job.urn} dependencies not yet met - leaving in PENDING for pipeline manager",
-                extra=manager.logging_context(),
-            )
-            # Leave in PENDING - dependencies not ready yet
-            return True
-
-    # Dependencies satisfied (or standalone job) - enqueue to ARQ
     try:
         manager.prepare_queue()  # Transition to QUEUED
         db.flush()
@@ -121,7 +142,6 @@ async def _handle_stalled_job_retry(
         return True
     except Exception as e:
         logger.error(f"Failed to enqueue stalled job {job.urn}: {e}", extra=manager.logging_context())
-        # Re-fail the job since we couldn't enqueue it
         error_msg = f"Failed to enqueue after stall recovery: {e}"
         manager.fail_job(
             result=JobExecutionOutcome.failed(
@@ -275,9 +295,10 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
     job_manager.save_to_context({"cleaned_running_jobs": running_jobs})
     logger.debug("Completed cleaning stalled RUNNING jobs.", extra=job_manager.logging_context())
 
-    # Find PENDING jobs in pipelines that have been pending too long
-    # These likely indicate pipeline coordination failures (never enqueued by pipeline manager)
-    # or that a job got stuck in PENDING state after retries exhausted
+    # Find PENDING jobs that have been pending too long and should have moved on.
+    # For pipeline jobs, treat them as stalled when they are either ready to run
+    # now or permanently blocked by terminal dependency outcomes. Jobs waiting on
+    # non-terminal dependencies are still in a legitimate waiting state.
     pending_threshold = now - timedelta(minutes=PENDING_TIMEOUT_MINUTES)
     pending_jobs = job_manager.db.scalars(
         select(JobRun).where(
@@ -286,11 +307,22 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
         )
     ).all()
 
-    job_manager.save_to_context({"stalled_pending_jobs_count": len(pending_jobs)})
-    job_manager.update_progress(80, 100, f"Found {len(pending_jobs)} stalled PENDING jobs to evaluate.")
+    stalled_pending_jobs: list[JobRun] = []
+    for job in pending_jobs:
+        if job.pipeline_id is None:
+            stalled_pending_jobs.append(job)
+            continue
+
+        pipeline_manager = PipelineManager(job_manager.db, job_manager.redis, job.pipeline_id)
+        should_skip, _ = pipeline_manager.should_skip_job_due_to_dependencies(job)
+        if pipeline_manager.can_enqueue_job(job) or should_skip:
+            stalled_pending_jobs.append(job)
+
+    job_manager.save_to_context({"stalled_pending_jobs_count": len(stalled_pending_jobs)})
+    job_manager.update_progress(80, 100, f"Found {len(stalled_pending_jobs)} stalled PENDING jobs to evaluate.")
     logger.debug("Cleaning stalled PENDING jobs.", extra=job_manager.logging_context())
 
-    for job in pending_jobs:
+    for job in stalled_pending_jobs:
         manager = JobManager(job_manager.db, job_manager.redis, job.id)
         elapsed_minutes = (now - job.created_at).total_seconds() / 60
 
@@ -307,7 +339,7 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
         manager.db.commit()
         cleaned_jobs["pending"].append(job.urn)
 
-    job_manager.save_to_context({"cleaned_pending_jobs": pending_jobs})
+    job_manager.save_to_context({"cleaned_pending_jobs": stalled_pending_jobs})
     logger.debug("Completed cleaning stalled PENDING jobs.", extra=job_manager.logging_context())
 
     total_cleaned = sum(len(jobs) for jobs in cleaned_jobs.values())

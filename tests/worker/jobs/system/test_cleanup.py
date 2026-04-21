@@ -644,11 +644,10 @@ class TestCleanupStalledJobsUnit:
         assert result.status == JobStatus.SUCCEEDED
         assert result.data["total_cleaned"] == 1
 
-        # Verify job was NOT enqueued (dependencies failed - should be skipped)
-        # Job should remain in PENDING state for pipeline manager to handle skipping
+        # Verify the job was immediately skipped (no retry bookkeeping for unfulfillable deps)
         session.refresh(stalled_job)
-        assert stalled_job.status == JobStatus.PENDING
-        assert stalled_job.retry_count == 1
+        assert stalled_job.status == JobStatus.SKIPPED
+        assert stalled_job.retry_count == 0
 
     async def test_cleanup_stalled_queued_pipeline_job_dependencies_not_ready(
         self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
@@ -778,15 +777,15 @@ class TestCleanupStalledJobsUnit:
         assert result.status == JobStatus.SUCCEEDED
         assert result.data["total_cleaned"] == 1
 
-        # Verify job was NOT enqueued (dependencies failed)
+        # Verify the job was immediately skipped (no retry bookkeeping for unfulfillable deps)
         session.refresh(stalled_job)
-        assert stalled_job.status == JobStatus.PENDING
-        assert stalled_job.retry_count == 1
+        assert stalled_job.status == JobStatus.SKIPPED
+        assert stalled_job.retry_count == 0
 
     async def test_cleanup_stalled_pending_pipeline_job_dependencies_failed(
         self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
     ):
-        """Test that stalled pipeline PENDING job with failed dependencies is skipped."""
+        """Test that stalled pipeline PENDING job with failed dependencies is cleaned up."""
         # Create a pipeline
         test_pipeline = Pipeline(
             urn="test:pipeline:pending_deps_failed",
@@ -843,10 +842,10 @@ class TestCleanupStalledJobsUnit:
         assert result.status == JobStatus.SUCCEEDED
         assert result.data["total_cleaned"] == 1
 
-        # Verify job was NOT enqueued (dependencies failed)
+        # Verify the job was immediately skipped (no retry bookkeeping for unfulfillable deps)
         session.refresh(stalled_job)
-        assert stalled_job.status == JobStatus.PENDING
-        assert stalled_job.retry_count == 1
+        assert stalled_job.status == JobStatus.SKIPPED
+        assert stalled_job.retry_count == 0
 
     async def test_cleanup_stalled_running_pipeline_job_dependencies_not_ready(
         self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
@@ -917,7 +916,7 @@ class TestCleanupStalledJobsUnit:
     async def test_cleanup_stalled_pending_pipeline_job_dependencies_not_ready(
         self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
     ):
-        """Test that stalled pipeline PENDING job with dependencies not ready is skipped."""
+        """Test that blocked pipeline PENDING job with dependencies not ready is not treated as stalled."""
         # Create a pipeline
         test_pipeline = Pipeline(
             urn="test:pipeline:pending_deps_not_ready",
@@ -972,12 +971,72 @@ class TestCleanupStalledJobsUnit:
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data["total_cleaned"] == 1
+        assert result.data["total_cleaned"] == 0
 
-        # Verify job was NOT enqueued (dependencies not ready)
+        # Verify job was left untouched because dependencies are not satisfied
         session.refresh(stalled_job)
         assert stalled_job.status == JobStatus.PENDING
-        assert stalled_job.retry_count == 1
+        assert stalled_job.retry_count == 0
+
+    async def test_cleanup_stalled_pending_pipeline_completion_required_dependency_cancelled(
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+    ):
+        """Test that stalled pipeline PENDING job with cancelled completion-required dependency is cleaned up."""
+        test_pipeline = Pipeline(
+            urn="test:pipeline:pending_completion_cancelled",
+            name="Test Pipeline Pending Completion Cancelled",
+            description="Pipeline for pending job with cancelled completion-required dependency",
+            status=PipelineStatus.CREATED,
+            correlation_id="test_pending_completion_cancelled",
+        )
+        session.add(test_pipeline)
+        session.flush()
+
+        dependency_job = JobRun(
+            job_type="dependency",
+            job_function="dependency_function",
+            status=JobStatus.CANCELLED,
+            pipeline_id=test_pipeline.id,
+            max_retries=3,
+            retry_count=0,
+            job_params={},
+        )
+        session.add(dependency_job)
+        session.flush()
+
+        stalled_job = JobRun(
+            job_type="test_job",
+            job_function="test_function",
+            status=JobStatus.PENDING,
+            pipeline_id=test_pipeline.id,
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=PENDING_TIMEOUT_MINUTES + 5),
+            started_at=None,
+            max_retries=3,
+            retry_count=0,
+            job_params={},
+        )
+        session.add(stalled_job)
+        session.flush()
+
+        dependency = JobDependency(
+            id=stalled_job.id,
+            depends_on_job_id=dependency_job.id,
+            dependency_type=DependencyType.COMPLETION_REQUIRED,
+        )
+        session.add(dependency)
+        session.commit()
+
+        result = await cleanup_stalled_jobs(
+            mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
+        )
+
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
+
+        session.refresh(stalled_job)
+        assert stalled_job.status == JobStatus.SKIPPED
+        assert stalled_job.retry_count == 0
 
     async def test_cleanup_jobs_does_not_alter_jobs_in_valid_states(
         self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
@@ -1595,10 +1654,10 @@ class TestCleanupStalledJobsIntegration:
         assert result.status == JobStatus.SUCCEEDED
         assert result.data["total_cleaned"] == 1
 
-        # Job should be in PENDING, not enqueued
+        # Job should be skipped immediately (no retry bookkeeping for unfulfillable deps)
         session.refresh(stalled_job)
-        assert stalled_job.status == JobStatus.PENDING
-        assert stalled_job.retry_count == 1
+        assert stalled_job.status == JobStatus.SKIPPED
+        assert stalled_job.retry_count == 0
 
     async def test_cleanup_integration_stalled_queued_pipeline_job_dependencies_not_ready(
         self, standalone_worker_context, session
@@ -1722,15 +1781,15 @@ class TestCleanupStalledJobsIntegration:
         assert result.status == JobStatus.SUCCEEDED
         assert result.data["total_cleaned"] == 1
 
-        # Job should be in PENDING, not enqueued
+        # Job should be skipped immediately (no retry bookkeeping for unfulfillable deps)
         session.refresh(stalled_job)
-        assert stalled_job.status == JobStatus.PENDING
-        assert stalled_job.retry_count == 1
+        assert stalled_job.status == JobStatus.SKIPPED
+        assert stalled_job.retry_count == 0
 
     async def test_cleanup_integration_stalled_pending_pipeline_job_dependencies_failed(
         self, standalone_worker_context, session
     ):
-        """Integration test: stalled pipeline PENDING job with failed dependencies is skipped."""
+        """Integration test: stalled pipeline PENDING job with failed dependencies is cleaned up."""
         test_pipeline = Pipeline(
             urn="test:pipeline:pending_deps_failed",
             name="Test Pipeline Pending Deps Failed",
@@ -1785,10 +1844,10 @@ class TestCleanupStalledJobsIntegration:
         assert result.status == JobStatus.SUCCEEDED
         assert result.data["total_cleaned"] == 1
 
-        # Job should remain in PENDING, not enqueued
+        # Job should be skipped immediately (no retry bookkeeping for unfulfillable deps)
         session.refresh(stalled_job)
-        assert stalled_job.status == JobStatus.PENDING
-        assert stalled_job.retry_count == 1
+        assert stalled_job.status == JobStatus.SKIPPED
+        assert stalled_job.retry_count == 0
 
     async def test_cleanup_integration_stalled_running_pipeline_job_dependencies_not_ready(
         self, standalone_worker_context, session
@@ -1857,7 +1916,7 @@ class TestCleanupStalledJobsIntegration:
     async def test_cleanup_integration_stalled_pending_pipeline_job_dependencies_not_ready(
         self, standalone_worker_context, session
     ):
-        """Integration test: stalled pipeline PENDING job with dependencies not ready is skipped."""
+        """Integration test: blocked pipeline PENDING job with dependencies not ready is not treated as stalled."""
         test_pipeline = Pipeline(
             urn="test:pipeline:pending_deps_not_ready",
             name="Test Pipeline Pending Deps Not Ready",
@@ -1910,12 +1969,71 @@ class TestCleanupStalledJobsIntegration:
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data["total_cleaned"] == 1
+        assert result.data["total_cleaned"] == 0
 
-        # Job should remain in PENDING, waiting for dependencies
+        # Job should remain untouched because dependencies are not satisfied
         session.refresh(stalled_job)
         assert stalled_job.status == JobStatus.PENDING
-        assert stalled_job.retry_count == 1
+        assert stalled_job.retry_count == 0
+
+    async def test_cleanup_integration_stalled_pending_pipeline_completion_required_dependency_cancelled(
+        self, standalone_worker_context, session
+    ):
+        """Integration test: stalled pipeline PENDING job with cancelled completion-required dependency is cleaned up."""
+        test_pipeline = Pipeline(
+            urn="test:pipeline:pending_completion_cancelled",
+            name="Test Pipeline Pending Completion Cancelled",
+            description="Pipeline for pending job with cancelled completion-required dependency",
+            status=PipelineStatus.CREATED,
+            correlation_id="test_pending_completion_cancelled",
+        )
+        session.add(test_pipeline)
+        session.flush()
+
+        dependency_job = JobRun(
+            job_type="dependency",
+            job_function="dependency_function",
+            status=JobStatus.CANCELLED,
+            pipeline_id=test_pipeline.id,
+            max_retries=3,
+            retry_count=0,
+            job_params={},
+        )
+        session.add(dependency_job)
+        session.flush()
+
+        stalled_job = JobRun(
+            job_type="test_job",
+            job_function="test_function",
+            status=JobStatus.PENDING,
+            pipeline_id=test_pipeline.id,
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=PENDING_TIMEOUT_MINUTES + 5),
+            started_at=None,
+            max_retries=3,
+            retry_count=0,
+            job_params={},
+        )
+        session.add(stalled_job)
+        session.flush()
+
+        dependency = JobDependency(
+            id=stalled_job.id,
+            depends_on_job_id=dependency_job.id,
+            dependency_type=DependencyType.COMPLETION_REQUIRED,
+        )
+        session.add(dependency)
+        session.commit()
+
+        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
+            result = await cleanup_stalled_jobs(standalone_worker_context)
+
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
+
+        session.refresh(stalled_job)
+        assert stalled_job.status == JobStatus.SKIPPED
+        assert stalled_job.retry_count == 0
 
 
 ############################################################################################################################################
