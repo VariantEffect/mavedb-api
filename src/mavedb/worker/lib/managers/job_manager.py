@@ -37,6 +37,8 @@ from datetime import datetime
 from typing import Any, Optional
 
 from arq import ArqRedis
+from arq.constants import result_key_prefix
+from arq.jobs import job_key_prefix
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -54,13 +56,13 @@ from mavedb.worker.lib.managers.constants import (
     STARTABLE_JOB_STATUSES,
     TERMINAL_JOB_STATUSES,
 )
-from mavedb.worker.lib.managers.utils import classify_exception
 from mavedb.worker.lib.managers.exceptions import (
     DatabaseConnectionError,
     JobStateError,
     JobTransitionError,
 )
 from mavedb.worker.lib.managers.types import RetryHistoryEntry
+from mavedb.worker.lib.managers.utils import classify_exception
 
 logger = logging.getLogger(__name__)
 
@@ -362,7 +364,7 @@ class JobManager(BaseManager):
         """
         self.complete_job(status=JobStatus.SKIPPED, result=result)
 
-    def prepare_retry(self, reason: str = "retry_requested") -> None:
+    async def prepare_retry(self, reason: str = "retry_requested") -> None:
         """Prepare a failed job for retry by resetting state to PENDING. This method does
         not flush or commit the database session; the caller is responsible for persisting changes.
 
@@ -450,6 +452,18 @@ class JobManager(BaseManager):
             self.save_to_context(format_raised_exception_info_as_dict(e))
             logger.debug("Encountered an unexpected error while updating job retry state", extra=self.logging_context())
             raise JobStateError(f"Failed to update job retry state: {e}")
+
+        # Clear any stale ARQ keys for this job. ARQ checks both arq:job: and arq:result: for
+        # deduplication before enqueueing — if either exists, enqueue_job silently returns None.
+        # A crashed RUNNING job leaves arq:job: behind; a cleanly-failed job leaves arq:result:
+        # behind (1-hour TTL). Both must be removed before the retry can be re-enqueued.
+        if self.redis is not None:
+            await self.redis.delete(job_key_prefix + job_run.urn, result_key_prefix + job_run.urn)
+            logger.debug("Cleared stale ARQ keys for retried job", extra=self.logging_context())
+        else:
+            logger.warning(
+                "Redis client not available - cannot clear ARQ keys for retried job", extra=self.logging_context()
+            )
 
         self.save_to_context({"job_status": str(job_run.status), "retry_attempt": job_run.retry_count})
         logger.info("Job successfully prepared for retry", extra=self.logging_context())

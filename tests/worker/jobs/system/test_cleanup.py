@@ -15,6 +15,8 @@ pytest.importorskip("arq")  # Skip tests if arq is not installed
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
+from arq.constants import result_key_prefix
+from arq.jobs import job_key_prefix
 from sqlalchemy import select
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
@@ -2034,6 +2036,83 @@ class TestCleanupStalledJobsIntegration:
         session.refresh(stalled_job)
         assert stalled_job.status == JobStatus.SKIPPED
         assert stalled_job.retry_count == 0
+
+    async def test_cleanup_integration_retries_running_job_when_arq_job_key_is_stale(
+        self, standalone_worker_context, session
+    ):
+        """Regression test: a crashed RUNNING job leaves arq:job: in Redis. Without clearing it,
+        enqueue_job silently returns None — the DB shows QUEUED but ARQ never has the job in its
+        queue, so a worker would never pick it up."""
+        arq_redis = standalone_worker_context["redis"]
+
+        stalled_job = JobRun(
+            job_type="test_job",
+            job_function="test_function",
+            status=JobStatus.RUNNING,
+            created_at=datetime.now(timezone.utc) - timedelta(hours=2),
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=RUNNING_TIMEOUT_MINUTES + 10),
+            finished_at=None,
+            max_retries=3,
+            retry_count=0,
+            job_params={},
+        )
+        session.add(stalled_job)
+        session.commit()
+
+        # Simulate a worker crash: arq:job: key was never cleaned up by ARQ's finish_job.
+        await arq_redis.set(job_key_prefix + stalled_job.urn, b"stale_job_data")
+
+        result = await cleanup_stalled_jobs(standalone_worker_context)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
+
+        session.refresh(stalled_job)
+        assert stalled_job.status == JobStatus.QUEUED
+        assert stalled_job.retry_count == 1
+
+        # The job must actually be present in ARQ's queue. Before this fix, stale key
+        # deduplication meant enqueue_job returned None and ARQ had no record of the
+        # job — a worker would never pick it up despite the DB showing QUEUED.
+        assert await arq_redis.exists(job_key_prefix + stalled_job.urn) == 1
+
+    async def test_cleanup_integration_retries_job_when_arq_result_key_is_stale(
+        self, standalone_worker_context, session
+    ):
+        """Regression test: a job that previously ran leaves arq:result: in Redis for up to 1 hour.
+        Without clearing it, a second stall within that window fails to re-enqueue — the DB shows
+        QUEUED but ARQ never has the job, so a worker would never pick it up."""
+        arq_redis = standalone_worker_context["redis"]
+
+        stalled_job = JobRun(
+            job_type="test_job",
+            job_function="test_function",
+            status=JobStatus.QUEUED,
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            started_at=None,
+            max_retries=3,
+            retry_count=0,
+            job_params={},
+        )
+        session.add(stalled_job)
+        session.commit()
+
+        # Simulate a prior run result still within ARQ's default 1-hour keep_result TTL.
+        await arq_redis.set(result_key_prefix + stalled_job.urn, b"stale_result_data")
+
+        result = await cleanup_stalled_jobs(standalone_worker_context)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 1
+
+        session.refresh(stalled_job)
+        assert stalled_job.status == JobStatus.QUEUED
+        assert stalled_job.retry_count == 1
+
+        # The job must actually be present in ARQ's queue. Before this fix, stale result
+        # deduplication meant enqueue_job returned None and ARQ had no record of the
+        # job — a worker would never pick it up despite the DB showing QUEUED.
+        assert await arq_redis.exists(job_key_prefix + stalled_job.urn) == 1
 
 
 ############################################################################################################################################

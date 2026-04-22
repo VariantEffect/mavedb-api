@@ -14,6 +14,8 @@ import re
 from unittest.mock import Mock, PropertyMock, patch
 
 from arq import ArqRedis
+from arq.constants import result_key_prefix
+from arq.jobs import job_key_prefix
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -777,7 +779,8 @@ class TestPrepareRetryUnit:
         "invalid_status",
         [status for status in JobStatus._member_map_.values() if status not in RETRYABLE_JOB_STATUSES],
     )
-    def test_prepare_retry_raises_job_transition_error_when_managed_job_has_unretryable_status(
+    @pytest.mark.asyncio
+    async def test_prepare_retry_raises_job_transition_error_when_managed_job_has_unretryable_status(
         self, mock_job_manager, invalid_status, mock_job_run
     ):
         # Set initial job status to an invalid (unretryable) status.
@@ -792,7 +795,7 @@ class TestPrepareRetryUnit:
             ),
             TransactionSpy.spy(mock_job_manager.db),
         ):
-            mock_job_manager.prepare_retry()
+            await mock_job_manager.prepare_retry()
 
         # Verify job state on the mocked object remains unchanged.
         assert mock_job_run.status == invalid_status
@@ -809,7 +812,8 @@ class TestPrepareRetryUnit:
         "exception",
         HANDLED_EXCEPTIONS_DURING_OBJECT_MANIPULATION,
     )
-    def test_prepare_retry_raises_job_state_error_when_handled_error_is_raised_during_object_manipulation(
+    @pytest.mark.asyncio
+    async def test_prepare_retry_raises_job_state_error_when_handled_error_is_raised_during_object_manipulation(
         self, mock_job_manager, exception, mock_job_run
     ):
         """Test job prepare retry failure due to exception during job object manipulation."""
@@ -833,7 +837,7 @@ class TestPrepareRetryUnit:
             ),
         ):
             type(mock_job_run).status = PropertyMock(side_effect=get_or_error)
-            mock_job_manager.prepare_retry()
+            await mock_job_manager.prepare_retry()
 
         # Verify job state on the mocked object remains unchanged. Although it's theoretically
         # possible some job state is manipulated prior to an error being raised, our specific
@@ -848,7 +852,8 @@ class TestPrepareRetryUnit:
         assert mock_job_run.finished_at is None
         assert mock_job_run.metadata_ == {}
 
-    def test_prepare_retry_success(self, mock_job_manager, mock_job_run):
+    @pytest.mark.asyncio
+    async def test_prepare_retry_success(self, mock_job_manager, mock_job_run):
         """Test successful job prepare retry."""
         # Set initial job status to FAILED. Job status must be retryable for this test.
         mock_job_run.status = JobStatus.FAILED
@@ -860,7 +865,7 @@ class TestPrepareRetryUnit:
             patch("mavedb.worker.lib.managers.job_manager.flag_modified") as mock_flag_modified,
             TransactionSpy.spy(mock_job_manager.db),
         ):
-            mock_job_manager.prepare_retry()
+            await mock_job_manager.prepare_retry()
 
         # Verify flag_modified was called for metadata_ field.
         mock_flag_modified.assert_called_once_with(mock_job_run, "metadata_")
@@ -878,6 +883,30 @@ class TestPrepareRetryUnit:
         assert mock_job_run.started_at is None
         assert mock_job_run.metadata_.get("result") is None
 
+    @pytest.mark.asyncio
+    async def test_prepare_retry_deletes_both_arq_keys(self, mock_job_manager, mock_job_run):
+        """prepare_retry deletes arq:job: and arq:result: keys so ARQ deduplication doesn't block re-enqueueing."""
+        mock_job_run.status = JobStatus.FAILED
+
+        with patch("mavedb.worker.lib.managers.job_manager.flag_modified"):
+            await mock_job_manager.prepare_retry()
+
+        mock_job_manager.redis.delete.assert_called_once_with(
+            job_key_prefix + mock_job_run.urn,
+            result_key_prefix + mock_job_run.urn,
+        )
+
+    @pytest.mark.asyncio
+    async def test_prepare_retry_succeeds_without_redis(self, mock_job_manager, mock_job_run):
+        """prepare_retry completes successfully when redis is None (e.g. standalone script context)."""
+        mock_job_run.status = JobStatus.FAILED
+        mock_job_manager.redis = None
+
+        with patch("mavedb.worker.lib.managers.job_manager.flag_modified"):
+            await mock_job_manager.prepare_retry()
+
+        assert mock_job_run.status == JobStatus.PENDING
+
 
 @pytest.mark.integration
 class TestPrepareRetryIntegration:
@@ -887,7 +916,8 @@ class TestPrepareRetryIntegration:
         "job_status",
         [status for status in JobStatus._member_map_.values() if status not in RETRYABLE_JOB_STATUSES],
     )
-    def test_prepare_retry_failed_due_to_invalid_status(
+    @pytest.mark.asyncio
+    async def test_prepare_retry_failed_due_to_invalid_status(
         self, session, arq_redis, with_populated_job_data, sample_job_run, job_status
     ):
         """Test job retry failure due to invalid job status."""
@@ -904,9 +934,10 @@ class TestPrepareRetryIntegration:
             TransactionSpy.spy(manager.db),
             pytest.raises(JobTransitionError, match=f"Cannot retry job {job.id} due to invalid state \({job.status}\)"),
         ):
-            manager.prepare_retry()
+            await manager.prepare_retry()
 
-    def test_prepare_retry_success(self, session, arq_redis, with_populated_job_data, sample_job_run):
+    @pytest.mark.asyncio
+    async def test_prepare_retry_success(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test successful job retry."""
         manager = JobManager(session, arq_redis, sample_job_run.id)
 
@@ -917,7 +948,7 @@ class TestPrepareRetryIntegration:
 
         # Prepare retry. Spy on transaction to ensure nothing is flushed/rolled back/committed prematurely.
         with TransactionSpy.spy(manager.db):
-            manager.prepare_retry()
+            await manager.prepare_retry()
 
         # Commit pending changes made by start job.
         session.commit()
@@ -2129,7 +2160,8 @@ class TestJobManagerJob:
         assert job.error_message == "An error occurred"
         assert job.error_traceback is None
 
-    def test_full_retried_job_lifecycle(self, session, arq_redis, with_populated_job_data, sample_job_run):
+    @pytest.mark.asyncio
+    async def test_full_retried_job_lifecycle(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test full job lifecycle for a retried job."""
         # Pre-manager: Job is created in DB in Pending state. Verify initial state.
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -2171,14 +2203,15 @@ class TestJobManagerJob:
 
         # Prepare retry
         with TransactionSpy.spy(manager.db):
-            manager.prepare_retry()
+            await manager.prepare_retry()
         session.flush()
 
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
         assert job.status == JobStatus.PENDING
         assert job.retry_count == 1
 
-    def test_full_reset_job_lifecycle(self, session, arq_redis, with_populated_job_data, sample_job_run):
+    @pytest.mark.asyncio
+    async def test_full_reset_job_lifecycle(self, session, arq_redis, with_populated_job_data, sample_job_run):
         """Test full job lifecycle for a reset job."""
         # Pre-manager: Job is created in DB in Pending state. Verify initial state.
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -2212,7 +2245,7 @@ class TestJobManagerJob:
 
         # Retry job
         with TransactionSpy.spy(manager.db):
-            manager.prepare_retry()
+            await manager.prepare_retry()
         session.flush()
 
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()

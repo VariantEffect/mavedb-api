@@ -706,7 +706,7 @@ class PipelineManager(BaseManager):
 
         for job in failed_jobs:
             job_manager = JobManager(self.db, self.redis, job.id)
-            job_manager.prepare_retry()
+            await job_manager.prepare_retry()
 
         # Ensure the pipeline status is set to running so jobs are picked up
         self.set_pipeline_status(PipelineStatus.RUNNING)
@@ -736,7 +736,7 @@ class PipelineManager(BaseManager):
 
         for job in unsuccessful_jobs:
             job_manager = JobManager(self.db, self.redis, job.id)
-            job_manager.prepare_retry()
+            await job_manager.prepare_retry()
 
         # Ensure the pipeline status is set to running so jobs are picked up
         self.set_pipeline_status(PipelineStatus.RUNNING)

@@ -115,7 +115,7 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
 
         # If the job is not marked as succeeded, check if we should retry
         if job_manager.get_job_status() != JobStatus.SUCCEEDED and job_manager.should_retry():
-            job_manager.prepare_retry(reason="Job did not complete successfully")
+            await job_manager.prepare_retry(reason="Job did not complete successfully")
             db_session.commit()
 
         return result
@@ -134,7 +134,7 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
 
             if job_manager.should_retry():
                 # Prepare job for retry and persist state
-                job_manager.prepare_retry(reason=str(e))
+                await job_manager.prepare_retry(reason=str(e))
                 db_session.commit()
 
                 # Short circuit raising the exception. We indicate to the caller

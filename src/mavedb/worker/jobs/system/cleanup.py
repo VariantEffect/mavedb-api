@@ -110,7 +110,7 @@ async def _handle_stalled_job_retry(
                 )
                 return False
 
-            manager.prepare_retry(reason=stall_reason)
+            await manager.prepare_retry(reason=stall_reason)
             db.flush()
             return True
 
@@ -131,15 +131,22 @@ async def _handle_stalled_job_retry(
         )
         return False
 
-    manager.prepare_retry(reason=stall_reason)
+    await manager.prepare_retry(reason=stall_reason)
     db.flush()
 
     try:
         manager.prepare_queue()  # Transition to QUEUED
         db.flush()
-        await redis.enqueue_job(job.job_function, job.id, _job_id=job.urn)
+        result = await redis.enqueue_job(job.job_function, job.id, _job_id=job.urn)
+
+        if result is None:
+            raise RuntimeError(
+                f"Failed to enqueue job {job.urn} when retrying stalled job - Redis did not return a job ID"
+            )
+
         logger.info(f"Successfully retried and enqueued stalled job {job.urn}", extra=manager.logging_context())
         return True
+
     except Exception as e:
         logger.error(f"Failed to enqueue stalled job {job.urn}: {e}", extra=manager.logging_context())
         error_msg = f"Failed to enqueue after stall recovery: {e}"
