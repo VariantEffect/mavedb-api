@@ -2184,7 +2184,9 @@ TEST_POPULATED_SCORE_SET_SEARCH = {
     "databases": ["uniprot"],
     "journals": ["biomed"],
     "publication_identifiers": ["12345678"],
-    "controlled_keywords": ["keyword"],
+    "controlled_keywords": [
+        {"key": "keyword_key", "label": "keyword_label"}
+    ],
     "text": "testtesttest",
 }
 

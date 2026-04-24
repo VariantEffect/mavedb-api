@@ -14,7 +14,11 @@ def test_populated_experiment_search():
 
 def test_populated_score_set_search():
     score_set_search = ScoreSetsSearch(**TEST_POPULATED_SCORE_SET_SEARCH)
-    assert all(score_set_search.__getattribute__(k) == v for k, v in TEST_POPULATED_SCORE_SET_SEARCH.items())
+    for k, v in TEST_POPULATED_SCORE_SET_SEARCH.items():
+        if k == "controlled_keywords":
+            assert [item.model_dump() for item in score_set_search.controlled_keywords] == v
+        else:
+            assert getattr(score_set_search, k) == v
 
 
 def test_populated_text_search():
