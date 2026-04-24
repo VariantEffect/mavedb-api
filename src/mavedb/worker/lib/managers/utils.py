@@ -15,6 +15,7 @@ import sqlalchemy.exc
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import DependencyType, FailureCategory, JobStatus
+from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.managers.constants import COMPLETED_JOB_STATUSES
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,18 @@ def classify_exception(exc: Exception) -> FailureCategory:
         if isinstance(exc, exc_type):
             return category
     return FailureCategory.UNKNOWN
+
+
+def arq_job_id(job: JobRun) -> str:
+    """Compute the ARQ job id for the current attempt of a JobRun.
+
+    ARQ uses the job id as a Redis key (``arq:job:<id>`` while queued, ``arq:in-progress:<id>`` while running,
+    ``arq:result:<id>`` after completion). Because those keys also act as a deduplication check at enqueue
+    time, reusing the same id across retries is unsafe: the in-flight attempt's teardown can clobber
+    or be blocked by the next attempt. Embedding ``retry_count`` guarantees each attempt occupies a disjoint key
+    namespace while staying deterministic — any caller that holds the JobRun can recompute the id.
+    """
+    return f"{job.urn}#{job.retry_count or 0}"
 
 
 def construct_bulk_cancellation_result(reason: str) -> JobExecutionOutcome:

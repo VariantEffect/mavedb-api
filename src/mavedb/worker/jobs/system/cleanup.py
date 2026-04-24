@@ -28,6 +28,7 @@ from mavedb.worker.lib.decorators.job_guarantee import with_guaranteed_job_run_r
 from mavedb.worker.lib.decorators.job_management import with_job_management
 from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
+from mavedb.worker.lib.managers.utils import arq_job_id
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +138,7 @@ async def _handle_stalled_job_retry(
     try:
         manager.prepare_queue()  # Transition to QUEUED
         db.flush()
-        result = await redis.enqueue_job(job.job_function, job.id, _job_id=job.urn)
+        result = await redis.enqueue_job(job.job_function, job.id, _job_id=arq_job_id(job))
 
         if result is None:
             raise RuntimeError(

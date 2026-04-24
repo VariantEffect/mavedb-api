@@ -63,6 +63,7 @@ from mavedb.worker.lib.managers.exceptions import (
     PipelineTransitionError,
 )
 from mavedb.worker.lib.managers.utils import (
+    arq_job_id,
     construct_bulk_cancellation_result,
     job_dependency_is_met,
     job_should_be_skipped_due_to_unfulfillable_dependency,
@@ -1137,7 +1138,9 @@ class PipelineManager(BaseManager):
 
         try:
             defer_by = timedelta(seconds=job.retry_delay_seconds if is_retry and job.retry_delay_seconds else 0)
-            arq_success = await self.redis.enqueue_job(job.job_function, job.id, _defer_by=defer_by, _job_id=job.urn)
+            arq_success = await self.redis.enqueue_job(
+                job.job_function, job.id, _defer_by=defer_by, _job_id=arq_job_id(job)
+            )
         except Exception as e:
             logger.debug(f"ARQ enqueue operation failed for job {job.urn}: {e}")
             raise PipelineCoordinationError(f"Failed to enqueue job in ARQ: {e}")

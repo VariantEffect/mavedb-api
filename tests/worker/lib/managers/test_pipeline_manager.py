@@ -39,6 +39,7 @@ from mavedb.worker.lib.managers.exceptions import (
     PipelineTransitionError,
 )
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
+from mavedb.worker.lib.managers.utils import arq_job_id
 from tests.helpers.transaction_spy import TransactionSpy
 
 HANDLED_EXCEPTIONS_DURING_OBJECT_MANIPULATION = (
@@ -3350,7 +3351,9 @@ class TestEnqueueInArqUnit:
     @pytest.mark.parametrize("retry", [True, False])
     async def test_enqueue_in_arq_success(self, mock_pipeline_manager, retry, enqueud):
         """Test successful enqueuing of a job in ARQ."""
-        mock_job = Mock(spec=JobRun, job_function="test_func", id=1, urn="urn:example", retry_delay_seconds=10)
+        mock_job = Mock(
+            spec=JobRun, job_function="test_func", id=1, urn="urn:example", retry_delay_seconds=10, retry_count=0
+        )
         with (
             patch.object(mock_pipeline_manager.redis, "enqueue_job", return_value=enqueud) as mock_enqueue_job,
             TransactionSpy.spy(mock_pipeline_manager.db),
@@ -3361,13 +3364,15 @@ class TestEnqueueInArqUnit:
             mock_job.job_function,
             mock_job.id,
             _defer_by=datetime.timedelta(seconds=mock_job.retry_delay_seconds if retry else 0),
-            _job_id=mock_job.urn,
+            _job_id=arq_job_id(mock_job),
         )
 
     @pytest.mark.asyncio
     async def test_any_enqueue_exception_raises_pipeline_coordination_error(self, mock_pipeline_manager):
         """Test that any exception during enqueuing raises PipelineCoordinationError."""
-        mock_job = Mock(spec=JobRun, job_function="test_func", id=1, urn="urn:example", retry_delay_seconds=10)
+        mock_job = Mock(
+            spec=JobRun, job_function="test_func", id=1, urn="urn:example", retry_delay_seconds=10, retry_count=0
+        )
 
         with (
             patch.object(

@@ -24,6 +24,7 @@ from mavedb.lib.workflow.definitions import PIPELINE_DEFINITIONS
 from mavedb.lib.workflow.pipeline_factory import PipelineFactory
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
+from mavedb.worker.lib.managers.utils import arq_job_id
 from mavedb.worker.settings import RedisWorkerSettings
 
 logger = logging.getLogger(__name__)
@@ -132,7 +133,7 @@ async def main(
         job = await redis.enqueue_job(
             pipeline_entrypoint.job_function,
             pipeline_entrypoint.id,
-            _job_id=pipeline_entrypoint.urn,
+            _job_id=arq_job_id(pipeline_entrypoint),
         )
         if job:
             click.echo(f"Enqueued start_pipeline job: {job.job_id}. Pipeline will execute asynchronously.")

@@ -113,7 +113,7 @@ pipeline, pipeline_entrypoint = pipeline_factory.create_pipeline(
 job = await worker.enqueue_job(
     pipeline_entrypoint.job_function,
     pipeline_entrypoint.id,
-    _job_id=pipeline_entrypoint.urn,
+    _job_id=arq_job_id(pipeline_entrypoint.urn),
 )
 ```
 

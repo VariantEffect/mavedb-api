@@ -35,6 +35,7 @@ from mavedb.lib.workflow.job_factory import JobFactory
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.worker.jobs.registry import STANDALONE_JOB_DEFINITIONS
+from mavedb.worker.lib.managers.utils import arq_job_id
 from mavedb.worker.settings import RedisWorkerSettings
 from mavedb.worker.settings.lifecycle import standalone_ctx
 
@@ -213,9 +214,10 @@ async def _enqueue_jobs(
             )
             db.flush()
 
-            job = await redis.enqueue_job(job_run.job_function, job_run.id, _job_id=job_run.urn)
+            arq_id = arq_job_id(job_run)
+            job = await redis.enqueue_job(job_run.job_function, job_run.id, _job_id=arq_id)
             if job:
-                click.echo(f"Enqueued {job_name} (job_run={job_run.id}, arq_id={job.job_id})")
+                click.echo(f"Enqueued {job_name} (job_run={job_run.id}, arq_id={arq_id})")
             else:
                 click.echo(f"Job already enqueued (job_run={job_run.id})", err=True)
 

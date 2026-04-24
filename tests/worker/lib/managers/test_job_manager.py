@@ -14,8 +14,6 @@ import re
 from unittest.mock import Mock, PropertyMock, patch
 
 from arq import ArqRedis
-from arq.constants import result_key_prefix
-from arq.jobs import job_key_prefix
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -882,30 +880,6 @@ class TestPrepareRetryUnit:
         assert mock_job_run.metadata_["retry_history"] is not None
         assert mock_job_run.started_at is None
         assert mock_job_run.metadata_.get("result") is None
-
-    @pytest.mark.asyncio
-    async def test_prepare_retry_deletes_both_arq_keys(self, mock_job_manager, mock_job_run):
-        """prepare_retry deletes arq:job: and arq:result: keys so ARQ deduplication doesn't block re-enqueueing."""
-        mock_job_run.status = JobStatus.FAILED
-
-        with patch("mavedb.worker.lib.managers.job_manager.flag_modified"):
-            await mock_job_manager.prepare_retry()
-
-        mock_job_manager.redis.delete.assert_called_once_with(
-            job_key_prefix + mock_job_run.urn,
-            result_key_prefix + mock_job_run.urn,
-        )
-
-    @pytest.mark.asyncio
-    async def test_prepare_retry_succeeds_without_redis(self, mock_job_manager, mock_job_run):
-        """prepare_retry completes successfully when redis is None (e.g. standalone script context)."""
-        mock_job_run.status = JobStatus.FAILED
-        mock_job_manager.redis = None
-
-        with patch("mavedb.worker.lib.managers.job_manager.flag_modified"):
-            await mock_job_manager.prepare_retry()
-
-        assert mock_job_run.status == JobStatus.PENDING
 
 
 @pytest.mark.integration

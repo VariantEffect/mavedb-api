@@ -1,5 +1,5 @@
 from concurrent.futures import ProcessPoolExecutor
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 from arq import ArqRedis
@@ -15,7 +15,6 @@ def mock_job_manager(mock_job_run):
     """Create a JobManager with mocked database and Redis dependencies."""
     mock_db = Mock(spec=Session)
     mock_redis = Mock(spec=ArqRedis)
-    mock_redis.delete = AsyncMock()  # prepare_retry awaits this to clear stale ARQ keys
 
     # Don't call the real constructor since it tries to load the job from DB
     manager = object.__new__(JobManager)
@@ -33,7 +32,6 @@ def mock_pipeline_manager(mock_job_manager, mock_pipeline):
     """Create a PipelineManager with mocked database, Redis dependencies, and job manager."""
     mock_db = Mock(spec=Session)
     mock_redis = Mock(spec=ArqRedis)
-    mock_redis.delete = AsyncMock()
 
     # Don't call the real constructor since it tries to validate the pipeline
     manager = object.__new__(PipelineManager)
@@ -53,7 +51,6 @@ def mock_pipeline_manager(mock_job_manager, mock_pipeline):
 def mock_worker_ctx():
     """Create a mock worker context dictionary for testing."""
     mock_redis = Mock(spec=ArqRedis)
-    mock_redis.delete = AsyncMock()
     mock_hdp = Mock(spec=RESTDataProvider)
     mock_pool = Mock(spec=ProcessPoolExecutor)
 

@@ -2040,9 +2040,9 @@ class TestCleanupStalledJobsIntegration:
     async def test_cleanup_integration_retries_running_job_when_arq_job_key_is_stale(
         self, standalone_worker_context, session
     ):
-        """Regression test: a crashed RUNNING job leaves arq:job: in Redis. Without clearing it,
-        enqueue_job silently returns None — the DB shows QUEUED but ARQ never has the job in its
-        queue, so a worker would never pick it up."""
+        """Regression test: a crashed RUNNING job leaves arq:job: in Redis at the prior attempt's
+        id. Because each retry uses a distinct ARQ job id (urn#<retry_count>), the stale key
+        cannot block re-enqueueing — the retry lives in its own Redis slot."""
         arq_redis = standalone_worker_context["redis"]
 
         stalled_job = JobRun(
@@ -2059,8 +2059,9 @@ class TestCleanupStalledJobsIntegration:
         session.add(stalled_job)
         session.commit()
 
-        # Simulate a worker crash: arq:job: key was never cleaned up by ARQ's finish_job.
-        await arq_redis.set(job_key_prefix + stalled_job.urn, b"stale_job_data")
+        # Simulate a worker crash: arq:job: key for attempt 0 was never cleaned up by ARQ's finish_job.
+        prior_arq_id = f"{stalled_job.urn}#0"
+        await arq_redis.set(job_key_prefix + prior_arq_id, b"stale_job_data")
 
         result = await cleanup_stalled_jobs(standalone_worker_context)
 
@@ -2071,17 +2072,17 @@ class TestCleanupStalledJobsIntegration:
         assert stalled_job.status == JobStatus.QUEUED
         assert stalled_job.retry_count == 1
 
-        # The job must actually be present in ARQ's queue. Before this fix, stale key
-        # deduplication meant enqueue_job returned None and ARQ had no record of the
-        # job — a worker would never pick it up despite the DB showing QUEUED.
-        assert await arq_redis.exists(job_key_prefix + stalled_job.urn) == 1
+        # The retry is enqueued under a fresh ARQ job id (attempt 1); the stale key for attempt 0
+        # is irrelevant to deduplication.
+        retried_arq_id = f"{stalled_job.urn}#1"
+        assert await arq_redis.exists(job_key_prefix + retried_arq_id) == 1
 
     async def test_cleanup_integration_retries_job_when_arq_result_key_is_stale(
         self, standalone_worker_context, session
     ):
         """Regression test: a job that previously ran leaves arq:result: in Redis for up to 1 hour.
-        Without clearing it, a second stall within that window fails to re-enqueue — the DB shows
-        QUEUED but ARQ never has the job, so a worker would never pick it up."""
+        Because each retry uses a distinct ARQ job id (urn#<retry_count>), the prior attempt's
+        result key cannot block re-enqueueing."""
         arq_redis = standalone_worker_context["redis"]
 
         stalled_job = JobRun(
@@ -2098,7 +2099,8 @@ class TestCleanupStalledJobsIntegration:
         session.commit()
 
         # Simulate a prior run result still within ARQ's default 1-hour keep_result TTL.
-        await arq_redis.set(result_key_prefix + stalled_job.urn, b"stale_result_data")
+        prior_arq_id = f"{stalled_job.urn}#0"
+        await arq_redis.set(result_key_prefix + prior_arq_id, b"stale_result_data")
 
         result = await cleanup_stalled_jobs(standalone_worker_context)
 
@@ -2109,10 +2111,10 @@ class TestCleanupStalledJobsIntegration:
         assert stalled_job.status == JobStatus.QUEUED
         assert stalled_job.retry_count == 1
 
-        # The job must actually be present in ARQ's queue. Before this fix, stale result
-        # deduplication meant enqueue_job returned None and ARQ had no record of the
-        # job — a worker would never pick it up despite the DB showing QUEUED.
-        assert await arq_redis.exists(job_key_prefix + stalled_job.urn) == 1
+        # The retry is enqueued under a fresh ARQ job id (attempt 1); the stale result key for
+        # attempt 0 is irrelevant to deduplication.
+        retried_arq_id = f"{stalled_job.urn}#1"
+        assert await arq_redis.exists(job_key_prefix + retried_arq_id) == 1
 
 
 ############################################################################################################################################

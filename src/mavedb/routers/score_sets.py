@@ -97,6 +97,7 @@ from mavedb.view_models.publication_identifier import PublicationIdentifierCreat
 from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 from mavedb.view_models.search import ScoreSetsSearch, ScoreSetsSearchFilterOptionsResponse, ScoreSetsSearchResponse
 from mavedb.view_models.target_gene import TargetGeneCreate
+from mavedb.worker.lib.managers.utils import arq_job_id
 
 TAG_NAME = "Score Sets"
 logger = logging.getLogger(__name__)
@@ -194,7 +195,7 @@ async def enqueue_variant_creation(
         # Await the insertion of this job into the worker queue, not the job itself.
         # Uses provided score and counts dataframes and metadata files, or falls back to existing data on the score set if not provided.
         job = await worker.enqueue_job(
-            pipeline_entrypoint.job_function, pipeline_entrypoint.id, _job_id=pipeline_entrypoint.urn
+            pipeline_entrypoint.job_function, pipeline_entrypoint.id, _job_id=arq_job_id(pipeline_entrypoint)
         )
         if job is not None:
             save_to_logging_context({"worker_job_id": job.job_id})
