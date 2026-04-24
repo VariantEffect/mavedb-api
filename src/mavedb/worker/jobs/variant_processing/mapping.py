@@ -23,7 +23,6 @@ from mavedb.lib.exceptions import (
 )
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.mapping import ANNOTATION_LAYERS, EXCLUDED_PREMAPPED_ANNOTATION_KEYS
-from mavedb.lib.slack import send_slack_error
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.enums.annotation_type import AnnotationType
@@ -275,7 +274,6 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         job_manager.db.flush()
 
     except (NonexistentMappingResultsError, NonexistentMappingScoresError, NonexistentMappingReferenceError) as e:
-        send_slack_error(e)
         logging_context = {**job_manager.logging_context(), **format_raised_exception_info_as_dict(e)}
         logger.error(msg="Known error during variant mapping.", extra=logging_context)
 
@@ -302,7 +300,6 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         )
 
     except Exception as e:
-        send_slack_error(e)
         logging_context = {**job_manager.logging_context(), **format_raised_exception_info_as_dict(e)}
         logger.error(msg="Encountered an unexpected error while parsing mapped variants.", extra=logging_context)
 
