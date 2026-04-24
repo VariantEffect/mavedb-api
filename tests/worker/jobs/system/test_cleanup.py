@@ -25,16 +25,33 @@ from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus, Pipelin
 from mavedb.models.job_dependency import JobDependency
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
+from arq.jobs import JobStatus as ArqJobStatus
 from mavedb.worker.jobs.system.cleanup import (
     PENDING_TIMEOUT_MINUTES,
-    QUEUED_TIMEOUT_MINUTES,
     RUNNING_TIMEOUT_MINUTES,
     cleanup_stalled_jobs,
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
+from mavedb.worker.lib.managers.utils import arq_job_id
 from tests.helpers.transaction_spy import TransactionSpy
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
+
+
+@pytest.fixture
+def mock_arq_job_not_found():
+    """Mock ArqJob.status() to return not_found, simulating a crashed-enqueue QUEUED job."""
+    with patch("mavedb.worker.jobs.system.cleanup.ArqJob") as mock_arq_job:
+        mock_arq_job.return_value.status = AsyncMock(return_value=ArqJobStatus.not_found)
+        yield mock_arq_job
+
+
+@pytest.fixture
+def mock_arq_job_in_redis():
+    """Mock ArqJob.status() to return queued, simulating a legitimately queued job in ARQ Redis."""
+    with patch("mavedb.worker.jobs.system.cleanup.ArqJob") as mock_arq_job:
+        mock_arq_job.return_value.status = AsyncMock(return_value=ArqJobStatus.queued)
+        yield mock_arq_job
 
 
 ############################################################################################################################################
@@ -63,7 +80,7 @@ class TestCleanupStalledJobsUnit:
         assert result.data["pending_jobs"] == []
 
     async def test_cleanup_stalled_queued_job_with_retries_remaining(
-        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_job_not_found
     ):
         """Test cleanup of a stalled QUEUED job with retries remaining."""
         # Create a stalled QUEUED job in the database
@@ -71,7 +88,7 @@ class TestCleanupStalledJobsUnit:
             job_type="test_job",
             job_function="test_function",
             status=JobStatus.QUEUED,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=0,
@@ -98,7 +115,7 @@ class TestCleanupStalledJobsUnit:
         assert stalled_job.finished_at is None
 
     async def test_cleanup_stalled_queued_job_max_retries_reached(
-        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_job_not_found
     ):
         """Test cleanup of a stalled QUEUED job with max retries reached."""
         # Create a stalled QUEUED job with max retries
@@ -106,7 +123,7 @@ class TestCleanupStalledJobsUnit:
             job_type="test_job",
             job_function="test_function",
             status=JobStatus.QUEUED,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=3,  # Already at max
@@ -347,7 +364,7 @@ class TestCleanupStalledJobsUnit:
         assert "Failed to enqueue after stall recovery" in stalled_job.error_message
 
     async def test_cleanup_multiple_stalled_jobs_mixed_states(
-        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_job_not_found
     ):
         """Test cleanup of multiple stalled jobs in different states."""
         # Create a pipeline and stalled jobs in all three states
@@ -365,7 +382,7 @@ class TestCleanupStalledJobsUnit:
             job_type="test_job",
             job_function="test_function",
             status=JobStatus.QUEUED,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 1),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=0,
@@ -423,7 +440,7 @@ class TestCleanupStalledJobsUnit:
         assert stalled_pending.retry_count == 1
 
     async def test_cleanup_stalled_queued_standalone_job_enqueue_failure(
-        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_job_not_found
     ):
         """Test that stalled standalone QUEUED job is marked FAILED if ARQ enqueue fails."""
 
@@ -433,7 +450,7 @@ class TestCleanupStalledJobsUnit:
             job_function="test_function",
             status=JobStatus.QUEUED,
             pipeline_id=None,  # Standalone job
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=0,
@@ -498,7 +515,7 @@ class TestCleanupStalledJobsUnit:
         assert "Failed to enqueue after stall recovery" in stalled_job.error_message
 
     async def test_cleanup_stalled_queued_pipeline_job_dependencies_satisfied(
-        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_job_not_found
     ):
         """Test that stalled pipeline QUEUED job with satisfied dependencies is enqueued."""
         # Create a pipeline with all dependencies satisfied
@@ -518,7 +535,7 @@ class TestCleanupStalledJobsUnit:
             job_function="test_function",
             status=JobStatus.QUEUED,
             pipeline_id=test_pipeline.id,  # Part of pipeline
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=0,
@@ -587,7 +604,7 @@ class TestCleanupStalledJobsUnit:
         assert stalled_job.retry_count == 1
 
     async def test_cleanup_stalled_queued_pipeline_job_dependencies_failed(
-        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_job_not_found
     ):
         """Test that stalled pipeline QUEUED job with failed dependencies is skipped."""
         # Create a pipeline
@@ -620,7 +637,7 @@ class TestCleanupStalledJobsUnit:
             job_function="test_function",
             status=JobStatus.QUEUED,
             pipeline_id=test_pipeline.id,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=0,
@@ -652,7 +669,7 @@ class TestCleanupStalledJobsUnit:
         assert stalled_job.retry_count == 0
 
     async def test_cleanup_stalled_queued_pipeline_job_dependencies_not_ready(
-        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_job_not_found
     ):
         """Test that stalled pipeline QUEUED job with unmet dependencies stays PENDING."""
         # Create a pipeline
@@ -685,7 +702,7 @@ class TestCleanupStalledJobsUnit:
             job_function="test_function",
             status=JobStatus.QUEUED,
             pipeline_id=test_pipeline.id,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=0,
@@ -752,7 +769,7 @@ class TestCleanupStalledJobsUnit:
             job_function="test_function",
             status=JobStatus.RUNNING,
             pipeline_id=test_pipeline.id,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=PENDING_TIMEOUT_MINUTES - 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=2),
             started_at=datetime.now(timezone.utc) - timedelta(minutes=RUNNING_TIMEOUT_MINUTES + 10),
             finished_at=None,
             max_retries=3,
@@ -883,7 +900,7 @@ class TestCleanupStalledJobsUnit:
             job_function="test_function",
             status=JobStatus.RUNNING,
             pipeline_id=test_pipeline.id,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=PENDING_TIMEOUT_MINUTES - 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=2),
             started_at=datetime.now(timezone.utc) - timedelta(minutes=RUNNING_TIMEOUT_MINUTES + 10),
             finished_at=None,
             max_retries=3,
@@ -1041,7 +1058,7 @@ class TestCleanupStalledJobsUnit:
         assert stalled_job.retry_count == 0
 
     async def test_cleanup_jobs_does_not_alter_jobs_in_valid_states(
-        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_job_in_redis
     ):
         """Test that cleanup does not alter jobs that are not stalled."""
         # Create a non-stalled RUNNING job
@@ -1072,8 +1089,7 @@ class TestCleanupStalledJobsUnit:
             job_function="test_function",
             status=JobStatus.PENDING,
             pipeline_id=test_pipeline.id,
-            created_at=datetime.now(timezone.utc)
-            - timedelta(minutes=PENDING_TIMEOUT_MINUTES - 5),  # 5 min before timeout
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=2),  # 5 min before timeout
             started_at=None,
             finished_at=None,
             max_retries=3,
@@ -1087,7 +1103,7 @@ class TestCleanupStalledJobsUnit:
             job_function="test_function",
             status=JobStatus.QUEUED,
             created_at=datetime.now(timezone.utc)
-            - timedelta(minutes=QUEUED_TIMEOUT_MINUTES - 5),  # 5 min before timeout
+            - timedelta(minutes=5),  # legitimately present in ARQ Redis (mock_arq_job_in_redis)
             started_at=None,
             finished_at=None,
             max_retries=3,
@@ -1151,7 +1167,7 @@ class TestCleanupStalledJobsIntegration:
             job_type="test_job",
             job_function="test_function",
             status=JobStatus.QUEUED,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=0,
@@ -1212,7 +1228,7 @@ class TestCleanupStalledJobsIntegration:
             job_type="test_job",
             job_function="test_function",
             status=JobStatus.QUEUED,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=3,  # Already at max
@@ -1276,13 +1292,17 @@ class TestCleanupStalledJobsIntegration:
         assert stalled_job.retry_count == 1
 
     async def test_cleanup_integration_excludes_recent_jobs(self, standalone_worker_context, session):
-        """Integration test: recent jobs are not cleaned up."""
-        # Create jobs that are recent (within timeout thresholds)
+        """Integration test: jobs not treated as stalled are left alone.
+
+        RUNNING jobs are protected by the time threshold.
+        QUEUED jobs are protected by the ARQ Redis presence check.
+        """
+        # Create jobs that should not be cleaned up
         recent_queued = JobRun(
             job_type="test_job",
             job_function="test_function",
             status=JobStatus.QUEUED,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES - 5),  # Within threshold
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=1),
             started_at=None,
             max_retries=3,
             retry_count=0,
@@ -1303,6 +1323,11 @@ class TestCleanupStalledJobsIntegration:
 
         session.add_all([recent_queued, recent_running])
         session.commit()
+
+        # Enqueue recent_queued in ARQ Redis so the Redis presence check marks it as
+        # legitimately queued (not a crashed-enqueue job).
+        arq_redis = standalone_worker_context["redis"]
+        await arq_redis.enqueue_job("test_function", recent_queued.id, _job_id=arq_job_id(recent_queued))
 
         with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
             result = await cleanup_stalled_jobs(standalone_worker_context)
@@ -1327,7 +1352,7 @@ class TestCleanupStalledJobsIntegration:
             job_type="test_job",
             job_function="test_function",
             status=JobStatus.QUEUED,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=0,
@@ -1337,7 +1362,7 @@ class TestCleanupStalledJobsIntegration:
             job_type="test_job",
             job_function="test_function",
             status=JobStatus.RUNNING,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=PENDING_TIMEOUT_MINUTES - 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=2),
             started_at=datetime.now(timezone.utc) - timedelta(minutes=RUNNING_TIMEOUT_MINUTES + 10),
             finished_at=None,
             max_retries=3,
@@ -1373,7 +1398,7 @@ class TestCleanupStalledJobsIntegration:
             job_type="test_job",
             job_function="test_function",
             status=JobStatus.RUNNING,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=PENDING_TIMEOUT_MINUTES - 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=2),
             started_at=datetime.now(timezone.utc) - timedelta(minutes=RUNNING_TIMEOUT_MINUTES + 10),
             finished_at=None,
             max_retries=3,
@@ -1401,7 +1426,7 @@ class TestCleanupStalledJobsIntegration:
             job_type="test_job",
             job_function="test_function",
             status=JobStatus.RUNNING,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=PENDING_TIMEOUT_MINUTES - 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=2),
             started_at=None,  # Missing started_at - causes job to be skipped
             finished_at=None,
             max_retries=3,
@@ -1485,7 +1510,7 @@ class TestCleanupStalledJobsIntegration:
             job_type="test_job",
             job_function="test_function",
             status=JobStatus.QUEUED,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=0,
@@ -1496,7 +1521,7 @@ class TestCleanupStalledJobsIntegration:
             job_type="test_job",
             job_function="test_function",
             status=JobStatus.RUNNING,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=PENDING_TIMEOUT_MINUTES - 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=2),
             started_at=datetime.now(timezone.utc) - timedelta(minutes=RUNNING_TIMEOUT_MINUTES + 10),
             finished_at=None,
             max_retries=3,
@@ -1569,7 +1594,7 @@ class TestCleanupStalledJobsIntegration:
             job_function="test_function",
             status=JobStatus.QUEUED,
             pipeline_id=test_pipeline.id,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=0,
@@ -1631,7 +1656,7 @@ class TestCleanupStalledJobsIntegration:
             job_function="test_function",
             status=JobStatus.QUEUED,
             pipeline_id=test_pipeline.id,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=0,
@@ -1694,7 +1719,7 @@ class TestCleanupStalledJobsIntegration:
             job_function="test_function",
             status=JobStatus.QUEUED,
             pipeline_id=test_pipeline.id,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=0,
@@ -1757,7 +1782,7 @@ class TestCleanupStalledJobsIntegration:
             job_function="test_function",
             status=JobStatus.RUNNING,
             pipeline_id=test_pipeline.id,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=PENDING_TIMEOUT_MINUTES - 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=2),
             started_at=datetime.now(timezone.utc) - timedelta(minutes=RUNNING_TIMEOUT_MINUTES + 10),
             finished_at=None,
             max_retries=3,
@@ -1884,7 +1909,7 @@ class TestCleanupStalledJobsIntegration:
             job_function="test_function",
             status=JobStatus.RUNNING,
             pipeline_id=test_pipeline.id,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=PENDING_TIMEOUT_MINUTES - 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=2),
             started_at=datetime.now(timezone.utc) - timedelta(minutes=RUNNING_TIMEOUT_MINUTES + 10),
             finished_at=None,
             max_retries=3,
@@ -2089,7 +2114,7 @@ class TestCleanupStalledJobsIntegration:
             job_type="test_job",
             job_function="test_function",
             status=JobStatus.QUEUED,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=0,
@@ -2134,7 +2159,7 @@ class TestCleanupStalledJobsArqIntegration:
             job_type="test_job",
             job_function="test_function",
             status=JobStatus.QUEUED,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=QUEUED_TIMEOUT_MINUTES + 5),
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
             started_at=None,
             max_retries=3,
             retry_count=0,

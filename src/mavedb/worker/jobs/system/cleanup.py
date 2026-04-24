@@ -17,6 +17,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from arq import ArqRedis
+from arq.jobs import Job as ArqJob
+from arq.jobs import JobStatus as ArqJobStatus
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -35,9 +37,8 @@ logger = logging.getLogger(__name__)
 # Timeout thresholds for detecting stalled jobs (in minutes).
 # RUNNING_TIMEOUT_MINUTES must stay below ArqWorkerSettings.job_timeout (currently 2 hours)
 # to avoid marking legitimately running jobs as stalled.
-QUEUED_TIMEOUT_MINUTES = 10  # QUEUED jobs should start within 10 min
 RUNNING_TIMEOUT_MINUTES = 90  # RUNNING jobs should complete within 90 min (30 min buffer under ARQ timeout)
-PENDING_TIMEOUT_MINUTES = 30  # PENDING jobs in pipelines should be enqueued within 30 minutes
+PENDING_TIMEOUT_MINUTES = 5  # PENDING jobs which are actionable within pipelines should be enqueued within 5 minutes
 
 
 async def _handle_stalled_job_retry(
@@ -170,9 +171,11 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
     and handles them appropriately.
 
     Stalled job detection criteria:
-    - QUEUED: Created > 10 minutes ago but never started (stuck between prepare_queue and ARQ pickup)
+    - QUEUED: Present in DB as QUEUED but absent from ARQ's Redis queue
+      (process crashed between prepare_queue and redis.enqueue_job)
     - RUNNING: Started > 60 minutes ago but not finished (worker likely crashed)
-    - PENDING: Created > 30 minutes ago in a pipeline (coordination failure)
+    - PENDING: Created > 5 minutes ago in a pipeline and currently runnable
+      (coordination failure)
 
     Actions taken:
     - If job has retries remaining: Mark PENDING for retry (will be re-enqueued by pipeline)
@@ -195,7 +198,6 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
         - Worker started job, marked it RUNNING, then crashed
         - After 60 minutes (longer than ARQ timeout), janitor detects and retries
     """
-    # Setup initial context and progress
     job_manager.save_to_context(
         {
             "application": "mavedb-worker",
@@ -203,7 +205,6 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
             "resource": "stalled_jobs",
             "correlation_id": None,
             "thresholds": {
-                "queued_timeout_minutes": QUEUED_TIMEOUT_MINUTES,
                 "running_timeout_minutes": RUNNING_TIMEOUT_MINUTES,
                 "pending_timeout_minutes": PENDING_TIMEOUT_MINUTES,
             },
@@ -222,14 +223,14 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
         "pending": [],
     }
 
-    # Find QUEUED jobs that have been waiting too long
-    # These likely got stuck during enqueue (state marked QUEUED but never reached ARQ)
-    queued_threshold = now - timedelta(minutes=QUEUED_TIMEOUT_MINUTES)
+    # Find all QUEUED jobs that have never started. The Redis presence check below
+    # is the definitive stall gate: a job is only acted on if it is absent from
+    # ARQ's queue, meaning the process crashed after writing QUEUED to the DB but
+    # before calling redis.enqueue_job(). No time threshold is needed here.
     queued_jobs = job_manager.db.scalars(
         select(JobRun).where(
             JobRun.status == JobStatus.QUEUED,
             JobRun.started_at.is_(None),  # Never started
-            JobRun.created_at < queued_threshold,  # Created long ago
         )
     ).all()
 
@@ -241,9 +242,22 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
         manager = JobManager(job_manager.db, job_manager.redis, job.id)
         elapsed_minutes = (now - job.created_at).total_seconds() / 60
 
+        # Confirm the job is genuinely missing from ARQ's Redis queue before acting.
+        # A healthy job waiting for a worker slot appears QUEUED in the DB and is also
+        # present in Redis; only a crashed-enqueue job has the DB state without the
+        # corresponding Redis entry.
+        arq_status = await ArqJob(arq_job_id(job), job_manager.redis).status()
+        if arq_status in (ArqJobStatus.queued, ArqJobStatus.in_progress, ArqJobStatus.deferred):
+            logger.debug(
+                f"QUEUED job {job.urn} is present in ARQ Redis (status={arq_status.value}); skipping cleanup",
+                extra=manager.logging_context(),
+            )
+            continue
+
         logger.warning(
             f"Detected stalled QUEUED job {job.urn} "
-            f"(created {job.created_at}, queued for {elapsed_minutes:.1f} minutes)",
+            f"(created {job.created_at}, queued for {elapsed_minutes:.1f} minutes, "
+            f"absent from ARQ Redis)",
             extra=manager.logging_context(),
         )
 
@@ -263,9 +277,8 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
     running_jobs = job_manager.db.scalars(
         select(JobRun).where(
             JobRun.status == JobStatus.RUNNING,
-            (JobRun.started_at < running_threshold)
-            | (JobRun.started_at.is_(None)),  # Started long ago or missing timestamp
-            JobRun.finished_at.is_(None),  # Not finished
+            (JobRun.started_at < running_threshold) | (JobRun.started_at.is_(None)),
+            JobRun.finished_at.is_(None),
         )
     ).all()
 
@@ -293,7 +306,6 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
             extra=manager.logging_context(),
         )
 
-        # Use unified retry handler
         stall_reason = f"Job stalled in RUNNING state for {elapsed_minutes:.1f} minutes (likely worker crash)"
         await _handle_stalled_job_retry(job, manager, job_manager.redis, stall_reason, job_manager.db)
 
@@ -311,7 +323,7 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
     pending_jobs = job_manager.db.scalars(
         select(JobRun).where(
             JobRun.status == JobStatus.PENDING,
-            JobRun.created_at < pending_threshold,  # Created long ago
+            JobRun.created_at < pending_threshold,
         )
     ).all()
 
@@ -340,7 +352,6 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
             extra=manager.logging_context(),
         )
 
-        # Use unified retry handler
         stall_reason = f"Job stalled in PENDING state for {elapsed_minutes:.1f} minutes"
         await _handle_stalled_job_retry(job, manager, job_manager.redis, stall_reason, job_manager.db)
 
@@ -372,7 +383,6 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
             "pending_jobs": cleaned_jobs["pending"],
             "timestamp": now.isoformat(),
             "thresholds": {
-                "queued_timeout_minutes": QUEUED_TIMEOUT_MINUTES,
                 "running_timeout_minutes": RUNNING_TIMEOUT_MINUTES,
                 "pending_timeout_minutes": PENDING_TIMEOUT_MINUTES,
             },
