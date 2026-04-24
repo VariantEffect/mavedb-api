@@ -217,12 +217,15 @@ def build_search_score_sets_query_filter(
         )
 
     if search.controlled_keywords:
-        for label in search.controlled_keywords:
+        for item in search.controlled_keywords:
             query = query.filter(
                 ScoreSet.experiment.has(
                     Experiment.keyword_objs.any(
                         ExperimentControlledKeywordAssociation.controlled_keyword.has(
-                            ControlledKeyword.label == label
+                            and_(
+                                ControlledKeyword.key == item.key,
+                                ControlledKeyword.label == item.label,
+                            )
                         )
                     )
                 )

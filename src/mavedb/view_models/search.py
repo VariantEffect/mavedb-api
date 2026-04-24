@@ -4,6 +4,11 @@ from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.score_set import ShortScoreSet
 
 
+class ControlledKeywordSearch(BaseModel):
+    key: str
+    label: str
+
+
 class ExperimentsSearch(BaseModel):
     published: Optional[bool] = None
     authors: Optional[list[str]] = None
@@ -25,7 +30,7 @@ class ScoreSetsSearch(BaseModel):
     databases: Optional[list[str]] = None
     journals: Optional[list[str]] = None
     publication_identifiers: Optional[list[str]] = None
-    controlled_keywords: Optional[list[str]] = None
+    controlled_keywords: Optional[list[ControlledKeywordSearch]] = None
     text: Optional[str] = None
     include_experiment_score_set_urns_and_count: Optional[bool] = True
     offset: Optional[int] = None
