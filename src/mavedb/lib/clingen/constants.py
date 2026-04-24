@@ -14,6 +14,8 @@ LDH_ENTITY_NAME = "MaveDBMapping"
 LDH_ENTITY_ENDPOINT = "maveDb"  # for some reason, not the same :/
 
 DEFAULT_LDH_SUBMISSION_BATCH_SIZE = 100
+CLINGEN_CACHE_WARMING_CONCURRENCY = 5
+"""Maximum number of concurrent requests to make to the ClinGen API when pre-warming the cache for mapped variants."""
 LDH_SUBMISSION_ENDPOINT = f"https://genboree.org/mq/brdg/pulsar/{CLIN_GEN_TENANT}/ldh/submissions/{LDH_ENTITY_ENDPOINT}"
 LDH_ACCESS_ENDPOINT = os.getenv("LDH_ACCESS_ENDPOINT", "https://genboree.org/ldh")
 LDH_MAVE_ACCESS_ENDPOINT = f"{LDH_ACCESS_ENDPOINT}/{LDH_ENTITY_NAME}/id"

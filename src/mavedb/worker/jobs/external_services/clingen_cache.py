@@ -4,13 +4,18 @@ Pre-fetches ClinGen allele data into the Redis cache before downstream annotatio
 jobs fan out. Without this, 40+ concurrent ClinVar refresh jobs all miss the cache
 simultaneously and stampede the ClinGen API, causing large payloads to contend for
 Redis write slots and triggering timeouts.
+
+Fetches are made concurrently up to CLINGEN_CACHE_WARMING_CONCURRENCY (default 5)
+to balance speed against ClinGen API and Redis write pool load.
 """
 
+import asyncio
 import logging
 
 from sqlalchemy import select
 
 from mavedb.lib.clingen.allele_registry import get_clingen_allele_data
+from mavedb.lib.clingen.constants import CLINGEN_CACHE_WARMING_CONCURRENCY
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
@@ -27,8 +32,9 @@ async def warm_clingen_cache(ctx: dict, job_id: int, job_manager: JobManager) ->
     """Pre-warm the ClinGen allele data cache for all mapped variants in a score set.
 
     Queries all distinct ClinGen allele IDs from mapped variants, then fetches each
-    one serially via `get_clingen_allele_data()` (which populates the aiocache Redis
-    cache). Downstream jobs that depend on this step will see 100% cache hits.
+    one via `get_clingen_allele_data()` (which populates the aiocache Redis cache),
+    with up to CLINGEN_CACHE_WARMING_CONCURRENCY requests in-flight at a time.
+    Downstream jobs that depend on this step will see 100% cache hits.
     """
     job = job_manager.get_job()
 
@@ -71,23 +77,30 @@ async def warm_clingen_cache(ctx: dict, job_id: int, job_manager: JobManager) ->
         job_manager.update_progress(100, 100, "No ClinGen allele IDs to warm.")
         return JobExecutionOutcome.succeeded(data={"warmed": 0, "failed": 0})
 
-    # Fetch each allele serially to avoid stampeding the ClinGen API.
+    # Fetch alleles concurrently up to CLINGEN_CACHE_WARMING_CONCURRENCY in-flight at a time.
     # get_clingen_allele_data() is decorated with @cached, so each call populates Redis.
+    semaphore = asyncio.Semaphore(CLINGEN_CACHE_WARMING_CONCURRENCY)
+
+    async def fetch_one(allele_id: str) -> tuple[str, bool, BaseException | None]:
+        async with semaphore:
+            try:
+                await get_clingen_allele_data(allele_id)
+                return allele_id, True, None
+            except Exception as exc:
+                return allele_id, False, exc
+
     warmed = 0
     failed = 0
-    for index, allele_id in enumerate(allele_ids):
-        if not allele_id:
-            continue
-
-        try:
-            await get_clingen_allele_data(allele_id)
+    for index, completed_task in enumerate(asyncio.as_completed([fetch_one(a) for a in allele_ids if a])):
+        allele_id, success, exc = await completed_task
+        if success:
             warmed += 1
-        except Exception:
+        else:
             failed += 1
             logger.warning(
                 f"Failed to warm cache for allele {allele_id}",
                 extra=job_manager.logging_context(),
-                exc_info=True,
+                exc_info=exc,
             )
 
         if total > 0 and index % max(total // 20, 1) == 0:
