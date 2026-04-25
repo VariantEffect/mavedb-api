@@ -28,6 +28,7 @@ from mavedb.models.pipeline import Pipeline
 from arq.jobs import JobStatus as ArqJobStatus
 from mavedb.worker.jobs.system.cleanup import (
     PENDING_TIMEOUT_MINUTES,
+    PIPELINE_STUCK_TIMEOUT_MINUTES,
     RUNNING_TIMEOUT_MINUTES,
     cleanup_stalled_jobs,
 )
@@ -1130,6 +1131,95 @@ class TestCleanupStalledJobsUnit:
         session.refresh(valid_queued_job)
         assert valid_queued_job.status == JobStatus.QUEUED
 
+    @pytest.mark.parametrize(
+        "pipeline_status",
+        [PipelineStatus.RUNNING, PipelineStatus.CREATED],
+    )
+    async def test_cleanup_calls_coordinate_pipeline_for_stuck_pipeline(
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, pipeline_status
+    ):
+        """Unit test: coordinate_pipeline() is called for each non-terminal pipeline with no active jobs."""
+        test_pipeline = Pipeline(
+            urn=f"test:pipeline:stuck:{pipeline_status.value}",
+            name="Test Stuck Pipeline",
+            description="Stuck pipeline for unit test",
+            status=pipeline_status,
+            correlation_id=f"unit_test_stuck_{pipeline_status.value}",
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=PIPELINE_STUCK_TIMEOUT_MINUTES + 5),
+        )
+        session.add(test_pipeline)
+        # Add a terminal job so query filter passes
+        terminal_job = JobRun(
+            job_type="test_job",
+            job_function="test_function",
+            status=JobStatus.SUCCEEDED,
+            pipeline_id=None,  # set after flush
+            max_retries=3,
+            retry_count=0,
+            job_params={},
+        )
+        session.add(test_pipeline)
+        session.flush()
+        terminal_job.pipeline_id = test_pipeline.id
+        session.add(terminal_job)
+        session.commit()
+
+        with patch("mavedb.worker.jobs.system.cleanup.PipelineManager") as mock_pm_class:
+            mock_pm = AsyncMock()
+            mock_pm.coordinate_pipeline = AsyncMock()
+            mock_pm_class.return_value = mock_pm
+
+            result = await cleanup_stalled_jobs(
+                mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert test_pipeline.urn in result.data["fixed_pipelines"]
+        mock_pm.coordinate_pipeline.assert_awaited_once()
+
+    async def test_cleanup_coordinate_pipeline_exception_is_caught_and_reported(
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+    ):
+        """Unit test: if coordinate_pipeline() raises, the error is caught, logged, and Slack-reported."""
+        test_pipeline = Pipeline(
+            urn="test:pipeline:error",
+            name="Test Error Pipeline",
+            description="Pipeline that will raise on coordinate",
+            status=PipelineStatus.RUNNING,
+            correlation_id="unit_test_error",
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=PIPELINE_STUCK_TIMEOUT_MINUTES + 5),
+        )
+        session.add(test_pipeline)
+        session.flush()
+        terminal_job = JobRun(
+            job_type="test_job",
+            job_function="test_function",
+            status=JobStatus.SUCCEEDED,
+            pipeline_id=test_pipeline.id,
+            max_retries=3,
+            retry_count=0,
+            job_params={},
+        )
+        session.add(terminal_job)
+        session.commit()
+
+        with (
+            patch("mavedb.worker.jobs.system.cleanup.PipelineManager") as mock_pm_class,
+            patch("mavedb.worker.jobs.system.cleanup.send_slack_error") as mock_slack,
+        ):
+            mock_pm = AsyncMock()
+            mock_pm.coordinate_pipeline = AsyncMock(side_effect=RuntimeError("coordinate failed"))
+            mock_pm_class.return_value = mock_pm
+
+            # Should not raise — exception is caught inside the loop
+            result = await cleanup_stalled_jobs(
+                mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert test_pipeline.urn not in result.data["fixed_pipelines"]
+        mock_slack.assert_called_once()
+
 
 ############################################################################################################################################
 # Integration Tests
@@ -2140,6 +2230,115 @@ class TestCleanupStalledJobsIntegration:
         # attempt 0 is irrelevant to deduplication.
         retried_arq_id = f"{stalled_job.urn}#1"
         assert await arq_redis.exists(job_key_prefix + retried_arq_id) == 1
+
+    async def test_cleanup_resolves_stuck_pipeline_all_jobs_terminal(self, standalone_worker_context, session):
+        """Integration test: pipeline stuck in RUNNING with all jobs terminal gets resolved."""
+        test_pipeline = Pipeline(
+            urn="test:pipeline:stuck_running",
+            name="Test Pipeline Stuck Running",
+            description="Pipeline stuck in RUNNING after all jobs finished",
+            status=PipelineStatus.RUNNING,
+            correlation_id="test_stuck_running",
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=PIPELINE_STUCK_TIMEOUT_MINUTES + 5),
+        )
+        session.add(test_pipeline)
+        session.flush()
+
+        # All jobs are in terminal states — no active work remaining
+        for status in [JobStatus.SUCCEEDED, JobStatus.SUCCEEDED, JobStatus.SKIPPED]:
+            job = JobRun(
+                job_type="test_job",
+                job_function="test_function",
+                status=status,
+                pipeline_id=test_pipeline.id,
+                max_retries=3,
+                retry_count=0,
+                job_params={},
+            )
+            session.add(job)
+        session.commit()
+
+        result = await cleanup_stalled_jobs(standalone_worker_context)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert test_pipeline.urn in result.data["fixed_pipelines"]
+
+        session.refresh(test_pipeline)
+        assert test_pipeline.status not in [PipelineStatus.RUNNING, PipelineStatus.CREATED]
+
+    async def test_cleanup_does_not_touch_pipeline_with_active_jobs(self, standalone_worker_context, session):
+        """Integration test: pipeline with active jobs is not touched."""
+        test_pipeline = Pipeline(
+            urn="test:pipeline:still_running",
+            name="Test Pipeline Still Running",
+            description="Pipeline legitimately still running",
+            status=PipelineStatus.RUNNING,
+            correlation_id="test_still_running",
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=PIPELINE_STUCK_TIMEOUT_MINUTES + 5),
+        )
+        session.add(test_pipeline)
+        session.flush()
+
+        active_job = JobRun(
+            job_type="test_job",
+            job_function="test_function",
+            status=JobStatus.RUNNING,
+            pipeline_id=test_pipeline.id,
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+            max_retries=3,
+            retry_count=0,
+            job_params={},
+        )
+        session.add(active_job)
+        session.commit()
+
+        result = await cleanup_stalled_jobs(standalone_worker_context)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert test_pipeline.urn not in result.data["fixed_pipelines"]
+
+        session.refresh(test_pipeline)
+        assert test_pipeline.status == PipelineStatus.RUNNING
+
+    async def test_cleanup_does_not_touch_recent_stuck_pipeline(self, standalone_worker_context, session):
+        """Integration test: recently created pipeline within the threshold is not touched."""
+        test_pipeline = Pipeline(
+            urn="test:pipeline:recent_stuck",
+            name="Test Pipeline Recent Stuck",
+            description="Recently created pipeline that may not have started yet",
+            status=PipelineStatus.RUNNING,
+            correlation_id="test_recent_stuck",
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=2),
+        )
+        session.add(test_pipeline)
+        session.commit()
+
+        result = await cleanup_stalled_jobs(standalone_worker_context)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert test_pipeline.urn not in result.data["fixed_pipelines"]
+
+        session.refresh(test_pipeline)
+        assert test_pipeline.status == PipelineStatus.RUNNING
+
+    async def test_cleanup_does_not_touch_terminal_pipeline(self, standalone_worker_context, session):
+        """Integration test: already-terminal pipelines are not touched."""
+        for terminal_status in [PipelineStatus.SUCCEEDED, PipelineStatus.FAILED, PipelineStatus.CANCELLED]:
+            test_pipeline = Pipeline(
+                urn=f"test:pipeline:terminal:{terminal_status.value}",
+                name=f"Test Pipeline Terminal {terminal_status.value}",
+                description=f"Already terminal pipeline ({terminal_status.value})",
+                status=terminal_status,
+                correlation_id=f"test_terminal_{terminal_status.value}",
+                created_at=datetime.now(timezone.utc) - timedelta(minutes=PIPELINE_STUCK_TIMEOUT_MINUTES + 5),
+            )
+            session.add(test_pipeline)
+        session.commit()
+
+        result = await cleanup_stalled_jobs(standalone_worker_context)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["fixed_pipelines"] == []
 
 
 ############################################################################################################################################

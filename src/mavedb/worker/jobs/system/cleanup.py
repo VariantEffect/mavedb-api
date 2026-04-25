@@ -26,8 +26,10 @@ from mavedb.lib.slack import send_slack_error
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
 from mavedb.models.job_run import JobRun
+from mavedb.models.pipeline import Pipeline
 from mavedb.worker.lib.decorators.job_guarantee import with_guaranteed_job_run_record
 from mavedb.worker.lib.decorators.job_management import with_job_management
+from mavedb.worker.lib.managers.constants import ACTIVE_JOB_STATUSES, TERMINAL_PIPELINE_STATUSES
 from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
 from mavedb.worker.lib.managers.utils import arq_job_id
@@ -39,6 +41,9 @@ logger = logging.getLogger(__name__)
 # to avoid marking legitimately running jobs as stalled.
 RUNNING_TIMEOUT_MINUTES = 90  # RUNNING jobs should complete within 90 min (30 min buffer under ARQ timeout)
 PENDING_TIMEOUT_MINUTES = 5  # PENDING jobs which are actionable within pipelines should be enqueued within 5 minutes
+PIPELINE_STUCK_TIMEOUT_MINUTES = (
+    5  # Pipelines in non-terminal states with no active jobs should resolve within 5 minutes
+)
 
 
 async def _handle_stalled_job_retry(
@@ -176,6 +181,8 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
     - RUNNING: Started > 60 minutes ago but not finished (worker likely crashed)
     - PENDING: Created > 5 minutes ago in a pipeline and currently runnable
       (coordination failure)
+    - Pipeline stuck: Non-terminal pipeline with no active jobs older than 5 minutes
+      (coordinate_pipeline() crashed before writing final status)
 
     Actions taken:
     - If job has retries remaining: Mark PENDING for retry (will be re-enqueued by pipeline)
@@ -361,6 +368,50 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
     job_manager.save_to_context({"cleaned_pending_jobs": stalled_pending_jobs})
     logger.debug("Completed cleaning stalled PENDING jobs.", extra=job_manager.logging_context())
 
+    # Find pipelines that are stuck in a non-terminal state but have no active jobs remaining.
+    # This happens when coordinate_pipeline() crashed or was never reached after all jobs
+    # finished, leaving the pipeline perpetually RUNNING or CREATED.
+    pipeline_stuck_threshold = now - timedelta(minutes=PIPELINE_STUCK_TIMEOUT_MINUTES)
+    stuck_pipelines = job_manager.db.scalars(
+        select(Pipeline).where(
+            Pipeline.status.notin_([s.value for s in TERMINAL_PIPELINE_STATUSES]),
+            Pipeline.created_at < pipeline_stuck_threshold,
+            ~Pipeline.job_runs.any(JobRun.status.in_([s.value for s in ACTIVE_JOB_STATUSES])),
+        )
+    ).all()
+
+    fixed_pipelines: list[str] = []
+    job_manager.save_to_context({"stuck_pipelines_count": len(stuck_pipelines)})
+    job_manager.update_progress(90, 100, f"Found {len(stuck_pipelines)} stuck pipelines to resolve.")
+    logger.debug("Resolving stuck pipelines.", extra=job_manager.logging_context())
+
+    for pipeline in stuck_pipelines:
+        elapsed_minutes = (now - pipeline.created_at).total_seconds() / 60
+        logger.warning(
+            f"Detected stuck pipeline {pipeline.urn} in status {pipeline.status} "
+            f"(created {pipeline.created_at}, {elapsed_minutes:.1f} minutes ago, no active jobs)",
+            extra=job_manager.logging_context(),
+        )
+        try:
+            pipeline_manager = PipelineManager(job_manager.db, job_manager.redis, pipeline.id)
+            await pipeline_manager.coordinate_pipeline()
+            job_manager.db.commit()
+            fixed_pipelines.append(pipeline.urn)
+            logger.info(
+                f"Resolved stuck pipeline {pipeline.urn}: status now {pipeline.status}",
+                extra=job_manager.logging_context(),
+            )
+        except Exception as e:
+            job_manager.db.rollback()
+            logger.error(
+                f"Failed to resolve stuck pipeline {pipeline.urn}: {e}",
+                extra=job_manager.logging_context(),
+            )
+            send_slack_error(e)
+
+    job_manager.save_to_context({"fixed_pipelines": fixed_pipelines})
+    logger.debug("Completed resolving stuck pipelines.", extra=job_manager.logging_context())
+
     total_cleaned = sum(len(jobs) for jobs in cleaned_jobs.values())
 
     if total_cleaned > 0:
@@ -368,23 +419,30 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
             f"Cleanup complete: {total_cleaned} stalled jobs handled - "
             f"{len(cleaned_jobs['queued'])} queued, "
             f"{len(cleaned_jobs['running'])} running, "
-            f"{len(cleaned_jobs['pending'])} pending",
+            f"{len(cleaned_jobs['pending'])} pending; "
+            f"{len(fixed_pipelines)} stuck pipelines resolved",
             extra=job_manager.logging_context(),
         )
     else:
         logger.debug("Cleanup complete: No stalled jobs found", extra=job_manager.logging_context())
 
-    job_manager.update_progress(100, 100, f"Cleanup complete: {total_cleaned} stalled jobs handled.")
+    job_manager.update_progress(
+        100,
+        100,
+        f"Cleanup complete: {total_cleaned} stalled jobs handled, {len(fixed_pipelines)} stuck pipelines resolved.",
+    )
     return JobExecutionOutcome.succeeded(
         data={
             "total_cleaned": total_cleaned,
             "queued_jobs": cleaned_jobs["queued"],
             "running_jobs": cleaned_jobs["running"],
             "pending_jobs": cleaned_jobs["pending"],
+            "fixed_pipelines": fixed_pipelines,
             "timestamp": now.isoformat(),
             "thresholds": {
                 "running_timeout_minutes": RUNNING_TIMEOUT_MINUTES,
                 "pending_timeout_minutes": PENDING_TIMEOUT_MINUTES,
+                "pipeline_stuck_timeout_minutes": PIPELINE_STUCK_TIMEOUT_MINUTES,
             },
         }
     )
