@@ -600,113 +600,67 @@ def get_score_set_variants_as_csv(
         namespaced_score_set_columns["gnomad"].append("gnomad_af")
     if "clingen" in namespaced_score_set_columns:
         namespaced_score_set_columns["clingen"].append("clingen_allele_id")
-    variants: Sequence[Variant] = []
-    mappings: Optional[list[Optional[MappedVariant]]] = None
-    gnomad_data: Optional[list[Optional[GnomADVariant]]] = None
 
-    if "gnomad" in namespaces and include_post_mapped_hgvs:
-        variants_mappings_and_gnomad_query = (
-            select(Variant, MappedVariant, GnomADVariant)
-            .join(
-                MappedVariant,
-                and_(Variant.id == MappedVariant.variant_id, MappedVariant.current.is_(True)),
-                isouter=True,
-            )
-            .join(MappedVariant.gnomad_variants.of_type(GnomADVariant), isouter=True)
-            .where(
-                and_(
-                    Variant.score_set_id == score_set.id,
-                    or_(
-                        and_(
-                            GnomADVariant.db_name == "gnomAD",
-                            GnomADVariant.db_version == "v4.1",
-                        ),
-                        GnomADVariant.id.is_(None),
-                    ),
-                )
-            )
-            .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
-        )
-        if start:
-            variants_mappings_and_gnomad_query = variants_mappings_and_gnomad_query.offset(start)
-        if limit:
-            variants_mappings_and_gnomad_query = variants_mappings_and_gnomad_query.limit(limit)
-        variants_mappings_and_gnomad = db.execute(variants_mappings_and_gnomad_query).all()
+    needs_mapping = (
+            include_post_mapped_hgvs
+            or "clingen" in namespaces
+            or "vep" in namespaces
+            or "gnomad" in namespaces
+    )
+    needs_gnomad = "gnomad" in namespaces
+    variants: list[Variant] = []
+    mappings: Optional[list[Optional[MappedVariant]]] = [] if needs_mapping else None
+    gnomad_data: Optional[list[Optional[GnomADVariant]]] = [] if needs_gnomad else None
 
-        variants = []
-        mappings = []
-        gnomad_data = []
-        for variant, mapping, gnomad in variants_mappings_and_gnomad:
-            variants.append(variant)
-            mappings.append(mapping)
-            gnomad_data.append(gnomad)
-    elif include_post_mapped_hgvs:
-        variants_and_mappings_query = (
-            select(Variant, MappedVariant)
-            .join(
-                MappedVariant,
-                and_(Variant.id == MappedVariant.variant_id, MappedVariant.current.is_(True)),
-                isouter=True,
-            )
-            .where(Variant.score_set_id == score_set.id)
-            .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
-        )
-        if start:
-            variants_and_mappings_query = variants_and_mappings_query.offset(start)
-        if limit:
-            variants_and_mappings_query = variants_and_mappings_query.limit(limit)
-        variants_and_mappings = db.execute(variants_and_mappings_query).all()
+    select_columns: list[Any] = [Variant]
+    if needs_mapping:
+        select_columns.append(MappedVariant)
+    if needs_gnomad:
+        select_columns.append(GnomADVariant)
 
-        variants = []
-        mappings = []
-        for variant, mapping in variants_and_mappings:
-            variants.append(variant)
-            mappings.append(mapping)
-    elif "gnomad" in namespaces:
-        variants_and_gnomad_query = (
-            select(Variant, GnomADVariant)
-            .join(
-                MappedVariant,
-                and_(Variant.id == MappedVariant.variant_id, MappedVariant.current.is_(True)),
-                isouter=True,
-            )
-            .join(MappedVariant.gnomad_variants.of_type(GnomADVariant), isouter=True)
-            .where(
-                and_(
-                    Variant.score_set_id == score_set.id,
-                    or_(
-                        and_(
-                            GnomADVariant.db_name == "gnomAD",
-                            GnomADVariant.db_version == "v4.1",
-                        ),
-                        GnomADVariant.id.is_(None),
-                    ),
-                )
-            )
-            .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
-        )
-        if start:
-            variants_and_gnomad_query = variants_and_gnomad_query.offset(start)
-        if limit:
-            variants_and_gnomad_query = variants_and_gnomad_query.limit(limit)
-        variants_and_gnomad = db.execute(variants_and_gnomad_query).all()
+    # Start from Variant
+    query = (
+        select(*select_columns)
+        .where(Variant.score_set_id == score_set.id)
+        .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
+    )
 
-        variants = []
-        gnomad_data = []
-        for variant, gnomad in variants_and_gnomad:
-            variants.append(variant)
-            gnomad_data.append(gnomad)
-    else:
-        variants_query = (
-            select(Variant)
-            .where(Variant.score_set_id == score_set.id)
-            .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
+    if needs_mapping:
+        query = query.join(
+            MappedVariant,
+            and_(Variant.id == MappedVariant.variant_id, MappedVariant.current.is_(True)),
+            isouter=True,
         )
-        if start:
-            variants_query = variants_query.offset(start)
-        if limit:
-            variants_query = variants_query.limit(limit)
-        variants = db.scalars(variants_query).all()
+
+    if needs_gnomad:
+        query = query.join(
+            MappedVariant.gnomad_variants.of_type(GnomADVariant),
+            isouter=True,
+        ).where(
+            or_(
+                and_(GnomADVariant.db_name == "gnomAD", GnomADVariant.db_version == "v4.1"),
+                GnomADVariant.id.is_(None),
+            )
+        )
+
+    if start:
+        query = query.offset(start)
+    if limit:
+        query = query.limit(limit)
+
+    result = db.execute(query).all()
+
+    for row in result:
+        variant = row[0]
+        variants.append(variant)
+
+        if needs_mapping and mappings is not None:
+            mappings.append(row[1])
+
+        if needs_gnomad and gnomad_data is not None:
+            idx = 2 if needs_mapping else 1
+            gnomad_data.append(row[idx])
+
     rows_data = variants_to_csv_rows(
         variants,
         columns=namespaced_score_set_columns,
