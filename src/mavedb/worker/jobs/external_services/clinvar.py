@@ -123,7 +123,7 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
             )
             continue
 
-        annotation_manager = AnnotationStatusManager(job_manager.db)
+        annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
         for mapped_variant in variants_to_refresh:
             clingen_id = mapped_variant.clingen_allele_id
 
@@ -135,7 +135,6 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     status=AnnotationStatus.SKIPPED,
                     failure_category=AnnotationFailureCategory.MISSING_IDENTIFIER,
                     annotation_data={
-                        "job_run_id": job_manager.job_id,
                         "error_message": "Mapped variant does not have an associated ClinGen allele ID.",
                     },
                     current=True,
@@ -151,7 +150,6 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     status=AnnotationStatus.SKIPPED,
                     failure_category=AnnotationFailureCategory.UNSUPPORTED_IDENTIFIER,
                     annotation_data={
-                        "job_run_id": job_manager.job_id,
                         "error_message": "Multi-variant ClinGen allele IDs cannot be associated with ClinVar data.",
                     },
                     current=True,
@@ -169,7 +167,6 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     status=AnnotationStatus.FAILED,
                     failure_category=AnnotationFailureCategory.EXTERNAL_API_ERROR,
                     annotation_data={
-                        "job_run_id": job_manager.job_id,
                         "error_message": f"Failed to retrieve ClinVar allele ID from ClinGen API: {str(exc)}",
                     },
                     current=True,
@@ -190,7 +187,6 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     status=AnnotationStatus.SKIPPED,
                     failure_category=AnnotationFailureCategory.NO_LINKED_ALLELE,
                     annotation_data={
-                        "job_run_id": job_manager.job_id,
                         "error_message": "No ClinVar allele ID found for ClinGen allele ID.",
                     },
                     current=True,
@@ -206,7 +202,6 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     status=AnnotationStatus.SKIPPED,
                     failure_category=AnnotationFailureCategory.EXTERNAL_REFERENCE_NOT_FOUND,
                     annotation_data={
-                        "job_run_id": job_manager.job_id,
                         "error_message": "No ClinVar data found for ClinVar allele ID.",
                     },
                     current=True,
@@ -251,7 +246,6 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                 version=clinvar_version,
                 status=AnnotationStatus.SUCCESS,
                 annotation_data={
-                    "job_run_id": job_manager.job_id,
                     "annotation_metadata": {
                         "clinvar_allele_id": clinvar_allele_id,
                     },

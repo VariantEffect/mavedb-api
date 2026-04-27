@@ -133,7 +133,7 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
             MappedVariant.clingen_allele_id.is_not(None),
         )
     ).all()
-    annotation_manager = AnnotationStatusManager(job_manager.db)
+    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
     for mapped_variant in mapped_variants_with_caids:
         if not mapped_variant.gnomad_variants:
             annotation_manager.add_annotation(

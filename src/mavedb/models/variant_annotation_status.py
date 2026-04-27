@@ -101,7 +101,7 @@ class VariantAnnotationStatus(Base):
             name="ck_variant_annotation_status_valid",
         ),
         CheckConstraint(
-            "failure_category IS NULL OR failure_category IN ('missing_identifier', 'unsupported_identifier', 'external_api_error', 'external_reference_not_found', 'no_linked_allele', 'unknown')",
+            "failure_category IS NULL OR failure_category IN ('missing_identifier', 'unsupported_identifier', 'external_api_error', 'external_service_rejected', 'external_reference_not_found', 'no_linked_allele', 'unknown')",
             name="ck_variant_annotation_failure_category_valid",
         ),
         ## Although un-enforced at the DB level, we should ensure only one 'current' record per (variant_id, annotation_type, version)

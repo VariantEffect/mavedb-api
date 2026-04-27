@@ -192,7 +192,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             f"Processing {total_variants} mapped variants for score set {score_set.urn}.",
             extra=job_manager.logging_context(),
         )
-        annotation_manager = AnnotationStatusManager(job_manager.db)
+        annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job.id)
         for mapped_score in mapped_scores:
             variant_urn = mapped_score.get("mavedb_id")
             variant = job_manager.db.scalars(select(Variant).where(Variant.urn == variant_urn)).one()
@@ -236,10 +236,11 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 annotation_type=AnnotationType.VRS_MAPPING,
                 version=mapping_results.get("dcd_mapping_version"),
                 status=AnnotationStatus.SUCCESS if annotation_was_successful else AnnotationStatus.FAILED,
-                failure_category=None if annotation_was_successful else AnnotationFailureCategory.EXTERNAL_API_ERROR,
+                failure_category=None
+                if annotation_was_successful
+                else AnnotationFailureCategory.EXTERNAL_SERVICE_REJECTED,
                 annotation_data={
                     "error_message": mapped_score.get("error_message", null()),
-                    "job_run_id": job.id,
                     "annotation_metadata": {
                         "mapped_assay_level_hgvs": get_hgvs_from_post_mapped(mapped_score.get("post_mapped", {})),
                     },

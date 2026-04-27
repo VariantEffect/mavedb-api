@@ -11,9 +11,9 @@ from mavedb.models.variant import Variant
 
 
 @pytest.fixture
-def annotation_status_manager(session):
+def annotation_status_manager(session, job_run):
     """Fixture to provide an AnnotationStatusManager instance."""
-    return AnnotationStatusManager(session)
+    return AnnotationStatusManager(session, job_run_id=job_run.id)
 
 
 @pytest.fixture
@@ -109,6 +109,30 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
         assert annotation.status == status
         assert annotation.version == "v1.0"
 
+    def test_add_annotation_stores_job_run_id(
+        self, session, annotation_status_manager, job_run, setup_lib_db_with_variant
+    ):
+        """Test that every annotation is created with the job_run_id from the manager."""
+        annotation_status_manager.add_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            status=AnnotationStatus.SUCCESS,
+            version="v1.0",
+            annotation_data={},
+            current=True,
+        )
+        annotation_status_manager.flush()
+        session.commit()
+
+        annotation = annotation_status_manager.get_current_annotation(
+            variant_id=setup_lib_db_with_variant.id,
+            annotation_type=AnnotationType.VRS_MAPPING,
+            version="v1.0",
+        )
+
+        assert annotation is not None
+        assert annotation.job_run_id == job_run.id
+
     def test_add_annotation_persists_annotation_data(
         self, session, annotation_status_manager, setup_lib_db_with_variant
     ):
@@ -141,10 +165,10 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
             assert getattr(annotation, key) == value
 
     def test_add_annotation_creates_entry_and_marks_previous_not_current(
-        self, session, existing_annotation_status, setup_lib_db_with_variant
+        self, session, job_run, existing_annotation_status, setup_lib_db_with_variant
     ):
         """Test that adding an annotation creates a new entry and marks previous ones as not current."""
-        manager = AnnotationStatusManager(session)
+        manager = AnnotationStatusManager(session, job_run_id=job_run.id)
 
         # Add second annotation for same (variant, type, version)
         manager.add_annotation(
@@ -173,10 +197,10 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
         assert existing_annotation_status.current is False
 
     def test_add_annotation_with_different_version_keeps_previous_current(
-        self, session, existing_annotation_status, setup_lib_db_with_variant
+        self, session, job_run, existing_annotation_status, setup_lib_db_with_variant
     ):
         """Test that adding an annotation with a different version keeps previous current."""
-        manager = AnnotationStatusManager(session)
+        manager = AnnotationStatusManager(session, job_run_id=job_run.id)
 
         # Add second annotation for same (variant, type) but different version
         manager.add_annotation(
@@ -206,10 +230,10 @@ class TestAnnotationStatusManagerCreateAnnotationUnit:
         assert existing_annotation_status.current is True
 
     def test_add_annotation_with_different_type_keeps_previous_current(
-        self, session, existing_annotation_status, setup_lib_db_with_variant
+        self, session, job_run, existing_annotation_status, setup_lib_db_with_variant
     ):
         """Test that adding an annotation with a different type keeps previous current."""
-        manager = AnnotationStatusManager(session)
+        manager = AnnotationStatusManager(session, job_run_id=job_run.id)
 
         # Add second annotation for same variant but different type
         manager.add_annotation(

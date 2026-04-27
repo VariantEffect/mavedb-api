@@ -117,7 +117,7 @@ async def populate_hgvs_for_score_set(ctx: dict, job_id: int, job_manager: JobMa
 
     job_manager.update_progress(5, 100, f"Processing {total_variants} mapped variants for HGVS population.")
 
-    annotation_manager = AnnotationStatusManager(job_manager.db)
+    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
     populated_count = 0
     skipped_count = 0
     failed_count = 0
@@ -157,7 +157,6 @@ async def populate_hgvs_for_score_set(ctx: dict, job_id: int, job_manager: JobMa
                 status=AnnotationStatus.SKIPPED,
                 failure_category=AnnotationFailureCategory.MISSING_IDENTIFIER,
                 annotation_data={
-                    "job_run_id": job_manager.job_id,
                     "error_message": "No ClinGen allele ID available for ClinGen HGVS lookup.",
                 },
                 current=True,
@@ -179,7 +178,6 @@ async def populate_hgvs_for_score_set(ctx: dict, job_id: int, job_manager: JobMa
                 status=AnnotationStatus.SKIPPED,
                 failure_category=AnnotationFailureCategory.UNSUPPORTED_IDENTIFIER,
                 annotation_data={
-                    "job_run_id": job_manager.job_id,
                     "error_message": "Multi-variant ClinGen allele IDs not supported for HGVS lookup.",
                 },
                 current=True,
@@ -203,7 +201,6 @@ async def populate_hgvs_for_score_set(ctx: dict, job_id: int, job_manager: JobMa
                 status=AnnotationStatus.FAILED,
                 failure_category=AnnotationFailureCategory.EXTERNAL_API_ERROR,
                 annotation_data={
-                    "job_run_id": job_manager.job_id,
                     "error_message": f"Failed to fetch ClinGen allele data: {str(exc)}",
                 },
                 current=True,
@@ -225,7 +222,6 @@ async def populate_hgvs_for_score_set(ctx: dict, job_id: int, job_manager: JobMa
                 status=AnnotationStatus.SKIPPED,
                 failure_category=AnnotationFailureCategory.EXTERNAL_REFERENCE_NOT_FOUND,
                 annotation_data={
-                    "job_run_id": job_manager.job_id,
                     "error_message": f"ClinGen allele {clingen_id} not found in the registry.",
                 },
                 current=True,
@@ -259,7 +255,6 @@ async def populate_hgvs_for_score_set(ctx: dict, job_id: int, job_manager: JobMa
             version=None,
             status=AnnotationStatus.SUCCESS,
             annotation_data={
-                "job_run_id": job_manager.job_id,
                 "annotation_metadata": {
                     "hgvs_g": hgvs_g,
                     "hgvs_c": hgvs_c,

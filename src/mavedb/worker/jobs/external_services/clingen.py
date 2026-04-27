@@ -28,6 +28,7 @@ from mavedb.lib.clingen.services import (
     ClinGenLdhService,
     get_allele_registry_associations,
 )
+from mavedb.lib.types.clingen import is_car_submission_error
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.enums.annotation_type import AnnotationType
@@ -157,12 +158,28 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
     registered_alleles = car_service.dispatch_submissions(list(variant_post_mapped_hgvs.keys()))
     job_manager.update_progress(60, 100, "Processing registered alleles from CAR.")
 
+    # Build a map of HGVS string -> CAR error details for every rejected submission.
+    # The CAR response intermixes successes (have "@id") and errors (have "errorType").
+    car_errors_by_hgvs: dict[str, dict] = {
+        err["hgvs"]: {
+            "error_type": err.get("errorType"),
+            "message": err.get("message"),
+        }
+        for err in registered_alleles
+        if is_car_submission_error(err)
+    }
+
+    # Build an inverse map so we can look up the HGVS string for any mapped_variant_id.
+    mapped_variant_id_to_hgvs: dict[int, str] = {
+        vid: hgvs for hgvs, vids in variant_post_mapped_hgvs.items() for vid in vids
+    }
+
     # Process registered alleles and update mapped variants
     linked_alleles = get_allele_registry_associations(list(variant_post_mapped_hgvs.keys()), registered_alleles)
     total = len(linked_alleles)
     processed = 0
     # Setup annotation manager
-    annotation_manager = AnnotationStatusManager(job_manager.db)
+    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
     registered_mapped_variant_ids = []
     for hgvs_string, caid in linked_alleles.items():
         mapped_variant_ids = variant_post_mapped_hgvs[hgvs_string]
@@ -204,14 +221,32 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
             select(MappedVariant).where(MappedVariant.id == mapped_variant_id)
         ).one()
 
+        failed_variant_hgvs = mapped_variant_id_to_hgvs.get(mapped_variant_id)
+        car_error = car_errors_by_hgvs.get(failed_variant_hgvs) if failed_variant_hgvs else None
+
+        annotation_metadata: dict = {"submitted_hgvs": failed_variant_hgvs}
+        if car_error:
+            annotation_metadata["car_error_type"] = car_error["error_type"]
+            annotation_metadata["car_error_message"] = car_error["message"]
+
+        # Use EXTERNAL_SERVICE_REJECTED when CAR explicitly rejected the submission with an error
+        # response (e.g. InvalidHGVS), vs EXTERNAL_API_ERROR for silent failures where CAR returned
+        # no response at all (network drop, service-side omission, etc.).
+        failure_category = (
+            AnnotationFailureCategory.EXTERNAL_SERVICE_REJECTED
+            if car_error
+            else AnnotationFailureCategory.EXTERNAL_API_ERROR
+        )
+
         annotation_manager.add_annotation(
             variant_id=mapped_variant.variant_id,  # type: ignore
             annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
             version=None,
             status=AnnotationStatus.FAILED,
-            failure_category=AnnotationFailureCategory.EXTERNAL_API_ERROR,
+            failure_category=failure_category,
             annotation_data={
                 "error_message": "Failed to register variant with ClinGen Allele Registry.",
+                "annotation_metadata": annotation_metadata,
             },
             current=True,
         )
@@ -371,7 +406,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
     )
 
     # TODO prior to finalizing: Verify typing of ClinGen submission responses. See https://reg.clinicalgenome.org/doc/AlleleRegistry_1.01.xx_api_v1.pdf
-    annotation_manager = AnnotationStatusManager(job_manager.db)
+    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
     submitted_variant_urns = set()
     for success in submission_successes:
         logger.debug(

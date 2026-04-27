@@ -31,8 +31,9 @@ class AnnotationStatusManager:
     :meth:`flush` after the last ``add_annotation`` to persist any remainder.
     """
 
-    def __init__(self, session: Session, *, batch_size: int = DEFAULT_BATCH_SIZE):
+    def __init__(self, session: Session, job_run_id: Optional[int] = None, *, batch_size: int = DEFAULT_BATCH_SIZE):
         self.session = session
+        self.job_run_id = job_run_id
         self.batch_size = batch_size
         self._pending: list[VariantAnnotationStatus] = []
         self._retirement_filters: list[dict] = []
@@ -82,6 +83,7 @@ class AnnotationStatusManager:
                 version=version,
                 failure_category=failure_category,
                 current=current,
+                job_run_id=self.job_run_id,
                 **annotation_data,
             )  # type: ignore[call-arg]
         )

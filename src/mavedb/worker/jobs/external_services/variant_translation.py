@@ -119,7 +119,7 @@ async def populate_variant_translations_for_score_set(
     total_created = 0
     total_skipped = 0
     total_failed = 0
-    annotation_manager = AnnotationStatusManager(job_manager.db)
+    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
 
     for index, allele_id in enumerate(unique_allele_ids):
         if total_alleles > 0 and index % max(total_alleles // 20, 1) == 0:
@@ -164,7 +164,6 @@ async def populate_variant_translations_for_score_set(
                         status=AnnotationStatus.FAILED,
                         failure_category=AnnotationFailureCategory.EXTERNAL_API_ERROR,
                         annotation_data={
-                            "job_run_id": job_manager.job_id,
                             "error_message": f"ClinGen API error looking up PA IDs for {allele_id}: {exc}",
                         },
                         current=True,
@@ -187,7 +186,6 @@ async def populate_variant_translations_for_score_set(
                         status=AnnotationStatus.SKIPPED,
                         failure_category=AnnotationFailureCategory.NO_LINKED_ALLELE,
                         annotation_data={
-                            "job_run_id": job_manager.job_id,
                             "error_message": f"No canonical PA IDs for {allele_id}.",
                         },
                         current=True,
@@ -227,7 +225,6 @@ async def populate_variant_translations_for_score_set(
                     version=None,
                     status=AnnotationStatus.FAILED if failed > 0 else AnnotationStatus.SUCCESS,
                     annotation_data={
-                        "job_run_id": job_manager.job_id,
                         "annotation_metadata": {
                             "allele_id": allele_id,
                             "translation_pairs": [[pa, ca] for pa, ca in translation_pairs],
@@ -263,7 +260,6 @@ async def populate_variant_translations_for_score_set(
                         status=AnnotationStatus.FAILED,
                         failure_category=AnnotationFailureCategory.EXTERNAL_API_ERROR,
                         annotation_data={
-                            "job_run_id": job_manager.job_id,
                             "error_message": f"ClinGen API error for {allele_id}: {exc}",
                         },
                         current=True,
@@ -285,7 +281,6 @@ async def populate_variant_translations_for_score_set(
                         status=AnnotationStatus.SKIPPED,
                         failure_category=AnnotationFailureCategory.NO_LINKED_ALLELE,
                         annotation_data={
-                            "job_run_id": job_manager.job_id,
                             "error_message": f"No registered transcript CA IDs for {allele_id}.",
                         },
                         current=True,
@@ -302,7 +297,6 @@ async def populate_variant_translations_for_score_set(
                     version=None,
                     status=AnnotationStatus.SUCCESS,
                     annotation_data={
-                        "job_run_id": job_manager.job_id,
                         "annotation_metadata": {
                             "allele_id": allele_id,
                             "translation_pairs": [[pa, ca] for pa, ca in translation_pairs],
@@ -329,7 +323,6 @@ async def populate_variant_translations_for_score_set(
                     status=AnnotationStatus.SKIPPED,
                     failure_category=AnnotationFailureCategory.UNSUPPORTED_IDENTIFIER,
                     annotation_data={
-                        "job_run_id": job_manager.job_id,
                         "error_message": f"Unrecognized allele ID format: {allele_id}",
                     },
                     current=True,

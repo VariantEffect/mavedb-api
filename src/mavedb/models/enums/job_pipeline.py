@@ -78,7 +78,8 @@ class AnnotationFailureCategory(str, Enum):
 
     MISSING_IDENTIFIER = "missing_identifier"  # Required identifier (e.g. ClinGen allele ID) not present on variant
     UNSUPPORTED_IDENTIFIER = "unsupported_identifier"  # Identifier exists but is in an unsupported format (multi-variant, unrecognized prefix)
-    EXTERNAL_API_ERROR = "external_api_error"  # External service call failed (network, auth, rate limit)
+    EXTERNAL_API_ERROR = "external_api_error"  # External service call failed (network error, timeout, auth, rate limit)
+    EXTERNAL_SERVICE_REJECTED = "external_service_rejected"  # External service was reachable but explicitly rejected our submission (e.g. CAR returned InvalidHGVS)
     EXTERNAL_REFERENCE_NOT_FOUND = (
         "external_reference_not_found"  # Lookup succeeded but external resource doesn't exist
     )

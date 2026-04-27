@@ -1011,6 +1011,90 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
         assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.FAILED
 
+    async def test_submit_score_set_mappings_to_car_car_error_details_stored_in_annotation_metadata(
+        self,
+        standalone_worker_context,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        """Test that explicit CAR error details (errorType, hgvs, message) are stored in annotation_metadata."""
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            standalone_worker_context,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Return a CAR response where: first variant succeeds, second has explicit CAR error, rest are silent failures
+        mapped_variants = session.scalars(select(MappedVariant)).all()
+        first_hgvs = get_hgvs_from_post_mapped(mapped_variants[0].post_mapped)
+        second_hgvs = get_hgvs_from_post_mapped(mapped_variants[1].post_mapped)
+        registered_alleles_mock = [
+            {
+                "@id": f"CA{mapped_variants[0].id}",
+                "type": "nucleotide",
+                "genomicAlleles": [{"hgvs": first_hgvs}],
+            },
+            {
+                "errorType": "InvalidHGVS",
+                "hgvs": second_hgvs,
+                "message": "The HGVS string is invalid.",
+                "description": "error",
+                "inputLine": second_hgvs,
+                "position": "0",
+            },
+        ]
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error"),
+        ):
+            await submit_score_set_mappings_to_car(
+                standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
+            )
+
+        # Verify the variant whose HGVS returned an explicit CAR error has error details in annotation_metadata.
+        # Only 1 annotation should have EXTERNAL_SERVICE_REJECTED since only one CAR error was in the response.
+        car_rejected_annotations = session.scalars(
+            select(VariantAnnotationStatus).where(
+                VariantAnnotationStatus.annotation_type == "clingen_allele_id",
+                VariantAnnotationStatus.failure_category == "external_service_rejected",
+            )
+        ).all()
+        assert len(car_rejected_annotations) == 1
+        rejected = car_rejected_annotations[0]
+        assert rejected.annotation_metadata["submitted_hgvs"] == second_hgvs
+        assert rejected.annotation_metadata["car_error_type"] == "InvalidHGVS"
+        assert rejected.annotation_metadata["car_error_message"] == "The HGVS string is invalid."
+
+        # The remaining 2 failures (variants 3 and 4) got no CAR response — silent failures get EXTERNAL_API_ERROR.
+        silent_failure_annotations = session.scalars(
+            select(VariantAnnotationStatus).where(
+                VariantAnnotationStatus.annotation_type == "clingen_allele_id",
+                VariantAnnotationStatus.failure_category == "external_api_error",
+            )
+        ).all()
+        assert len(silent_failure_annotations) == 2
+        for ann in silent_failure_annotations:
+            assert ann.annotation_metadata["submitted_hgvs"] is not None
+            assert "car_error_type" not in ann.annotation_metadata
+
     async def test_submit_score_set_mappings_to_car_propagates_exception_to_decorator(
         self,
         standalone_worker_context,
