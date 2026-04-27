@@ -253,8 +253,12 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
 
     annotation_manager.flush()
 
-    if failed_submissions:
-        error_message = f"CAR submission failed for {len(failed_submissions)} variants in score set {score_set.urn}."
+    if failed_submissions and not linked_alleles:
+        # All variants failed CAR registration — treat as a systemic failure so the pipeline halts
+        # rather than proceeding with zero successfully registered variants.
+        error_message = (
+            f"CAR submission failed for all {len(failed_submissions)} variants in score set {score_set.urn}."
+        )
         logger.error(
             msg=error_message,
             extra=job_manager.logging_context(),
@@ -262,27 +266,34 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
         job_manager.update_progress(
             100,
             100,
-            f"CAR submission failed ({len(linked_alleles)} successes, {len(failed_submissions)} failures).",
+            f"CAR submission failed (0 successes, {len(failed_submissions)} failures).",
         )
         job_manager.db.flush()
-
-        # Return a failure state rather than raising to indicate to the manager
-        # we should still commit any successful annotations.
         return JobExecutionOutcome.failed(
             reason=error_message,
             data={
                 "submitted_count": len(variant_post_mapped_hgvs),
-                "matched_count": len(linked_alleles),
+                "matched_count": 0,
                 "failed_count": len(failed_submissions),
             },
             failure_category=FailureCategory.DEPENDENCY_FAILURE,
+        )
+
+    if failed_submissions:
+        # CAR rejections are typically per-variant data quality issues (e.g. invalid HGVS) rather than
+        # systemic failures. Per-variant AnnotationStatus.FAILED records are already written above for
+        # traceability. We continue the pipeline so that successfully registered variants still receive
+        # downstream annotations (warm_clingen_cache, gnomAD, ClinVar, HGVS, translations).
+        logger.warning(
+            msg=f"CAR submission failed for {len(failed_submissions)} of {len(variant_post_mapped_hgvs)} variants in score set {score_set.urn}.",
+            extra=job_manager.logging_context(),
         )
 
     # Finalize progress
     job_manager.update_progress(
         100,
         100,
-        f"Completed CAR mapped resource submission ({len(linked_alleles)} successes).",
+        f"Completed CAR mapped resource submission ({len(linked_alleles)} successes, {len(failed_submissions)} failures).",
     )
     job_manager.db.flush()
     logger.info(msg="Completed CAR mapped resource submission", extra=job_manager.logging_context())
@@ -290,7 +301,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
         data={
             "submitted_count": len(variant_post_mapped_hgvs),
             "matched_count": len(linked_alleles),
-            "failed_count": 0,
+            "failed_count": len(failed_submissions),
         }
     )
 

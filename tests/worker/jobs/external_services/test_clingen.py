@@ -304,7 +304,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         dummy_variant_creation_job_run,
         dummy_variant_mapping_job_run,
     ):
-        """Test that partial CAR failures (some matched, some not) result in a failed outcome."""
+        """Test that partial CAR failures (some matched, some not) result in a succeeded outcome with failure annotations."""
         # Create mappings in the score set
         await create_mappings_in_score_set(
             session,
@@ -344,7 +344,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             )
 
         assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.FAILED
+        assert result.status == JobStatus.SUCCEEDED
         assert result.data["matched_count"] == 1
         assert result.data["failed_count"] == 3
 
@@ -942,7 +942,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         dummy_variant_creation_job_run,
         dummy_variant_mapping_job_run,
     ):
-        """Test that partial CAR failures result in FAILED status with successful annotations committed."""
+        """Test that partial CAR failures result in SUCCEEDED status with per-variant failure annotations committed."""
         # Create mappings in the score set
         await create_mappings_in_score_set(
             session,
@@ -978,9 +978,9 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_error.assert_not_called()
         assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.FAILED
+        assert result.status == JobStatus.SUCCEEDED
         assert result.data["matched_count"] == 1
         assert result.data["failed_count"] == 3
 
@@ -1009,7 +1009,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
-        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.FAILED
+        assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.SUCCEEDED
 
     async def test_submit_score_set_mappings_to_car_car_error_details_stored_in_annotation_metadata(
         self,
