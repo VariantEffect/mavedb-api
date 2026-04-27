@@ -22,6 +22,7 @@ from sqlalchemy import select
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.clingen.allele_registry import get_associated_clinvar_allele_id
 from mavedb.lib.clinvar.utils import fetch_clinvar_variant_data
+from mavedb.lib.slack import log_and_send_slack_message
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.enums.annotation_type import AnnotationType
@@ -99,6 +100,7 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
     job_manager.save_to_context({"total_variants_to_refresh": total_variants_to_refresh})
 
     total_refreshed = 0
+    total_failed = 0
     versions_completed = 0
 
     for version_index, (year, month) in enumerate(versions):
@@ -177,6 +179,7 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     extra=job_manager.logging_context(),
                     exc_info=exc,
                 )
+                total_failed += 1
                 continue
 
             if not clinvar_allele_id:
@@ -269,6 +272,13 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
         f"{total_refreshed} variant-version annotations.",
         extra=job_manager.logging_context(),
     )
+
+    if total_failed > 0 and total_refreshed == 0:
+        log_and_send_slack_message(
+            f"All {total_failed} ClinVar lookups failed for score set {score_set.urn}. Possible ClinGen API outage.",
+            job_manager.logging_context(),
+            logging.ERROR,
+        )
 
     return JobExecutionOutcome.succeeded(
         data={

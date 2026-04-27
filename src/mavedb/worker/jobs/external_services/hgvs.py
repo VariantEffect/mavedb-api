@@ -19,6 +19,7 @@ from mavedb.lib.clingen.allele_registry import (
     extract_hgvs_from_pa_allele_data,
     get_clingen_allele_data,
 )
+from mavedb.lib.slack import log_and_send_slack_message
 from mavedb.lib.target_genes import get_target_coding_info
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.annotation_type import AnnotationType
@@ -280,6 +281,13 @@ async def populate_hgvs_for_score_set(ctx: dict, job_id: int, job_manager: JobMa
         msg=f"Completed mapped HGVS population: {populated_count} populated, {skipped_count} skipped, {failed_count} failed.",
         extra=job_manager.logging_context(),
     )
+
+    if failed_count > 0 and populated_count == 0:
+        log_and_send_slack_message(
+            f"All {failed_count} variants failed HGVS population for score set {score_set.urn}. Possible ClinGen API outage.",
+            job_manager.logging_context(),
+            logging.ERROR,
+        )
 
     return JobExecutionOutcome.succeeded(
         data={

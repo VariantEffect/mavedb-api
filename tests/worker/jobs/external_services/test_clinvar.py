@@ -545,6 +545,35 @@ class TestRefreshClinvarControlsUnit:
         assert annotated_variant2.annotation_type == AnnotationType.CLINVAR_CONTROL
         assert annotated_variant2.error_message is None
 
+    async def test_total_api_failure_sends_slack_alert(
+        self,
+        mock_worker_ctx,
+        session,
+        with_refresh_clinvar_controls_job,
+        sample_refresh_clinvar_controls_job_run,
+        setup_sample_variants_with_caid,
+    ):
+        """Test that a Slack alert is sent when all ClinVar lookups fail."""
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
+                side_effect=requests.exceptions.RequestException("ClinGen API error"),
+            ),
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
+            ),
+            patch("mavedb.worker.jobs.external_services.clinvar.log_and_send_slack_message") as mock_slack,
+        ):
+            result = await refresh_clinvar_controls(
+                mock_worker_ctx,
+                sample_refresh_clinvar_controls_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+        mock_slack.assert_called_once()
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio

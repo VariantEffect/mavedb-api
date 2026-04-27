@@ -172,6 +172,36 @@ class TestPopulateHgvsForScoreSetUnit:
         assert result.status == JobStatus.SUCCEEDED
         assert result.data["failed_count"] == 1
 
+    async def test_total_api_failure_sends_slack_alert(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_hgvs_job,
+        mock_worker_ctx,
+        sample_populate_hgvs_run,
+        setup_sample_variants_with_caid_for_hgvs,
+    ):
+        """Test that a Slack alert is sent when all variants fail HGVS population."""
+        import requests
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.hgvs.get_clingen_allele_data",
+                side_effect=requests.exceptions.ConnectionError("Connection refused"),
+            ),
+            patch("mavedb.worker.jobs.external_services.hgvs.log_and_send_slack_message") as mock_slack,
+        ):
+            result = await populate_hgvs_for_score_set(
+                mock_worker_ctx,
+                1,
+                JobManager(session, mock_worker_ctx["redis"], sample_populate_hgvs_run.id),
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["failed_count"] == 1
+        assert result.data["populated_count"] == 0
+        mock_slack.assert_called_once()
+
     async def test_clingen_allele_not_found_skipped(
         self,
         session,

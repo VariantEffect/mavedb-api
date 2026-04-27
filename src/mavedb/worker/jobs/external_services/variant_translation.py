@@ -17,6 +17,7 @@ from mavedb.lib.clingen.allele_registry import (
     get_canonical_pa_ids,
     get_matching_registered_ca_ids,
 )
+from mavedb.lib.slack import log_and_send_slack_message
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variant_translations import upsert_variant_translations
 from mavedb.models.enums.annotation_type import AnnotationType
@@ -347,6 +348,13 @@ async def populate_variant_translations_for_score_set(
         total_failed,
         extra=job_manager.logging_context(),
     )
+
+    if total_failed > 0 and total_created == 0:
+        log_and_send_slack_message(
+            f"All {total_failed} variant translation lookups failed for score set {score_set.urn}. Possible ClinGen API outage.",
+            job_manager.logging_context(),
+            logging.ERROR,
+        )
 
     return JobExecutionOutcome.succeeded(
         data={
