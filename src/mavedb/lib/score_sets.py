@@ -713,7 +713,10 @@ def get_score_set_variants_as_csv(
         for mapping in mappings:
             row_clinvar: dict[str, Optional[ClinicalControl]] = {}
             for ns, mv_to_cc in clinvar_data_map.items():
-                row_clinvar[ns] = mv_to_cc.get(mapping.id) if mapping is not None else None
+                if mapping is not None and mapping.id is not None:
+                    row_clinvar[ns] = mv_to_cc.get(mapping.id)
+                else:
+                    row_clinvar[ns] = None
             clinvar_per_variant.append(row_clinvar)
 
     rows_data = variants_to_csv_rows(
