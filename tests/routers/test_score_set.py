@@ -22,6 +22,7 @@ from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
+from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.orcid import OrcidUser
@@ -37,10 +38,11 @@ from tests.helpers.constants import (
     TEST_BIORXIV_IDENTIFIER,
     TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED,
     TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+    TEST_CLINVAR_CONTROL,
     TEST_CROSSREF_IDENTIFIER,
-    TEST_EXPERIMENT_WITH_KEYWORD,
     TEST_GNOMAD_DATA_VERSION,
     TEST_INACTIVE_LICENSE,
+    TEST_KEYWORDS,
     TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION,
     TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION,
     TEST_MINIMAL_ACC_SCORESET,
@@ -76,6 +78,7 @@ from tests.helpers.util.score_set import (
     create_seq_score_set_with_mapped_variants,
     create_seq_score_set_with_variants,
     link_clinical_controls_to_mapped_variants,
+    link_clinvar_control_to_mapped_variant,
     link_gnomad_variants_to_mapped_variants,
     publish_score_set,
 )
@@ -875,7 +878,9 @@ def test_show_score_sets_anonymous_can_fetch_public_score_sets(
     assert response_data[0]["urn"] == published_score_set["urn"]
 
 
-def test_show_score_sets_anonymous_cannot_fetch_private_score_sets(session, client, setup_router_db, anonymous_app_overrides):
+def test_show_score_sets_anonymous_cannot_fetch_private_score_sets(
+    session, client, setup_router_db, anonymous_app_overrides
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     # Score set is private (not published); change ownership so it belongs to another user
@@ -927,7 +932,9 @@ def test_show_score_sets_mixed_public_and_private_returns_404(
 ):
     experiment = create_experiment(client)
     public_score_set = create_seq_score_set(client, experiment["urn"])
-    public_score_set = mock_worker_variant_insertion(client, session, data_provider, public_score_set, data_files / "scores.csv")
+    public_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, public_score_set, data_files / "scores.csv"
+    )
     private_score_set = create_seq_score_set(client, experiment["urn"])
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
         published_score_set = publish_score_set(client, public_score_set["urn"])
@@ -2677,15 +2684,10 @@ def test_search_score_sets_reports_correct_total_count_with_limit(
 def test_search_score_sets_not_affected_by_experiment_metadata(
     session, data_provider, client, setup_router_db, data_files
 ):
-    """Experiments with multiple keywords should not reduce the number of score sets returned by search.
-
-    This is a regression test for a bug where joinedload on one-to-many experiment relationships caused row
-    multiplication in the main SQL query. The LIMIT clause was applied to the multiplied rows rather than unique
-    score sets, resulting in fewer results than expected.
-    """
+    """Experiments with multiple keywords should not reduce the number of score sets returned by search."""
     num_score_sets = 3
     for i in range(num_score_sets):
-        experiment = create_experiment(client, {**TEST_EXPERIMENT_WITH_KEYWORD, "title": f"Experiment {i}"})
+        experiment = create_experiment(client, {"keywords": TEST_KEYWORDS, "title": f"Experiment {i}"})
         score_set = create_seq_score_set(client, experiment["urn"], update={"title": f"Score Set {i}"})
         score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
 
@@ -2697,6 +2699,44 @@ def test_search_score_sets_not_affected_by_experiment_metadata(
     assert response.status_code == 200
     assert len(response.json()["scoreSets"]) == 2
     assert response.json()["numScoreSets"] == num_score_sets
+
+
+def test_search_score_sets_not_affected_by_multiple_superseding_versions(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """Multiple unpublished superseding versions of the same score set should not reduce search page size.
+
+    Regression test for a bug where the superseding score set filter used a LEFT OUTER JOIN
+    (scoresets LEFT JOIN scoresets AS s ON scoresets.id = s.replaces_id). Since replaces_id has
+    no uniqueness constraint, a score set with N superseding versions produces N rows, all inside
+    the LIMIT boundary. This consumed extra row budget and caused paginated searches to return
+    fewer unique score sets than the requested limit.
+    """
+    num_published = 3
+    published_urns = []
+    for i in range(num_published):
+        experiment = create_experiment(client, {"title": f"Experiment {i}"})
+        score_set = create_seq_score_set(client, experiment["urn"], update={"title": f"Score Set {i}"})
+        score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+        with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+            published = publish_score_set(client, score_set["urn"])
+        published_urns.append(published["urn"])
+
+    # Create multiple unpublished superseding versions for the first score set.
+    # These share the same replaces_id, which caused row multiplication with the old LEFT JOIN filter.
+    for j in range(3):
+        create_seq_score_set(
+            client,
+            create_experiment(client, {"title": f"Superseding Experiment {j}"})["urn"],
+            update={"title": f"Superseding {j}", "supersededScoreSetUrn": published_urns[0]},
+        )
+
+    search_payload = {"limit": 2}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()["scoreSets"]) == 2
+    assert response.json()["numScoreSets"] == num_published
 
 
 ########################################################################################################################
@@ -3469,6 +3509,124 @@ def test_download_clingen_and_scores_file_in_variant_data_path(session, data_pro
     )
 
 
+def test_download_clinvar_namespace_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
+    """ClinVar namespace returns clinical_significance and clinical_review_status columns with correct values."""
+    # The ClinVar control seeded in setup_router_db has db_version="11_2024", mapping to namespace clinvar.2024_11.
+    clinvar_namespace = "clinvar.2024_11"
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinvar_control_to_mapped_variant(session, score_set)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data"
+        f"?namespaces={clinvar_namespace}&drop_na_columns=false"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    assert f"{clinvar_namespace}.clinical_significance" in reader.fieldnames
+    assert f"{clinvar_namespace}.clinical_review_status" in reader.fieldnames
+
+    rows = list(reader)
+    # The first variant is linked to the ClinVar control; check its values.
+    assert rows[0][f"{clinvar_namespace}.clinical_significance"] == TEST_CLINVAR_CONTROL["clinical_significance"]
+    assert rows[0][f"{clinvar_namespace}.clinical_review_status"] == TEST_CLINVAR_CONTROL["clinical_review_status"]
+    # Other variants have no linked control for this version; they should be NA.
+    assert all(row[f"{clinvar_namespace}.clinical_significance"] == "NA" for row in rows[1:])
+    assert all(row[f"{clinvar_namespace}.clinical_review_status"] == "NA" for row in rows[1:])
+
+
+def test_download_clinvar_namespace_with_no_matching_version(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """When no controls match the requested ClinVar version, all rows return NA."""
+    # clinvar.2023_01 does not match the seeded control (11_2024), so all rows should be NA.
+    clinvar_namespace = "clinvar.2023_01"
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinvar_control_to_mapped_variant(session, score_set)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data"
+        f"?namespaces={clinvar_namespace}&drop_na_columns=false"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    assert f"{clinvar_namespace}.clinical_significance" in reader.fieldnames
+    assert f"{clinvar_namespace}.clinical_review_status" in reader.fieldnames
+
+    rows = list(reader)
+    assert all(row[f"{clinvar_namespace}.clinical_significance"] == "NA" for row in rows)
+    assert all(row[f"{clinvar_namespace}.clinical_review_status"] == "NA" for row in rows)
+
+
+def test_download_multiple_clinvar_namespaces_in_variant_data_path(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """Multiple ClinVar namespaces produce distinct column sets; only the matching version has real data."""
+    matching_ns = "clinvar.2024_11"  # matches db_version="11_2024" seeded in setup_router_db
+    non_matching_ns = "clinvar.2023_01"  # no controls with this version
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinvar_control_to_mapped_variant(session, score_set)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data"
+        f"?namespaces={matching_ns}&namespaces={non_matching_ns}&drop_na_columns=false"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    fieldnames = reader.fieldnames
+    # Both namespaces produce columns.
+    assert f"{matching_ns}.clinical_significance" in fieldnames
+    assert f"{matching_ns}.clinical_review_status" in fieldnames
+    assert f"{non_matching_ns}.clinical_significance" in fieldnames
+    assert f"{non_matching_ns}.clinical_review_status" in fieldnames
+
+    rows = list(reader)
+    # Matching version: first variant has data.
+    assert rows[0][f"{matching_ns}.clinical_significance"] == TEST_CLINVAR_CONTROL["clinical_significance"]
+    assert rows[0][f"{matching_ns}.clinical_review_status"] == TEST_CLINVAR_CONTROL["clinical_review_status"]
+    # Non-matching version: all rows are NA.
+    assert all(row[f"{non_matching_ns}.clinical_significance"] == "NA" for row in rows)
+    assert all(row[f"{non_matching_ns}.clinical_review_status"] == "NA" for row in rows)
+
+
+def test_invalid_clinvar_namespace_returns_422(client, setup_router_db, data_files):
+    """A clinvar namespace with an out-of-range month (13) is rejected with 422."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants/data?namespaces=clinvar.2024_13")
+    assert response.status_code == 422
+
+
+def test_unrecognized_namespace_returns_422(client, setup_router_db, data_files):
+    """An entirely unrecognized namespace string is rejected with 422."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants/data?namespaces=unknown_namespace")
+    assert response.status_code == 422
+
+
 ########################################################################################################################
 # Fetching clinical controls and control options for a score set
 ########################################################################################################################
@@ -3585,6 +3743,28 @@ def test_can_fetch_current_clinical_control_options_for_score_set(
             in (TEST_SAVED_CLINVAR_CONTROL["dbVersion"], TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbVersion"])
             for control_version in control_option["availableVersions"]
         )
+
+
+def test_clinical_control_options_exclude_non_current(client, setup_router_db, session, data_provider, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinical_controls_to_mapped_variants(session, score_set)
+
+    # Mark all mapped variants as non-current to simulate stale mapping data.
+    mapped_variants = session.scalars(
+        select(MappedVariantDbModel)
+        .join(VariantDbModel)
+        .join(ScoreSetDbModel)
+        .where(ScoreSetDbModel.urn == score_set["urn"])
+    ).all()
+    for mv in mapped_variants:
+        mv.current = False
+    session.commit()
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
+    assert response.status_code == 404
 
 
 ########################################################################################################################

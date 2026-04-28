@@ -2,7 +2,7 @@ import json
 import logging
 import time
 from datetime import date, datetime
-from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
+from typing import Any, List, Optional, Sequence, TypedDict, Union
 
 import numpy as np
 import pandas as pd
@@ -48,6 +48,7 @@ from mavedb.lib.logging.context import (
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_calibrations import create_score_calibration
 from mavedb.lib.score_sets import (
+    CLINVAR_NS_PATTERN,
     csv_data_to_df,
     fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
@@ -794,8 +795,13 @@ def get_score_set_variants_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Maximum number of variants to return"),
-    namespaces: List[Literal["scores", "counts", "vep", "gnomad", "clingen"]] = Query(
-        default=["scores"], description="One or more data types to include: scores, counts, ClinGen, gnomAD, VEP"
+    namespaces: List[str] = Query(
+        default=["scores"],
+        description=(
+            'One or more data types to include: "scores", "counts", "vep", "gnomad", "clingen", '
+            'and/or ClinVar-versioned namespaces of the form "clinvar.YEAR_MONTH" '
+            '(e.g. "clinvar.2024_01" for January 2024).'
+        ),
     ),
     drop_na_columns: Optional[bool] = None,
     include_custom_columns: Optional[bool] = None,
@@ -809,9 +815,6 @@ def get_score_set_variants_csv(
     This differs from get_score_set_scores_csv() in that it returns only the HGVS columns, score column, and mapped HGVS
     string.
 
-    TODO (https://github.com/VariantEffect/mavedb-api/issues/446) We may add another function for ClinVar and gnomAD.
-    export endpoint, with options governing which columns to include.
-
     Parameters
     __________
     urn : str
@@ -820,9 +823,11 @@ def get_score_set_variants_csv(
         The index to start from. If None, starts from the beginning.
     limit : Optional[int]
         The maximum number of variants to return. If None, returns all variants.
-    namespaces: List[Literal["scores", "counts", "vep", "gnomad", "clingen"]]
+    namespaces: List[str]
         The namespaces of all columns except for accession, hgvs_nt, hgvs_pro, and hgvs_splice.
-        We may add ClinVar in the future.
+        Supported values: "scores", "counts", "vep", "gnomad", "clingen", and ClinVar-versioned
+        namespaces of the form "clinvar.YEAR_MONTH" (e.g. "clinvar.2024_01" for January 2024).
+        Multiple ClinVar namespaces with different YEAR_MONTH values may be requested simultaneously.
     drop_na_columns : bool, optional
         Whether to drop columns that contain only NA values. Defaults to False.
     db : Session
@@ -851,6 +856,21 @@ def get_score_set_variants_csv(
     if limit is not None and limit <= 0:
         logger.info(msg="Could not fetch scores with non-positive limit.", extra=logging_context())
         raise HTTPException(status_code=422, detail="Limit must be positive")
+
+    _VALID_STATIC_NAMESPACES = {"scores", "counts", "vep", "gnomad", "clingen"}
+    invalid_namespaces = [
+        ns for ns in namespaces if ns not in _VALID_STATIC_NAMESPACES and not CLINVAR_NS_PATTERN.match(ns)
+    ]
+    if invalid_namespaces:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Invalid namespace(s): {invalid_namespaces}. "
+                'Each namespace must be one of "scores", "counts", "vep", "gnomad", "clingen", '
+                'or a ClinVar-versioned namespace of the form "clinvar.YEAR_MM" '
+                '(e.g. "clinvar.2024_01" for January 2024).'
+            ),
+        )
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -2351,6 +2371,7 @@ async def get_clinical_controls_options_for_score_set(
         select(ClinicalControl.db_name, ClinicalControl.db_version)
         .join(MappedVariant, ClinicalControl.mapped_variants)
         .join(Variant)
+        .where(MappedVariant.current.is_(True))
         .where(Variant.score_set_id == item.id)
     )
 
