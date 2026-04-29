@@ -10,3 +10,4 @@ class AnnotationType(str, Enum):
     CLINVAR_CONTROL = "clinvar_control"
     VEP_FUNCTIONAL_CONSEQUENCE = "vep_functional_consequence"
     LDH_SUBMISSION = "ldh_submission"
+    VEP_FUNCTIONAL_CONSEQUENCE = "vep_functional_consequence"

@@ -7,6 +7,7 @@ This module exports jobs for integrating with third-party services:
 - gnomAD for population frequency and genomic context data
 - HGVS for standardized variant nomenclature population
 - Variant Translation for PA<->CA allele relationship mapping
+- VEP for functional consequence annotation
 """
 
 # External services job functions
@@ -23,6 +24,7 @@ from .uniprot import (
     submit_uniprot_mapping_jobs_for_score_set,
 )
 from .variant_translation import populate_variant_translations_for_score_set
+from .vep import populate_vep_for_score_set
 
 __all__ = [
     "submit_score_set_mappings_to_car",
@@ -34,4 +36,5 @@ __all__ = [
     "populate_variant_translations_for_score_set",
     "poll_uniprot_mapping_jobs_for_score_set",
     "submit_uniprot_mapping_jobs_for_score_set",
+    "populate_vep_for_score_set",
 ]

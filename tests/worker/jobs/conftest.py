@@ -1152,3 +1152,98 @@ def sample_warm_clingen_cache_job_in_pipeline(
     sample_warm_clingen_cache_job_run.pipeline_id = sample_warm_clingen_cache_pipeline.id
     session.commit()
     return sample_warm_clingen_cache_job_run
+
+
+## VEP Population Job Fixtures ##
+
+
+@pytest.fixture
+def populate_vep_sample_params(with_populated_domain_data, sample_score_set):
+    """Provide sample parameters for populate_vep_for_score_set job."""
+
+    return {
+        "correlation_id": "sample-correlation-id",
+        "score_set_id": sample_score_set.id,
+    }
+
+
+@pytest.fixture
+def sample_populate_vep_pipeline():
+    """Create a pipeline instance for populate_vep_for_score_set job."""
+
+    return Pipeline(
+        urn="test:populate_vep_pipeline",
+        name="Populate VEP Pipeline",
+    )
+
+
+@pytest.fixture
+def sample_populate_vep_run(populate_vep_sample_params):
+    """Create a JobRun instance for populate_vep_for_score_set job."""
+
+    return JobRun(
+        urn="test:populate_vep_for_score_set",
+        job_type="populate_vep_for_score_set",
+        job_function="populate_vep_for_score_set",
+        max_retries=3,
+        retry_count=0,
+        job_params=populate_vep_sample_params,
+    )
+
+
+@pytest.fixture
+def with_populate_vep_job(session, sample_populate_vep_run):
+    """Add a populate_vep_for_score_set job run to the session."""
+
+    session.add(sample_populate_vep_run)
+    session.commit()
+
+
+@pytest.fixture
+def with_populate_vep_pipeline(session, sample_populate_vep_pipeline):
+    """Add a populate_vep pipeline to the session."""
+
+    session.add(sample_populate_vep_pipeline)
+    session.commit()
+
+
+@pytest.fixture
+def sample_populate_vep_run_pipeline(
+    session,
+    with_populate_vep_job,
+    with_populate_vep_pipeline,
+    sample_populate_vep_run,
+    sample_populate_vep_pipeline,
+):
+    """Provide a context with a populate_vep job run and pipeline."""
+
+    sample_populate_vep_run.pipeline_id = sample_populate_vep_pipeline.id
+    session.commit()
+    return sample_populate_vep_run
+
+
+@pytest.fixture
+def setup_sample_variants_for_vep(session, with_populated_domain_data, mock_worker_ctx, sample_populate_vep_run):
+    """Setup a variant and mapped variant with hgvs_assay_level for VEP testing."""
+    score_set = session.get(ScoreSet, sample_populate_vep_run.job_params["score_set_id"])
+
+    variant = Variant(
+        urn="urn:variant:test-variant-for-vep",
+        score_set_id=score_set.id,
+        hgvs_nt="NM_007294.4:c.5G>A",
+        hgvs_pro="NP_009225.1:p.Cys2Tyr",
+        data={"hgvs_c": "NM_007294.4:c.5G>A", "hgvs_p": "NP_009225.1:p.Cys2Tyr"},
+    )
+    session.add(variant)
+    session.commit()
+    mapped_variant = MappedVariant(
+        variant_id=variant.id,
+        current=True,
+        mapped_date="2024-01-01T00:00:00Z",
+        mapping_api_version="1.0.0",
+        post_mapped={"type": "Allele", "expressions": [{"value": "NM_007294.4:c.5G>A", "syntax": "hgvs.c"}]},
+        hgvs_assay_level="NM_007294.4:c.5G>A",
+    )
+    session.add(mapped_variant)
+    session.commit()
+    return variant, mapped_variant

@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 from arq.constants import result_key_prefix
+from arq.jobs import JobStatus as ArqJobStatus
 from arq.jobs import job_key_prefix
 from sqlalchemy import select
 
@@ -25,7 +26,6 @@ from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus, Pipelin
 from mavedb.models.job_dependency import JobDependency
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
-from arq.jobs import JobStatus as ArqJobStatus
 from mavedb.worker.jobs.system.cleanup import (
     PENDING_TIMEOUT_MINUTES,
     PIPELINE_STUCK_TIMEOUT_MINUTES,
