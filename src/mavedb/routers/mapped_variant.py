@@ -86,7 +86,7 @@ metadata = {
 @router.get(
     "/{urn}",
     status_code=200,
-    response_model=mapped_variant.MappedVariant,
+    response_model=mapped_variant.MappedVariantWithMappingDetails,
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Fetch mapped variant by URN",
 )

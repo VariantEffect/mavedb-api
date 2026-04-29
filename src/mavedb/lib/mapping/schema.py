@@ -45,9 +45,7 @@ class TargetMapping(TypedDict, total=False):
     percent_identity: Optional[float]
     total_variants: Optional[int]
     variants_failed: Optional[int]
-    variants_failed_pre_layer_selection: Optional[int]
     variants_with_alignment_warnings: Optional[int]
-    variants_with_mapping_warnings: Optional[int]
     variants_mapped_cleanly: Optional[int]
     tool_name: str
     tool_version: str

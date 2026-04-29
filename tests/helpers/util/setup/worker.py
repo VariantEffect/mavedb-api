@@ -117,16 +117,42 @@ async def construct_mock_mapping_output(
             if "p" in with_layers:
                 mapping_output["reference_sequences"][target.name]["layers"]["p"] = TEST_PROTEIN_LAYER
 
+        # Mirror the dcd-mapping QC API: emit one TargetMapping per (target × layer).
+        # Tests don't exercise QC numerics, so we only populate the fields the worker
+        # needs (target_gene_identifier, alignment_level, tool_version, preferred).
+        layers_emitted = [layer for layer in ("g", "c", "p") if layer in with_layers]
+        for target in score_set.target_genes:
+            for idx, layer in enumerate(layers_emitted):
+                mapping_output["target_mappings"].append(
+                    {
+                        "target_gene_identifier": target.name,
+                        "alignment_level": layer,
+                        "preferred": idx == 0,
+                        "tool_name": "dcd-mapping",
+                        "tool_version": "pytest.0.0",
+                        "tool_parameters": {},
+                        "alignment_metadata": {},
+                        "vrs_version": "2",
+                    }
+                )
+
     if with_mapped_scores:
         variants = session.scalars(
             select(Variant).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set.urn)
         ).all()
+
+        # Pick a deterministic target / alignment_level to attribute every mapped score
+        # to; this matches dcd-mapping's preferred_layer_only behavior in tests.
+        default_target_name = score_set.target_genes[0].name if score_set.target_genes else None
+        default_alignment_level = next((layer for layer in ("g", "c", "p") if layer in with_layers), None)
 
         for idx, variant in enumerate(variants):
             mapped_score = {
                 "pre_mapped": deepcopy(TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X) if with_pre_mapped else {},
                 "post_mapped": deepcopy(TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X) if with_post_mapped else {},
                 "mavedb_id": variant.urn,
+                "target_gene_identifier": default_target_name,
+                "alignment_level": default_alignment_level,
             }
 
             # Don't alter HGVS strings in post mapped output. This makes it considerably

@@ -1,17 +1,19 @@
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String, Index, text
+from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, Index, Integer, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
 from mavedb.models.clinical_control_mapped_variant import mapped_variants_clinical_controls_association_table
+from mavedb.models.enums.annotation_layer import AnnotationLayer
 from mavedb.models.gnomad_variant_mapped_variant import gnomad_variants_mapped_variants_association_table
 
 if TYPE_CHECKING:
     from .clinical_control import ClinicalControl
     from .gnomad_variant import GnomADVariant
+    from .target_gene_mapping import TargetGeneMapping
     from .variant import Variant
 
 
@@ -31,6 +33,22 @@ class MappedVariant(Base):
 
     variant_id = Column(Integer, ForeignKey("variants.id"), index=True, nullable=False)
     variant: Mapped["Variant"] = relationship("Variant", back_populates="mapped_variants")
+
+    # FK to the per-(target gene, alignment_level) QC record produced for this
+    # variant's mapping. Nullable only for legacy rows that the backfill script
+    # could not attribute; all new mappings always have this set.
+    target_gene_mapping_id = Column(Integer, ForeignKey("target_gene_mappings.id"), index=True, nullable=True)
+    target_gene_mapping: Mapped[Optional["TargetGeneMapping"]] = relationship(
+        "TargetGeneMapping", back_populates="mapped_variants"
+    )
+
+    # Per-mapping QC annotations from dcd-mapping ScoreAnnotation.
+    alignment_level = Column(
+        Enum(AnnotationLayer, create_constraint=True, length=16, native_enum=False, validate_strings=True),
+        nullable=True,
+    )
+    at_mismatched_locus = Column(Boolean, nullable=True)
+    near_gap = Column(Boolean, nullable=True)
 
     clingen_allele_id = Column(String, index=True, nullable=True)
 

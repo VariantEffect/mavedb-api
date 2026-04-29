@@ -181,6 +181,14 @@ class TestMapVariantsForScoreSetUnit:
                     {
                         "mapped_scores": [MagicMock()],
                         "reference_sequences": {"some_key": "some_value"},
+                        "target_mappings": [
+                            {
+                                "target_gene_identifier": "some_key",
+                                "alignment_level": "g",
+                                "tool_name": "dcd-mapping",
+                                "tool_version": "pytest.0.0",
+                            }
+                        ],
                     }
                 ),
             ),

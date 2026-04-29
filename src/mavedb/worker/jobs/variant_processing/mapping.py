@@ -22,14 +22,16 @@ from mavedb.lib.exceptions import (
     NonexistentMappingScoresError,
 )
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
-from mavedb.lib.mapping import ANNOTATION_LAYERS, EXCLUDED_PREMAPPED_ANNOTATION_KEYS
+from mavedb.lib.mapping import EXCLUDED_PREMAPPED_ANNOTATION_KEYS
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
+from mavedb.models.enums.annotation_layer import AnnotationLayer
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus, FailureCategory
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.target_gene_mapping import TargetGeneMapping
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.worker.jobs.utils.setup import validate_job_params
@@ -126,7 +128,25 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         if not reference_metadata:
             raise NonexistentMappingReferenceError("Reference metadata missing from mapping results.")
 
+        # Per-(target, alignment_level) QC records produced by the dcd-mapping API.
+        # All records share the same tool_version because they come from a single run;
+        # we use that as the global ``mapping_api_version`` carried on each MappedVariant.
+        target_mappings_payload = mapping_results.get("target_mappings") or []
+        tool_version = next(
+            (tm.get("tool_version") for tm in target_mappings_payload if tm.get("tool_version")),
+            None,
+        )
+        if not tool_version:
+            raise NonexistentMappingResultsError(
+                "Mapping results did not include any target_mappings with a tool_version."
+            )
+
         # Process and store mapped variants
+        # Index of (target_gene_identifier, alignment_level) -> persisted TargetGeneMapping row,
+        # populated as we walk reference_metadata. Used to attach the right QC record to each
+        # mapped variant in the score loop below.
+        target_gene_mapping_by_key: dict[tuple[str, str], TargetGeneMapping] = {}
+
         for target_gene_identifier in reference_metadata:
             target_gene = next(
                 (target_gene for target_gene in score_set.target_genes if target_gene.name == target_gene_identifier),
@@ -156,11 +176,14 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
             # add annotation layer info
             for annotation_layer in reference_metadata[target_gene_identifier]["layers"]:
+                # ``annotation_layer`` arrives as a dcd-mapping wire code (``p``/``c``/``g``);
+                # we persist metadata under the corresponding full-name enum value.
+                layer_name = AnnotationLayer.from_wire(annotation_layer).value
                 layer_premapped = reference_metadata[target_gene_identifier]["layers"][annotation_layer].get(
                     "computed_reference_sequence"
                 )
                 if layer_premapped:
-                    pre_mapped_metadata[ANNOTATION_LAYERS[annotation_layer]] = {
+                    pre_mapped_metadata[layer_name] = {
                         k: layer_premapped[k]
                         for k in set(list(layer_premapped.keys())) - EXCLUDED_PREMAPPED_ANNOTATION_KEYS
                     }
@@ -170,7 +193,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                     "mapped_reference_sequence"
                 )
                 if layer_postmapped:
-                    post_mapped_metadata[ANNOTATION_LAYERS[annotation_layer]] = layer_postmapped
+                    post_mapped_metadata[layer_name] = layer_postmapped
                     job_manager.save_to_context({"post_mapped_layer_exists": True})
 
                 logger.debug(
@@ -183,9 +206,54 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             job_manager.db.add(target_gene)
             logger.debug("Added mapping metadata to target gene.", extra=job_manager.logging_context())
 
+            # Persist a TargetGeneMapping row per (target_gene, alignment_level) reported by
+            # the dcd-mapping QC API. The match against ``target_mappings_payload`` is on
+            # ``target_gene_identifier`` (must equal target_gene.name) and ``alignment_level``.
+            for tm in target_mappings_payload:
+                if tm.get("target_gene_identifier") != target_gene_identifier:
+                    continue
+
+                level_value = tm.get("alignment_level")
+                if not level_value:
+                    continue
+
+                target_gene_mapping = TargetGeneMapping(
+                    target_gene_id=target_gene.id,
+                    alignment_level=AnnotationLayer.from_wire(level_value),
+                    preferred=bool(tm.get("preferred", False)),
+                    reference_assembly=tm.get("reference_assembly"),
+                    reference_accession=tm.get("reference_accession"),
+                    reference_sequence_id=tm.get("reference_sequence_id"),
+                    alignment_score=tm.get("alignment_score"),  # type: ignore[arg-type]
+                    next_best_alignment_score=tm.get("next_best_alignment_score"),  # type: ignore[arg-type]
+                    alignment_length=tm.get("alignment_length"),
+                    alignment_string=tm.get("alignment_string"),
+                    mismatch_count=tm.get("mismatch_count"),
+                    gap_count=tm.get("gap_count"),
+                    percent_identity=tm.get("percent_identity"),  # type: ignore[arg-type]
+                    total_variants=tm.get("total_variants"),
+                    variants_failed=tm.get("variants_failed"),
+                    variants_with_alignment_warnings=tm.get("variants_with_alignment_warnings"),
+                    variants_mapped_cleanly=tm.get("variants_mapped_cleanly"),
+                    tool_name=tm.get("tool_name", "dcd-mapping"),
+                    tool_version=tm["tool_version"],
+                    tool_parameters=tm.get("tool_parameters"),
+                    alignment_metadata=tm.get("alignment_metadata"),
+                    vrs_version=tm.get("vrs_version"),
+                    mapped_date=mapping_results["mapped_date"],
+                )
+                job_manager.db.add(target_gene_mapping)
+                target_gene_mapping_by_key[(target_gene_identifier, level_value)] = target_gene_mapping
+
+        # Flush so freshly inserted TargetGeneMapping rows have ids before we attach FKs
+        # to mapped_variants below. We deliberately do NOT call update_progress() between
+        # this flush and the mapped_variant loop -- update_progress commits as a checkpoint,
+        # and a failure mid-loop would otherwise leave orphaned target_gene_mappings rows
+        # committed without any mapped_variants referencing them.
+        job_manager.db.flush()
+
         total_variants = len(mapped_scores)
         job_manager.save_to_context({"total_variants_to_process": total_variants})
-        job_manager.update_progress(90, 100, "Saving mapped variants.")
 
         successful_mapped_variants = 0
         logger.info(
@@ -218,23 +286,40 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 successful_mapped_variants += 1
                 job_manager.save_to_context({"successful_mapped_variants": successful_mapped_variants})
 
+            # dcd-mapping guarantees both fields are set on every ScoreAnnotation,
+            # including failed variants (the annotate step re-attributes failures to
+            # preferred_layer_for_target before emitting). Absent fields indicate an
+            # older or malformed payload and we fail fast rather than silently drop the FK.
+            score_target = mapped_score.get("target_gene_identifier")
+            score_alignment_level = mapped_score.get("alignment_level")
+            if not score_target or not score_alignment_level:
+                raise NonexistentMappingResultsError(
+                    f"ScoreAnnotation for variant {variant_urn!r} is missing "
+                    f"target_gene_identifier or alignment_level."
+                )
+
+            target_gene_mapping_row = target_gene_mapping_by_key.get((score_target, score_alignment_level))
             mapped_variant = MappedVariant(
                 pre_mapped=mapped_score.get("pre_mapped", null()),
                 post_mapped=mapped_score.get("post_mapped", null()),
                 hgvs_assay_level=get_hgvs_from_post_mapped(mapped_score.get("post_mapped", {})),
                 variant_id=variant.id,
                 modification_date=date.today(),
-                mapped_date=mapping_results["mapped_date_utc"],
+                mapped_date=mapping_results["mapped_date"],
                 vrs_version=mapped_score.get("vrs_version", null()),
-                mapping_api_version=mapping_results["dcd_mapping_version"],
+                mapping_api_version=tool_version,
                 error_message=mapped_score.get("error_message", null()),
+                target_gene_mapping_id=target_gene_mapping_row.id if target_gene_mapping_row else None,
+                alignment_level=AnnotationLayer.from_wire(score_alignment_level),
+                at_mismatched_locus=mapped_score.get("at_mismatched_locus"),
+                near_gap=mapped_score.get("near_gap"),
                 current=True,
             )
 
             annotation_manager.add_annotation(
                 variant_id=variant.id,  # type: ignore
                 annotation_type=AnnotationType.VRS_MAPPING,
-                version=mapping_results.get("dcd_mapping_version"),
+                version=tool_version,
                 status=AnnotationStatus.SUCCESS if annotation_was_successful else AnnotationStatus.FAILED,
                 failure_category=None
                 if annotation_was_successful
