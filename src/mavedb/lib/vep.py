@@ -142,8 +142,6 @@ def get_functional_consequence(hgvs_strings: Sequence[str]) -> dict[str, Optiona
         json={"hgvs_notations": list(hgvs_strings)},
     )
 
-    # missing_hgvs = set(hgvs_strings)
-
     # request_with_backoff handles http errors, so no need to check response status
     data = response.json()
     for entry in data:
@@ -151,57 +149,5 @@ def get_functional_consequence(hgvs_strings: Sequence[str]) -> dict[str, Optiona
         most_severe_consequence = entry.get("most_severe_consequence")
         if hgvs:
             result[hgvs] = most_severe_consequence
-            # missing_hgvs.discard(hgvs)
-
-    # # Fallback for missing HGVS strings
-    # if missing_hgvs:
-    #     hgvs_to_genomic = run_variant_recoder(list(missing_hgvs))
-    #     # Assign None for any missing_hgvs not present in recoder response
-    #     for hgvs_string in missing_hgvs:
-    #         if hgvs_string not in hgvs_to_genomic:
-    #             result[hgvs_string] = None
-
-    #     # Collect all genomic HGVS strings for VEP
-    #     genomic_hgvs_map = {hgvs: hgvs_to_genomic[hgvs] for hgvs in hgvs_to_genomic}
-    #     all_genomic_hgvs = []
-    #     hgvs_genomic_lookup = {}
-    #     for hgvs, genomics in genomic_hgvs_map.items():
-    #         for g in genomics:
-    #             all_genomic_hgvs.append(g)
-    #             hgvs_genomic_lookup.setdefault(hgvs, []).append(g)
-
-    #     # Run VEP in batches of 200
-    #     vep_results: dict[str, list[str]] = {}
-    #     for i in range(0, len(all_genomic_hgvs), 200):
-    #         batch = all_genomic_hgvs[i : i + 200]
-    #         vep_response = requests.post(
-    #             f"{ENSEMBL_API_URL}/vep/human/hgvs",
-    #             headers=headers,
-    #             json={"hgvs_notations": batch},
-    #         )
-    #         if vep_response.status_code != 200:
-    #             logger.error(f"Failed batch VEP for genomic HGVS: {vep_response.status_code}")
-    #             continue
-    #         vep_data = vep_response.json()
-    #         for entry in vep_data:
-    #             genomic_input = entry.get("input")
-    #             most_severe_consequence = entry.get("most_severe_consequence")
-    #             if genomic_input and most_severe_consequence:
-    #                 vep_results.setdefault(genomic_input, []).append(most_severe_consequence)
-
-    #     # For each original missing_hgvs, choose the most severe consequence among its genomics
-    #     for hgvs, genomics in hgvs_genomic_lookup.items():
-    #         consequences = []
-    #         for g in genomics:
-    #             consequences.extend(vep_results.get(g, []))
-    #         if consequences:
-    #             for consequence in VEP_CONSEQUENCES:
-    #                 if consequence in consequences:
-    #                     result[hgvs] = consequence
-    #                     break
-    #             else:
-    #                 result[hgvs] = None
-    #         else:
-    #             result[hgvs] = None
 
     return result
