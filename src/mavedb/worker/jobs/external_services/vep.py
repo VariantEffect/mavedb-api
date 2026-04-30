@@ -28,7 +28,7 @@ from mavedb.worker.lib.managers.job_manager import JobManager
 logger = logging.getLogger(__name__)
 
 _VEP_BATCH_SIZE = 200
-_RECODER_BATCH_SIZE = 100
+_RECODER_BATCH_SIZE = 25
 
 
 @with_pipeline_management
