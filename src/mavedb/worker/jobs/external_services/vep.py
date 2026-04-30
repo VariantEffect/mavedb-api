@@ -27,13 +27,16 @@ from mavedb.worker.lib.managers.job_manager import JobManager
 
 logger = logging.getLogger(__name__)
 
+_VEP_BATCH_SIZE = 200
+_RECODER_BATCH_SIZE = 100
+
 
 @with_pipeline_management
 async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutionOutcome:
     """Populate VEP functional consequence predictions for all mapped variants in a ScoreSet.
 
     This function retrieves all mapped variants with a populated hgvs_assay_level field for a given
-    ScoreSet and submits them to the Ensembl VEP API in batches of 200. It handles fallback
+    ScoreSet and submits them to the Ensembl VEP API in configurable batches. It handles fallback
     to the Variant Recoder API for variants that cannot be processed by VEP directly.
 
     Job Parameters:
@@ -120,7 +123,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
         hgvs_and_mapped_variant_id_pairs.append((mapped_variant.hgvs_assay_level, mapped_variant.id))  # type: ignore
 
-    batches = list(batched(hgvs_and_mapped_variant_id_pairs, 200))
+    batches = list(batched(hgvs_and_mapped_variant_id_pairs, _VEP_BATCH_SIZE))
 
     job_manager.save_to_context({"vep_batches": len(batches)})
     logger.info(
@@ -199,7 +202,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             extra=job_manager.logging_context(),
         )
 
-        recoder_batch_list = list(batched(list(all_missing_hgvs), 200))
+        recoder_batch_list = list(batched(list(all_missing_hgvs), _RECODER_BATCH_SIZE))
 
         for recoder_batch_idx, recoder_batch in enumerate(recoder_batch_list):
             try:
@@ -244,7 +247,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         )
 
         # --- Phase 3: VEP pass on the recoded genomic HGVS strings ---
-        recoded_vep_batch_list = list(batched(list(hgvs_to_genomic.values()), 200))
+        recoded_vep_batch_list = list(batched(list(hgvs_to_genomic.values()), _VEP_BATCH_SIZE))
         all_recoded_consequences: dict[str, str | None] = {}
 
         for recoded_vep_batch_idx, recoded_vep_batch in enumerate(recoded_vep_batch_list):
