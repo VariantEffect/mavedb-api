@@ -1,5 +1,7 @@
 """VEP (Variant Effect Predictor) library functions for functional consequence prediction."""
 
+import asyncio
+import functools
 import logging
 from typing import Optional, Sequence
 
@@ -69,7 +71,7 @@ VEP_CONSEQUENCES = [
 ]
 
 
-def run_variant_recoder(missing_hgvs: Sequence[str]) -> dict[str, list[str]]:
+async def run_variant_recoder(missing_hgvs: Sequence[str]) -> dict[str, list[str]]:
     """Call the Variant Recoder API and return a mapping from input HGVS strings to genomic HGVS strings.
 
     Args:
@@ -82,11 +84,18 @@ def run_variant_recoder(missing_hgvs: Sequence[str]) -> dict[str, list[str]]:
         VEPProcessingError: If the API request fails.
     """
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    response = request_with_backoff(
-        method="POST",
-        url=f"{ENSEMBL_API_URL}/variant_recoder/human",
-        headers=headers,
-        json={"ids": list(missing_hgvs)},
+    # request_with_backoff is synchronous (requests lib + time.sleep backoff); run_in_executor
+    # keeps the event loop free during the full request + any retry wait time.
+    loop = asyncio.get_running_loop()
+    response = await loop.run_in_executor(
+        None,
+        functools.partial(
+            request_with_backoff,
+            method="POST",
+            url=f"{ENSEMBL_API_URL}/variant_recoder/human",
+            headers=headers,
+            json={"ids": list(missing_hgvs)},
+        ),
     )
     hgvs_to_genomic: dict[str, list[str]] = {}
     # request_with_backoff handles http errors, so no need to check response status
@@ -110,7 +119,7 @@ def run_variant_recoder(missing_hgvs: Sequence[str]) -> dict[str, list[str]]:
     return hgvs_to_genomic
 
 
-def get_functional_consequence(hgvs_strings: Sequence[str]) -> dict[str, Optional[str]]:
+async def get_functional_consequence(hgvs_strings: Sequence[str]) -> dict[str, Optional[str]]:
     """Get VEP functional consequences for a batch of HGVS strings.
 
     Submits HGVS strings to the Ensembl VEP API and retrieves functional consequence
@@ -135,11 +144,18 @@ def get_functional_consequence(hgvs_strings: Sequence[str]) -> dict[str, Optiona
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     result: dict[str, Optional[str]] = {}
 
-    response = request_with_backoff(
-        method="POST",
-        url=f"{ENSEMBL_API_URL}/vep/human/hgvs",
-        headers=headers,
-        json={"hgvs_notations": list(hgvs_strings)},
+    # request_with_backoff is synchronous (requests lib + time.sleep backoff); run_in_executor
+    # keeps the event loop free during the full request + any retry wait time.
+    loop = asyncio.get_running_loop()
+    response = await loop.run_in_executor(
+        None,
+        functools.partial(
+            request_with_backoff,
+            method="POST",
+            url=f"{ENSEMBL_API_URL}/vep/human/hgvs",
+            headers=headers,
+            json={"hgvs_notations": list(hgvs_strings)},
+        ),
     )
 
     # request_with_backoff handles http errors, so no need to check response status
