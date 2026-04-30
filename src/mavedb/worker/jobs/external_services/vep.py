@@ -85,7 +85,12 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             extra=job_manager.logging_context(),
         )
         return JobExecutionOutcome.succeeded(
-            data={"variants_processed": 0, "variants_with_consequences": 0, "variants_without_consequences": 0}
+            data={
+                "variants_processed": 0,
+                "variants_with_consequences": 0,
+                "variants_without_consequences": 0,
+                "variants_recoder_failed": 0,
+            }
         )
 
     job_manager.save_to_context({"total_variants_to_process": len(mapped_variants)})
@@ -137,7 +142,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
             hgvs_strings, mapped_variant_ids = map(list, zip(*batch))  # type: ignore
 
-            consequences = get_functional_consequence(hgvs_strings)
+            consequences = await get_functional_consequence(hgvs_strings)
             logger.debug(
                 msg=f"Received consequences for {len(consequences)} variants in VEP batch {batch_idx + 1}",
                 extra=job_manager.logging_context(),
@@ -203,7 +208,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                     extra=job_manager.logging_context(),
                 )
 
-                recoded_results = run_variant_recoder(recoder_batch)
+                recoded_results = await run_variant_recoder(recoder_batch)
                 hgvs_to_genomic.update(recoded_results)
 
                 progress_pct = 33 + int((recoder_batch_idx + 1) / len(recoder_batch_list) * 33)
@@ -249,7 +254,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                     extra=job_manager.logging_context(),
                 )
 
-                recoded_vep_consequences = get_functional_consequence(recoded_vep_batch)
+                recoded_vep_consequences = await get_functional_consequence(recoded_vep_batch)
                 all_recoded_consequences.update(recoded_vep_consequences)
 
                 progress_pct = 66 + int((recoded_vep_batch_idx + 1) / len(recoded_vep_batch_list) * 33)
@@ -308,23 +313,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                     extra=job_manager.logging_context(),
                 )
 
-        # Annotate variants that Variant Recoder could not recode at all.
         recoder_missing_hgvs = all_missing_hgvs - set(hgvs_to_genomic.keys())
-        for hgvs in recoder_missing_hgvs:
-            for variant_id in missing_hgvs_to_variant_ids.get(hgvs, []):
-                annotation_manager.add_annotation(
-                    variant_id=variant_id,
-                    annotation_type=AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
-                    status=AnnotationStatus.FAILED,
-                    failure_category=AnnotationFailureCategory.EXTERNAL_REFERENCE_NOT_FOUND,
-                    annotation_data={
-                        "error_message": "Variant Recoder could not recode this HGVS string to a genomic equivalent.",
-                    },
-                )
-                logger.debug(
-                    msg=f"Recorded Variant Recoder failure for variant_id {variant_id} (HGVS: {hgvs})",
-                    extra=job_manager.logging_context(),
-                )
 
     # --- Phase 4: Annotate outcomes and update mapped variants in a single pass ---
 
@@ -335,6 +324,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
     variants_processed = 0
     variants_with_consequences = 0
     variants_without_consequences = 0
+    variants_recoder_failed = 0
 
     for hgvs_string, mapped_variant_id in hgvs_and_mapped_variant_id_pairs:
         mapped_variant = mapped_variants_by_id.get(mapped_variant_id)  # type: ignore
@@ -372,9 +362,36 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 msg=f"Recorded VEP failure for mapped_variant_id {mapped_variant_id} (HGVS: {hgvs_string})",
                 extra=job_manager.logging_context(),
             )
+        elif hgvs_string in recoder_missing_hgvs:
+            annotation_manager.add_annotation(
+                variant_id=mapped_variant.variant_id,  # type: ignore
+                annotation_type=AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
+                status=AnnotationStatus.FAILED,
+                failure_category=AnnotationFailureCategory.EXTERNAL_REFERENCE_NOT_FOUND,
+                annotation_data={
+                    "error_message": "Variant Recoder could not recode this HGVS string to a genomic equivalent.",
+                },
+            )
+            variants_recoder_failed += 1
+            logger.debug(
+                msg=f"Recorded Variant Recoder failure for mapped_variant_id {mapped_variant_id} (HGVS: {hgvs_string})",
+                extra=job_manager.logging_context(),
+            )
         else:
-            # recoder_missing_hgvs — already annotated FAILED in the recoder block above.
+            annotation_manager.add_annotation(
+                variant_id=mapped_variant.variant_id,  # type: ignore
+                annotation_type=AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
+                status=AnnotationStatus.FAILED,
+                failure_category=AnnotationFailureCategory.UNKNOWN,
+                annotation_data={
+                    "error_message": "Variant was not classified by any VEP outcome branch. This is a bug.",
+                },
+            )
             variants_without_consequences += 1
+            logger.warning(
+                msg=f"Unexpected state: mapped_variant_id {mapped_variant_id} (HGVS: {hgvs_string}) was not classified by any outcome branch.",
+                extra=job_manager.logging_context(),
+            )
 
         variants_processed += 1
 
@@ -387,7 +404,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         f"Completed VEP functional consequence prediction for {variants_with_consequences}/{variants_processed} variants.",
     )
     logger.info(
-        msg=f"Completed VEP prediction: {variants_with_consequences} variants with consequences, {variants_without_consequences} without",
+        msg=f"Completed VEP prediction: {variants_with_consequences} with consequences, {variants_without_consequences} without, {variants_recoder_failed} recoder failed",
         extra=job_manager.logging_context(),
     )
 
@@ -396,5 +413,6 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             "variants_processed": variants_processed,
             "variants_with_consequences": variants_with_consequences,
             "variants_without_consequences": variants_without_consequences,
+            "variants_recoder_failed": variants_recoder_failed,
         }
     )

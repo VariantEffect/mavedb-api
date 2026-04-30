@@ -42,6 +42,7 @@ class TestPopulateVepForScoreSetUnit:
         assert result.status == JobStatus.SUCCEEDED
         assert result.data["variants_processed"] == 0
         assert result.data["variants_with_consequences"] == 0
+        assert result.data["variants_recoder_failed"] == 0
 
     async def test_variant_without_hgvs_assay_level_skipped(
         self,
@@ -103,6 +104,7 @@ class TestPopulateVepForScoreSetUnit:
         assert result.status == JobStatus.SUCCEEDED
         assert result.data["variants_processed"] == 1
         assert result.data["variants_with_consequences"] == 1
+        assert result.data["variants_recoder_failed"] == 0
 
         session.refresh(mapped_variant)
         assert mapped_variant.vep_functional_consequence == "missense_variant"
@@ -152,6 +154,7 @@ class TestPopulateVepForScoreSetUnit:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
         assert result.data["variants_with_consequences"] == 1
+        assert result.data["variants_recoder_failed"] == 0
 
         session.refresh(mapped_variant)
         assert mapped_variant.vep_functional_consequence == "missense_variant"
@@ -186,7 +189,8 @@ class TestPopulateVepForScoreSetUnit:
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data["variants_without_consequences"] == 0  # recoder-failed are not counted here
+        assert result.data["variants_without_consequences"] == 0
+        assert result.data["variants_recoder_failed"] == 1
 
         annotation = session.scalars(
             select(VariantAnnotationStatus).where(
@@ -229,6 +233,8 @@ class TestPopulateVepForScoreSetUnit:
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
+        assert result.data["variants_without_consequences"] == 1
+        assert result.data["variants_recoder_failed"] == 0
 
         annotation = session.scalars(
             select(VariantAnnotationStatus).where(
