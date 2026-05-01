@@ -53,14 +53,31 @@ def send_slack_error(err, request=None):
         logger.critical("Failed to send Slack error notification", exc_info=True)
 
 
+def _retry_status_text(retry_count: int, max_retries: int, will_retry: bool) -> str:
+    """Format a human-readable retry status string for Slack notifications.
+
+    retry_count is 0-indexed (0 = first attempt). total attempts = max_retries + 1.
+    """
+    attempt = retry_count + 1
+    total = max_retries + 1
+    if will_retry:
+        return f"Attempt {attempt} of {total} — will retry"
+
+    return f"Attempt {attempt} of {total} — this job will not be retried"
+
+
 def send_slack_job_failure(
     job_urn: str,
     job_function: str,
     reason: str,
     failure_category: str,
+    retry_count: int = 0,
+    max_retries: int = 0,
+    will_retry: bool = False,
 ) -> None:
     """Send a structured Slack alert for a controlled job failure (FAILED outcome)."""
     try:
+        retry_text = _retry_status_text(retry_count, max_retries, will_retry)
         blocks: list[dict] = [
             {"type": "header", "text": {"type": "plain_text", "text": "⚠️ Job Failed"}},
             {
@@ -69,6 +86,7 @@ def send_slack_job_failure(
                     {"type": "mrkdwn", "text": f"*Job URN*\n`{job_urn}`"},
                     {"type": "mrkdwn", "text": f"*Function*\n`{job_function}`"},
                     {"type": "mrkdwn", "text": f"*Category*\n{failure_category or 'unknown'}"},
+                    {"type": "mrkdwn", "text": f"*Retry*\n{retry_text}"},
                 ],
             },
             {"type": "divider"},
@@ -80,7 +98,7 @@ def send_slack_job_failure(
                 },
             },
         ]
-        fallback = f"Job Failed: {job_urn} ({job_function}) — {reason}"
+        fallback = f"Job Failed: {job_urn} ({job_function}) — {reason} [{retry_text}]"
         _send_slack_blocks(fallback, blocks)
     except Exception:
         logger.critical("Failed to send Slack job failure notification", exc_info=True)
@@ -91,11 +109,15 @@ def send_slack_job_error(
     job_function: str,
     err: Exception,
     failure_category: str = "",
+    retry_count: int = 0,
+    max_retries: int = 0,
+    will_retry: bool = False,
 ) -> None:
     """Send a structured Slack alert for an unhandled job exception (ERRORED outcome)."""
     try:
         locations = find_traceback_locations()
         location_lines = [f"`{fn}:{lineno}` in `{name}`" for fn, lineno, name in locations]
+        retry_text = _retry_status_text(retry_count, max_retries, will_retry)
 
         blocks: list[dict] = [
             {"type": "header", "text": {"type": "plain_text", "text": "\U0001f6a8 Job Errored"}},
@@ -106,6 +128,7 @@ def send_slack_job_error(
                     {"type": "mrkdwn", "text": f"*Function*\n`{job_function}`"},
                     {"type": "mrkdwn", "text": f"*Exception*\n`{err.__class__.__name__}`"},
                     {"type": "mrkdwn", "text": f"*Category*\n{failure_category or 'unknown'}"},
+                    {"type": "mrkdwn", "text": f"*Retry*\n{retry_text}"},
                 ],
             },
             {"type": "divider"},
@@ -128,7 +151,7 @@ def send_slack_job_error(
                 }
             )
 
-        fallback = f"Job Errored: {job_urn} ({job_function}) — {err.__class__.__name__}: {err}"
+        fallback = f"Job Errored: {job_urn} ({job_function}) — {err.__class__.__name__}: {err} [{retry_text}]"
         _send_slack_blocks(fallback, blocks)
     except Exception:
         logger.critical("Failed to send Slack job error notification", exc_info=True)

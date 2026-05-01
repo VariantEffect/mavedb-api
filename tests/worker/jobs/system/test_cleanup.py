@@ -1220,10 +1220,147 @@ class TestCleanupStalledJobsUnit:
         assert test_pipeline.urn not in result.data["fixed_pipelines"]
         mock_slack.assert_called_once()
 
+    async def test_cleanup_sends_slack_when_max_retries_reached_queued_job(
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_job_not_found
+    ):
+        """Test that send_slack_job_failure is called when sweeper permanently fails a stalled QUEUED job."""
+        stalled_job = JobRun(
+            job_type="test_job",
+            job_function="test_function",
+            status=JobStatus.QUEUED,
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
+            started_at=None,
+            max_retries=3,
+            retry_count=3,  # Already at max
+            job_params={},
+        )
+        session.add(stalled_job)
+        session.commit()
 
-############################################################################################################################################
-# Integration Tests
-############################################################################################################################################
+        with patch("mavedb.worker.jobs.system.cleanup.send_slack_job_failure") as mock_slack:
+            await cleanup_stalled_jobs(
+                mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
+            )
+
+        mock_slack.assert_called_once()
+        call_kwargs = mock_slack.call_args.kwargs
+        assert call_kwargs["will_retry"] is False
+        assert call_kwargs["job_urn"] == stalled_job.urn
+        assert call_kwargs["retry_count"] == 3
+        assert call_kwargs["max_retries"] == 3
+
+    async def test_cleanup_sends_slack_when_max_retries_reached_running_job(
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+    ):
+        """Test that send_slack_job_failure is called when sweeper permanently fails a stalled RUNNING job."""
+        stalled_job = JobRun(
+            job_type="test_job",
+            job_function="test_function",
+            status=JobStatus.RUNNING,
+            created_at=datetime.now(timezone.utc) - timedelta(hours=2),
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=RUNNING_TIMEOUT_MINUTES + 10),
+            finished_at=None,
+            max_retries=3,
+            retry_count=3,  # Already at max
+            job_params={},
+        )
+        session.add(stalled_job)
+        session.commit()
+
+        with patch("mavedb.worker.jobs.system.cleanup.send_slack_job_failure") as mock_slack:
+            await cleanup_stalled_jobs(
+                mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
+            )
+
+        mock_slack.assert_called_once()
+        call_kwargs = mock_slack.call_args.kwargs
+        assert call_kwargs["will_retry"] is False
+        assert call_kwargs["job_urn"] == stalled_job.urn
+
+    async def test_cleanup_sends_slack_when_max_retries_reached_pending_job(
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+    ):
+        """Test that send_slack_job_failure is called when sweeper permanently fails a stalled PENDING job."""
+        stalled_job = JobRun(
+            job_type="test_job",
+            job_function="test_function",
+            status=JobStatus.PENDING,
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=PENDING_TIMEOUT_MINUTES + 5),
+            started_at=None,
+            finished_at=None,
+            max_retries=3,
+            retry_count=3,  # Already at max
+            job_params={},
+        )
+        session.add(stalled_job)
+        session.commit()
+
+        with patch("mavedb.worker.jobs.system.cleanup.send_slack_job_failure") as mock_slack:
+            await cleanup_stalled_jobs(
+                mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
+            )
+
+        mock_slack.assert_called_once()
+        call_kwargs = mock_slack.call_args.kwargs
+        assert call_kwargs["will_retry"] is False
+        assert call_kwargs["job_urn"] == stalled_job.urn
+
+    async def test_cleanup_sends_slack_on_enqueue_failure(
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+    ):
+        """Test that send_slack_job_failure is called when sweeper fails to re-enqueue a stalled job."""
+        stalled_job = JobRun(
+            job_type="test_job",
+            job_function="test_function",
+            status=JobStatus.PENDING,
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=PENDING_TIMEOUT_MINUTES + 5),
+            started_at=None,
+            finished_at=None,
+            max_retries=3,
+            retry_count=0,
+            job_params={},
+        )
+        session.add(stalled_job)
+        session.commit()
+
+        mock_worker_ctx["redis"].enqueue_job = AsyncMock(side_effect=Exception("Redis connection failed"))
+
+        with patch("mavedb.worker.jobs.system.cleanup.send_slack_job_failure") as mock_slack:
+            await cleanup_stalled_jobs(
+                mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
+            )
+
+        mock_slack.assert_called_once()
+        call_kwargs = mock_slack.call_args.kwargs
+        assert call_kwargs["will_retry"] is False
+        assert call_kwargs["job_urn"] == stalled_job.urn
+        assert "Failed to enqueue" in call_kwargs["reason"]
+
+    async def test_cleanup_does_not_send_slack_when_job_is_retried(
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+    ):
+        """Test that send_slack_job_failure is NOT called when the sweeper successfully retries a stalled job."""
+        stalled_job = JobRun(
+            job_type="test_job",
+            job_function="test_function",
+            status=JobStatus.PENDING,
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=PENDING_TIMEOUT_MINUTES + 5),
+            started_at=None,
+            finished_at=None,
+            max_retries=3,
+            retry_count=0,  # Has retries remaining
+            job_params={},
+        )
+        session.add(stalled_job)
+        session.commit()
+
+        with patch("mavedb.worker.jobs.system.cleanup.send_slack_job_failure") as mock_slack:
+            result = await cleanup_stalled_jobs(
+                mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
+            )
+
+        mock_slack.assert_not_called()
+        assert result.data["total_cleaned"] == 1
 
 
 @pytest.mark.asyncio

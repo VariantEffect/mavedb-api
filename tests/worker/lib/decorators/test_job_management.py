@@ -187,7 +187,7 @@ class TestManagedJobDecoratorUnit:
 
         mock_start_job.assert_called_once()
         mock_prepare_retry.assert_called_once_with(reason="error in wrapped function")
-        mock_send_slack_job_error.assert_called_once()
+        mock_send_slack_job_error.assert_not_called()  # Slack suppressed — job will retry
 
     @pytest.mark.parametrize("missing_key", ["redis"])
     async def test_decorator_raises_value_error_if_required_context_missing(
@@ -317,6 +317,86 @@ class TestManagedJobDecoratorUnit:
         # Decorator logs critical when error_job itself fails, regardless of Slack status
         mock_logger.critical.assert_called()
 
+    async def test_decorator_passes_will_retry_false_to_slack_on_failed_result_no_retry(
+        self, session, mock_worker_ctx, mock_job_manager
+    ):
+        @with_job_management
+        async def sample_fail(ctx: dict, job_id: int, job_manager: JobManager):
+            return JobExecutionOutcome.failed(reason="timeout")
+
+        with (
+            patch("mavedb.worker.lib.decorators.job_management.JobManager") as mock_job_manager_class,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_slack,
+            patch.object(mock_job_manager, "start_job"),
+            patch.object(mock_job_manager, "fail_job"),
+            patch.object(mock_job_manager, "should_retry", return_value=False),
+            TransactionSpy.spy(session, expect_commit=True),
+        ):
+            mock_job_manager_class.return_value = mock_job_manager
+            await sample_fail(mock_worker_ctx, 999)
+
+        mock_slack.assert_called_once()
+        call_kwargs = mock_slack.call_args.kwargs
+        assert call_kwargs["will_retry"] is False
+        assert call_kwargs["retry_count"] == 0
+        assert call_kwargs["max_retries"] == 3
+
+    async def test_decorator_suppresses_slack_on_failed_result_with_retry(
+        self, session, mock_worker_ctx, mock_job_manager
+    ):
+        @with_job_management
+        async def sample_fail(ctx: dict, job_id: int, job_manager: JobManager):
+            return JobExecutionOutcome.failed(reason="timeout")
+
+        with (
+            patch("mavedb.worker.lib.decorators.job_management.JobManager") as mock_job_manager_class,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_slack,
+            patch.object(mock_job_manager, "start_job"),
+            patch.object(mock_job_manager, "fail_job"),
+            patch.object(mock_job_manager, "should_retry", return_value=True),
+            patch.object(mock_job_manager, "prepare_retry", return_value=None),
+            TransactionSpy.spy(session, expect_commit=True),
+        ):
+            mock_job_manager_class.return_value = mock_job_manager
+            await sample_fail(mock_worker_ctx, 999)
+
+        mock_slack.assert_not_called()  # Slack suppressed — job will retry
+
+    async def test_decorator_passes_will_retry_false_to_slack_on_exception_no_retry(
+        self, session, mock_worker_ctx, mock_job_manager
+    ):
+        with (
+            patch("mavedb.worker.lib.decorators.job_management.JobManager") as mock_job_manager_class,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_slack,
+            patch.object(mock_job_manager, "start_job"),
+            patch.object(mock_job_manager, "error_job"),
+            patch.object(mock_job_manager, "should_retry", return_value=False),
+            TransactionSpy.spy(session, expect_commit=True, expect_rollback=True),
+        ):
+            mock_job_manager_class.return_value = mock_job_manager
+            await sample_raise(mock_worker_ctx, 999)
+
+        mock_slack.assert_called_once()
+        call_kwargs = mock_slack.call_args.kwargs
+        assert call_kwargs["will_retry"] is False
+        assert call_kwargs["retry_count"] == 0
+        assert call_kwargs["max_retries"] == 3
+
+    async def test_decorator_suppresses_slack_on_exception_with_retry(self, session, mock_worker_ctx, mock_job_manager):
+        with (
+            patch("mavedb.worker.lib.decorators.job_management.JobManager") as mock_job_manager_class,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_slack,
+            patch.object(mock_job_manager, "start_job"),
+            patch.object(mock_job_manager, "error_job"),
+            patch.object(mock_job_manager, "should_retry", return_value=True),
+            patch.object(mock_job_manager, "prepare_retry", return_value=None),
+            TransactionSpy.spy(session, expect_commit=True, expect_rollback=True),
+        ):
+            mock_job_manager_class.return_value = mock_job_manager
+            await sample_raise(mock_worker_ctx, 999)
+
+        mock_slack.assert_not_called()  # Slack suppressed — job will retry
+
 
 @pytest.mark.asyncio
 @pytest.mark.integration
@@ -438,7 +518,7 @@ class TestManagedJobDecoratorIntegration:
             event.set()
             await job_task
 
-            mock_send_slack_job_error.assert_called_once()
+            mock_send_slack_job_error.assert_not_called()  # Slack suppressed — job will retry
 
         # After failure with retry, status should be PENDING
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()

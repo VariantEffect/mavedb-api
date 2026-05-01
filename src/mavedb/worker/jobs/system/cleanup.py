@@ -22,7 +22,7 @@ from arq.jobs import JobStatus as ArqJobStatus
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from mavedb.lib.slack import send_slack_error
+from mavedb.lib.slack import send_slack_error, send_slack_job_failure
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
 from mavedb.models.job_run import JobRun
@@ -115,6 +115,15 @@ async def _handle_stalled_job_retry(
                 logger.warning(
                     f"Stalled job {job.urn} cannot be retried (max retries reached)", extra=manager.logging_context()
                 )
+                send_slack_job_failure(
+                    job_urn=job.urn,
+                    job_function=job.job_function,
+                    reason=stall_reason,
+                    failure_category=str(FailureCategory.SYSTEM_ERROR),
+                    retry_count=job.retry_count,
+                    max_retries=job.max_retries,
+                    will_retry=False,
+                )
                 return False
 
             await manager.prepare_retry(reason=stall_reason)
@@ -135,6 +144,15 @@ async def _handle_stalled_job_retry(
         db.flush()
         logger.warning(
             f"Stalled job {job.urn} cannot be retried (max retries reached)", extra=manager.logging_context()
+        )
+        send_slack_job_failure(
+            job_urn=job.urn,
+            job_function=job.job_function,
+            reason=stall_reason,
+            failure_category=str(FailureCategory.SYSTEM_ERROR),
+            retry_count=job.retry_count,
+            max_retries=job.max_retries,
+            will_retry=False,
         )
         return False
 
@@ -163,6 +181,15 @@ async def _handle_stalled_job_retry(
             ),
         )
         job.failure_category = FailureCategory.SYSTEM_ERROR  # Enqueue failures during cleanup are not retryable
+        send_slack_job_failure(
+            job_urn=job.urn,
+            job_function=job.job_function,
+            reason=error_msg,
+            failure_category=str(FailureCategory.SYSTEM_ERROR),
+            retry_count=job.retry_count,
+            max_retries=job.max_retries,
+            will_retry=False,
+        )
         return False
 
 

@@ -97,26 +97,38 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
         # Execute the async function
         result = await func(*args, **kwargs)
 
-        # Move job to final state based on result status
+        # Refresh job state after function execution
+        job = job_manager.get_job()
+
+        # Check retry eligibility before transitioning state — job.status is still RUNNING here.
+        # Use result.status (the intended next state) to determine whether a retry is applicable.
+        will_retry = result.status in {JobStatus.FAILED, JobStatus.ERRORED} and job_manager.should_retry()
+
         if result.status == JobStatus.FAILED:
             job_manager.fail_job(result=result)
-            job = job_manager.get_job()
-            send_slack_job_failure(
-                job_urn=job.urn,
-                job_function=job.job_function,
-                reason=result.error or "",
-                failure_category=str(result.failure_category or ""),
-            )
+            if not will_retry:
+                send_slack_job_failure(
+                    job_urn=job.urn,
+                    job_function=job.job_function,
+                    reason=result.error or "",
+                    failure_category=str(result.failure_category or ""),
+                    retry_count=job.retry_count,
+                    max_retries=job.max_retries,
+                    will_retry=False,
+                )
 
         elif result.status == JobStatus.ERRORED:
             job_manager.error_job(result=result)
-            job = job_manager.get_job()
-            send_slack_job_error(
-                job_urn=job.urn,
-                job_function=job.job_function,
-                err=result.exception or Exception(result.error or "Unknown error"),
-                failure_category=str(result.failure_category or ""),
-            )
+            if not will_retry:
+                send_slack_job_error(
+                    job_urn=job.urn,
+                    job_function=job.job_function,
+                    err=result.exception or Exception(result.error or "Unknown error"),
+                    failure_category=str(result.failure_category or ""),
+                    retry_count=job.retry_count,
+                    max_retries=job.max_retries,
+                    will_retry=False,
+                )
 
         elif result.status == JobStatus.SKIPPED:
             job_manager.skip_job(result=result)
@@ -124,8 +136,7 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
             job_manager.succeed_job(result=result)
         db_session.commit()
 
-        # If the job is not marked as succeeded, check if we should retry
-        if job_manager.get_job_status() != JobStatus.SUCCEEDED and job_manager.should_retry():
+        if will_retry:
             await job_manager.prepare_retry(reason="Job did not complete successfully")
             db_session.commit()
 
@@ -133,6 +144,7 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
 
     except Exception as e:
         # Prioritize salvaging lifecycle state
+        will_retry = False
         try:
             db_session.rollback()
 
@@ -144,6 +156,8 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
             db_session.commit()
 
             if job_manager.should_retry():
+                will_retry = True
+
                 # Prepare job for retry and persist state
                 await job_manager.prepare_retry(reason=str(e))
                 db_session.commit()
@@ -159,18 +173,22 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
             # Re-raise the outer exception immediately to prevent duplicate notifications
         finally:
             logger.error(f"Job {job_id} failed: {e}")
-            # Best-effort: get job context for a richer alert, fall back to the plain error alert
-            # if job_manager was never assigned or the DB is unavailable.
-            try:
-                job = job_manager.get_job()
-                send_slack_job_error(
-                    job_urn=job.urn,
-                    job_function=job.job_function,
-                    err=e,
-                    failure_category=str(classify_exception(e)),
-                )
-            except Exception:
-                send_slack_error(e)
+            # Only alert when the job is permanently terminal — if it will retry,
+            # the next attempt may succeed and no human action is required.
+            if not will_retry:
+                try:
+                    job = job_manager.get_job()
+                    send_slack_job_error(
+                        job_urn=job.urn,
+                        job_function=job.job_function,
+                        err=e,
+                        failure_category=str(classify_exception(e)),
+                        retry_count=job.retry_count,
+                        max_retries=job.max_retries,
+                        will_retry=False,
+                    )
+                except Exception:
+                    send_slack_error(e)
 
             # Swallow the exception after alerting so ARQ can finish the job cleanly and log results.
             # We don't mind that we lose ARQs built in job marking, since we perform our own job
