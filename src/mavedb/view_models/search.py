@@ -1,4 +1,5 @@
 from typing import Optional
+from pydantic import model_validator
 
 from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.score_set import ShortScoreSet
@@ -36,6 +37,16 @@ class ScoreSetsSearch(BaseModel):
     offset: Optional[int] = None
     limit: Optional[int] = None
 
+    # TODO#XXX - Remove validator after consumers have had a chance to update
+    @model_validator(mode="before")
+    @classmethod
+    def reject_deprecated_keywords(cls, data):
+        if isinstance(data, dict) and ("keywords" in data or "Keywords" in data):
+            raise ValueError(
+                "'keywords' is no longer supported. Use 'controlled_keywords' with "
+                "a list of {key, label} objects to filter by specific keyword groups."
+            )
+        return data
 
 class ScoreSetsSearchResponse(BaseModel):
     score_sets: list[ShortScoreSet]
