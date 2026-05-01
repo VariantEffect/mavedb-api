@@ -9,6 +9,8 @@ from slack_sdk.webhook import WebhookClient
 
 logger = logging.getLogger(__name__)
 
+_BLOCK_TEXT_MAX = 2000
+
 
 def find_traceback_locations():
     _, _, tb = sys.exc_info()
@@ -20,21 +22,21 @@ def find_traceback_locations():
     ]
 
 
-def send_slack_message(text: str):
+def _send_slack_blocks(fallback_text: str, blocks: list[dict]) -> None:
+    """Send a Slack message with Block Kit formatting. Falls back to print when no webhook URL is set."""
     slack_webhook_url = os.getenv("SLACK_WEBHOOK_URL")
-    if slack_webhook_url is not None and len(slack_webhook_url) > 0:
+    if slack_webhook_url:
         client = WebhookClient(url=slack_webhook_url)
-        client.send(
-            text=text,
-            blocks=[
-                {
-                    "type": "section",
-                    "text": {"type": "plain_text", "text": text},
-                }
-            ],
-        )
+        client.send(text=fallback_text, blocks=blocks)
     else:
-        print(f"EXCEPTION_HANDLER: {text}")
+        print(f"SLACK: {fallback_text}")
+
+
+def send_slack_message(text: str):
+    _send_slack_blocks(
+        fallback_text=text,
+        blocks=[{"type": "section", "text": {"type": "plain_text", "text": text}}],
+    )
 
 
 def send_slack_error(err, request=None):
@@ -49,6 +51,87 @@ def send_slack_error(err, request=None):
         send_slack_message(text)
     except Exception:
         logger.critical("Failed to send Slack error notification", exc_info=True)
+
+
+def send_slack_job_failure(
+    job_urn: str,
+    job_function: str,
+    reason: str,
+    failure_category: str,
+) -> None:
+    """Send a structured Slack alert for a controlled job failure (FAILED outcome)."""
+    try:
+        blocks: list[dict] = [
+            {"type": "header", "text": {"type": "plain_text", "text": "⚠️ Job Failed"}},
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Job URN*\n`{job_urn}`"},
+                    {"type": "mrkdwn", "text": f"*Function*\n`{job_function}`"},
+                    {"type": "mrkdwn", "text": f"*Category*\n{failure_category or 'unknown'}"},
+                ],
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Reason*\n{reason or 'No reason provided'}"[:_BLOCK_TEXT_MAX],
+                },
+            },
+        ]
+        fallback = f"Job Failed: {job_urn} ({job_function}) — {reason}"
+        _send_slack_blocks(fallback, blocks)
+    except Exception:
+        logger.critical("Failed to send Slack job failure notification", exc_info=True)
+
+
+def send_slack_job_error(
+    job_urn: str,
+    job_function: str,
+    err: Exception,
+    failure_category: str = "",
+) -> None:
+    """Send a structured Slack alert for an unhandled job exception (ERRORED outcome)."""
+    try:
+        locations = find_traceback_locations()
+        location_lines = [f"`{fn}:{lineno}` in `{name}`" for fn, lineno, name in locations]
+
+        blocks: list[dict] = [
+            {"type": "header", "text": {"type": "plain_text", "text": "\U0001f6a8 Job Errored"}},
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Job URN*\n`{job_urn}`"},
+                    {"type": "mrkdwn", "text": f"*Function*\n`{job_function}`"},
+                    {"type": "mrkdwn", "text": f"*Exception*\n`{err.__class__.__name__}`"},
+                    {"type": "mrkdwn", "text": f"*Category*\n{failure_category or 'unknown'}"},
+                ],
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Message*\n```{str(err)}```"[:_BLOCK_TEXT_MAX],
+                },
+            },
+        ]
+        if location_lines:
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": ("*Location*\n" + "\n".join(location_lines))[:_BLOCK_TEXT_MAX],
+                    },
+                }
+            )
+
+        fallback = f"Job Errored: {job_urn} ({job_function}) — {err.__class__.__name__}: {err}"
+        _send_slack_blocks(fallback, blocks)
+    except Exception:
+        logger.critical("Failed to send Slack job error notification", exc_info=True)
 
 
 def log_and_send_slack_message(msg: str, ctx: dict[str, Any], level: int):

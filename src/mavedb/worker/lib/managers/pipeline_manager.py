@@ -248,11 +248,11 @@ class PipelineManager(BaseManager):
             JobStateError: Cannot update pipeline status or corrupted job data
 
         Status Logic:
-        - FAILED: Any job has FAILED or ERRORED status
-        - RUNNING: Any job is RUNNING or QUEUED
-        - SUCCEEDED: All jobs are SUCCEEDED
-        - PARTIAL: Mix of SUCCEEDED/SKIPPED/CANCELLED with no FAILED/RUNNING
-        - CANCELLED: All remaining jobs are CANCELLED
+        - FAILED: Any job ERRORED, or a non-leaf job FAILED
+        - RUNNING: Any job is RUNNING or QUEUED (and no non-leaf FAILED/ERRORED)
+        - SUCCEEDED: All jobs SUCCEEDED
+        - PARTIAL: All jobs terminal with mix of SUCCEEDED/FAILED(leaf)/SKIPPED/CANCELLED
+        - CANCELLED: All remaining jobs are CANCELLED or SKIPPED with no SUCCEEDED
         - No Change: If pipeline is PAUSED, CANCELLED, or has no jobs: status remains unchanged
 
         Example:
@@ -286,43 +286,7 @@ class PipelineManager(BaseManager):
 
         # The pipeline is not in a terminal state and has jobs - determine new status
         try:
-            if status_counts.get(JobStatus.FAILED, 0) > 0 or status_counts.get(JobStatus.ERRORED, 0) > 0:
-                new_status = PipelineStatus.FAILED
-            elif status_counts.get(JobStatus.RUNNING, 0) > 0 or status_counts.get(JobStatus.QUEUED, 0) > 0:
-                new_status = PipelineStatus.RUNNING
-
-            # Pending jobs still exist, don't change the status.
-            # These might be picked up soon, or they may be proactively
-            # skipped later if dependencies cannot be met.
-            #
-            # Although there is a tension between having only pending
-            # and succeeded jobs (which would suggest partial/succeeded),
-            # we leave the status as-is until jobs are actually processed.
-            #
-            # *A pipeline with a terminal status must not have pending jobs*
-            elif status_counts.get(JobStatus.PENDING, 0) > 0:
-                new_status = old_status
-
-            elif status_counts.get(JobStatus.SUCCEEDED, 0) > 0:
-                succeeded_jobs = status_counts.get(JobStatus.SUCCEEDED, 0)
-                skipped_jobs = status_counts.get(JobStatus.SKIPPED, 0)
-                cancelled_jobs = status_counts.get(JobStatus.CANCELLED, 0)
-
-                if succeeded_jobs == total_jobs:
-                    new_status = PipelineStatus.SUCCEEDED
-                    logger.debug(f"All jobs succeeded in pipeline {self.pipeline_id}")
-                elif (succeeded_jobs + skipped_jobs + cancelled_jobs) == total_jobs:
-                    new_status = PipelineStatus.PARTIAL
-                    logger.debug(f"Pipeline {self.pipeline_id} completed partially: {status_counts}")
-                else:
-                    new_status = PipelineStatus.PARTIAL
-                    logger.warning(f"Inconsistent job counts detected for pipeline {self.pipeline_id}: {status_counts}")
-                    send_slack_message(
-                        f"Inconsistent job counts detected for pipeline {self.pipeline_id}: {status_counts}"
-                    )
-
-            else:
-                new_status = PipelineStatus.CANCELLED
+            new_status = self._compute_new_status(old_status, status_counts, total_jobs)
 
             if pipeline.status != new_status:
                 self.set_pipeline_status(new_status)
@@ -337,6 +301,116 @@ class PipelineManager(BaseManager):
             logger.debug(f"No status change for pipeline {self.pipeline_id} (remains {old_status})")
 
         return new_status
+
+    def _compute_new_status(
+        self,
+        old_status: PipelineStatus,
+        status_counts: dict[JobStatus, int],
+        total_jobs: int,
+    ) -> PipelineStatus:
+        """Determine the new pipeline status from the current job status distribution.
+
+        Called by transition_pipeline_status after guard clauses (terminal, paused, no-jobs)
+        have been checked. Dispatches to _compute_status_with_leaf_failures when all
+        failed jobs are leaves, allowing sibling jobs to continue running.
+
+        Args:
+            old_status: The pipeline's current status (used as fallback when pending jobs exist).
+            status_counts: Mapping of JobStatus to job count for this pipeline.
+            total_jobs: Total number of jobs in the pipeline (sum of status_counts).
+
+        Returns:
+            PipelineStatus: The new pipeline status.
+        """
+        if status_counts.get(JobStatus.ERRORED, 0) > 0:
+            return PipelineStatus.FAILED
+
+        if status_counts.get(JobStatus.FAILED, 0) > 0:
+            failed_jobs = self.get_failed_jobs()
+            if any(not self.is_leaf_job(job) for job in failed_jobs):
+                return PipelineStatus.FAILED
+            # All failures are leaf failures — delegate to leaf-aware logic so that
+            # sibling jobs can continue running rather than failing the pipeline.
+            return self._compute_status_with_leaf_failures(old_status, status_counts, total_jobs)
+
+        if status_counts.get(JobStatus.RUNNING, 0) > 0 or status_counts.get(JobStatus.QUEUED, 0) > 0:
+            return PipelineStatus.RUNNING
+
+        # Pending jobs still exist, don't change the status.
+        # These might be picked up soon, or they may be proactively
+        # skipped later if dependencies cannot be met.
+        #
+        # Although there is a tension between having only pending
+        # and succeeded jobs (which would suggest partial/succeeded),
+        # we leave the status as-is until jobs are actually processed.
+        #
+        # *A pipeline with a terminal status must not have pending jobs*
+        if status_counts.get(JobStatus.PENDING, 0) > 0:
+            return old_status
+
+        if status_counts.get(JobStatus.SUCCEEDED, 0) > 0:
+            succeeded = status_counts.get(JobStatus.SUCCEEDED, 0)
+            failed = status_counts.get(JobStatus.FAILED, 0)
+            skipped = status_counts.get(JobStatus.SKIPPED, 0)
+            cancelled = status_counts.get(JobStatus.CANCELLED, 0)
+
+            if succeeded == total_jobs:
+                logger.debug(f"All jobs succeeded in pipeline {self.pipeline_id}")
+                return PipelineStatus.SUCCEEDED
+
+            if (succeeded + failed + skipped + cancelled) == total_jobs:
+                # All FAILED jobs here are leaves (non-leaf FAILED would have returned FAILED above)
+                logger.debug(f"Pipeline {self.pipeline_id} completed partially: {status_counts}")
+                return PipelineStatus.PARTIAL
+
+            logger.warning(f"Inconsistent job counts detected for pipeline {self.pipeline_id}: {status_counts}")
+            send_slack_message(f"Inconsistent job counts detected for pipeline {self.pipeline_id}: {status_counts}")
+            return PipelineStatus.PARTIAL
+
+        return PipelineStatus.CANCELLED
+
+    def _compute_status_with_leaf_failures(
+        self,
+        old_status: PipelineStatus,
+        status_counts: dict[JobStatus, int],
+        total_jobs: int,
+    ) -> PipelineStatus:
+        """Determine pipeline status when all failed jobs are leaves (no dependents).
+
+        Leaf failures do not fail the pipeline. The pipeline stays RUNNING while sibling
+        jobs are still active, and settles to PARTIAL (not FAILED) once all jobs are
+        terminal. This mirrors the no-failure path in _compute_new_status, but skips the
+        SUCCEEDED case since at least one FAILED job is present.
+
+        Args:
+            old_status: The pipeline's current status (used as fallback when pending jobs exist).
+            status_counts: Mapping of JobStatus to job count for this pipeline.
+            total_jobs: Total number of jobs in the pipeline (sum of status_counts).
+
+        Returns:
+            PipelineStatus: RUNNING, old_status (no change), PARTIAL, or CANCELLED.
+        """
+        if status_counts.get(JobStatus.RUNNING, 0) > 0 or status_counts.get(JobStatus.QUEUED, 0) > 0:
+            return PipelineStatus.RUNNING
+
+        if status_counts.get(JobStatus.PENDING, 0) > 0:
+            return old_status
+
+        if status_counts.get(JobStatus.SUCCEEDED, 0) > 0:
+            succeeded = status_counts.get(JobStatus.SUCCEEDED, 0)
+            failed = status_counts.get(JobStatus.FAILED, 0)
+            skipped = status_counts.get(JobStatus.SKIPPED, 0)
+            cancelled = status_counts.get(JobStatus.CANCELLED, 0)
+
+            if (succeeded + failed + skipped + cancelled) == total_jobs:
+                logger.debug(f"Pipeline {self.pipeline_id} completed partially with leaf failures: {status_counts}")
+                return PipelineStatus.PARTIAL
+
+            logger.warning(f"Inconsistent job counts detected for pipeline {self.pipeline_id}: {status_counts}")
+            send_slack_message(f"Inconsistent job counts detected for pipeline {self.pipeline_id}: {status_counts}")
+            return PipelineStatus.PARTIAL
+
+        return PipelineStatus.CANCELLED
 
     async def enqueue_ready_jobs(self) -> None:
         """Find and enqueue all jobs that are ready to run.
@@ -938,6 +1012,71 @@ class PipelineManager(BaseManager):
         except SQLAlchemyError as e:
             logger.debug(f"SQL query failed for dependencies of job {job.id}: {e}")
             raise DatabaseConnectionError(f"Failed to get job dependencies for job {job.id}: {e}")
+
+    def get_dependents_for_job(self, job: JobRun) -> Sequence[JobRun]:
+        """Get all jobs in this pipeline that depend on the given job.
+
+        Args:
+            job: The upstream JobRun to find dependents for
+
+        Returns:
+            Sequence[JobRun]: Jobs in this pipeline that list job as a dependency
+
+        Raises:
+            DatabaseConnectionError: Cannot query job dependency information
+        """
+        try:
+            return (
+                self.db.execute(
+                    select(JobRun)
+                    .join(JobDependency, JobDependency.id == JobRun.id)
+                    .where(
+                        JobDependency.depends_on_job_id == job.id,
+                        JobRun.pipeline_id == self.pipeline_id,
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        except SQLAlchemyError as e:
+            logger.debug(f"SQL query failed for dependents of job {job.id}: {e}")
+            raise DatabaseConnectionError(f"Failed to get job dependents for job {job.id}: {e}")
+
+    def is_leaf_job(self, job: JobRun) -> bool:
+        """Return True if no other job in this pipeline depends on job.
+
+        Args:
+            job: JobRun to check
+
+        Returns:
+            bool: True if job has no dependents in this pipeline
+        """
+        return len(self.get_dependents_for_job(job)) == 0
+
+    def get_failed_leaf_jobs(self) -> list[JobRun]:
+        """Get all failed jobs in this pipeline that are leaves (no dependents).
+
+        Returns:
+            list[JobRun]: Failed jobs with no dependents in this pipeline
+
+        Raises:
+            DatabaseConnectionError: Cannot query job or dependency information
+        """
+        try:
+            non_leaf_ids = set(
+                self.db.execute(
+                    select(JobDependency.depends_on_job_id)
+                    .join(JobRun, JobDependency.id == JobRun.id)
+                    .where(JobRun.pipeline_id == self.pipeline_id)
+                )
+                .scalars()
+                .all()
+            )
+        except SQLAlchemyError as e:
+            logger.debug(f"SQL query failed getting non-leaf job IDs for pipeline {self.pipeline_id}: {e}")
+            raise DatabaseConnectionError(f"Failed to get non-leaf job IDs for pipeline {self.pipeline_id}: {e}")
+
+        return [job for job in self.get_failed_jobs() if job.id not in non_leaf_ids]
 
     def get_pipeline(self) -> Pipeline:
         """Get the Pipeline instance for this manager.

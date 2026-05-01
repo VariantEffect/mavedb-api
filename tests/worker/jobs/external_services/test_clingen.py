@@ -759,13 +759,13 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         with (
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", ""),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_send_slack_job_failure,
         ):
             result = await submit_score_set_mappings_to_car(
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_failure.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
@@ -844,13 +844,13 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_send_slack_job_failure,
         ):
             result = await submit_score_set_mappings_to_car(
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_failure.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
@@ -905,13 +905,13 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_send_slack_job_failure,
         ):
             result = await submit_score_set_mappings_to_car(
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_failure.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
@@ -1127,13 +1127,13 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             result = await submit_score_set_mappings_to_car(
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.ERRORED
         assert isinstance(result.exception, Exception)
@@ -1326,7 +1326,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
                 "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
                 side_effect=Exception("ClinGen service error"),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             await arq_redis.enqueue_job(
                 "submit_score_set_mappings_to_car", submit_score_set_mappings_to_car_sample_job_run.id
@@ -1334,7 +1334,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
         assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.ERRORED
@@ -1385,7 +1385,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
                 "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
                 side_effect=Exception("ClinGen service error"),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             await arq_redis.enqueue_job(
                 "submit_score_set_mappings_to_car", submit_score_set_mappings_to_car_sample_job_run_in_pipeline.id
@@ -1393,7 +1393,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run_in_pipeline)
         assert submit_score_set_mappings_to_car_sample_job_run_in_pipeline.status == JobStatus.ERRORED
@@ -1878,13 +1878,13 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
                 side_effect=Exception("LDH service error"),
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             result = await submit_score_set_mappings_to_ldh(
                 standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
             )
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.ERRORED
         assert isinstance(result.exception, Exception)
@@ -2030,13 +2030,13 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
                 return_value=dummy_submission_failure(),
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_send_slack_job_failure,
         ):
             result = await submit_score_set_mappings_to_ldh(
                 standalone_worker_context, submit_score_set_mappings_to_ldh_sample_job_run.id
             )
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_failure.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
@@ -2387,7 +2387,7 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
                 "run_in_executor",
                 side_effect=Exception("LDH service error"),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             await arq_redis.enqueue_job(
                 "submit_score_set_mappings_to_ldh", submit_score_set_mappings_to_ldh_sample_job_run.id
@@ -2395,7 +2395,7 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
         # Verify no annotation statuses were created
         annotation_statuses = session.scalars(
             select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "ldh_submission")
@@ -2442,7 +2442,7 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
                 "run_in_executor",
                 side_effect=Exception("LDH service error"),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             await arq_redis.enqueue_job(
                 "submit_score_set_mappings_to_ldh", submit_score_set_mappings_to_ldh_sample_job_run_in_pipeline.id
@@ -2450,7 +2450,7 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
         # Verify no annotation statuses were created
         annotation_statuses = session.scalars(
             select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "ldh_submission")

@@ -1027,14 +1027,14 @@ class TestMapVariantsForScoreSetIntegration:
         # with return value from run_in_executor.
         with (
             patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=dummy_mapping_job()),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_send_slack_job_failure,
         ):
             result = await map_variants_for_score_set(
                 mock_worker_ctx,
                 sample_independent_variant_mapping_run.id,
             )
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_failure.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
@@ -1106,14 +1106,14 @@ class TestMapVariantsForScoreSetIntegration:
                 "run_in_executor",
                 return_value=dummy_mapping_job(),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_send_slack_job_failure,
         ):
             result = await map_variants_for_score_set(
                 mock_worker_ctx,
                 sample_independent_variant_mapping_run.id,
             )
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_failure.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
@@ -1183,14 +1183,14 @@ class TestMapVariantsForScoreSetIntegration:
                 "run_in_executor",
                 return_value=dummy_mapping_job(),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_send_slack_job_failure,
         ):
             result = await map_variants_for_score_set(
                 mock_worker_ctx,
                 sample_independent_variant_mapping_run.id,
             )
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_failure.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
@@ -1366,14 +1366,14 @@ class TestMapVariantsForScoreSetIntegration:
                 "run_in_executor",
                 return_value=dummy_mapping_job(),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_send_slack_job_failure,
         ):
             result = await map_variants_for_score_set(
                 mock_worker_ctx,
                 sample_independent_variant_mapping_run.id,
             )
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_failure.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
@@ -1418,14 +1418,14 @@ class TestMapVariantsForScoreSetIntegration:
                 "run_in_executor",
                 return_value=dummy_mapping_job(),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             result = await map_variants_for_score_set(
                 mock_worker_ctx,
                 sample_independent_variant_mapping_run.id,
             )
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.ERRORED
         assert isinstance(result.exception, ValueError)
@@ -1667,13 +1667,13 @@ class TestMapVariantsForScoreSetArqContext:
                 "run_in_executor",
                 return_value=dummy_mapping_job(),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             await arq_redis.enqueue_job("map_variants_for_score_set", sample_independent_variant_mapping_run.id)
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
         assert sample_score_set.mapping_state == MappingState.failed
         assert sample_score_set.mapping_errors is not None
         # but replaced with generic error message for external visibility
@@ -1721,13 +1721,13 @@ class TestMapVariantsForScoreSetArqContext:
                 "run_in_executor",
                 return_value=dummy_mapping_job(),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             await arq_redis.enqueue_job("map_variants_for_score_set", sample_pipeline_variant_mapping_run.id)
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
         assert sample_score_set.mapping_state == MappingState.failed
         assert sample_score_set.mapping_errors is not None
         # but replaced with generic error message for external visibility

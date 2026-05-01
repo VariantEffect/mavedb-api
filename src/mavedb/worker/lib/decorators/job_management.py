@@ -13,7 +13,7 @@ from typing import Any, Awaitable, Callable, TypeVar, cast
 from arq import ArqRedis
 from sqlalchemy.orm import Session
 
-from mavedb.lib.slack import send_slack_error
+from mavedb.lib.slack import send_slack_error, send_slack_job_error, send_slack_job_failure
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.worker.lib.decorators.utils import ensure_ctx, ensure_job_id, ensure_session_ctx, is_test_mode
@@ -100,12 +100,23 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
         # Move job to final state based on result status
         if result.status == JobStatus.FAILED:
             job_manager.fail_job(result=result)
-            if result.error:
-                send_slack_error(result.error)
+            job = job_manager.get_job()
+            send_slack_job_failure(
+                job_urn=job.urn,
+                job_function=job.job_function,
+                reason=result.error or "",
+                failure_category=str(result.failure_category or ""),
+            )
 
         elif result.status == JobStatus.ERRORED:
             job_manager.error_job(result=result)
-            send_slack_error(result.exception or result.error)
+            job = job_manager.get_job()
+            send_slack_job_error(
+                job_urn=job.urn,
+                job_function=job.job_function,
+                err=result.exception or Exception(result.error or "Unknown error"),
+                failure_category=str(result.failure_category or ""),
+            )
 
         elif result.status == JobStatus.SKIPPED:
             job_manager.skip_job(result=result)
@@ -148,7 +159,18 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
             # Re-raise the outer exception immediately to prevent duplicate notifications
         finally:
             logger.error(f"Job {job_id} failed: {e}")
-            send_slack_error(e)
+            # Best-effort: get job context for a richer alert, fall back to the plain error alert
+            # if job_manager was never assigned or the DB is unavailable.
+            try:
+                job = job_manager.get_job()
+                send_slack_job_error(
+                    job_urn=job.urn,
+                    job_function=job.job_function,
+                    err=e,
+                    failure_category=str(classify_exception(e)),
+                )
+            except Exception:
+                send_slack_error(e)
 
             # Swallow the exception after alerting so ARQ can finish the job cleanly and log results.
             # We don't mind that we lose ARQs built in job marking, since we perform our own job

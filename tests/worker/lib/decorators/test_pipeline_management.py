@@ -464,7 +464,7 @@ class TestPipelineManagementDecoratorIntegration:
             return JobExecutionOutcome.succeeded()
 
         # job management handles slack alerting in this context
-        with patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error:
+        with patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error:
             # Start the job (it will block at event.wait())
             job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))
 
@@ -481,7 +481,7 @@ class TestPipelineManagementDecoratorIntegration:
             event.set()
             await job_task
 
-            mock_send_slack_error.assert_called_once()
+            mock_send_slack_job_error.assert_called_once()
 
         # After failure with retry, status should be QUEUED
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
@@ -563,7 +563,7 @@ class TestPipelineManagementDecoratorIntegration:
             raise RuntimeError("Simulated job failure")
 
         # job management handles slack alerting in this context
-        with patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error:
+        with patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error:
             # Start the job (it will block at event.wait())
             job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))
 
@@ -581,7 +581,7 @@ class TestPipelineManagementDecoratorIntegration:
             event.set()
             await job_task
 
-            mock_send_slack_error.assert_called_once()
+            mock_send_slack_job_error.assert_called_once()
 
         # After failure with no retry, status should be ERRORED (unhandled exception)
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()

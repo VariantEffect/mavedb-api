@@ -414,6 +414,110 @@ class TestCoordinatePipelineIntegration:
         job = session.execute(select(JobRun).where(JobRun.id == sample_dependent_job_run.id)).scalar_one()
         assert job.status == JobStatus.PENDING
 
+    @pytest.mark.asyncio
+    async def test_coordinate_pipeline_leaf_failure_keeps_pipeline_running_and_enqueues_siblings(
+        self,
+        session,
+        arq_redis,
+        with_populated_job_data,
+        sample_pipeline,
+        sample_job_run,
+        sample_dependent_job_run,
+    ):
+        """A FAILED leaf job does not cancel siblings — the pipeline stays RUNNING and enqueues ready jobs.
+
+        Setup:
+        - sample_job_run (id=1): SUCCEEDED — non-leaf (sample_dependent_job_run depends on it)
+        - sample_dependent_job_run (id=2): FAILED — leaf (nothing depends on it)
+        - sibling_job (id=10): PENDING leaf, should be enqueued after coordination
+        """
+        manager = PipelineManager(session, arq_redis, sample_pipeline.id)
+        manager.set_pipeline_status(PipelineStatus.RUNNING)
+
+        sibling_job = JobRun(
+            id=10,
+            urn="test:job:10",
+            job_type="sibling_job",
+            job_function="sibling_function",
+            status=JobStatus.PENDING,
+            pipeline_id=sample_pipeline.id,
+        )
+        session.add(sibling_job)
+        sample_job_run.status = JobStatus.SUCCEEDED
+        sample_dependent_job_run.status = JobStatus.FAILED
+        session.commit()
+
+        with (
+            TransactionSpy.spy(session, expect_flush=True, expect_commit=True),
+            patch.object(manager, "cancel_remaining_jobs", wraps=manager.cancel_remaining_jobs) as mock_cancel,
+        ):
+            await manager.coordinate_pipeline()
+
+        mock_cancel.assert_not_called()
+        assert manager.get_pipeline().status == PipelineStatus.RUNNING
+        sibling = session.execute(select(JobRun).where(JobRun.id == sibling_job.id)).scalar_one()
+        assert sibling.status == JobStatus.QUEUED
+
+    @pytest.mark.asyncio
+    async def test_coordinate_pipeline_leaf_failure_terminal_state_is_partial(
+        self,
+        session,
+        arq_redis,
+        with_populated_job_data,
+        sample_pipeline,
+        sample_job_run,
+        sample_dependent_job_run,
+    ):
+        """When all jobs are terminal with only leaf failures, the pipeline ends PARTIAL.
+
+        Setup:
+        - sample_job_run (id=1): SUCCEEDED — non-leaf
+        - sample_dependent_job_run (id=2): FAILED — leaf
+        No pending/running jobs remain, so the pipeline must settle into a terminal state.
+        """
+        manager = PipelineManager(session, arq_redis, sample_pipeline.id)
+        manager.set_pipeline_status(PipelineStatus.RUNNING)
+
+        sample_job_run.status = JobStatus.SUCCEEDED
+        sample_dependent_job_run.status = JobStatus.FAILED
+        session.commit()
+
+        with (
+            TransactionSpy.spy(session, expect_flush=True),
+            patch.object(manager, "cancel_remaining_jobs", wraps=manager.cancel_remaining_jobs) as mock_cancel,
+        ):
+            await manager.coordinate_pipeline()
+
+        mock_cancel.assert_not_called()
+        assert manager.get_pipeline().status == PipelineStatus.PARTIAL
+
+    @pytest.mark.asyncio
+    async def test_coordinate_pipeline_errored_leaf_job_fails_pipeline(
+        self,
+        session,
+        arq_redis,
+        with_populated_job_data,
+        sample_pipeline,
+        sample_job_run,
+        sample_dependent_job_run,
+    ):
+        """An ERRORED leaf job always fails the pipeline and cancels remaining jobs."""
+        manager = PipelineManager(session, arq_redis, sample_pipeline.id)
+        manager.set_pipeline_status(PipelineStatus.RUNNING)
+
+        sample_job_run.status = JobStatus.SUCCEEDED
+        sample_dependent_job_run.status = JobStatus.ERRORED
+        session.commit()
+
+        with (
+            TransactionSpy.spy(session, expect_flush=True),
+            patch.object(manager, "cancel_remaining_jobs", wraps=manager.cancel_remaining_jobs) as mock_cancel,
+        ):
+            await manager.coordinate_pipeline()
+
+        mock_cancel.assert_called_once()
+        assert manager.get_pipeline().status == PipelineStatus.FAILED
+
 
 @pytest.mark.unit
 class TestTransitionPipelineStatusUnit:
@@ -480,8 +584,11 @@ class TestTransitionPipelineStatusUnit:
     @pytest.mark.parametrize(
         "job_counts,expected_status",
         [
-            # Any failure trumps everything
+            # Non-leaf FAILED job always fails the pipeline (is_leaf_job=False below)
             ({JobStatus.SUCCEEDED: 10, JobStatus.FAILED: 1}, PipelineStatus.FAILED),
+            # ERRORED job always fails the pipeline regardless of topology
+            ({JobStatus.SUCCEEDED: 10, JobStatus.ERRORED: 1}, PipelineStatus.FAILED),
+            ({JobStatus.ERRORED: 1}, PipelineStatus.FAILED),
             # Running or queued jobs without failures keep pipeline running
             ({JobStatus.SUCCEEDED: 5, JobStatus.FAILED: 0, JobStatus.RUNNING: 2}, PipelineStatus.RUNNING),
             ({JobStatus.SUCCEEDED: 5, JobStatus.FAILED: 0, JobStatus.QUEUED: 3}, PipelineStatus.RUNNING),
@@ -503,13 +610,21 @@ class TestTransitionPipelineStatusUnit:
     def test_pipeline_status_determination_based_on_job_counts(
         self, mock_pipeline_manager, job_counts, expected_status, mock_pipeline
     ):
-        """Test pipeline status determination based on job counts."""
+        """Test pipeline status determination based on job counts.
+
+        For FAILED cases, is_leaf_job is patched to return False (non-leaf),
+        so the pipeline always transitions to FAILED on job failure.
+        Leaf-failure topology is covered in TestLeafJobFailureUnit.
+        """
         mock_pipeline.status = PipelineStatus.CREATED
         mock_pipeline.finished_at = None
+        mock_failed_job = Mock(spec=JobRun, id=1)
 
         with (
             patch.object(mock_pipeline_manager, "get_job_counts_by_status", return_value=job_counts),
             patch.object(mock_pipeline_manager, "set_pipeline_status", return_value=None) as mock_set_status,
+            patch.object(mock_pipeline_manager, "get_failed_jobs", return_value=[mock_failed_job]),
+            patch.object(mock_pipeline_manager, "is_leaf_job", return_value=False),
             TransactionSpy.spy(mock_pipeline_manager.db),
         ):
             result = mock_pipeline_manager.transition_pipeline_status()
@@ -597,6 +712,91 @@ class TestTransitionPipelineStatusUnit:
             assert result == PipelineStatus.SUCCEEDED
 
         mock_set_status.assert_not_called()
+
+    def test_leaf_failed_job_keeps_pipeline_running_when_siblings_active(self, mock_pipeline_manager, mock_pipeline):
+        """A FAILED leaf job keeps the pipeline RUNNING if active sibling jobs remain."""
+        mock_pipeline.status = PipelineStatus.RUNNING
+        mock_failed_job = Mock(spec=JobRun, id=1)
+
+        with (
+            patch.object(
+                mock_pipeline_manager,
+                "get_job_counts_by_status",
+                return_value={JobStatus.FAILED: 1, JobStatus.RUNNING: 2},
+            ),
+            patch.object(mock_pipeline_manager, "get_failed_jobs", return_value=[mock_failed_job]),
+            patch.object(mock_pipeline_manager, "is_leaf_job", return_value=True),
+            patch.object(mock_pipeline_manager, "set_pipeline_status", return_value=None) as mock_set_status,
+            TransactionSpy.spy(mock_pipeline_manager.db),
+        ):
+            result = mock_pipeline_manager.transition_pipeline_status()
+
+        assert result == PipelineStatus.RUNNING
+        mock_set_status.assert_not_called()
+
+    def test_leaf_failed_job_yields_partial_when_all_jobs_terminal(self, mock_pipeline_manager, mock_pipeline):
+        """A FAILED leaf job with no remaining active jobs yields PARTIAL pipeline status."""
+        mock_pipeline.status = PipelineStatus.RUNNING
+        mock_failed_job = Mock(spec=JobRun, id=1)
+
+        with (
+            patch.object(
+                mock_pipeline_manager,
+                "get_job_counts_by_status",
+                return_value={JobStatus.SUCCEEDED: 5, JobStatus.FAILED: 1},
+            ),
+            patch.object(mock_pipeline_manager, "get_failed_jobs", return_value=[mock_failed_job]),
+            patch.object(mock_pipeline_manager, "is_leaf_job", return_value=True),
+            patch.object(mock_pipeline_manager, "set_pipeline_status", return_value=None) as mock_set_status,
+            TransactionSpy.spy(mock_pipeline_manager.db),
+        ):
+            result = mock_pipeline_manager.transition_pipeline_status()
+
+        assert result == PipelineStatus.PARTIAL
+        mock_set_status.assert_called_once_with(PipelineStatus.PARTIAL)
+
+    def test_non_leaf_failed_job_always_fails_pipeline(self, mock_pipeline_manager, mock_pipeline):
+        """A FAILED non-leaf job always transitions the pipeline to FAILED."""
+        mock_pipeline.status = PipelineStatus.RUNNING
+        mock_failed_job = Mock(spec=JobRun, id=1)
+
+        with (
+            patch.object(
+                mock_pipeline_manager,
+                "get_job_counts_by_status",
+                return_value={JobStatus.SUCCEEDED: 3, JobStatus.FAILED: 1},
+            ),
+            patch.object(mock_pipeline_manager, "get_failed_jobs", return_value=[mock_failed_job]),
+            patch.object(mock_pipeline_manager, "is_leaf_job", return_value=False),
+            patch.object(mock_pipeline_manager, "set_pipeline_status", return_value=None) as mock_set_status,
+            TransactionSpy.spy(mock_pipeline_manager.db),
+        ):
+            result = mock_pipeline_manager.transition_pipeline_status()
+
+        assert result == PipelineStatus.FAILED
+        mock_set_status.assert_called_once_with(PipelineStatus.FAILED)
+
+    def test_errored_job_always_fails_pipeline_regardless_of_topology(self, mock_pipeline_manager, mock_pipeline):
+        """An ERRORED job always transitions the pipeline to FAILED, never checked for leaf status."""
+        mock_pipeline.status = PipelineStatus.RUNNING
+
+        with (
+            patch.object(
+                mock_pipeline_manager,
+                "get_job_counts_by_status",
+                return_value={JobStatus.SUCCEEDED: 5, JobStatus.ERRORED: 1},
+            ),
+            patch.object(mock_pipeline_manager, "get_failed_jobs", return_value=[]) as mock_get_failed,
+            patch.object(mock_pipeline_manager, "is_leaf_job", return_value=True) as mock_is_leaf,
+            patch.object(mock_pipeline_manager, "set_pipeline_status", return_value=None) as mock_set_status,
+            TransactionSpy.spy(mock_pipeline_manager.db),
+        ):
+            result = mock_pipeline_manager.transition_pipeline_status()
+
+        assert result == PipelineStatus.FAILED
+        mock_set_status.assert_called_once_with(PipelineStatus.FAILED)
+        mock_get_failed.assert_not_called()
+        mock_is_leaf.assert_not_called()
 
 
 class TestTransitionPipelineStatusIntegration:
@@ -696,8 +896,10 @@ class TestTransitionPipelineStatusIntegration:
     @pytest.mark.parametrize(
         "initial_status,job_updates,expected_status",
         [
-            # Some failed -> failed
-            (PipelineStatus.CREATED, {1: JobStatus.SUCCEEDED, 2: JobStatus.FAILED}, PipelineStatus.FAILED),
+            # Non-leaf job (id=1) FAILED -> pipeline FAILED
+            (PipelineStatus.CREATED, {1: JobStatus.FAILED, 2: JobStatus.PENDING}, PipelineStatus.FAILED),
+            # Leaf job (id=2) FAILED, non-leaf SUCCEEDED -> PARTIAL (leaf failure does not fail the pipeline)
+            (PipelineStatus.CREATED, {1: JobStatus.SUCCEEDED, 2: JobStatus.FAILED}, PipelineStatus.PARTIAL),
             # Some running -> running
             (PipelineStatus.CREATED, {1: JobStatus.SUCCEEDED, 2: JobStatus.RUNNING}, PipelineStatus.RUNNING),
             # Some queued -> running
@@ -3826,3 +4028,383 @@ class TestPipelineManagerLifecycle:
         assert job.status == JobStatus.QUEUED
         queued_jobs = await arq_redis.queued_jobs()
         assert len(queued_jobs) == 2
+
+
+@pytest.mark.unit
+class TestGetDependentsForJobUnit:
+    """Unit tests for PipelineManager.get_dependents_for_job."""
+
+    def test_returns_dependent_jobs(self, mock_pipeline_manager):
+        """Returns jobs in this pipeline that list the given job as a dependency."""
+        mock_job = Mock(spec=JobRun, id=10)
+        mock_dependent = Mock(spec=JobRun, id=20)
+
+        mock_pipeline_manager.db.execute.return_value.scalars.return_value.all.return_value = [mock_dependent]
+
+        result = mock_pipeline_manager.get_dependents_for_job(mock_job)
+
+        assert result == [mock_dependent]
+
+    def test_raises_database_connection_error_on_sql_error(self, mock_pipeline_manager):
+        """Wraps SQLAlchemyError in DatabaseConnectionError."""
+        mock_job = Mock(spec=JobRun, id=10)
+        mock_pipeline_manager.db.execute.side_effect = SQLAlchemyError("db failure")
+
+        with pytest.raises(DatabaseConnectionError):
+            mock_pipeline_manager.get_dependents_for_job(mock_job)
+
+
+@pytest.mark.integration
+class TestGetDependentsForJobIntegration:
+    """Integration tests for PipelineManager.get_dependents_for_job."""
+
+    def test_returns_correct_dependents(
+        self,
+        session,
+        arq_redis,
+        with_populated_job_data,
+        sample_pipeline,
+        sample_job_run,
+        sample_dependent_job_run,
+    ):
+        """Returns the downstream jobs that depend on the given job."""
+        manager = PipelineManager(session, arq_redis, sample_pipeline.id)
+
+        dependents = manager.get_dependents_for_job(sample_job_run)
+        assert len(dependents) == 1
+        assert dependents[0].id == sample_dependent_job_run.id
+
+    def test_returns_empty_for_leaf_job(
+        self,
+        session,
+        arq_redis,
+        with_populated_job_data,
+        sample_pipeline,
+        sample_dependent_job_run,
+    ):
+        """Returns empty sequence when no jobs depend on the given job."""
+        manager = PipelineManager(session, arq_redis, sample_pipeline.id)
+
+        dependents = manager.get_dependents_for_job(sample_dependent_job_run)
+        assert len(dependents) == 0
+
+
+@pytest.mark.unit
+class TestIsLeafJobUnit:
+    """Unit tests for PipelineManager.is_leaf_job."""
+
+    def test_returns_true_when_no_dependents(self, mock_pipeline_manager):
+        """Returns True when get_dependents_for_job returns empty."""
+        mock_job = Mock(spec=JobRun, id=10)
+
+        with patch.object(mock_pipeline_manager, "get_dependents_for_job", return_value=[]):
+            assert mock_pipeline_manager.is_leaf_job(mock_job) is True
+
+    def test_returns_false_when_dependents_exist(self, mock_pipeline_manager):
+        """Returns False when job has at least one dependent."""
+        mock_job = Mock(spec=JobRun, id=10)
+        mock_dependent = Mock(spec=JobRun, id=20)
+
+        with patch.object(mock_pipeline_manager, "get_dependents_for_job", return_value=[mock_dependent]):
+            assert mock_pipeline_manager.is_leaf_job(mock_job) is False
+
+
+@pytest.mark.unit
+class TestGetFailedLeafJobsUnit:
+    """Unit tests for PipelineManager.get_failed_leaf_jobs."""
+
+    def test_excludes_non_leaf_failed_jobs(self, mock_pipeline_manager):
+        """Returns only failed jobs that have no dependents in this pipeline."""
+        leaf_job = Mock(spec=JobRun, id=1)
+        non_leaf_job = Mock(spec=JobRun, id=2)
+
+        with (
+            patch.object(mock_pipeline_manager, "get_failed_jobs", return_value=[leaf_job, non_leaf_job]),
+            patch.object(
+                mock_pipeline_manager.db,
+                "execute",
+                return_value=Mock(**{"scalars.return_value.all.return_value": [non_leaf_job.id]}),
+            ),
+        ):
+            result = mock_pipeline_manager.get_failed_leaf_jobs()
+
+        assert result == [leaf_job]
+
+    def test_raises_database_connection_error_on_sql_error(self, mock_pipeline_manager):
+        """Wraps SQLAlchemyError in DatabaseConnectionError."""
+        mock_pipeline_manager.db.execute.side_effect = SQLAlchemyError("db failure")
+
+        with pytest.raises(DatabaseConnectionError):
+            mock_pipeline_manager.get_failed_leaf_jobs()
+
+
+@pytest.mark.integration
+class TestGetFailedLeafJobsIntegration:
+    """Integration tests for PipelineManager.get_failed_leaf_jobs."""
+
+    def test_returns_only_leaf_failures(
+        self,
+        session,
+        arq_redis,
+        with_populated_job_data,
+        sample_pipeline,
+        sample_job_run,
+        sample_dependent_job_run,
+    ):
+        """Returns failed jobs that have no dependents, excluding non-leaf failures."""
+        manager = PipelineManager(session, arq_redis, sample_pipeline.id)
+
+        sample_job_run.status = JobStatus.FAILED
+        sample_dependent_job_run.status = JobStatus.FAILED
+        session.commit()
+
+        leaf_failures = manager.get_failed_leaf_jobs()
+
+        assert len(leaf_failures) == 1
+        assert leaf_failures[0].id == sample_dependent_job_run.id
+
+    def test_returns_empty_when_no_failed_jobs(
+        self,
+        session,
+        arq_redis,
+        with_populated_job_data,
+        sample_pipeline,
+        sample_job_run,
+        sample_dependent_job_run,
+    ):
+        """Returns empty list when no jobs have FAILED status."""
+        manager = PipelineManager(session, arq_redis, sample_pipeline.id)
+
+        leaf_failures = manager.get_failed_leaf_jobs()
+
+        assert leaf_failures == []
+
+
+@pytest.mark.unit
+class TestComputeNewStatusUnit:
+    """Unit tests for PipelineManager._compute_new_status.
+
+    These tests cover the status computation logic in isolation, verifying each
+    branch of the decision tree and the delegation to _compute_status_with_leaf_failures.
+    """
+
+    def test_errored_job_returns_failed(self, mock_pipeline_manager):
+        """Any ERRORED job always yields FAILED regardless of topology."""
+        result = mock_pipeline_manager._compute_new_status(
+            PipelineStatus.RUNNING,
+            {JobStatus.SUCCEEDED: 5, JobStatus.ERRORED: 1},
+            6,
+        )
+        assert result == PipelineStatus.FAILED
+
+    def test_errored_job_does_not_check_leaf_status(self, mock_pipeline_manager):
+        """ERRORED path short-circuits before any leaf topology check."""
+        with (
+            patch.object(mock_pipeline_manager, "get_failed_jobs") as mock_get_failed,
+            patch.object(mock_pipeline_manager, "is_leaf_job") as mock_is_leaf,
+        ):
+            result = mock_pipeline_manager._compute_new_status(
+                PipelineStatus.RUNNING,
+                {JobStatus.ERRORED: 1},
+                1,
+            )
+
+        assert result == PipelineStatus.FAILED
+        mock_get_failed.assert_not_called()
+        mock_is_leaf.assert_not_called()
+
+    def test_non_leaf_failed_job_returns_failed(self, mock_pipeline_manager):
+        """A FAILED non-leaf job always yields FAILED."""
+        mock_failed_job = Mock(spec=JobRun, id=1)
+        with (
+            patch.object(mock_pipeline_manager, "get_failed_jobs", return_value=[mock_failed_job]),
+            patch.object(mock_pipeline_manager, "is_leaf_job", return_value=False),
+        ):
+            result = mock_pipeline_manager._compute_new_status(
+                PipelineStatus.RUNNING,
+                {JobStatus.SUCCEEDED: 3, JobStatus.FAILED: 1},
+                4,
+            )
+
+        assert result == PipelineStatus.FAILED
+
+    def test_leaf_failed_job_delegates_to_leaf_failure_helper(self, mock_pipeline_manager):
+        """When all failed jobs are leaves, delegates to _compute_status_with_leaf_failures."""
+        mock_failed_job = Mock(spec=JobRun, id=1)
+        expected = PipelineStatus.RUNNING
+        counts = {JobStatus.SUCCEEDED: 3, JobStatus.FAILED: 1, JobStatus.RUNNING: 2}
+        total = 6
+
+        with (
+            patch.object(mock_pipeline_manager, "get_failed_jobs", return_value=[mock_failed_job]),
+            patch.object(mock_pipeline_manager, "is_leaf_job", return_value=True),
+            patch.object(
+                mock_pipeline_manager,
+                "_compute_status_with_leaf_failures",
+                return_value=expected,
+            ) as mock_leaf_helper,
+        ):
+            result = mock_pipeline_manager._compute_new_status(PipelineStatus.RUNNING, counts, total)
+
+        assert result == expected
+        mock_leaf_helper.assert_called_once_with(PipelineStatus.RUNNING, counts, total)
+
+    @pytest.mark.parametrize(
+        "active_status",
+        [JobStatus.RUNNING, JobStatus.QUEUED],
+    )
+    def test_active_jobs_without_failures_return_running(self, mock_pipeline_manager, active_status):
+        """RUNNING or QUEUED jobs (with no failures) yield RUNNING."""
+        result = mock_pipeline_manager._compute_new_status(
+            PipelineStatus.RUNNING,
+            {JobStatus.SUCCEEDED: 3, active_status: 1},
+            4,
+        )
+        assert result == PipelineStatus.RUNNING
+
+    @pytest.mark.parametrize(
+        "old_status",
+        [PipelineStatus.CREATED, PipelineStatus.RUNNING],
+    )
+    def test_pending_jobs_preserve_old_status(self, mock_pipeline_manager, old_status):
+        """Presence of PENDING jobs preserves the current pipeline status unchanged."""
+        result = mock_pipeline_manager._compute_new_status(
+            old_status,
+            {JobStatus.SUCCEEDED: 3, JobStatus.PENDING: 2},
+            5,
+        )
+        assert result == old_status
+
+    def test_all_succeeded_returns_succeeded(self, mock_pipeline_manager):
+        """All jobs in SUCCEEDED state yields SUCCEEDED."""
+        result = mock_pipeline_manager._compute_new_status(
+            PipelineStatus.RUNNING,
+            {JobStatus.SUCCEEDED: 5},
+            5,
+        )
+        assert result == PipelineStatus.SUCCEEDED
+
+    @pytest.mark.parametrize(
+        "status_counts,total",
+        [
+            ({JobStatus.SUCCEEDED: 3, JobStatus.SKIPPED: 2}, 5),
+            ({JobStatus.SUCCEEDED: 1, JobStatus.CANCELLED: 1}, 2),
+            ({JobStatus.SUCCEEDED: 2, JobStatus.SKIPPED: 1, JobStatus.CANCELLED: 1}, 4),
+        ],
+    )
+    def test_mixed_terminal_with_succeeded_returns_partial(self, mock_pipeline_manager, status_counts, total):
+        """Mix of terminal states including SUCCEEDED (no FAILED) yields PARTIAL."""
+        result = mock_pipeline_manager._compute_new_status(PipelineStatus.RUNNING, status_counts, total)
+
+        assert result == PipelineStatus.PARTIAL
+
+    def test_inconsistent_job_counts_returns_partial_with_slack_alert(self, mock_pipeline_manager):
+        """Inconsistent total (counts don't sum to total) still yields PARTIAL but fires a Slack warning."""
+        # total=10 but counts only sum to 6 — inconsistent
+        with patch("mavedb.worker.lib.managers.pipeline_manager.send_slack_message") as mock_slack:
+            result = mock_pipeline_manager._compute_new_status(
+                PipelineStatus.RUNNING,
+                {JobStatus.SUCCEEDED: 5, JobStatus.CANCELLED: 1},
+                10,
+            )
+
+        assert result == PipelineStatus.PARTIAL
+        mock_slack.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "status_counts",
+        [
+            {JobStatus.CANCELLED: 5},
+            {JobStatus.SKIPPED: 4},
+            {JobStatus.CANCELLED: 2, JobStatus.SKIPPED: 3},
+        ],
+    )
+    def test_all_cancelled_or_skipped_returns_cancelled(self, mock_pipeline_manager, status_counts):
+        """All jobs CANCELLED or SKIPPED (no SUCCEEDED) yields CANCELLED."""
+        total = sum(status_counts.values())
+        result = mock_pipeline_manager._compute_new_status(PipelineStatus.RUNNING, status_counts, total)
+        assert result == PipelineStatus.CANCELLED
+
+
+@pytest.mark.unit
+class TestComputeStatusWithLeafFailuresUnit:
+    """Unit tests for PipelineManager._compute_status_with_leaf_failures.
+
+    This method determines pipeline status when all failed jobs are leaf jobs.
+    Leaf failures do not fail the pipeline; siblings continue and the pipeline
+    settles to PARTIAL rather than FAILED once all jobs are terminal.
+    """
+
+    @pytest.mark.parametrize(
+        "active_status",
+        [JobStatus.RUNNING, JobStatus.QUEUED],
+    )
+    def test_active_sibling_jobs_keep_pipeline_running(self, mock_pipeline_manager, active_status):
+        """RUNNING or QUEUED siblings keep the pipeline in RUNNING state."""
+        result = mock_pipeline_manager._compute_status_with_leaf_failures(
+            PipelineStatus.RUNNING,
+            {JobStatus.FAILED: 1, active_status: 2},
+            3,
+        )
+        assert result == PipelineStatus.RUNNING
+
+    @pytest.mark.parametrize(
+        "old_status",
+        [PipelineStatus.CREATED, PipelineStatus.RUNNING],
+    )
+    def test_pending_sibling_jobs_preserve_old_status(self, mock_pipeline_manager, old_status):
+        """Pending sibling jobs leave the pipeline status unchanged."""
+        result = mock_pipeline_manager._compute_status_with_leaf_failures(
+            old_status,
+            {JobStatus.FAILED: 1, JobStatus.PENDING: 2},
+            3,
+        )
+        assert result == old_status
+
+    @pytest.mark.parametrize(
+        "status_counts,total",
+        [
+            ({JobStatus.SUCCEEDED: 3, JobStatus.FAILED: 1}, 4),
+            ({JobStatus.SUCCEEDED: 1, JobStatus.FAILED: 1, JobStatus.SKIPPED: 1}, 3),
+            ({JobStatus.SUCCEEDED: 2, JobStatus.FAILED: 2, JobStatus.CANCELLED: 1}, 5),
+        ],
+    )
+    def test_all_terminal_with_succeeded_yields_partial(self, mock_pipeline_manager, status_counts, total):
+        """Once all jobs are terminal and SUCCEEDED is present, the pipeline is PARTIAL."""
+        result = mock_pipeline_manager._compute_status_with_leaf_failures(
+            PipelineStatus.RUNNING,
+            status_counts,
+            total,
+        )
+        assert result == PipelineStatus.PARTIAL
+
+    def test_inconsistent_job_counts_yields_partial_with_slack_alert(self, mock_pipeline_manager):
+        """Inconsistent total still yields PARTIAL but fires a Slack warning."""
+        # total=10 but counts sum to only 4 — inconsistent
+        with patch("mavedb.worker.lib.managers.pipeline_manager.send_slack_message") as mock_slack:
+            result = mock_pipeline_manager._compute_status_with_leaf_failures(
+                PipelineStatus.RUNNING,
+                {JobStatus.SUCCEEDED: 2, JobStatus.FAILED: 2},
+                10,
+            )
+
+        assert result == PipelineStatus.PARTIAL
+        mock_slack.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "status_counts",
+        [
+            {JobStatus.FAILED: 3, JobStatus.CANCELLED: 2},
+            {JobStatus.FAILED: 1, JobStatus.SKIPPED: 2},
+            {JobStatus.FAILED: 2},
+        ],
+    )
+    def test_no_succeeded_jobs_yields_cancelled(self, mock_pipeline_manager, status_counts):
+        """When there are only leaf failures and no SUCCEEDED jobs, yield CANCELLED."""
+        total = sum(status_counts.values())
+        result = mock_pipeline_manager._compute_status_with_leaf_failures(
+            PipelineStatus.RUNNING,
+            status_counts,
+            total,
+        )
+        assert result == PipelineStatus.CANCELLED

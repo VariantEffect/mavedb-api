@@ -537,14 +537,14 @@ class TestPopulateVariantTranslationsIntegration:
                 "mavedb.worker.jobs.external_services.variant_translation.get_canonical_pa_ids",
                 side_effect=Exception("Test exception"),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             result = await populate_variant_translations_for_score_set(
                 mock_worker_ctx,
                 sample_populate_variant_translations_run.id,
             )
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.ERRORED
         assert isinstance(result.exception, Exception)
@@ -650,7 +650,7 @@ class TestPopulateVariantTranslationsArqContext:
                 "mavedb.worker.jobs.external_services.variant_translation.get_canonical_pa_ids",
                 side_effect=Exception("Test exception"),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             await arq_redis.enqueue_job(
                 "populate_variant_translations_for_score_set",
@@ -659,7 +659,7 @@ class TestPopulateVariantTranslationsArqContext:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
 
         annotation_statuses = session.query(VariantAnnotationStatus).all()
         assert len(annotation_statuses) == 0
@@ -683,7 +683,7 @@ class TestPopulateVariantTranslationsArqContext:
                 "mavedb.worker.jobs.external_services.variant_translation.get_canonical_pa_ids",
                 side_effect=Exception("Test exception"),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             await arq_redis.enqueue_job(
                 "populate_variant_translations_for_score_set",
@@ -692,7 +692,7 @@ class TestPopulateVariantTranslationsArqContext:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
 
         annotation_statuses = session.query(VariantAnnotationStatus).all()
         assert len(annotation_statuses) == 0

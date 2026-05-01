@@ -128,11 +128,11 @@ class TestStartPipelineIntegration:
         sample_dummy_pipeline_start.pipeline_id = None
         session.commit()
 
-        with patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error:
+        with patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_send_slack_job_failure:
             result = await start_pipeline(mock_worker_ctx, sample_dummy_pipeline_start.id)
             assert isinstance(result, JobExecutionOutcome)
             assert result.status == JobStatus.FAILED
-            mock_send_slack_error.assert_called_once()
+            mock_send_slack_job_failure.assert_called_once()
 
         # Verify the start job run status
         session.refresh(sample_dummy_pipeline_start)
@@ -184,12 +184,12 @@ class TestStartPipelineIntegration:
                 "mavedb.worker.lib.managers.pipeline_manager.PipelineManager.coordinate_pipeline",
                 side_effect=custom_side_effect,
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             result = await start_pipeline(mock_worker_ctx, sample_dummy_pipeline_start.id)
             assert isinstance(result, JobExecutionOutcome)
             assert result.status == JobStatus.ERRORED
-            mock_send_slack_error.assert_called_once()
+            mock_send_slack_job_error.assert_called_once()
 
         # Verify the start job run status
         session.refresh(sample_dummy_pipeline_start)

@@ -167,12 +167,18 @@ The method counts jobs by status and applies these rules in order:
 
 | Condition | New Pipeline Status |
 |-----------|-------------------|
-| Any job `FAILED` or `ERRORED` | `FAILED` |
-| Any job `RUNNING` or `QUEUED` | `RUNNING` |
+| Any job `ERRORED` | `FAILED` |
+| Any **non-leaf** job `FAILED` (other jobs depend on it) | `FAILED` |
+| Only **leaf** jobs `FAILED` (nothing depends on them), siblings still active | `RUNNING` |
+| Only leaf jobs `FAILED`, all jobs terminal, at least one `SUCCEEDED` | `PARTIAL` |
+| Only leaf jobs `FAILED`, all jobs terminal, none `SUCCEEDED` | `CANCELLED` |
+| Any job `RUNNING` or `QUEUED` (no errors or non-leaf failures) | `RUNNING` |
 | Any job `PENDING` | No change (waiting for coordination) |
 | All jobs `SUCCEEDED` | `SUCCEEDED` |
-| Mix of `SUCCEEDED` + `SKIPPED`/`CANCELLED` | `PARTIAL` |
-| All remaining jobs `CANCELLED` | `CANCELLED` |
+| Mix of `SUCCEEDED` + `FAILED`(leaf)/`SKIPPED`/`CANCELLED` | `PARTIAL` |
+| All remaining jobs `CANCELLED` or `SKIPPED` | `CANCELLED` |
+
+**Leaf vs non-leaf**: A job is a *leaf* if no other job in the pipeline depends on it. Leaf failures do not propagate — sibling jobs continue running and the pipeline settles to `PARTIAL` rather than `FAILED`. Non-leaf failures (where downstream jobs cannot proceed) always fail the pipeline immediately.
 
 ### How `enqueue_ready_jobs()` Works
 
@@ -229,7 +235,8 @@ When a job fails:
 3. If retryable: `prepare_retry()` resets job to `PENDING` with incremented `retry_count`
 4. The `@with_pipeline_management` decorator calls `coordinate_pipeline()`
 5. Coordination finds the retried job (now PENDING) and re-enqueues it if dependencies are met
-6. If not retryable: job stays `FAILED`, coordination marks pipeline as `FAILED`, cancels remaining jobs
+6. If not retryable and the job is a **non-leaf** (other jobs depend on it): job stays `FAILED`, coordination marks pipeline as `FAILED`, cancels remaining jobs
+7. If not retryable and the job is a **leaf** (nothing depends on it): job stays `FAILED`, sibling jobs continue running, pipeline eventually settles to `PARTIAL`
 
 ### Stalled Job Recovery
 

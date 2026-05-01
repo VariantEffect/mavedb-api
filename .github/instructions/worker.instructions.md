@@ -121,7 +121,7 @@ Parameters with `None` values in pipeline definitions are filled at runtime from
 - **External service disabled/unavailable**: Return `JobExecutionOutcome.skipped()` if a config check shows the service is disabled. Let connection errors propagate for retry handling.
 - **Retry eligibility**: Determined by `should_retry()` which checks `retry_count < max_retries` and `failure_category in RETRYABLE_FAILURE_CATEGORIES`.
 - **Failure classification**: `classify_exception()` in `utils.py` maps infrastructure exceptions to categories (`ConnectionError` → `NETWORK_ERROR`, `TimeoutError` → `TIMEOUT`, `OSError` → `NETWORK_ERROR`). Unmapped exceptions default to `UNKNOWN`. Job-level explicit `failure_category` on the outcome takes priority over automatic classification.
-- **Slack safety**: `send_slack_error()` catches its own exceptions internally (logging critical on failure), so Slack outages never interfere with job lifecycle management or error recovery in the decorators.
+- **Slack safety**: `send_slack_job_failure()` and `send_slack_job_error()` catch their own exceptions internally (logging critical on failure), so Slack outages never interfere with job lifecycle management or error recovery in the decorators.
 - **Stale RUNNING recovery**: `start_job()` accepts RUNNING as a startable status (alongside QUEUED and PENDING). When ARQ re-delivers a job after a worker crash, `start_job()` logs a warning and resets the start timestamp rather than raising `JobTransitionError`.
 - **Concurrency limit**: `max_jobs = 2` in `ArqWorkerSettings` prevents event loop starvation from sync psycopg2 DB calls. With the default `max_jobs=10`, multiple concurrent jobs issuing blocking DB operations can starve the asyncio event loop.
 

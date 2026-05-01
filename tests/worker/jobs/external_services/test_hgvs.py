@@ -385,14 +385,14 @@ class TestPopulateHgvsForScoreSetIntegration:
                 "mavedb.worker.jobs.external_services.hgvs.get_clingen_allele_data",
                 side_effect=Exception("Test exception"),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             result = await populate_hgvs_for_score_set(
                 mock_worker_ctx,
                 sample_populate_hgvs_run.id,
             )
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.ERRORED
         assert isinstance(result.exception, Exception)
@@ -491,13 +491,13 @@ class TestPopulateHgvsForScoreSetArqContext:
                 "mavedb.worker.jobs.external_services.hgvs.get_clingen_allele_data",
                 side_effect=Exception("Test exception"),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             await arq_redis.enqueue_job("populate_hgvs_for_score_set", sample_populate_hgvs_run.id)
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
 
         # Verify no annotations were rendered
         annotation_statuses = session.query(VariantAnnotationStatus).all()
@@ -523,13 +523,13 @@ class TestPopulateHgvsForScoreSetArqContext:
                 "mavedb.worker.jobs.external_services.hgvs.get_clingen_allele_data",
                 side_effect=Exception("Test exception"),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             await arq_redis.enqueue_job("populate_hgvs_for_score_set", sample_populate_hgvs_run_pipeline.id)
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
 
         # Verify no annotations were rendered
         annotation_statuses = session.query(VariantAnnotationStatus).all()

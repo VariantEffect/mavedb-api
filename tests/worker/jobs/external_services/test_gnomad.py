@@ -286,14 +286,14 @@ class TestLinkGnomadVariantsIntegration:
                 "mavedb.worker.jobs.external_services.gnomad.gnomad_variant_data_for_caids",
                 side_effect=Exception("Test exception"),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             result = await link_gnomad_variants(
                 mock_worker_ctx,
                 sample_link_gnomad_variants_run.id,
             )
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.ERRORED
         assert isinstance(result.exception, Exception)
@@ -399,13 +399,13 @@ class TestLinkGnomadVariantsArqContext:
                 "mavedb.worker.jobs.external_services.gnomad.gnomad_variant_data_for_caids",
                 side_effect=Exception("Test exception"),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             await arq_redis.enqueue_job("link_gnomad_variants", sample_link_gnomad_variants_run.id)
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
         # Verify that no gnomAD variants were linked
         gnomad_variants = session.query(GnomADVariant).all()
         assert len(gnomad_variants) == 0
@@ -437,13 +437,13 @@ class TestLinkGnomadVariantsArqContext:
                 "mavedb.worker.jobs.external_services.gnomad.gnomad_variant_data_for_caids",
                 side_effect=Exception("Test exception"),
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             await arq_redis.enqueue_job("link_gnomad_variants", sample_link_gnomad_variants_run_pipeline.id)
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        mock_send_slack_error.assert_called_once()
+        mock_send_slack_job_error.assert_called_once()
         # Verify that no gnomAD variants were linked
         gnomad_variants = session.query(GnomADVariant).all()
         assert len(gnomad_variants) == 0

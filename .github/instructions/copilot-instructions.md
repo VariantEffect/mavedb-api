@@ -102,7 +102,7 @@ Do not comment obvious operations, variable assignments, or code that is self-ex
 - **Structured logging**: Use `logger` with `extra=logging_context()` for correlation IDs via starlette-context
 - **HTTP exceptions**: FastAPI `HTTPException` with appropriate status codes
 - **Domain exceptions**: `src/mavedb/lib/exceptions.py` — `MixedTargetError`, `NonexistentOrcidError`, etc.
-- **Worker errors**: `send_slack_error()` + full logging context
+- **Worker errors**: `send_slack_job_error()` or `send_slack_job_error()` + full logging context
 - **Validation errors**: Two distinct classes exist:
   - `src/mavedb/lib/validation/exceptions.py` — validation package exceptions
   - `src/mavedb/lib/exceptions.py` — legacy `ValidationError` (Django-style, used in some older code)
@@ -184,7 +184,7 @@ poetry run python -m mavedb.scripts.<script_name>
 - **Structured logging**: Always use `logger` with `extra=logging_context()` for correlation IDs
 - **HTTP exceptions**: Use FastAPI `HTTPException` with appropriate status codes and descriptive messages
 - **Custom exceptions**: Define domain-specific exceptions in `src/mavedb/lib/exceptions.py`
-- **Worker job errors**: Send Slack notifications via `send_slack_error()` and log with full context
+- **Worker job errors**: Send Slack notifications via `send_slack_job_error()` or `send_slack_job_failure()` and log with full context
 - **Validation errors**: Use Pydantic validators and raise `ValueError` with clear messages
 
 ### Code Style and Organization Conventions
