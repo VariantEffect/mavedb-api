@@ -14,11 +14,6 @@ from typing import Optional, TypedDict
 from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 
-from mavedb.lib.exceptions import (
-    NonExistentTargetGeneError,
-    UniprotAmbiguousMappingResultError,
-    UniprotMappingResultNotFoundError,
-)
 from mavedb.lib.mapping import extract_ids_from_post_mapped_metadata
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.uniprot.id_mapping import UniProtIDMappingAPI
@@ -257,6 +252,7 @@ async def poll_uniprot_mapping_jobs_for_score_set(
     # Poll each mapping job and update target genes with UniProt IDs
     uniprot_api = UniProtIDMappingAPI()
     pending_jobs = []
+    failed_genes: dict[str, str] = {}
     for target_gene_id, mapping_job in mapping_jobs.items():
         mapping_job_id = mapping_job["job_id"]
 
@@ -281,18 +277,19 @@ async def poll_uniprot_mapping_jobs_for_score_set(
         mapped_ids = uniprot_api.extract_uniprot_id_from_results(results)
         mapped_ac = mapping_job["accession"]
 
-        # Handle cases where no or ambiguous results are found
+        # Handle cases where no or ambiguous results are found. These are data quality issues
+        # for this specific gene — record the failure and continue mapping remaining genes.
         if not mapped_ids:
-            msg = f"No UniProt ID found for accession {mapped_ac}. Cannot add UniProt ID."
-            job_manager.update_progress(100, 100, msg)
+            msg = f"No UniProt ID found for accession {mapped_ac}."
             logger.error(msg=msg, extra=job_manager.logging_context())
-            raise UniprotMappingResultNotFoundError()
+            failed_genes[target_gene_id] = f"no_results:{mapped_ac}"
+            continue
 
         if len(mapped_ids) != 1:
-            msg = f"Ambiguous UniProt ID mapping results for accession {mapped_ac}. Cannot add UniProt ID."
-            job_manager.update_progress(100, 100, msg)
+            msg = f"Ambiguous UniProt ID mapping results for accession {mapped_ac}."
             logger.error(msg=msg, extra=job_manager.logging_context())
-            raise UniprotAmbiguousMappingResultError()
+            failed_genes[target_gene_id] = f"ambiguous_results:{mapped_ac}"
+            continue
 
         mapped_uniprot_id = mapped_ids[0][mapped_ac]["uniprot_id"]
 
@@ -302,10 +299,10 @@ async def poll_uniprot_mapping_jobs_for_score_set(
             None,
         )
         if not target_gene:
-            msg = f"Target gene ID {target_gene_id} not found in score set {score_set.urn}. Cannot add UniProt ID."
-            job_manager.update_progress(100, 100, msg)
+            msg = f"Target gene ID {target_gene_id} not found in score set {score_set.urn}."
             logger.error(msg=msg, extra=job_manager.logging_context())
-            raise NonExistentTargetGeneError()
+            failed_genes[target_gene_id] = f"gene_not_found:{target_gene_id}"
+            continue
 
         target_gene.uniprot_id_from_mapped_metadata = mapped_uniprot_id
         job_manager.db.add(target_gene)
@@ -337,6 +334,19 @@ async def poll_uniprot_mapping_jobs_for_score_set(
             failure_category=FailureCategory.SERVICE_UNAVAILABLE,
         )
 
-    job_manager.update_progress(100, 100, "Completed polling of UniProt mapping jobs.")
     job_manager.db.flush()
+
+    if failed_genes:
+        job_manager.update_progress(100, 100, f"UniProt mapping failed for {len(failed_genes)} target gene(s).")
+        logger.warning(
+            msg=f"UniProt mapping failed for {len(failed_genes)} target gene(s): {failed_genes}",
+            extra=job_manager.logging_context(),
+        )
+        return JobExecutionOutcome.failed(
+            reason=f"UniProt mapping failed for {len(failed_genes)} target gene(s).",
+            data={"failed_genes": failed_genes, "genes_mapped": len(mapping_jobs) - len(failed_genes)},
+            failure_category=FailureCategory.DATA_ERROR,
+        )
+
+    job_manager.update_progress(100, 100, "Completed polling of UniProt mapping jobs.")
     return JobExecutionOutcome.succeeded(data={"genes_mapped": len(mapping_jobs)})

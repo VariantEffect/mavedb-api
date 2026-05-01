@@ -210,24 +210,6 @@ class UniProtPollingEnqueueError(ValueError):
     pass
 
 
-class UniprotMappingResultNotFoundError(ValueError):
-    """Raised when no UniProt ID is found in the mapping results for a target gene."""
-
-    pass
-
-
-class UniprotAmbiguousMappingResultError(ValueError):
-    """Raised when ambiguous UniProt IDs are found in the mapping results for a target gene."""
-
-    pass
-
-
-class NonExistentTargetGeneError(ValueError):
-    """Raised when a target gene does not exist in the database."""
-
-    pass
-
-
 class LDHSubmissionFailureError(Exception):
     """Raised when submission to ClinGen Linked Data Hub (LDH) fails for all submissions."""
 

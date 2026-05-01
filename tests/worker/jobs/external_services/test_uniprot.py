@@ -6,11 +6,6 @@ pytest.importorskip("arq")
 
 from unittest.mock import patch
 
-from mavedb.lib.exceptions import (
-    NonExistentTargetGeneError,
-    UniprotAmbiguousMappingResultError,
-    UniprotMappingResultNotFoundError,
-)
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus, PipelineStatus
 from mavedb.models.target_gene import TargetGene
@@ -1083,9 +1078,8 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.get_id_mapping_results",
                 return_value={"results": []},  # minimal response with no results
             ),
-            pytest.raises(UniprotMappingResultNotFoundError),
         ):
-            await poll_uniprot_mapping_jobs_for_score_set(
+            job_result = await poll_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx,
                 1,
                 JobManager(
@@ -1094,6 +1088,15 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                     job_id=sample_polling_job_for_submission_run.id,
                 ),
             )
+
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.FAILED
+        assert job_result.failure_category == FailureCategory.DATA_ERROR
+        assert "1" in job_result.data["failed_genes"]
+
+        # Verify the target gene uniprot id remains unchanged
+        session.refresh(sample_score_set)
+        assert sample_score_set.target_genes[0].uniprot_id_from_mapped_metadata is None
 
     async def test_poll_uniprot_mapping_jobs_ambiguous_results(
         self,
@@ -1136,9 +1139,8 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                     ]
                 },
             ),
-            pytest.raises(UniprotAmbiguousMappingResultError),
         ):
-            await poll_uniprot_mapping_jobs_for_score_set(
+            job_result = await poll_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx,
                 1,
                 JobManager(
@@ -1147,6 +1149,15 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                     job_id=sample_polling_job_for_submission_run.id,
                 ),
             )
+
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.FAILED
+        assert job_result.failure_category == FailureCategory.DATA_ERROR
+        assert "1" in job_result.data["failed_genes"]
+
+        # Verify the target gene uniprot id remains unchanged
+        session.refresh(sample_score_set)
+        assert sample_score_set.target_genes[0].uniprot_id_from_mapped_metadata is None
 
     async def test_poll_uniprot_mapping_jobs_nonexistent_target(
         self,
@@ -1172,9 +1183,8 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                 "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.get_id_mapping_results",
                 return_value=TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE,
             ),
-            pytest.raises(NonExistentTargetGeneError),
         ):
-            await poll_uniprot_mapping_jobs_for_score_set(
+            job_result = await poll_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx,
                 1,
                 JobManager(
@@ -1183,6 +1193,15 @@ class TestPollUniprotMappingJobsForScoreSetUnit:
                     job_id=sample_polling_job_for_submission_run.id,
                 ),
             )
+
+        assert isinstance(job_result, JobExecutionOutcome)
+        assert job_result.status == JobStatus.FAILED
+        assert job_result.failure_category == FailureCategory.DATA_ERROR
+        assert "999" in job_result.data["failed_genes"]
+
+        # Verify the target gene uniprot id remains unchanged
+        session.refresh(sample_score_set)
+        assert sample_score_set.target_genes[0].uniprot_id_from_mapped_metadata is None
 
     async def test_poll_uniprot_mapping_jobs_successful_update(
         self,
@@ -1562,24 +1581,23 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
                 "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.get_id_mapping_results",
                 return_value={"results": []},  # minimal response with no results
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await poll_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx, sample_polling_job_for_submission_run.id
             )
 
-        mock_send_slack_error.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.ERRORED
-        assert isinstance(result.exception, UniprotMappingResultNotFoundError)
+        assert result.status == JobStatus.FAILED
+        assert result.failure_category == FailureCategory.DATA_ERROR
+        assert "1" in result.data["failed_genes"]
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
         assert sample_score_set.target_genes[0].uniprot_id_from_mapped_metadata is None
 
-        # Verify that the polling job errored
+        # Verify that the polling job failed
         session.refresh(sample_polling_job_for_submission_run)
-        assert sample_polling_job_for_submission_run.status == JobStatus.ERRORED
+        assert sample_polling_job_for_submission_run.status == JobStatus.FAILED
 
     async def test_poll_uniprot_mapping_jobs_ambiguous_results(
         self,
@@ -1622,24 +1640,23 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
                     ]
                 },
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await poll_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx, sample_polling_job_for_submission_run.id
             )
 
-        mock_send_slack_error.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.ERRORED
-        assert isinstance(result.exception, UniprotAmbiguousMappingResultError)
+        assert result.status == JobStatus.FAILED
+        assert result.failure_category == FailureCategory.DATA_ERROR
+        assert "1" in result.data["failed_genes"]
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
         assert sample_score_set.target_genes[0].uniprot_id_from_mapped_metadata is None
 
-        # Verify that the polling job errored
+        # Verify that the polling job failed
         session.refresh(sample_polling_job_for_submission_run)
-        assert sample_polling_job_for_submission_run.status == JobStatus.ERRORED
+        assert sample_polling_job_for_submission_run.status == JobStatus.FAILED
 
     async def test_poll_uniprot_mapping_jobs_nonexistent_target(
         self,
@@ -1665,24 +1682,23 @@ class TestPollUniprotMappingJobsForScoreSetIntegration:
                 "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.get_id_mapping_results",
                 return_value=TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE,
             ),
-            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
         ):
             result = await poll_uniprot_mapping_jobs_for_score_set(
                 mock_worker_ctx, sample_polling_job_for_submission_run.id
             )
 
-        mock_send_slack_error.assert_called_once()
         assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.ERRORED
-        assert isinstance(result.exception, NonExistentTargetGeneError)
+        assert result.status == JobStatus.FAILED
+        assert result.failure_category == FailureCategory.DATA_ERROR
+        assert "999" in result.data["failed_genes"]
 
         # Verify the target gene uniprot id remains unchanged
         session.refresh(sample_score_set)
         assert sample_score_set.target_genes[0].uniprot_id_from_mapped_metadata is None
 
-        # Verify that the polling job errored
+        # Verify that the polling job failed
         session.refresh(sample_polling_job_for_submission_run)
-        assert sample_polling_job_for_submission_run.status == JobStatus.ERRORED
+        assert sample_polling_job_for_submission_run.status == JobStatus.FAILED
 
     async def test_poll_uniprot_mapping_jobs_propagates_exceptions_to_decorator(
         self,
