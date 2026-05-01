@@ -83,11 +83,11 @@ async def populate_hgvs_for_score_set(ctx: dict, job_id: int, job_manager: JobMa
     try:
         target_is_coding, transcript_accession = get_target_coding_info(score_set)
     except NotImplementedError:
-        job_manager.update_progress(100, 100, "Multi-target score sets are not yet supported. Skipping.")
         logger.warning(
             msg="Multi-target score sets not supported for HGVS population. Skipping.",
             extra=job_manager.logging_context(),
         )
+        job_manager.db.flush()
         return JobExecutionOutcome.skipped(data={"reason": "Multi-target score sets not supported"})
 
     job_manager.save_to_context({"target_is_coding": target_is_coding, "transcript_accession": transcript_accession})
@@ -109,11 +109,11 @@ async def populate_hgvs_for_score_set(ctx: dict, job_id: int, job_manager: JobMa
     job_manager.save_to_context({"total_variants": total_variants})
 
     if not variant_rows:
-        job_manager.update_progress(100, 100, "No current mapped variants found. Nothing to do.")
         logger.warning(
             msg="No current mapped variants found for this score set. Skipping HGVS population.",
             extra=job_manager.logging_context(),
         )
+        job_manager.db.flush()
         return JobExecutionOutcome.succeeded(data={"populated_count": 0, "skipped_count": 0, "failed_count": 0})
 
     job_manager.update_progress(5, 100, f"Processing {total_variants} mapped variants for HGVS population.")
@@ -276,7 +276,6 @@ async def populate_hgvs_for_score_set(ctx: dict, job_id: int, job_manager: JobMa
             "failed_count": failed_count,
         }
     )
-    job_manager.update_progress(100, 100, "Completed mapped HGVS population.")
     logger.info(
         msg=f"Completed mapped HGVS population: {populated_count} populated, {skipped_count} skipped, {failed_count} failed.",
         extra=job_manager.logging_context(),
@@ -289,6 +288,7 @@ async def populate_hgvs_for_score_set(ctx: dict, job_id: int, job_manager: JobMa
             logging.ERROR,
         )
 
+    job_manager.db.flush()
     return JobExecutionOutcome.succeeded(
         data={
             "populated_count": populated_count,

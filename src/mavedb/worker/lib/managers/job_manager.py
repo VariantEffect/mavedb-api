@@ -53,6 +53,7 @@ from mavedb.worker.lib.managers.constants import (
     RETRYABLE_JOB_STATUSES,
     STARTABLE_JOB_STATUSES,
     TERMINAL_JOB_STATUSES,
+    TERMINAL_PROGRESS_MESSAGES,
 )
 from mavedb.worker.lib.managers.exceptions import (
     DatabaseConnectionError,
@@ -285,6 +286,20 @@ class JobManager(BaseManager):
 
             if job_run.failure_category:
                 self.save_to_context({"failure_category": str(job_run.failure_category)})
+
+            # For consistency, the job manager is responsible for setting terminal progress messages,
+            # not jobs themselves.
+            if status in TERMINAL_PROGRESS_MESSAGES:
+                job_run.progress_message = TERMINAL_PROGRESS_MESSAGES[status]
+
+            # SUCCEEDED jobs will always be fully complete;
+            # CANCELLED/SKIPPED null the numeric fields because those jobs never completed (or were cut off);
+            # FAILED/ERRORED leave numeric fields intact so the UI can show how far the job progressed.
+            if status == JobStatus.SUCCEEDED:
+                job_run.progress_current = job_run.progress_total
+            elif status in (JobStatus.CANCELLED, JobStatus.SKIPPED):
+                job_run.progress_current = None
+                job_run.progress_total = None
 
         except (AttributeError, TypeError, KeyError, ValueError) as e:
             self.save_to_context(format_raised_exception_info_as_dict(e))

@@ -186,15 +186,37 @@ db = job_manager.db  # This is the task-local SQLAlchemy Session
 score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one()
 ```
 
-### Do NOT commit from job code
-The decorator handles commits for lifecycle transitions. The sole exception is `update_progress()`, which commits as a checkpoint.
+### Commit discipline
 
-If you need database IDs (e.g., after creating records), use `db.flush()`:
+Direct `db.commit()` calls from job code are only permitted in the bare-`raise` error paths of `creation.py` and `mapping.py`, where score set state (`processing_state`, `mapping_state`, `processing_errors`) must survive the decorator's rollback-on-exception. Everywhere else the decorator owns the commit decision.
+
+> **These exceptions are temporary.** Once score set processing and mapping state is derived from job run records rather than stored directly on the score set model, the pre-raise commits in `creation.py` and `mapping.py` will no longer be necessary and should be removed.
+
+`update_progress()` (and `update_status_message()`, `increment_progress()`, `set_progress_total()`) commit by default. This is intentional — they act as explicit checkpoints that persist progress even if the job fails or is retried later. Each call commits *all* pending session state at that point, not just the progress fields, so call them only at safe transaction boundaries.
+
+If you need database IDs before a checkpoint (e.g., after creating records), use `db.flush()`:
 ```python
 new_record = MyModel(name="example")
 db.add(new_record)
-db.flush()  # new_record.id is now available, but not committed
+db.flush()  # new_record.id is now available, but not yet committed
 ```
+
+### Flush immediately before every return
+
+Every `return JobExecutionOutcome.*` **must** be preceded by `job_manager.db.flush()`:
+
+```python
+job_manager.db.flush()
+return JobExecutionOutcome.succeeded(data={...})
+```
+
+**Why this matters:**
+
+In production the decorator always commits after the job function returns, which triggers an autoflush — so a missing explicit flush is invisible. In tests, job functions are called directly (the decorator is a no-op), so only an explicit flush ensures pending ORM state is staged to the DB before the test's `session.refresh()` call reads it back.
+
+Without this flush, tests that use `session.refresh(obj)` to verify persistence would silently pass by reading stale in-memory state rather than catching a missing `db.add()` or `flag_modified()` call.
+
+This flush is a no-op at the statement level (it costs nothing if no state is pending), but it makes the job's contract with the session explicit and testable: *"by the time I return, all DB state I care about is staged."* The decorator then decides whether to commit or rollback based on the outcome.
 
 ### Bulk operations
 For performance-critical operations (e.g., variant creation), use bulk inserts:

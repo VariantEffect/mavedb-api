@@ -283,17 +283,9 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         score_set.mapping_state = MappingState.failed
         score_set.mapping_errors = {"error_message": str(e)}
 
-        # Flush score set state; the decorator will commit on return.
+        # Persist score set state to survive any decorator rollback.
         job_manager.db.add(score_set)
-        job_manager.db.flush()
-
-        progress_messages = {
-            NonexistentMappingResultsError: "Variant mapping failed due to missing results.",
-            NonexistentMappingScoresError: "Variant mapping failed; no variants were mapped.",
-            NonexistentMappingReferenceError: "Variant mapping failed due to missing reference metadata.",
-        }
-        job_manager.update_progress(100, 100, progress_messages.get(type(e), "Variant mapping failed."))
-
+        job_manager.db.commit()
         return JobExecutionOutcome.failed(
             reason=str(e),
             data={"score_set_id": score_set.id, "mapped_count": 0, "total_count": 0},
@@ -304,9 +296,6 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         logging_context = {**job_manager.logging_context(), **format_raised_exception_info_as_dict(e)}
         logger.error(msg="Encountered an unexpected error while parsing mapped variants.", extra=logging_context)
 
-        # For unexpected exceptions we must commit score set state before re-raising
-        # because the decorator will rollback before marking the job as errored.
-        # update_progress commits internally, persisting both score_set state and progress.
         job_manager.db.rollback()
 
         score_set.mapping_state = MappingState.failed
@@ -315,16 +304,17 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 "error_message": f"Encountered an unexpected error while parsing mapped variants. This job will be retried up to {job.max_retries} times (this was attempt {job.retry_count})."
             }
 
+        # Persist score set state to survive any decorator rollback.
         job_manager.db.add(score_set)
-        job_manager.update_progress(100, 100, "Variant mapping failed due to an unexpected error.")
+        job_manager.db.commit()
 
         raise
 
     logger.info(msg="Inserted mapped variants into db.", extra=job_manager.logging_context())
-    job_manager.update_progress(100, 100, "Finished processing mapped variants.")
 
     if successful_mapped_variants == 0:
         logger.error(msg="No variants were successfully mapped.", extra=job_manager.logging_context())
+        job_manager.db.flush()
         return JobExecutionOutcome.failed(
             reason="No variants were successfully mapped.",
             data={
@@ -337,6 +327,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         )
 
     logger.info(msg="Variant mapping job completed successfully.", extra=job_manager.logging_context())
+    job_manager.db.flush()
     return JobExecutionOutcome.succeeded(
         data={
             "score_set_id": score_set.id,

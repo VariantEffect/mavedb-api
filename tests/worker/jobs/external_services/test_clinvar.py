@@ -5,7 +5,7 @@ import requests
 
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationStatus, JobStatus, PipelineStatus
+from mavedb.models.enums.job_pipeline import AnnotationStatus, FailureCategory, JobStatus, PipelineStatus
 from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 
 pytest.importorskip("arq")
@@ -209,7 +209,8 @@ class TestRefreshClinvarControlsUnit:
             )
 
         assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
+        assert result.status == JobStatus.FAILED
+        assert result.failure_category == FailureCategory.DEPENDENCY_FAILURE
 
         # Verify an annotation status was created for the variant due to ClinGen API failure
         mapped_variant = session.query(MappedVariant).first()
@@ -545,7 +546,7 @@ class TestRefreshClinvarControlsUnit:
         assert annotated_variant2.annotation_type == AnnotationType.CLINVAR_CONTROL
         assert annotated_variant2.error_message is None
 
-    async def test_total_api_failure_sends_slack_alert(
+    async def test_total_api_failure_returns_failed(
         self,
         mock_worker_ctx,
         session,
@@ -553,7 +554,7 @@ class TestRefreshClinvarControlsUnit:
         sample_refresh_clinvar_controls_job_run,
         setup_sample_variants_with_caid,
     ):
-        """Test that a Slack alert is sent when all ClinVar lookups fail."""
+        """Test that the job returns FAILED when all ClinVar lookups fail."""
         with (
             patch(
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
@@ -563,7 +564,6 @@ class TestRefreshClinvarControlsUnit:
                 "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
                 return_value=MOCK_CLINVAR_DATA,
             ),
-            patch("mavedb.worker.jobs.external_services.clinvar.log_and_send_slack_message") as mock_slack,
         ):
             result = await refresh_clinvar_controls(
                 mock_worker_ctx,
@@ -571,8 +571,8 @@ class TestRefreshClinvarControlsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
             )
 
-        assert result.status == JobStatus.SUCCEEDED
-        mock_slack.assert_called_once()
+        assert result.status == JobStatus.FAILED
+        assert result.failure_category == FailureCategory.DEPENDENCY_FAILURE
 
 
 @pytest.mark.integration

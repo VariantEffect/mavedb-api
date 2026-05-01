@@ -761,7 +761,6 @@ class TestCreateVariantsForScoreSetIntegration:
             .filter(sample_independent_variant_creation_run.__class__.id == sample_independent_variant_creation_run.id)
             .one()
         )
-        assert job_run.progress_current == 100
         assert job_run.status == JobStatus.FAILED
 
     async def test_create_variants_for_score_set_generic_exception_handling_during_creation(
@@ -805,7 +804,6 @@ class TestCreateVariantsForScoreSetIntegration:
             .filter(sample_independent_variant_creation_run.__class__.id == sample_independent_variant_creation_run.id)
             .one()
         )
-        assert job_run.progress_current == 100
         assert job_run.status == JobStatus.ERRORED
 
     async def test_create_variants_for_score_set_generic_exception_handling_during_replacement(
@@ -870,7 +868,6 @@ class TestCreateVariantsForScoreSetIntegration:
             .filter(sample_independent_variant_creation_run.__class__.id == sample_independent_variant_creation_run.id)
             .one()
         )
-        assert job_run.progress_current == 100
         assert job_run.status == JobStatus.ERRORED
 
     ## Pipeline failure workflow
@@ -917,7 +914,6 @@ class TestCreateVariantsForScoreSetIntegration:
             .filter(sample_pipeline_variant_creation_run.__class__.id == sample_pipeline_variant_creation_run.id)
             .one()
         )
-        assert job_run.progress_current == 100
         assert job_run.status == JobStatus.ERRORED
 
         # Verify that pipeline status is updated.
@@ -1128,7 +1124,6 @@ class TestCreateVariantsForScoreSetArqContext:
             .filter(sample_independent_variant_creation_run.__class__.id == sample_independent_variant_creation_run.id)
             .one()
         )
-        assert job_run.progress_current == 100
         assert job_run.status == JobStatus.ERRORED
 
     async def test_create_variants_for_score_set_with_arq_context_generic_exception_handling_pipeline_ctx(
@@ -1176,7 +1171,6 @@ class TestCreateVariantsForScoreSetArqContext:
             .filter(sample_pipeline_variant_creation_run.__class__.id == sample_pipeline_variant_creation_run.id)
             .one()
         )
-        assert job_run.progress_current == 100
         assert job_run.status == JobStatus.ERRORED
 
         # Verify that pipeline status is updated.

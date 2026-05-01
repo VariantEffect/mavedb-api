@@ -426,11 +426,7 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
     else:
         logger.debug("Cleanup complete: No stalled jobs found", extra=job_manager.logging_context())
 
-    job_manager.update_progress(
-        100,
-        100,
-        f"Cleanup complete: {total_cleaned} stalled jobs handled, {len(fixed_pipelines)} stuck pipelines resolved.",
-    )
+    job_manager.db.flush()
     return JobExecutionOutcome.succeeded(
         data={
             "total_cleaned": total_cleaned,

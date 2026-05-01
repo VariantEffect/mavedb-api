@@ -149,7 +149,6 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
         job_manager.update_progress(10, 100, "Validated score set metadata and beginning data validation.")
 
         if not score_set.target_genes:
-            job_manager.update_progress(100, 100, "Score set has no targets; cannot create variants.")
             logger.warning(
                 msg="No targets are associated with this score set; could not create variants.",
                 extra=job_manager.logging_context(),
@@ -219,11 +218,10 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
             }
         )
 
-        # Flush score set state; the decorator will commit on return.
+        # Persist score set state to survive any decorator rollback.
         job_manager.db.add(score_set)
-        job_manager.db.flush()
+        job_manager.db.commit()
 
-        job_manager.update_progress(100, 100, "Variant creation job failed due to an internal error.")
         logger.error(
             msg="Encountered an internal exception while processing variants.", extra=job_manager.logging_context()
         )
@@ -233,9 +231,6 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
         )
 
     except Exception as e:
-        # For unexpected exceptions we must commit score set state before re-raising
-        # because the decorator will rollback before marking the job as errored.
-        # update_progress commits internally, persisting both score_set state and progress.
         job_manager.db.rollback()
 
         score_set.processing_state = ProcessingState.failed
@@ -255,11 +250,9 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
             }
         )
 
-        # Flush score set state so it's visible in the current transaction, then commit
-        # via update_progress. The commit is what survives the decorator's rollback.
+        # Persist score set state to survive any decorator rollback.
         job_manager.db.add(score_set)
-        job_manager.db.flush()
-        job_manager.update_progress(100, 100, "Variant creation job failed due to an internal error.")
+        job_manager.db.commit()
 
         logger.error(
             msg="Encountered an internal exception while processing variants.", extra=job_manager.logging_context()
@@ -283,6 +276,5 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
     job_manager.db.flush()
     job_manager.db.refresh(score_set)
 
-    job_manager.update_progress(100, 100, "Completed variant creation job.")
     logger.info(msg="Added new variants to score set.", extra=job_manager.logging_context())
     return JobExecutionOutcome.succeeded(data={"score_set_id": score_set.id, "variant_count": score_set.num_variants})

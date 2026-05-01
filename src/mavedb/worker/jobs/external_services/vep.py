@@ -82,11 +82,11 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
     ).all()
 
     if not mapped_variants:
-        job_manager.update_progress(100, 100, "No mapped variants found. Skipped VEP population.")
         logger.warning(
             msg=f"No mapped variants found for score set {score_set.urn}. Skipped VEP population.",
             extra=job_manager.logging_context(),
         )
+        job_manager.db.flush()
         return JobExecutionOutcome.succeeded(
             data={
                 "variants_processed": 0,
@@ -178,6 +178,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 msg=f"VEP processing error for batch {batch_idx + 1}: {str(e)}",
                 extra=job_manager.logging_context(),
             )
+            job_manager.db.flush()
             return JobExecutionOutcome.errored(
                 exception=e,
                 data={
@@ -232,6 +233,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                     msg=f"Variant Recoder error for batch {recoder_batch_idx + 1}: {str(e)}",
                     extra=job_manager.logging_context(),
                 )
+                job_manager.db.flush()
                 return JobExecutionOutcome.errored(
                     exception=e,
                     data={
@@ -278,6 +280,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                     msg=f"VEP processing error for recoded batch {recoded_vep_batch_idx + 1}: {str(e)}",
                     extra=job_manager.logging_context(),
                 )
+                job_manager.db.flush()
                 return JobExecutionOutcome.errored(
                     exception=e,
                     data={
@@ -411,6 +414,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         extra=job_manager.logging_context(),
     )
 
+    job_manager.db.flush()
     return JobExecutionOutcome.succeeded(
         data={
             "variants_processed": variants_processed,

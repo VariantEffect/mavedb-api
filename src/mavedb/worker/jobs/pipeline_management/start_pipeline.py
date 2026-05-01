@@ -45,6 +45,7 @@ async def start_pipeline(ctx: dict, job_id: int, job_manager: JobManager) -> Job
     logger.debug(msg="Coordinating pipeline for the first time.", extra=job_manager.logging_context())
 
     if not job_manager.pipeline_id:
+        job_manager.db.flush()
         return JobExecutionOutcome.failed(
             reason="No pipeline associated with this job.", failure_category=FailureCategory.SYSTEM_ERROR
         )
@@ -55,9 +56,7 @@ async def start_pipeline(ctx: dict, job_id: int, job_manager: JobManager) -> Job
     pipeline_manager = PipelineManager(job_manager.db, redis, job_manager.pipeline_id)
     await pipeline_manager.coordinate_pipeline()
 
-    # Finalize job state
-    job_manager.db.flush()
-    job_manager.update_progress(100, 100, "Initial pipeline coordination complete.")
     logger.debug(msg="Done starting pipeline.", extra=job_manager.logging_context())
 
+    job_manager.db.flush()
     return JobExecutionOutcome.succeeded(data={"pipeline_id": job_manager.pipeline_id})

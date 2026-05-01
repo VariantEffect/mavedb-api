@@ -95,12 +95,12 @@ async def submit_uniprot_mapping_jobs_for_score_set(
     job_manager.db.flush()
 
     if not score_set.target_genes:
-        job_manager.update_progress(100, 100, "No target genes found. Skipped UniProt mapping job submission.")
         logger.error(
             msg=f"No target genes found for score set {score_set.urn}. Skipped UniProt mapping job submission.",
             extra=job_manager.logging_context(),
         )
 
+        job_manager.db.flush()
         return JobExecutionOutcome.succeeded(data={"jobs_submitted": 0})
 
     uniprot_api = UniProtIDMappingAPI()
@@ -152,13 +152,11 @@ async def submit_uniprot_mapping_jobs_for_score_set(
     # Save submitted jobs to job metadata for auditing purposes
     job.metadata_["submitted_jobs"] = mapping_jobs
     flag_modified(job, "metadata_")
-    job_manager.db.flush()
 
     # If no mapping jobs were submitted, log and exit early.
     if not mapping_jobs or not any((job_info["job_id"] for job_info in mapping_jobs.values())):
-        job_manager.update_progress(100, 100, "No UniProt mapping jobs were submitted.")
         logger.warning(msg="No UniProt mapping jobs were submitted.", extra=job_manager.logging_context())
-
+        job_manager.db.flush()
         return JobExecutionOutcome.succeeded(data={"jobs_submitted": 0})
 
     # It's an essential responsibility of the submit job (when submissions exist) to ensure that the polling job exists.
@@ -166,14 +164,12 @@ async def submit_uniprot_mapping_jobs_for_score_set(
         select(JobDependency).where(JobDependency.depends_on_job_id == job.id)
     ).all()
     if not dependent_polling_job or len(dependent_polling_job) != 1:
-        job_manager.update_progress(100, 100, "Failed to submit UniProt mapping jobs.")
         logger.error(
             msg=f"Could not find unique dependent polling job for UniProt mapping job {job.id}.",
             extra=job_manager.logging_context(),
         )
 
-        # Return a failure state here rather than raising to indicate to the manager
-        # we should still commit any successful annotations.
+        job_manager.db.flush()
         return JobExecutionOutcome.failed(
             reason=f"Could not find unique dependent polling job for UniProt mapping job {job.id}.",
             data={"jobs_submitted": len(mapping_jobs)},
@@ -187,7 +183,6 @@ async def submit_uniprot_mapping_jobs_for_score_set(
         "mapping_jobs": mapping_jobs,
     }
 
-    job_manager.update_progress(100, 100, "Completed submission of UniProt mapping jobs.")
     logger.info(msg="Completed UniProt mapping job submission", extra=job_manager.logging_context())
     job_manager.db.flush()
     return JobExecutionOutcome.succeeded(data={"jobs_submitted": len(mapping_jobs)})
@@ -242,11 +237,11 @@ async def poll_uniprot_mapping_jobs_for_score_set(
     logger.info(msg="Started UniProt mapping job polling", extra=job_manager.logging_context())
 
     if not mapping_jobs or not any(mapping_jobs.values()):
-        job_manager.update_progress(100, 100, "No mapping jobs found to poll.")
         logger.warning(
             msg=f"No mapping jobs found in job parameters for polling UniProt mapping jobs for score set {score_set.urn}.",
             extra=job_manager.logging_context(),
         )
+        job_manager.db.flush()
         return JobExecutionOutcome.succeeded(data={"genes_mapped": 0})
 
     # Poll each mapping job and update target genes with UniProt IDs
@@ -321,12 +316,10 @@ async def poll_uniprot_mapping_jobs_for_score_set(
     # but it allows us to avoid raising exceptions for expected cases where UniProt results aren't ready yet.
     # A future version of this workflow could be improved by leveraging the _defer_by functionality in ARQ.
     if pending_jobs:
-        job_manager.update_progress(100, 100, f"UniProt results not ready for {len(pending_jobs)} target(s).")
         logger.info(
             msg=f"UniProt results not ready for target gene(s) {pending_jobs}. Requesting retry.",
             extra=job_manager.logging_context(),
         )
-        # Flush partial updates (e.g. target genes that were successfully mapped) before returning.
         job_manager.db.flush()
         return JobExecutionOutcome.failed(
             reason=f"UniProt results not ready for {len(pending_jobs)} target gene(s). Will retry.",
@@ -334,19 +327,17 @@ async def poll_uniprot_mapping_jobs_for_score_set(
             failure_category=FailureCategory.SERVICE_UNAVAILABLE,
         )
 
-    job_manager.db.flush()
-
     if failed_genes:
-        job_manager.update_progress(100, 100, f"UniProt mapping failed for {len(failed_genes)} target gene(s).")
         logger.warning(
             msg=f"UniProt mapping failed for {len(failed_genes)} target gene(s): {failed_genes}",
             extra=job_manager.logging_context(),
         )
+        job_manager.db.flush()
         return JobExecutionOutcome.failed(
             reason=f"UniProt mapping failed for {len(failed_genes)} target gene(s).",
             data={"failed_genes": failed_genes, "genes_mapped": len(mapping_jobs) - len(failed_genes)},
             failure_category=FailureCategory.DATA_ERROR,
         )
 
-    job_manager.update_progress(100, 100, "Completed polling of UniProt mapping jobs.")
+    job_manager.db.flush()
     return JobExecutionOutcome.succeeded(data={"genes_mapped": len(mapping_jobs)})

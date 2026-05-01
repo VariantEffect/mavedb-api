@@ -27,6 +27,7 @@ from mavedb.worker.lib.managers.constants import (
     RETRYABLE_JOB_STATUSES,
     STARTABLE_JOB_STATUSES,
     TERMINAL_JOB_STATUSES,
+    TERMINAL_PROGRESS_MESSAGES,
 )
 from mavedb.worker.lib.managers.exceptions import (
     DatabaseConnectionError,
@@ -421,6 +422,63 @@ class TestJobCompletionUnit:
             mock_job_manager.complete_job(status=JobStatus.ERRORED, result=result)
 
         assert mock_job_run.failure_category == FailureCategory.SERVICE_UNAVAILABLE
+
+    @pytest.mark.parametrize(
+        "status, expected_message",
+        list(TERMINAL_PROGRESS_MESSAGES.items()),
+    )
+    def test_complete_job_sets_terminal_progress_message(
+        self, mock_job_manager, mock_job_run, status, expected_message
+    ):
+        """complete_job sets a generic terminal progress_message for all terminal statuses."""
+        result = JobExecutionOutcome.succeeded()
+        with TransactionSpy.spy(mock_job_manager.db):
+            mock_job_manager.complete_job(status=status, result=result)
+        assert mock_job_run.progress_message == expected_message
+
+    @pytest.mark.parametrize("status", [JobStatus.CANCELLED, JobStatus.SKIPPED])
+    def test_complete_job_clears_numeric_progress_for_cancelled_and_skipped(
+        self, mock_job_manager, mock_job_run, status
+    ):
+        """CANCELLED/SKIPPED jobs null out progress_current/total since they never completed."""
+        mock_job_run.progress_current = 42
+        mock_job_run.progress_total = 100
+        result = JobExecutionOutcome.succeeded()
+        with TransactionSpy.spy(mock_job_manager.db):
+            mock_job_manager.complete_job(status=status, result=result)
+        assert mock_job_run.progress_current is None
+        assert mock_job_run.progress_total is None
+
+    @pytest.mark.parametrize("status", [JobStatus.FAILED, JobStatus.ERRORED])
+    def test_complete_job_preserves_numeric_progress_for_failed_and_errored(
+        self, mock_job_manager, mock_job_run, status
+    ):
+        """FAILED/ERRORED jobs keep progress_current/total to show how far the job reached."""
+        mock_job_run.progress_current = 42
+        mock_job_run.progress_total = 100
+        result = JobExecutionOutcome.succeeded()
+        with TransactionSpy.spy(mock_job_manager.db):
+            mock_job_manager.complete_job(status=status, result=result)
+        assert mock_job_run.progress_current == 42
+        assert mock_job_run.progress_total == 100
+
+    def test_complete_job_pins_progress_current_to_total_on_success(self, mock_job_manager, mock_job_run):
+        """SUCCEEDED jobs advance progress_current to match progress_total."""
+        mock_job_run.progress_current = 75
+        mock_job_run.progress_total = 100
+        result = JobExecutionOutcome.succeeded()
+        with TransactionSpy.spy(mock_job_manager.db):
+            mock_job_manager.complete_job(status=JobStatus.SUCCEEDED, result=result)
+        assert mock_job_run.progress_current == 100
+
+    def test_complete_job_success_with_no_progress_total_does_not_set_current(self, mock_job_manager, mock_job_run):
+        """SUCCEEDED jobs with no progress_total leave progress_current untouched."""
+        mock_job_run.progress_current = None
+        mock_job_run.progress_total = None
+        result = JobExecutionOutcome.succeeded()
+        with TransactionSpy.spy(mock_job_manager.db):
+            mock_job_manager.complete_job(status=JobStatus.SUCCEEDED, result=result)
+        assert mock_job_run.progress_current is None
 
 
 @pytest.mark.integration

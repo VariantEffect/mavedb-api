@@ -17,11 +17,10 @@ from mavedb.lib.clingen.allele_registry import (
     get_canonical_pa_ids,
     get_matching_registered_ca_ids,
 )
-from mavedb.lib.slack import log_and_send_slack_message
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variant_translations import upsert_variant_translations
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus
+from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus, FailureCategory
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -76,11 +75,11 @@ async def populate_variant_translations_for_score_set(
     ).all()
 
     if not variant_rows:
-        job_manager.update_progress(100, 100, "No current mapped variants found. Nothing to do.")
         logger.warning(
             msg="No current mapped variants found for this score set.",
             extra=job_manager.logging_context(),
         )
+        job_manager.db.flush()
         return JobExecutionOutcome.succeeded(
             data={"translations_created": 0, "alleles_skipped": 0, "alleles_failed": 0}
         )
@@ -101,11 +100,11 @@ async def populate_variant_translations_for_score_set(
     job_manager.save_to_context({"total_variants": len(variant_rows), "unique_allele_ids": total_alleles})
 
     if not unique_allele_ids:
-        job_manager.update_progress(100, 100, "No ClinGen allele IDs to process.")
         logger.warning(
             msg="No ClinGen allele IDs found on mapped variants.",
             extra=job_manager.logging_context(),
         )
+        job_manager.db.flush()
         return JobExecutionOutcome.succeeded(
             data={"translations_created": 0, "alleles_skipped": 0, "alleles_failed": 0}
         )
@@ -340,7 +339,6 @@ async def populate_variant_translations_for_score_set(
             "alleles_failed": total_failed,
         }
     )
-    job_manager.update_progress(100, 100, "Completed variant translation population.")
     logger.info(
         "Completed variant translation population: %s created, %s skipped, %s failed.",
         total_created,
@@ -350,12 +348,20 @@ async def populate_variant_translations_for_score_set(
     )
 
     if total_failed > 0 and total_created == 0:
-        log_and_send_slack_message(
-            f"All {total_failed} variant translation lookups failed for score set {score_set.urn}. Possible ClinGen API outage.",
-            job_manager.logging_context(),
-            logging.ERROR,
+        error_message = f"All {total_failed} variant translation lookups failed for score set {score_set.urn}. Possible ClinGen API outage."
+        logger.error(error_message, extra=job_manager.logging_context())
+        job_manager.db.flush()
+        return JobExecutionOutcome.failed(
+            reason=error_message,
+            data={
+                "translations_created": 0,
+                "alleles_skipped": total_skipped,
+                "alleles_failed": total_failed,
+            },
+            failure_category=FailureCategory.DEPENDENCY_FAILURE,
         )
 
+    job_manager.db.flush()
     return JobExecutionOutcome.succeeded(
         data={
             "translations_created": total_created,

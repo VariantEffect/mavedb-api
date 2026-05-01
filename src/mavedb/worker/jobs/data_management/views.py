@@ -58,7 +58,6 @@ async def refresh_materialized_views(ctx: dict, job_id: int, job_manager: JobMan
     job_manager.db.flush()
 
     # Finalize job state
-    job_manager.update_progress(100, 100, "Completed refresh of all materialized views.")
     logger.debug(msg="Done refreshing materialized views.", extra=job_manager.logging_context())
 
     return JobExecutionOutcome.succeeded(data={"views_refreshed": ["all_materialized_views"]})
@@ -108,7 +107,6 @@ async def refresh_published_variants_view(ctx: dict, job_id: int, job_manager: J
     job_manager.db.flush()
 
     # Finalize job state
-    job_manager.update_progress(100, 100, "Completed refresh of published variants materialized view.")
     logger.debug(msg="Done refreshing published variants materialized view.", extra=job_manager.logging_context())
 
     return JobExecutionOutcome.succeeded()

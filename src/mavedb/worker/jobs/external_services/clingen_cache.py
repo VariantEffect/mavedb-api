@@ -74,7 +74,7 @@ async def warm_clingen_cache(ctx: dict, job_id: int, job_manager: JobManager) ->
     logger.info(f"Found {total} distinct ClinGen allele IDs to pre-warm", extra=job_manager.logging_context())
 
     if total == 0:
-        job_manager.update_progress(100, 100, "No ClinGen allele IDs to warm.")
+        job_manager.db.flush()
         return JobExecutionOutcome.succeeded(data={"warmed": 0, "failed": 0})
 
     # Fetch alleles concurrently up to CLINGEN_CACHE_WARMING_CONCURRENCY in-flight at a time.
@@ -115,10 +115,10 @@ async def warm_clingen_cache(ctx: dict, job_id: int, job_manager: JobManager) ->
                 extra=job_manager.logging_context(),
             )
 
-    job_manager.update_progress(100, 100, f"Cache warming complete. Warmed: {warmed}, failed: {failed}.")
     logger.info(
         f"ClinGen cache pre-warming complete. Warmed: {warmed}, failed: {failed}.",
         extra=job_manager.logging_context(),
     )
 
+    job_manager.db.flush()
     return JobExecutionOutcome.succeeded(data={"warmed": warmed, "failed": failed, "total": total})

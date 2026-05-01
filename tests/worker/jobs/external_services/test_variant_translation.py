@@ -9,7 +9,7 @@ from unittest.mock import patch
 from sqlalchemy import select
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
-from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
+from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus, PipelineStatus
 from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 from mavedb.models.variant_translation import VariantTranslation
 from mavedb.worker.jobs.external_services.variant_translation import populate_variant_translations_for_score_set
@@ -256,7 +256,8 @@ class TestPopulateVariantTranslationsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_populate_variant_translations_run.id),
             )
 
-        assert result.status == JobStatus.SUCCEEDED
+        assert result.status == JobStatus.FAILED
+        assert result.failure_category == FailureCategory.DEPENDENCY_FAILURE
         assert result.data["alleles_failed"] == 1
 
         annotation = session.scalars(select(VariantAnnotationStatus)).one()
@@ -346,7 +347,7 @@ class TestPopulateVariantTranslationsUnit:
 
         assert str(exc_info.value) == "Test exception"
 
-    async def test_total_api_failure_sends_slack_alert(
+    async def test_total_api_failure_returns_failed(
         self,
         session,
         with_populated_domain_data,
@@ -355,15 +356,12 @@ class TestPopulateVariantTranslationsUnit:
         sample_populate_variant_translations_run,
         setup_sample_variants_with_caid_for_translation,
     ):
-        """Test that a Slack alert is sent when all variant translation lookups fail."""
+        """Test that the job returns FAILED when all variant translation lookups fail."""
         import requests
 
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.variant_translation.get_canonical_pa_ids",
-                side_effect=requests.exceptions.ConnectionError("Connection failed"),
-            ),
-            patch("mavedb.worker.jobs.external_services.variant_translation.log_and_send_slack_message") as mock_slack,
+        with patch(
+            "mavedb.worker.jobs.external_services.variant_translation.get_canonical_pa_ids",
+            side_effect=requests.exceptions.ConnectionError("Connection failed"),
         ):
             result = await populate_variant_translations_for_score_set(
                 mock_worker_ctx,
@@ -371,10 +369,10 @@ class TestPopulateVariantTranslationsUnit:
                 JobManager(session, mock_worker_ctx["redis"], sample_populate_variant_translations_run.id),
             )
 
-        assert result.status == JobStatus.SUCCEEDED
+        assert result.status == JobStatus.FAILED
+        assert result.failure_category == FailureCategory.DEPENDENCY_FAILURE
         assert result.data["alleles_failed"] == 1
         assert result.data["translations_created"] == 0
-        mock_slack.assert_called_once()
 
 
 # --- Integration Tests ---

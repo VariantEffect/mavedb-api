@@ -27,6 +27,19 @@ TERMINAL_JOB_STATUSES = [
 ]
 """Job statuses indicating finished execution (terminal states)."""
 
+TERMINAL_PROGRESS_MESSAGES: dict[JobStatus, str] = {
+    JobStatus.SUCCEEDED: "Job completed",
+    JobStatus.FAILED: "Job failed",
+    JobStatus.ERRORED: "Job errored",
+    JobStatus.CANCELLED: "Job cancelled",
+    JobStatus.SKIPPED: "Job skipped",
+}
+"""
+Generic progress messages to set when a job is completed with a terminal status. 
+This ensures that all jobs have a consistent final progress message without requiring 
+each job function to set it manually.
+"""
+
 CANCELLED_JOB_STATUSES = [JobStatus.CANCELLED, JobStatus.SKIPPED, JobStatus.FAILED, JobStatus.ERRORED]
 """Job statuses that should stop execution (termination conditions)."""
 

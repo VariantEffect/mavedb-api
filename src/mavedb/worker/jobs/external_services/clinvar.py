@@ -22,11 +22,10 @@ from sqlalchemy import select
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.clingen.allele_registry import get_associated_clinvar_allele_id
 from mavedb.lib.clinvar.utils import fetch_clinvar_variant_data
-from mavedb.lib.slack import log_and_send_slack_message
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus
+from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus, FailureCategory
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -266,7 +265,6 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
             extra=job_manager.logging_context(),
         )
 
-    job_manager.update_progress(100, 100, "Completed ClinVar clinical control refresh.")
     logger.info(
         f"ClinVar refresh complete: {versions_completed}/{len(versions)} versions, "
         f"{total_refreshed} variant-version annotations.",
@@ -274,12 +272,22 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
     )
 
     if total_failed > 0 and total_refreshed == 0:
-        log_and_send_slack_message(
-            f"All {total_failed} ClinVar lookups failed for score set {score_set.urn}. Possible ClinGen API outage.",
-            job_manager.logging_context(),
-            logging.ERROR,
+        error_message = (
+            f"All {total_failed} ClinVar lookups failed for score set {score_set.urn}. Possible ClinGen API outage."
+        )
+        logger.error(error_message, extra=job_manager.logging_context())
+        job_manager.db.flush()
+        return JobExecutionOutcome.failed(
+            reason=error_message,
+            data={
+                "versions_completed": versions_completed,
+                "versions_total": len(versions),
+                "variant_annotations": 0,
+            },
+            failure_category=FailureCategory.DEPENDENCY_FAILURE,
         )
 
+    job_manager.db.flush()
     return JobExecutionOutcome.succeeded(
         data={
             "versions_completed": versions_completed,
