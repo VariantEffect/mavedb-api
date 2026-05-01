@@ -65,6 +65,7 @@ slack-sdk = { version = "~3.21.3", optional = true }
 uvicorn = { extras = ["standard"], version = "*", optional = true }
 watchtower = { version = "~3.2.0", optional = true }
 asyncclick = "^8.3.0.7"
+filelock = "^3.29.0"
 
 [tool.poetry.group.dev]
 optional = true

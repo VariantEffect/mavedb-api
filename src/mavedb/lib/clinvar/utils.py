@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict
 
 import requests
+from filelock import FileLock
 from requests.adapters import HTTPAdapter
 
 from mavedb.lib.clinvar.constants import (
@@ -129,42 +130,69 @@ def _fetch_parse_and_cache(
     """Download ClinVar TSV, parse to a trimmed dict, and cache as pickle.
 
     Runs in an executor — all operations here are blocking (network I/O + CPU).
+
+    A per-version file lock prevents two concurrent workers from downloading
+    and parsing the same version simultaneously, which would double peak memory
+    usage. The second worker acquires the lock after the first finishes and
+    writes the cache, then finds the cache file already present and returns
+    early without re-downloading.
     """
-    session = _ncbi_session()
-    try:
-        response = session.get(url_top_level, stream=True)
-        response.raise_for_status()
-        content = response.content
-    except requests.exceptions.HTTPError:
-        response = session.get(url_archive, stream=True)
-        response.raise_for_status()
-        content = response.content
-
-    # Parse the gzipped TSV, keeping only the fields we actually use.
-    # Some old ClinVar files have fields larger than the default csv limit.
-    default_csv_field_size_limit = csv.field_size_limit()
-    try:
-        csv.field_size_limit(sys.maxsize)
-        with gzip.open(filename=io.BytesIO(content), mode="rt") as f:
-            reader = csv.DictReader(f.readlines(), delimiter="\t")  # type: ignore
-            data: Dict[str, Dict[str, str]] = {
-                str(row["#AlleleID"]): {field: row[field] for field in CLINVAR_FIELDS_TO_KEEP} for row in reader
-            }
-    finally:
-        csv.field_size_limit(default_csv_field_size_limit)
-
-    # Cache the parsed + trimmed dict to disk so subsequent calls skip both
-    # the network fetch and the expensive parse.
     CLINVAR_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    with open(cache_file, "wb") as f:
-        pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-    logger.info(f"Cached parsed ClinVar {year}-{month:02d} to {cache_file} ({len(data)} alleles)")
+    lock_file = CLINVAR_CACHE_DIR / f"variant_summary_{year}-{month:02d}.lock"
 
-    # Remove stale cache files for this month/year with a different fields hash.
-    stale_prefix = f"variant_summary_{year}-{month:02d}.parsed."
-    for stale in CLINVAR_CACHE_DIR.glob(f"{stale_prefix}*.pkl"):
-        if stale != cache_file:
-            stale.unlink(missing_ok=True)
-            logger.debug(f"Removed stale cache file {stale}")
+    with FileLock(lock_file):
+        # Re-check cache inside the lock — another worker may have populated it
+        # while we were waiting.
+        if cache_file.exists():
+            logger.debug(f"Cache hit (post-lock) for parsed ClinVar {year}-{month:02d}")
+            return _load_parsed_cache(cache_file)
 
-    return data
+        session = _ncbi_session()
+        try:
+            response = session.get(url_top_level, stream=True)
+            response.raise_for_status()
+        except requests.exceptions.HTTPError:
+            response = session.get(url_archive, stream=True)
+            response.raise_for_status()
+
+        # Stream the compressed response directly into the gzip decompressor
+        # rather than loading all bytes into memory first.  On recent ClinVar
+        # files the compressed payload is 50–350 MB; buffering it as bytes and
+        # then calling readlines() on the decompressed stream would peak at
+        # 2–3 GB per job.  Streaming + lazy CSV iteration keeps peak memory to
+        # the size of the trimmed output dict (tens of MB).
+        buf = io.BytesIO()
+        for chunk in response.iter_content(chunk_size=1 << 20):  # 1 MB chunks
+            buf.write(chunk)
+        buf.seek(0)
+
+        # Parse the gzipped TSV, keeping only the fields we actually use.
+        # Some old ClinVar files have fields larger than the default csv limit.
+        default_csv_field_size_limit = csv.field_size_limit()
+        try:
+            csv.field_size_limit(sys.maxsize)
+            # Iterate lazily — avoids materialising all decompressed lines
+            # as a list (which would be 1.5–2 GB for a modern TSV).
+            with gzip.open(filename=buf, mode="rt") as f:
+                reader = csv.DictReader(f, delimiter="\t")  # type: ignore
+                data: Dict[str, Dict[str, str]] = {
+                    str(row["#AlleleID"]): {field: row[field] for field in CLINVAR_FIELDS_TO_KEEP} for row in reader
+                }
+        finally:
+            csv.field_size_limit(default_csv_field_size_limit)
+
+        # Cache the parsed + trimmed dict to disk so subsequent calls skip both
+        # the network fetch and the expensive parse.
+        with open(cache_file, "wb") as f:
+            pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        logger.info(f"Cached parsed ClinVar {year}-{month:02d} to {cache_file} ({len(data)} alleles)")
+
+        # Remove stale cache files for this month/year with a different fields hash.
+        stale_prefix = f"variant_summary_{year}-{month:02d}.parsed."
+        for stale in CLINVAR_CACHE_DIR.glob(f"{stale_prefix}*.pkl"):
+            if stale != cache_file:
+                stale.unlink(missing_ok=True)
+                logger.debug(f"Removed stale cache file {stale}")
+
+        return data

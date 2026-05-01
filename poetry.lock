@@ -1539,7 +1539,7 @@ version = "3.29.0"
 description = "A platform independent file lock."
 optional = false
 python-versions = ">=3.10"
-groups = ["dev"]
+groups = ["main", "dev"]
 files = [
     {file = "filelock-3.29.0-py3-none-any.whl", hash = "sha256:96f5f6344709aa1572bbf631c640e4ebeeb519e08da902c39a001882f30ac258"},
     {file = "filelock-3.29.0.tar.gz", hash = "sha256:69974355e960702e789734cb4871f884ea6fe50bd8404051a3530bc07809cf90"},
@@ -4973,4 +4973,4 @@ server = ["aiocache", "alembic", "alembic-utils", "arq", "authlib", "biocommons"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "6cf9938a236fed2c51f1c2cae61b51f0aec9f040e976ec7bdfd8462a7ed9a93f"
+content-hash = "5b7368112d3edf1cbddc0d0ced029b5d505bfcdc8c9e744b57150071993b3923"
