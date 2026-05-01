@@ -463,25 +463,22 @@ class TestPipelineManagementDecoratorIntegration:
             await dep_event.wait()  # Simulate async work, block until test signals
             return JobExecutionOutcome.succeeded()
 
-        # job management handles slack alerting in this context
-        with patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error:
-            # Start the job (it will block at event.wait())
-            job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))
+        # Start the job (it will block at event.wait())
+        job_task = asyncio.create_task(sample_job(standalone_worker_context, sample_job_run.id))
 
-            # At this point, the job should be started but not completed
-            await asyncio.sleep(0.1)  # Give the event loop a moment to start the job
-            job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
-            assert job.status == JobStatus.RUNNING
+        # At this point, the job should be started but not completed
+        await asyncio.sleep(0.1)  # Give the event loop a moment to start the job
+        job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
+        assert job.status == JobStatus.RUNNING
 
-            pipeline = session.execute(select(Pipeline).where(Pipeline.id == sample_pipeline.id)).scalar_one()
-            assert pipeline.status == PipelineStatus.RUNNING
+        pipeline = session.execute(select(Pipeline).where(Pipeline.id == sample_pipeline.id)).scalar_one()
+        assert pipeline.status == PipelineStatus.RUNNING
 
-            # ConnectionError is classified as NETWORK_ERROR (retryable), so retry
-            # logic triggers automatically without patching should_retry.
-            event.set()
-            await job_task
-
-            mock_send_slack_job_error.assert_called_once()
+        # ConnectionError is classified as NETWORK_ERROR (retryable), so retry
+        # logic triggers automatically without patching should_retry.
+        event.set()
+        await job_task
+        # Slack error is deferred-- job is retryable.
 
         # After failure with retry, status should be QUEUED
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()

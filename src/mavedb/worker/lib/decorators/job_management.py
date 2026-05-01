@@ -100,13 +100,9 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
         # Refresh job state after function execution
         job = job_manager.get_job()
 
-        # Check retry eligibility before transitioning state — job.status is still RUNNING here.
-        # Use result.status (the intended next state) to determine whether a retry is applicable.
-        will_retry = result.status in {JobStatus.FAILED, JobStatus.ERRORED} and job_manager.should_retry()
-
         if result.status == JobStatus.FAILED:
             job_manager.fail_job(result=result)
-            if not will_retry:
+            if not job_manager.should_retry():
                 send_slack_job_failure(
                     job_urn=job.urn,
                     job_function=job.job_function,
@@ -119,7 +115,7 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
 
         elif result.status == JobStatus.ERRORED:
             job_manager.error_job(result=result)
-            if not will_retry:
+            if not job_manager.should_retry():
                 send_slack_job_error(
                     job_urn=job.urn,
                     job_function=job.job_function,
@@ -136,7 +132,7 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
             job_manager.succeed_job(result=result)
         db_session.commit()
 
-        if will_retry:
+        if job_manager.should_retry():
             await job_manager.prepare_retry(reason="Job did not complete successfully")
             db_session.commit()
 
