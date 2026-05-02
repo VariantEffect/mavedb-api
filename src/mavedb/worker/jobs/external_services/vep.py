@@ -7,6 +7,7 @@ The processing is asynchronous, requiring batch submission of HGVS strings
 to the VEP API with fallback to Variant Recoder when necessary.
 """
 
+import asyncio
 import logging
 from datetime import date
 
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 _VEP_BATCH_SIZE = 200
 _RECODER_BATCH_SIZE = 25
+_RECODER_CONCURRENCY = 5
 
 
 @with_pipeline_management
@@ -126,8 +128,8 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
     batches = list(batched(hgvs_and_mapped_variant_id_pairs, _VEP_BATCH_SIZE))
 
     job_manager.save_to_context({"vep_batches": len(batches)})
-    logger.info(
-        msg=f"Prepared {len(batches)} batches for VEP processing",
+    logger.debug(
+        msg=f"Prepared {len(batches)} VEP batches ({_VEP_BATCH_SIZE} variants/batch)",
         extra=job_manager.logging_context(),
     )
 
@@ -138,7 +140,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
     for batch_idx, batch in enumerate(batches):
         try:
-            logger.info(
+            logger.debug(
                 msg=f"Processing VEP batch {batch_idx + 1}/{len(batches)}",
                 extra=job_manager.logging_context(),
             )
@@ -205,44 +207,67 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
         recoder_batch_list = list(batched(list(all_missing_hgvs), _RECODER_BATCH_SIZE))
 
-        for recoder_batch_idx, recoder_batch in enumerate(recoder_batch_list):
-            try:
+        logger.debug(
+            msg=f"Running {len(recoder_batch_list)} Variant Recoder batches with concurrency {_RECODER_CONCURRENCY}",
+            extra=job_manager.logging_context(),
+        )
+
+        semaphore = asyncio.Semaphore(_RECODER_CONCURRENCY)
+
+        async def _recoder_with_semaphore(batch: list[str], batch_idx: int, total: int) -> dict[str, list[str]]:
+            async with semaphore:
                 logger.debug(
-                    msg=f"Processing Variant Recoder batch {recoder_batch_idx + 1}/{len(recoder_batch_list)}",
+                    msg=f"Starting Variant Recoder batch {batch_idx + 1}/{total} ({len(batch)} HGVS strings)",
                     extra=job_manager.logging_context(),
                 )
-
-                recoded_results = await run_variant_recoder(recoder_batch)
-                hgvs_to_genomic.update(recoded_results)
-
-                progress_pct = 33 + int((recoder_batch_idx + 1) / len(recoder_batch_list) * 33)
-                job_manager.update_progress(
-                    progress_pct,
-                    100,
-                    f"Processed Variant Recoder batch {recoder_batch_idx + 1}/{len(recoder_batch_list)}",
-                )
-                job_manager.save_to_context(
-                    {
-                        "variant_recoder_batches_processed": recoder_batch_idx + 1,
-                        "recoded_variants_count": len(hgvs_to_genomic),
-                    }
-                )
-
-            except Exception as e:
-                logger.error(
-                    msg=f"Variant Recoder error for batch {recoder_batch_idx + 1}: {str(e)}",
+                result = await run_variant_recoder(batch)
+                logger.debug(
+                    msg=f"Completed Variant Recoder batch {batch_idx + 1}/{total} ({len(result)} variants recoded)",
                     extra=job_manager.logging_context(),
                 )
-                job_manager.db.flush()
-                return JobExecutionOutcome.errored(
-                    exception=e,
-                    data={
-                        "initial_vep_batches_processed": len(batches),
-                        "variant_recoder_batches_processed": recoder_batch_idx + 1,
-                        "missing_hgvs_count": len(all_missing_hgvs),
-                    },
-                )
+                return result
 
+        total_recoder_batches = len(recoder_batch_list)
+        recoder_results = await asyncio.gather(
+            *[
+                _recoder_with_semaphore(list(recoder_batch), idx, total_recoder_batches)
+                for idx, recoder_batch in enumerate(recoder_batch_list)
+            ],
+            return_exceptions=True,
+        )
+
+        successful_batches = sum(1 for r in recoder_results if not isinstance(r, Exception))
+
+        first_exception = next((r for r in recoder_results if isinstance(r, Exception)), None)
+        if first_exception is not None:
+            logger.error(
+                msg=f"Variant Recoder error ({successful_batches}/{total_recoder_batches} batches succeeded): {str(first_exception)}",
+                extra=job_manager.logging_context(),
+            )
+            job_manager.db.flush()
+            return JobExecutionOutcome.errored(
+                exception=first_exception,
+                data={
+                    "initial_vep_batches_processed": len(batches),
+                    "variant_recoder_batches_processed": successful_batches,
+                    "missing_hgvs_count": len(all_missing_hgvs),
+                },
+            )
+
+        for result in recoder_results:
+            hgvs_to_genomic.update(result)  # type: ignore[arg-type]
+
+        job_manager.save_to_context(
+            {
+                "variant_recoder_batches_processed": len(recoder_batch_list),
+                "recoded_variants_count": len(hgvs_to_genomic),
+            }
+        )
+        job_manager.update_progress(
+            66,
+            100,
+            f"Completed Variant Recoder for {len(recoder_batch_list)} batches ({len(hgvs_to_genomic)} variants recoded)",
+        )
         logger.info(
             msg=f"Completed Variant Recoder processing. {len(hgvs_to_genomic)} variants successfully recoded.",
             extra=job_manager.logging_context(),
@@ -314,7 +339,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                         extra=job_manager.logging_context(),
                     )
             else:
-                logger.warning(
+                logger.debug(
                     msg=f"Could not retrieve functional consequences for any recoded variants of {original_hgvs}",
                     extra=job_manager.logging_context(),
                 )
