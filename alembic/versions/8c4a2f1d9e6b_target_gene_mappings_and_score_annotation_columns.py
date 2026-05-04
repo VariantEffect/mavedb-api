@@ -1,7 +1,7 @@
 """target_gene_mappings table and ScoreAnnotation columns on mapped_variants
 
 Revision ID: 8c4a2f1d9e6b
-Revises: e3a7b9f1d2c5
+Revises: f2a1b3c4d5e6
 Create Date: 2026-04-28
 
 Adds the ``target_gene_mappings`` table (per-(target gene, alignment level)
@@ -28,7 +28,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "8c4a2f1d9e6b"
-down_revision = "e3a7b9f1d2c5"
+down_revision = "f2a1b3c4d5e6"
 branch_labels = None
 depends_on = None
 
