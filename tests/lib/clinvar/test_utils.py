@@ -96,6 +96,10 @@ class MockResponse:
         if self._raise_exc:
             raise self._raise_exc
 
+    def iter_content(self, chunk_size=1 << 20):
+        for i in range(0, len(self.content), chunk_size):
+            yield self.content[i : i + chunk_size]
+
 
 @pytest.mark.unit
 class TestFetchClinvarVariantData:
