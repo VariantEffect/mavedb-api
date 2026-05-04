@@ -163,16 +163,16 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                     missing_hgvs_to_variant_ids.setdefault(hgvs, []).append(mv.variant_id)  # type: ignore
 
             progress_pct = int((batch_idx + 1) / len(batches) * 33)
-            job_manager.update_progress(
-                progress_pct,
-                100,
-                f"Processed initial VEP batch {batch_idx + 1}/{len(batches)}",
-            )
             job_manager.save_to_context(
                 {
                     "initial_vep_batches_processed": batch_idx + 1,
                     "missing_hgvs_count": len(all_missing_hgvs),
                 }
+            )
+            job_manager.update_progress(
+                progress_pct,
+                100,
+                f"Processed initial VEP batch {batch_idx + 1}/{len(batches)}",
             )
 
         except Exception as e:
@@ -213,17 +213,26 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         )
 
         semaphore = asyncio.Semaphore(_RECODER_CONCURRENCY)
+        completed_recoder_batches = 0
 
         async def _recoder_with_semaphore(batch: list[str], batch_idx: int, total: int) -> dict[str, list[str]]:
+            nonlocal completed_recoder_batches
             async with semaphore:
                 logger.debug(
                     msg=f"Starting Variant Recoder batch {batch_idx + 1}/{total} ({len(batch)} HGVS strings)",
                     extra=job_manager.logging_context(),
                 )
                 result = await run_variant_recoder(batch)
+                completed_recoder_batches += 1
                 logger.debug(
-                    msg=f"Completed Variant Recoder batch {batch_idx + 1}/{total} ({len(result)} variants recoded)",
+                    msg=f"Completed Variant Recoder batch {completed_recoder_batches}/{total} ({len(result)} variants recoded)",
                     extra=job_manager.logging_context(),
+                )
+                progress_pct = 33 + int(completed_recoder_batches / total * 33)
+                job_manager.update_progress(
+                    progress_pct,
+                    100,
+                    f"Completed Variant Recoder batch {completed_recoder_batches}/{total}",
                 )
                 return result
 
@@ -263,11 +272,6 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 "recoded_variants_count": len(hgvs_to_genomic),
             }
         )
-        job_manager.update_progress(
-            66,
-            100,
-            f"Completed Variant Recoder for {len(recoder_batch_list)} batches ({len(hgvs_to_genomic)} variants recoded)",
-        )
         logger.info(
             msg=f"Completed Variant Recoder processing. {len(hgvs_to_genomic)} variants successfully recoded.",
             extra=job_manager.logging_context(),
@@ -288,16 +292,16 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 all_recoded_consequences.update(recoded_vep_consequences)
 
                 progress_pct = 66 + int((recoded_vep_batch_idx + 1) / len(recoded_vep_batch_list) * 33)
-                job_manager.update_progress(
-                    progress_pct,
-                    100,
-                    f"Processed recoded VEP batch {recoded_vep_batch_idx + 1}/{len(recoded_vep_batch_list)}",
-                )
                 job_manager.save_to_context(
                     {
                         "recoded_vep_batches_processed": recoded_vep_batch_idx + 1,
                         "recoded_consequences_count": len(all_recoded_consequences),
                     }
+                )
+                job_manager.update_progress(
+                    progress_pct,
+                    100,
+                    f"Processed recoded VEP batch {recoded_vep_batch_idx + 1}/{len(recoded_vep_batch_list)}",
                 )
 
             except Exception as e:
