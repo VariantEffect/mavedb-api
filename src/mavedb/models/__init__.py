@@ -19,6 +19,7 @@ __all__ = [
     "pipeline",
     "publication_identifier",
     "published_variant",
+    "variant_annotation_view",
     "raw_read_identifier",
     "refseq_identifier",
     "refseq_offset",
