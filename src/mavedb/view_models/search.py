@@ -37,7 +37,7 @@ class ScoreSetsSearch(BaseModel):
     offset: Optional[int] = None
     limit: Optional[int] = None
 
-    # TODO#XXX - Remove validator after consumers have had a chance to update
+    # TODO#720 - Remove validator after consumers have had a chance to update
     @model_validator(mode="before")
     @classmethod
     def reject_deprecated_keywords(cls, data):
