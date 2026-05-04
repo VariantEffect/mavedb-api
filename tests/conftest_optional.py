@@ -115,6 +115,7 @@ async def arq_worker(data_provider, session, arq_redis):
         redis_pool=arq_redis,
         burst=True,
         poll_delay=0,
+        job_timeout=600,
         on_startup=on_startup,
         on_job_start=on_job,
     )
