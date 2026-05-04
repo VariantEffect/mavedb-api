@@ -21,6 +21,10 @@ services:
       LOG_CONFIG: dev
     ports:
       - "8002:8000"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     volumes:
       - .:/code
       - mavedb-seqrepo-dev:/usr/local/share/seqrepo
@@ -40,6 +44,10 @@ services:
       REDIS_PORT: 6379
       REDIS_SSL: "false"
       LOG_CONFIG: dev
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     volumes:
       - .:/code
       - mavedb-seqrepo-dev:/usr/local/share/seqrepo
