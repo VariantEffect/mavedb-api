@@ -5,7 +5,20 @@ from mavedb.models.enums.job_pipeline import DependencyType, JobType
 # repeated jobs, a suffix may be added to the key for uniqueness.
 
 
-def annotation_pipeline_job_definitions() -> list[JobDefinition]:
+def annotation_pipeline_job_definitions(
+    upstream_mapping_key: str | None = "map_variants_for_score_set",
+) -> list[JobDefinition]:
+    """Return job definitions for the annotation phase of a score-set pipeline.
+
+    Args:
+        upstream_mapping_key: Key of the mapping job that annotation jobs should
+            wait on.  Pass ``None`` when building a standalone annotation pipeline
+            where mapping has already been completed externally and no intra-pipeline
+            dependency is required.
+    """
+    mapping_dep: list[tuple[str, DependencyType]] = (
+        [(upstream_mapping_key, DependencyType.SUCCESS_REQUIRED)] if upstream_mapping_key else []
+    )
     return [
         {
             "key": "submit_score_set_mappings_to_car",
@@ -16,7 +29,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "score_set_id": None,  # Required param to be filled in at runtime
                 "updater_id": None,  # Required param to be filled in at runtime
             },
-            "dependencies": [("map_variants_for_score_set", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": mapping_dep,
         },
         {
             "key": "warm_clingen_cache",
@@ -46,7 +59,7 @@ def annotation_pipeline_job_definitions() -> list[JobDefinition]:
                 "correlation_id": None,  # Required param to be filled in at runtime
                 "score_set_id": None,  # Required param to be filled in at runtime
             },
-            "dependencies": [("map_variants_for_score_set", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": mapping_dep,
         },
         {
             "key": "poll_uniprot_mapping_jobs_for_score_set",
@@ -157,8 +170,8 @@ PIPELINE_DEFINITIONS: dict[str, PipelineDefinition] = {
         ],
     },
     "annotate_score_set": {
-        "description": "Pipeline to annotate variants for a score set.",
-        "job_definitions": annotation_pipeline_job_definitions(),
+        "description": "Pipeline to annotate variants for a score set (assumes mapping has already been completed).",
+        "job_definitions": annotation_pipeline_job_definitions(upstream_mapping_key=None),
     },
     "publish_score_set": {
         "description": "Pipeline to run post-publication tasks for a score set.",
