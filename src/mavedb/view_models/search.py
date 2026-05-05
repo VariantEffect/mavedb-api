@@ -1,5 +1,4 @@
 from typing import Optional
-from pydantic import model_validator
 
 from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.score_set import ShortScoreSet
