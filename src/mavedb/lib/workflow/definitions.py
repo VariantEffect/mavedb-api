@@ -160,5 +160,31 @@ PIPELINE_DEFINITIONS: dict[str, PipelineDefinition] = {
         "description": "Pipeline to annotate variants for a score set.",
         "job_definitions": annotation_pipeline_job_definitions(),
     },
+    "publish_score_set": {
+        "description": "Pipeline to run post-publication tasks for a score set.",
+        "job_definitions": [
+            {
+                "key": "refresh_published_variants_view",
+                "function": "refresh_published_variants_view",
+                "type": JobType.DATA_MANAGEMENT,
+                "params": {
+                    "correlation_id": None,
+                    "score_set_id": None,
+                },
+                "dependencies": [],
+            },
+            # Future publish work: submit the published score set's mapped variants to ClinGen LDH.
+            # {
+            #     "key": "submit_score_set_mappings_to_ldh",
+            #     "function": "submit_score_set_mappings_to_ldh",
+            #     "type": JobType.MAPPED_VARIANT_ANNOTATION,
+            #     "params": {
+            #         "correlation_id": None,
+            #         "score_set_id": None,
+            #     },
+            #     "dependencies": [],
+            # },
+        ],
+    },
     # Add more pipelines here
 }

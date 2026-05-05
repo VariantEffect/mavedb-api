@@ -1,7 +1,11 @@
+import logging
+from typing import Optional
+
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from mavedb import __version__ as mavedb_version
-from mavedb.lib.logging.context import correlation_id_for_context
+from mavedb.lib.logging.context import correlation_id_for_context, logging_context
 from mavedb.lib.workflow.definitions import PIPELINE_DEFINITIONS
 from mavedb.lib.workflow.job_factory import JobFactory
 from mavedb.models.enums.job_pipeline import JobType
@@ -9,6 +13,8 @@ from mavedb.models.job_dependency import JobDependency
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
 from mavedb.models.user import User
+
+logger = logging.getLogger(__name__)
 
 
 class PipelineFactory:
@@ -74,6 +80,11 @@ class PipelineFactory:
         self.session.add(pipeline)
         self.session.flush()  # To get pipeline.id
 
+        logger.info(
+            msg=f"Creating pipeline '{pipeline_name}' with ID {pipeline.id} and correlation ID {correlation_id}.",
+            extra=logging_context(),
+        )
+
         start_pipeline_job = JobRun(
             job_type=JobType.PIPELINE_MANAGEMENT,
             job_function="start_pipeline",
@@ -85,6 +96,11 @@ class PipelineFactory:
         self.session.add(start_pipeline_job)
         self.session.flush()  # to get start_pipeline_job.id
 
+        logger.debug(
+            msg=f"Created start_pipeline JobRun with ID {start_pipeline_job.id} for pipeline ID {pipeline.id}.",
+            extra=logging_context(),
+        )
+
         job_factory = JobFactory(self.session)
         for job_def in jobs:
             job_run = job_factory.create_job_run(
@@ -94,6 +110,10 @@ class PipelineFactory:
                 pipeline_params=pipeline_params,
             )
             job_runs[job_def["key"]] = job_run
+            logger.debug(
+                msg=f"Created JobRun with ID {job_run.id} for job '{job_def['key']}' in pipeline ID {pipeline.id}.",
+                extra=logging_context(),
+            )
 
         self.session.flush()  # to get job_run IDs
 
@@ -111,6 +131,60 @@ class PipelineFactory:
                 )  # type: ignore[call-arg]
 
                 self.session.add(dep_job)
+                logger.debug(
+                    msg=f"Created JobDependency for job '{job_def['key']}' (ID {job_run.id}) depending on job '{dep_key}' (ID {dep_job_run.id}) with dependency type '{dependency_type.name}'.",
+                    extra=logging_context(),
+                )
 
         self.session.commit()
+        logger.info(
+            msg=f"Successfully created pipeline '{pipeline_name}' with ID {pipeline.id} and {len(job_runs)} JobRun records.",
+            extra=logging_context(),
+        )
+
         return pipeline, start_pipeline_job
+
+    def discard_pipeline(self, pipeline: Optional[Pipeline]) -> None:
+        """Delete a pipeline and all its associated JobRun and JobDependency records.
+
+        Used to clean up committed pipeline records when the initial ARQ enqueue fails,
+        so orphaned pipeline records don't accumulate in the database.
+        """
+        if pipeline is None:
+            logger.warning(
+                msg="No pipeline to discard, pipeline is None.",
+                extra=logging_context(),
+            )
+            return
+
+        try:
+            pipeline_id = pipeline.id
+            job_run_ids = self.session.scalars(select(JobRun.id).where(JobRun.pipeline_id == pipeline_id)).all()
+
+            if job_run_ids:
+                self.session.execute(
+                    delete(JobDependency).where(
+                        or_(JobDependency.id.in_(job_run_ids), JobDependency.depends_on_job_id.in_(job_run_ids))
+                    )
+                )
+                self.session.execute(delete(JobRun).where(JobRun.id.in_(job_run_ids)))
+                logger.debug(
+                    msg=f"Deleted {len(job_run_ids)} JobRun records and their associated JobDependency records for pipeline ID {pipeline_id}.",
+                    extra=logging_context(),
+                )
+
+            self.session.execute(delete(Pipeline).where(Pipeline.id == pipeline_id))
+            self.session.commit()
+
+            logger.info(
+                msg=f"Successfully discarded pipeline with ID {pipeline_id} and all associated records.",
+                extra=logging_context(),
+            )
+
+        except Exception:
+            self.session.rollback()
+            logger.error(
+                msg="Failed to discard pipeline.",
+                extra=logging_context(),
+                exc_info=True,
+            )

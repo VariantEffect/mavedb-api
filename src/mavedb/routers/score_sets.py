@@ -76,6 +76,7 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
@@ -104,6 +105,38 @@ logger = logging.getLogger(__name__)
 
 SCORE_SET_SEARCH_MAX_LIMIT = 100
 SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS = 40
+
+
+async def enqueue_pipeline_entrypoint(
+    *,
+    db: Session,
+    worker: ArqRedis,
+    pipeline_name: str,
+    creating_user: Any,
+    pipeline_params: dict[str, Any],
+) -> bool:
+    pipeline_factory = PipelineFactory(session=db)
+    pipeline: Optional[Pipeline] = None
+
+    try:
+        pipeline, pipeline_entrypoint = pipeline_factory.create_pipeline(
+            pipeline_name=pipeline_name,
+            creating_user=creating_user,
+            pipeline_params=pipeline_params,
+        )
+        job = await worker.enqueue_job(
+            pipeline_entrypoint.job_function, pipeline_entrypoint.id, _job_id=arq_job_id(pipeline_entrypoint)
+        )
+    except Exception:
+        pipeline_factory.discard_pipeline(pipeline)
+        raise
+
+    if job is None:
+        logger.info(msg=f"Pipeline entrypoint for {pipeline_name} is already enqueued.", extra=logging_context())
+        return True
+
+    save_to_logging_context({"worker_job_id": job.job_id})
+    return True
 
 
 async def enqueue_variant_creation(
@@ -173,8 +206,9 @@ async def enqueue_variant_creation(
             )
 
     try:
-        pipeline_factory = PipelineFactory(session=db)
-        pipeline, pipeline_entrypoint = pipeline_factory.create_pipeline(
+        enqueued = await enqueue_pipeline_entrypoint(
+            db=db,
+            worker=worker,
             pipeline_name="validate_map_annotate_score_set",
             creating_user=user_data.user,
             pipeline_params={
@@ -191,18 +225,14 @@ async def enqueue_variant_creation(
                 else new_count_columns_metadata,
             },
         )
-
-        # Await the insertion of this job into the worker queue, not the job itself.
-        # Uses provided score and counts dataframes and metadata files, or falls back to existing data on the score set if not provided.
-        job = await worker.enqueue_job(
-            pipeline_entrypoint.job_function, pipeline_entrypoint.id, _job_id=arq_job_id(pipeline_entrypoint)
-        )
-        if job is not None:
-            save_to_logging_context({"worker_job_id": job.job_id})
+        if enqueued:
             logger.info(
-                msg="Enqueued validate_map_annotate_score_set pipeline (job_id: {}).".format(job.job_id),
+                msg="Enqueued validate_map_annotate_score_set pipeline.",
                 extra=logging_context(),
             )
+        else:
+            raise RuntimeError("Failed to enqueue validate_map_annotate_score_set pipeline.")
+
     except Exception:
         # Clean up any S3 files uploaded during this call to avoid orphaned objects when the
         # pipeline could not be created or enqueued.
@@ -2355,15 +2385,24 @@ async def publish_score_set(
     db.commit()
     db.refresh(item)
 
-    # await the insertion of this job into the worker queue, not the job itself.
-    job = await worker.enqueue_job("refresh_published_variants_view", correlation_id_for_context())
-    if job is not None:
-        save_to_logging_context({"worker_job_id": job.job_id})
-        logger.info(msg="Enqueud published variant materialized view refresh job.", extra=logging_context())
-    else:
-        logger.warning(
-            msg="Failed to enqueue published variant materialized view refresh job.", extra=logging_context()
+    try:
+        enqueued = await enqueue_pipeline_entrypoint(
+            db=db,
+            worker=worker,
+            pipeline_name="publish_score_set",
+            creating_user=user_data.user,
+            pipeline_params={"correlation_id": correlation_id_for_context(), "score_set_id": item.id},
         )
+    except Exception:
+        logger.warning(
+            msg="Failed to enqueue publish_score_set pipeline.",
+            extra=logging_context(),
+        )
+    else:
+        if enqueued:
+            logger.info(msg="Enqueued publish_score_set pipeline.", extra=logging_context())
+        else:
+            logger.warning(msg="Failed to enqueue publish_score_set pipeline.", extra=logging_context())
 
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
     return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})

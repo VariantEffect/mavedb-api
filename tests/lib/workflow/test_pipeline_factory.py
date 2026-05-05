@@ -3,10 +3,14 @@ import pytest
 
 pytest.importorskip("fastapi")
 
+from unittest.mock import patch
+
 from sqlalchemy import select
 
 from mavedb.lib.workflow.pipeline_factory import PipelineFactory
+from mavedb.models.job_dependency import JobDependency
 from mavedb.models.job_run import JobRun
+from mavedb.models.pipeline import Pipeline
 
 
 @pytest.mark.unit
@@ -153,6 +157,58 @@ class TestPipelineFactoryUnit:
 
         assert retrieved_pipeline is not None
         assert retrieved_pipeline.id == pipeline.id
+
+    def test_discard_pipeline_with_none_is_noop(self, session, pipeline_factory):
+        """Test that discarding a None pipeline does nothing."""
+        pipeline_factory.discard_pipeline(None)
+        # No exception raised, no state mutated.
+
+    def test_discard_pipeline_removes_all_records(
+        self,
+        session,
+        with_test_pipeline_definition_ctx,
+        pipeline_factory,
+        sample_dependent_pipeline_definition,
+        test_user,
+    ):
+        """Test that discard_pipeline deletes the Pipeline, all JobRuns, and all JobDependencies."""
+        pipeline, _ = pipeline_factory.create_pipeline(
+            pipeline_name=sample_dependent_pipeline_definition["name"],
+            creating_user=test_user,
+            pipeline_params={"paramA": "a", "paramB": "b", "required_param": "r"},
+        )
+        pipeline_id = pipeline.id
+        job_run_ids = session.scalars(select(JobRun.id).where(JobRun.pipeline_id == pipeline_id)).all()
+        assert job_run_ids, "pre-condition: pipeline should have job runs"
+
+        pipeline_factory.discard_pipeline(pipeline)
+
+        assert session.scalars(select(Pipeline).where(Pipeline.id == pipeline_id)).first() is None
+        assert session.scalars(select(JobRun).where(JobRun.pipeline_id == pipeline_id)).all() == []
+        assert session.scalars(select(JobDependency).where(JobDependency.id.in_(job_run_ids))).all() == []
+
+    def test_discard_pipeline_does_not_raise_on_inner_failure(
+        self,
+        session,
+        with_test_pipeline_definition_ctx,
+        pipeline_factory,
+        sample_independent_pipeline_definition,
+        test_user,
+    ):
+        """Test that discard_pipeline swallows exceptions and rolls back cleanly."""
+        pipeline, _ = pipeline_factory.create_pipeline(
+            pipeline_name=sample_independent_pipeline_definition["name"],
+            creating_user=test_user,
+            pipeline_params={"required_param": "r"},
+        )
+        pipeline_id = pipeline.id
+
+        with patch.object(session, "execute", side_effect=RuntimeError("db error")):
+            # Should not raise even though the inner delete fails.
+            pipeline_factory.discard_pipeline(pipeline)
+
+        # Pipeline record should still exist because the rollback preserved the committed state.
+        assert session.scalars(select(Pipeline).where(Pipeline.id == pipeline_id)).first() is not None
 
 
 @pytest.mark.integration

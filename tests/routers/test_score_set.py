@@ -22,6 +22,8 @@ from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
+from mavedb.models.job_run import JobRun
+from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.orcid import OrcidUser
@@ -1483,9 +1485,12 @@ def test_upload_score_set_variant_data_returns_500_and_resets_processing_state_w
     session.refresh(db_score_set)
     assert db_score_set.processing_state == ProcessingState.failed
 
+    pipelines = session.scalars(select(Pipeline).where(Pipeline.name == "validate_map_annotate_score_set")).all()
+    assert pipelines == []
 
-def test_upload_score_set_variant_data_deletes_s3_files_when_enqueue_job_fails(
-    client, setup_router_db, data_files, mock_s3_client
+
+def test_upload_score_set_variant_data_deletes_s3_files_and_pipeline_when_enqueue_job_fails(
+    session, client, setup_router_db, data_files, mock_s3_client
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -1513,6 +1518,9 @@ def test_upload_score_set_variant_data_deletes_s3_files_when_enqueue_job_fails(
     deleted_keys = {obj["Key"] for obj in delete_call_kwargs["Delete"]["Objects"]}
     assert len(deleted_keys) == 2
     assert all("scores.csv" in k or "counts.csv" in k for k in deleted_keys)
+
+    pipelines = session.scalars(select(Pipeline).where(Pipeline.name == "validate_map_annotate_score_set")).all()
+    assert pipelines == []
 
 
 def test_upload_score_set_variant_data_deletes_s3_files_when_pipeline_creation_fails(
@@ -1578,6 +1586,35 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
         published_score_set = publish_score_set(client, score_set["urn"])
         worker_queue.assert_called_once()
 
+    enqueue_args, enqueue_kwargs = worker_queue.call_args
+    assert enqueue_args[0] == "start_pipeline"
+    assert isinstance(enqueue_args[1], int)
+    assert "_job_id" in enqueue_kwargs
+
+    entrypoint_job = session.get(JobRun, enqueue_args[1])
+    assert entrypoint_job is not None
+    assert entrypoint_job.job_function == "start_pipeline"
+    publish_pipeline = session.get(Pipeline, entrypoint_job.pipeline_id)
+    assert publish_pipeline is not None
+    assert publish_pipeline.name == "publish_score_set"
+
+    refresh_job = session.scalars(
+        select(JobRun).where(
+            JobRun.pipeline_id == publish_pipeline.id,
+            JobRun.job_function == "refresh_published_variants_view",
+        )
+    ).one()
+    publish_job_functions = session.scalars(
+        select(JobRun.job_function).where(JobRun.pipeline_id == publish_pipeline.id)
+    ).all()
+    assert sorted(publish_job_functions) == ["refresh_published_variants_view", "start_pipeline"]
+
+    db_score_set = session.scalars(
+        select(ScoreSetDbModel).where(ScoreSetDbModel.urn == published_score_set["urn"])
+    ).one()
+    assert refresh_job.job_params["correlation_id"] is not None
+    assert refresh_job.job_params["score_set_id"] == db_score_set.id
+
     assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(published_score_set["urn"]), re.Match)
     assert isinstance(MAVEDB_EXPERIMENT_URN_RE.fullmatch(published_score_set["experiment"]["urn"]), re.Match)
 
@@ -1606,6 +1643,23 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
         select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
     ).scalars()
     assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_variants])
+
+
+def test_publish_score_set_discards_pipeline_when_entrypoint_enqueue_fails(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception("queue failure")) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(published_score_set["urn"]), re.Match)
+
+    pipelines = session.scalars(select(Pipeline).where(Pipeline.name == "publish_score_set")).all()
+    assert pipelines == []
 
 
 def test_publish_multiple_score_sets(session, data_provider, client, setup_router_db, data_files):
