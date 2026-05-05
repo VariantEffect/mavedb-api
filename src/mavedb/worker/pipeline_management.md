@@ -109,11 +109,13 @@ pipeline, pipeline_entrypoint = pipeline_factory.create_pipeline(
     },
 )
 
-# Enqueue only the start_pipeline entrypoint — coordination handles the rest
+# Enqueue only the start_pipeline entrypoint — coordination handles the rest.
+# `arq_job_id()` takes the JobRun itself and embeds retry_count to keep each
+# attempt in a disjoint ARQ key namespace.
 job = await worker.enqueue_job(
     pipeline_entrypoint.job_function,
     pipeline_entrypoint.id,
-    _job_id=arq_job_id(pipeline_entrypoint.urn),
+    _job_id=arq_job_id(pipeline_entrypoint),
 )
 ```
 

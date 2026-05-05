@@ -130,19 +130,26 @@ By committing before the loop, we release the locks and prevent this deadlock sc
 The `lib/managers/constants.py` module defines commonly-used status groupings:
 
 ```python
-STARTABLE_JOB_STATUSES = [QUEUED, PENDING]
-TERMINAL_JOB_STATUSES = [SUCCEEDED, FAILED, ERRORED, CANCELLED, SKIPPED]
+# Job statuses
+STARTABLE_JOB_STATUSES = [QUEUED, PENDING, RUNNING]  # RUNNING included for crash recovery
 COMPLETED_JOB_STATUSES = [SUCCEEDED, FAILED, ERRORED]
+TERMINAL_JOB_STATUSES = [SUCCEEDED, FAILED, ERRORED, CANCELLED, SKIPPED]
 ACTIVE_JOB_STATUSES = [PENDING, QUEUED, RUNNING]
 RETRYABLE_JOB_STATUSES = [FAILED, ERRORED, CANCELLED, SKIPPED]
 CANCELLED_JOB_STATUSES = [CANCELLED, SKIPPED, FAILED, ERRORED]
 
+# Pipeline statuses
+STARTABLE_PIPELINE_STATUSES = [PAUSED, CREATED]
 TERMINAL_PIPELINE_STATUSES = [SUCCEEDED, FAILED, PARTIAL, CANCELLED]
 RUNNING_PIPELINE_STATUSES = [RUNNING]
 CANCELLED_PIPELINE_STATUSES = [CANCELLED, FAILED]
+CANCELLABLE_PIPELINE_STATUSES = [CREATED, RUNNING, PAUSED]
 
+# Failure categories
 RETRYABLE_FAILURE_CATEGORIES = (NETWORK_ERROR, TIMEOUT, SERVICE_UNAVAILABLE)
 ```
+
+`STARTABLE_JOB_STATUSES` includes `RUNNING` so that `start_job()` can recover after a worker crash: ARQ re-delivers the job but the DB still shows `RUNNING` from the dead process. `start_job()` logs a warning and resets the timestamp in this case.
 
 These are used throughout the managers and decorators for state validation and transition logic. Always use these constants rather than hardcoding status checks.
 
