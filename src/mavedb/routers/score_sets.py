@@ -115,7 +115,7 @@ async def enqueue_pipeline_entrypoint(
     pipeline_name: str,
     creating_user: Any,
     pipeline_params: dict[str, Any],
-) -> bool:
+) -> None:
     pipeline_factory = PipelineFactory(session=db)
     pipeline: Optional[Pipeline] = None
 
@@ -134,10 +134,9 @@ async def enqueue_pipeline_entrypoint(
 
     if job is None:
         logger.info(msg=f"Pipeline entrypoint for {pipeline_name} is already enqueued.", extra=logging_context())
-        return True
 
     save_to_logging_context({"worker_job_id": job.job_id})
-    return True
+    logger.info(msg=f"Enqueued pipeline entrypoint for {pipeline_name}.", extra=logging_context())
 
 
 async def enqueue_variant_creation(
@@ -207,7 +206,7 @@ async def enqueue_variant_creation(
             )
 
     try:
-        enqueued = await enqueue_pipeline_entrypoint(
+        await enqueue_pipeline_entrypoint(
             db=db,
             worker=worker,
             pipeline_name="validate_map_annotate_score_set",
@@ -226,13 +225,6 @@ async def enqueue_variant_creation(
                 else new_count_columns_metadata,
             },
         )
-        if enqueued:
-            logger.info(
-                msg="Enqueued validate_map_annotate_score_set pipeline.",
-                extra=logging_context(),
-            )
-        else:
-            raise RuntimeError("Failed to enqueue validate_map_annotate_score_set pipeline.")
 
     except Exception:
         # Clean up any S3 files uploaded during this call to avoid orphaned objects when the
@@ -2387,7 +2379,7 @@ async def publish_score_set(
     db.refresh(item)
 
     try:
-        enqueued = await enqueue_pipeline_entrypoint(
+        await enqueue_pipeline_entrypoint(
             db=db,
             worker=worker,
             pipeline_name="publish_score_set",
@@ -2400,11 +2392,6 @@ async def publish_score_set(
             extra=logging_context(),
         )
         send_slack_error(err=exc)
-    else:
-        if enqueued:
-            logger.info(msg="Enqueued publish_score_set pipeline.", extra=logging_context())
-        else:
-            logger.warning(msg="Failed to enqueue publish_score_set pipeline.", extra=logging_context())
 
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
     return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
