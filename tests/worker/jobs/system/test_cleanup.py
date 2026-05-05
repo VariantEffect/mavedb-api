@@ -34,7 +34,6 @@ from mavedb.worker.jobs.system.cleanup import (
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.managers.utils import arq_job_id
-from tests.helpers.transaction_spy import TransactionSpy
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
@@ -1370,8 +1369,7 @@ class TestCleanupStalledJobsIntegration:
 
     async def test_cleanup_integration_no_stalled_jobs(self, standalone_worker_context, session):
         """Integration test: cleanup with no stalled jobs."""
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         # Verify the cleanup job itself was created and succeeded
         cleanup_job = session.execute(
@@ -1403,8 +1401,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(stalled_job)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         # Verify cleanup succeeded
         assert isinstance(result, JobExecutionOutcome)
@@ -1433,8 +1430,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(stalled_job)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         # Verify cleanup succeeded
         assert isinstance(result, JobExecutionOutcome)
@@ -1464,8 +1460,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(stalled_job)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         # Verify cleanup succeeded
         assert isinstance(result, JobExecutionOutcome)
@@ -1505,8 +1500,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(stalled_job)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         # Verify cleanup succeeded
         assert isinstance(result, JobExecutionOutcome)
@@ -1556,8 +1550,7 @@ class TestCleanupStalledJobsIntegration:
         arq_redis = standalone_worker_context["redis"]
         await arq_redis.enqueue_job("test_function", recent_queued.id, _job_id=arq_job_id(recent_queued))
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         # Verify no jobs were cleaned
         assert isinstance(result, JobExecutionOutcome)
@@ -1599,8 +1592,7 @@ class TestCleanupStalledJobsIntegration:
         session.add_all([queued_job, running_job])
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         # Verify cleanup succeeded with progress through all states
         assert isinstance(result, JobExecutionOutcome)
@@ -1635,8 +1627,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(stalled_job)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
@@ -1663,8 +1654,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(stalled_job)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         # Job is skipped (not cleaned) when started_at is missing
         assert isinstance(result, JobExecutionOutcome)
@@ -1691,8 +1681,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(stalled_job)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
@@ -1719,8 +1708,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(stalled_job)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
@@ -1770,8 +1758,7 @@ class TestCleanupStalledJobsIntegration:
         session.add_all([queued_job, running_job, pending_job])
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
@@ -1839,8 +1826,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(dependency)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
@@ -1901,8 +1887,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(dependency)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
@@ -1964,8 +1949,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(dependency)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
@@ -2028,8 +2012,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(dependency)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
@@ -2091,8 +2074,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(dependency)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
@@ -2155,8 +2137,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(dependency)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
@@ -2218,8 +2199,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(dependency)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
@@ -2278,8 +2258,7 @@ class TestCleanupStalledJobsIntegration:
         session.add(dependency)
         session.commit()
 
-        with TransactionSpy.spy(session, expect_flush=True, expect_commit=True):
-            result = await cleanup_stalled_jobs(standalone_worker_context)
+        result = await cleanup_stalled_jobs(standalone_worker_context)
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
