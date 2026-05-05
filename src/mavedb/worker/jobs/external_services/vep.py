@@ -139,56 +139,40 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
     missing_hgvs_to_variant_ids: dict[str, list[int]] = {}
 
     for batch_idx, batch in enumerate(batches):
-        try:
-            logger.debug(
-                msg=f"Processing VEP batch {batch_idx + 1}/{len(batches)}",
-                extra=job_manager.logging_context(),
-            )
+        logger.debug(
+            msg=f"Processing VEP batch {batch_idx + 1}/{len(batches)}",
+            extra=job_manager.logging_context(),
+        )
 
-            hgvs_strings, mapped_variant_ids = map(list, zip(*batch))  # type: ignore
+        hgvs_strings, mapped_variant_ids = map(list, zip(*batch))  # type: ignore
 
-            consequences = await get_functional_consequence(hgvs_strings)
-            logger.debug(
-                msg=f"Received consequences for {len(consequences)} variants in VEP batch {batch_idx + 1}",
-                extra=job_manager.logging_context(),
-            )
+        consequences = await get_functional_consequence(hgvs_strings)
+        logger.debug(
+            msg=f"Received consequences for {len(consequences)} variants in VEP batch {batch_idx + 1}",
+            extra=job_manager.logging_context(),
+        )
 
-            all_consequences.update(consequences)
+        all_consequences.update(consequences)
 
-            missing_hgvs = set(hgvs_strings) - set(consequences.keys())
-            for hgvs, mapped_variant_id in zip(hgvs_strings, mapped_variant_ids):
-                if hgvs in missing_hgvs:
-                    all_missing_hgvs.add(hgvs)
-                    mv = mapped_variants_by_id[mapped_variant_id]
-                    missing_hgvs_to_variant_ids.setdefault(hgvs, []).append(mv.variant_id)  # type: ignore
+        missing_hgvs = set(hgvs_strings) - set(consequences.keys())
+        for hgvs, mapped_variant_id in zip(hgvs_strings, mapped_variant_ids):
+            if hgvs in missing_hgvs:
+                all_missing_hgvs.add(hgvs)
+                mv = mapped_variants_by_id[mapped_variant_id]
+                missing_hgvs_to_variant_ids.setdefault(hgvs, []).append(mv.variant_id)  # type: ignore
 
-            progress_pct = int((batch_idx + 1) / len(batches) * 33)
-            job_manager.save_to_context(
-                {
-                    "initial_vep_batches_processed": batch_idx + 1,
-                    "missing_hgvs_count": len(all_missing_hgvs),
-                }
-            )
-            job_manager.update_progress(
-                progress_pct,
-                100,
-                f"Processed initial VEP batch {batch_idx + 1}/{len(batches)}",
-            )
-
-        except Exception as e:
-            logger.error(
-                msg=f"VEP processing error for batch {batch_idx + 1}: {str(e)}",
-                extra=job_manager.logging_context(),
-            )
-            job_manager.db.flush()
-            return JobExecutionOutcome.errored(
-                exception=e,
-                data={
-                    "initial_vep_batches_processed": batch_idx + 1,
-                    "variant_recoder_batches_processed": 0,
-                    "missing_hgvs_count": len(all_missing_hgvs),
-                },
-            )
+        progress_pct = int((batch_idx + 1) / len(batches) * 33)
+        job_manager.save_to_context(
+            {
+                "initial_vep_batches_processed": batch_idx + 1,
+                "missing_hgvs_count": len(all_missing_hgvs),
+            }
+        )
+        job_manager.update_progress(
+            progress_pct,
+            100,
+            f"Processed initial VEP batch {batch_idx + 1}/{len(batches)}",
+        )
 
     logger.info(
         msg=f"Completed initial VEP processing. {len(all_missing_hgvs)} variants require Variant Recoder fallback.",
@@ -253,15 +237,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 msg=f"Variant Recoder error ({successful_batches}/{total_recoder_batches} batches succeeded): {str(first_exception)}",
                 extra=job_manager.logging_context(),
             )
-            job_manager.db.flush()
-            return JobExecutionOutcome.errored(
-                exception=first_exception,
-                data={
-                    "initial_vep_batches_processed": len(batches),
-                    "variant_recoder_batches_processed": successful_batches,
-                    "missing_hgvs_count": len(all_missing_hgvs),
-                },
-            )
+            raise first_exception
 
         for result in recoder_results:
             hgvs_to_genomic.update(result)  # type: ignore[arg-type]
@@ -282,43 +258,26 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         all_recoded_consequences: dict[str, str | None] = {}
 
         for recoded_vep_batch_idx, recoded_vep_batch in enumerate(recoded_vep_batch_list):
-            try:
-                logger.debug(
-                    msg=f"Processing recoded HGVS VEP batch {recoded_vep_batch_idx + 1}/{len(recoded_vep_batch_list)}",
-                    extra=job_manager.logging_context(),
-                )
+            logger.debug(
+                msg=f"Processing recoded HGVS VEP batch {recoded_vep_batch_idx + 1}/{len(recoded_vep_batch_list)}",
+                extra=job_manager.logging_context(),
+            )
 
-                recoded_vep_consequences = await get_functional_consequence(recoded_vep_batch)
-                all_recoded_consequences.update(recoded_vep_consequences)
+            recoded_vep_consequences = await get_functional_consequence(recoded_vep_batch)
+            all_recoded_consequences.update(recoded_vep_consequences)
 
-                progress_pct = 66 + int((recoded_vep_batch_idx + 1) / len(recoded_vep_batch_list) * 33)
-                job_manager.save_to_context(
-                    {
-                        "recoded_vep_batches_processed": recoded_vep_batch_idx + 1,
-                        "recoded_consequences_count": len(all_recoded_consequences),
-                    }
-                )
-                job_manager.update_progress(
-                    progress_pct,
-                    100,
-                    f"Processed recoded VEP batch {recoded_vep_batch_idx + 1}/{len(recoded_vep_batch_list)}",
-                )
-
-            except Exception as e:
-                logger.error(
-                    msg=f"VEP processing error for recoded batch {recoded_vep_batch_idx + 1}: {str(e)}",
-                    extra=job_manager.logging_context(),
-                )
-                job_manager.db.flush()
-                return JobExecutionOutcome.errored(
-                    exception=e,
-                    data={
-                        "initial_vep_batches_processed": len(batches),
-                        "variant_recoder_batches_processed": len(recoder_batch_list),
-                        "recoded_vep_batches_processed": recoded_vep_batch_idx + 1,
-                        "missing_hgvs_count": len(all_missing_hgvs),
-                    },
-                )
+            progress_pct = 66 + int((recoded_vep_batch_idx + 1) / len(recoded_vep_batch_list) * 33)
+            job_manager.save_to_context(
+                {
+                    "recoded_vep_batches_processed": recoded_vep_batch_idx + 1,
+                    "recoded_consequences_count": len(all_recoded_consequences),
+                }
+            )
+            job_manager.update_progress(
+                progress_pct,
+                100,
+                f"Processed recoded VEP batch {recoded_vep_batch_idx + 1}/{len(recoded_vep_batch_list)}",
+            )
 
         logger.info(
             msg=f"Completed recoded VEP processing. {len(all_recoded_consequences)} recoded consequences retrieved.",

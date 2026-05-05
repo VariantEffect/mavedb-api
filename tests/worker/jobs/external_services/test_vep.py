@@ -245,7 +245,7 @@ class TestPopulateVepForScoreSetUnit:
         assert annotation.status == AnnotationStatus.FAILED
         assert annotation.failure_category == AnnotationFailureCategory.EXTERNAL_REFERENCE_NOT_FOUND
 
-    async def test_vep_batch_api_exception_returns_errored(
+    async def test_vep_batch_api_exception_raises(
         self,
         session,
         with_populated_domain_data,
@@ -254,21 +254,21 @@ class TestPopulateVepForScoreSetUnit:
         sample_populate_vep_run,
         setup_sample_variants_for_vep,
     ):
-        """An unexpected exception from the VEP API returns an ERRORED outcome."""
-        with patch(
-            "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
-            side_effect=RuntimeError("VEP API unreachable"),
+        """An unexpected exception from the VEP API propagates to the job management decorator."""
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
+                side_effect=RuntimeError("VEP API unreachable"),
+            ),
+            pytest.raises(RuntimeError, match="VEP API unreachable"),
         ):
-            result = await populate_vep_for_score_set(
+            await populate_vep_for_score_set(
                 mock_worker_ctx,
                 1,
                 JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
             )
 
-        assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.ERRORED
-
-    async def test_variant_recoder_api_exception_returns_errored(
+    async def test_variant_recoder_api_exception_raises(
         self,
         session,
         with_populated_domain_data,
@@ -277,7 +277,7 @@ class TestPopulateVepForScoreSetUnit:
         sample_populate_vep_run,
         setup_sample_variants_for_vep,
     ):
-        """An unexpected exception from the Variant Recoder API returns an ERRORED outcome."""
+        """An unexpected exception from the Variant Recoder API propagates to the job management decorator."""
         with (
             patch(
                 "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
@@ -287,15 +287,13 @@ class TestPopulateVepForScoreSetUnit:
                 "mavedb.worker.jobs.external_services.vep.run_variant_recoder",
                 side_effect=RuntimeError("Recoder API unreachable"),
             ),
+            pytest.raises(RuntimeError, match="Recoder API unreachable"),
         ):
-            result = await populate_vep_for_score_set(
+            await populate_vep_for_score_set(
                 mock_worker_ctx,
                 1,
                 JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
             )
-
-        assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.ERRORED
 
 
 @pytest.mark.asyncio
