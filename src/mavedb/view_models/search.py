@@ -16,7 +16,7 @@ class ExperimentsSearch(BaseModel):
     databases: Optional[list[str]] = None
     journals: Optional[list[str]] = None
     publication_identifiers: Optional[list[str]] = None
-    keywords: Optional[list[str]] = None
+    keywords: Optional[list[ControlledKeywordSearch]] = None
     text: Optional[str] = None
     meta_analysis: Optional[bool] = None
 
@@ -31,22 +31,12 @@ class ScoreSetsSearch(BaseModel):
     databases: Optional[list[str]] = None
     journals: Optional[list[str]] = None
     publication_identifiers: Optional[list[str]] = None
-    controlled_keywords: Optional[list[ControlledKeywordSearch]] = None
+    keywords: Optional[list[ControlledKeywordSearch]] = None
     text: Optional[str] = None
     include_experiment_score_set_urns_and_count: Optional[bool] = True
     offset: Optional[int] = None
     limit: Optional[int] = None
 
-    # TODO#XXX - Remove validator after consumers have had a chance to update
-    @model_validator(mode="before")
-    @classmethod
-    def reject_deprecated_keywords(cls, data):
-        if isinstance(data, dict) and ("keywords" in data or "Keywords" in data):
-            raise ValueError(
-                "'keywords' is no longer supported. Use 'controlled_keywords' with "
-                "a list of {key, label} objects to filter by specific keyword groups."
-            )
-        return data
 
 class ScoreSetsSearchResponse(BaseModel):
     score_sets: list[ShortScoreSet]

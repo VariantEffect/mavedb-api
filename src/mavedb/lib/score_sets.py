@@ -216,8 +216,8 @@ def build_search_score_sets_query_filter(
             )
         )
 
-    if search.controlled_keywords:
-        for item in search.controlled_keywords:
+    if search.keywords:
+        for item in search.keywords:
             query = query.filter(
                 ScoreSet.experiment.has(
                     Experiment.keyword_objs.any(
