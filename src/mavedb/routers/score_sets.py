@@ -133,10 +133,10 @@ async def enqueue_pipeline_entrypoint(
         raise
 
     if job is None:
-        logger.info(msg=f"Pipeline entrypoint for {pipeline_name} is already enqueued.", extra=logging_context())
-
-    save_to_logging_context({"worker_job_id": job.job_id})
-    logger.info(msg=f"Enqueued pipeline entrypoint for {pipeline_name}.", extra=logging_context())
+        logger.info(msg=f"Pipeline entrypoint for {pipeline_name} has already been enqueued.", extra=logging_context())
+    else:
+        save_to_logging_context({"worker_job_id": job.job_id})
+        logger.info(msg=f"Enqueued pipeline entrypoint for {pipeline_name}.", extra=logging_context())
 
 
 async def enqueue_variant_creation(
