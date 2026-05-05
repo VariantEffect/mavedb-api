@@ -1652,9 +1652,13 @@ def test_publish_score_set_discards_pipeline_when_entrypoint_enqueue_fails(
     score_set = create_seq_score_set(client, experiment["urn"])
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
 
-    with patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception("queue failure")) as worker_queue:
+    with (
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception("queue failure")) as worker_queue,
+        patch("mavedb.routers.score_sets.send_slack_error") as mock_slack,
+    ):
         published_score_set = publish_score_set(client, score_set["urn"])
         worker_queue.assert_called_once()
+        mock_slack.assert_called_once()
 
     assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(published_score_set["urn"]), re.Match)
 

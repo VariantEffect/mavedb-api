@@ -60,6 +60,7 @@ from mavedb.lib.score_sets import (
 from mavedb.lib.score_sets import (
     search_score_sets as _search_score_sets,
 )
+from mavedb.lib.slack import send_slack_error
 from mavedb.lib.target_genes import find_or_create_target_gene_by_accession, find_or_create_target_gene_by_sequence
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.types.authentication import UserData
@@ -2393,11 +2394,12 @@ async def publish_score_set(
             creating_user=user_data.user,
             pipeline_params={"correlation_id": correlation_id_for_context(), "score_set_id": item.id},
         )
-    except Exception:
+    except Exception as exc:
         logger.warning(
             msg="Failed to enqueue publish_score_set pipeline.",
             extra=logging_context(),
         )
+        send_slack_error(err=exc)
     else:
         if enqueued:
             logger.info(msg="Enqueued publish_score_set pipeline.", extra=logging_context())
